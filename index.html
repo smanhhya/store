@@ -192,6 +192,7 @@
         </div>
     </div>
 
+    <!-- شاشة تسجيل الدخول -->
     <div id="admin-login-modal" class="fixed inset-0 bg-brand-navy/90 z-[70] hidden opacity-0 transition-opacity duration-300 flex items-center justify-center backdrop-blur-sm">
         <div class="bg-white rounded-2xl p-6 w-11/12 max-w-sm shadow-2xl">
             <div class="flex justify-between items-center mb-6">
@@ -390,6 +391,7 @@
                         <textarea id="admin-whatsapp-template" rows="6" class="w-full border rounded-lg p-2 font-bold text-brand-navy whitespace-pre-wrap" dir="rtl"></textarea>
                     </div>
 
+                    <!-- الهاشتاج التلقائي -->
                     <div class="bg-white border rounded-xl p-4 shadow-sm mb-4 border-l-4 border-l-brand-cyanDark">
                         <h3 class="font-black text-brand-navy mb-3"><i class="fa-solid fa-hashtag text-brand-cyanDark"></i> هاشتاج الدفعة الحالية (TickTick)</h3>
                         <p class="text-[10px] text-gray-500 font-bold mb-2">الهاشتاج ده هيتضاف تلقائياً لأي أوردر عشان يسهل عليك فلترة كل دفعة لوحدها.</p>
@@ -485,6 +487,8 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
     <script>
+        const WEB3FORMS_ACCESS_KEY = "5e4ab656-7db5-45da-ba97-985196e728bb";
+
         let globalSettings = {
             storeOpen: true,
             storeName: "سمان ههيا",
@@ -903,6 +907,7 @@
             const orderDate = new Date().toLocaleDateString('ar-EG'); const orderTime = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
             let subTotal = 0; let itemsSummaryArray = []; 
             
+            // تجهيز الهاشتاجات وإضافة هاشتاج الدفعة من الإعدادات
             let smartTagsArray = [isNew ? "#عميل_جديد" : "#عميل_سابق"];
             if (globalSettings.batchHashtag) {
                 let cleanHashtag = globalSettings.batchHashtag.trim();
@@ -989,6 +994,7 @@
                 promoUpdated = true;
             }
 
+            // تطبيق قالب تيك تيك الديناميكي من لوحة التحكم
             let addressText = (isNew && customerAddress) ? `🏠 العنوان: ${customerAddress}` : "";
             let tickTickItemsStr = "";
             for (let id in cart) {
@@ -1014,22 +1020,8 @@
             orderDetailsForTickTick = orderDetailsForTickTick.replace(/\n\s*\n/g, '\n');
 
             try {
-                // --- إرسال مباشر إلى TickTick عبر الـ API ---
-                const tickTickToken = "Tp_f7dd17a20478425984f33a863ae3e9d1"; 
-                fetch('https://api.ticktick.com/open/v1/task', {
-                    method: 'POST',
-                    headers: { 
-                        'Authorization': 'Bearer ' + tickTickToken, 
-                        'Content-Type': 'application/json' 
-                    },
-                    body: JSON.stringify({
-                        title: `🛒 طلب: ${itemsSummaryArray.join(' ')} - ${customerName}`,
-                        content: orderDetailsForTickTick,
-                        priority: 3
-                    })
-                }).catch(e => console.log("TickTick Sync Error", e));
+                fetch('https://api.web3forms.com/submit', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ access_key: WEB3FORMS_ACCESS_KEY, subject: `🛒 ${itemsSummaryArray.join(' ')}`, "التفاصيل": orderDetailsForTickTick }) }).catch(e=>console.log(e));
 
-                // --- مزامنة مع الفايربيس ---
                 if (hasCloud && db) {
                     const orderData = { customerName, customerPhone, customerAddress: customerAddress||"غير محدد", zone: zoneName, items: [], subtotal: subTotal, discount: discountAmount, deliveryFee: finalDelivery, total: finalTotal, status: "new", isRead: false, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
                     for (let id in cart) orderData.items.push({ id, name: cart[id].name, quantity: cart[id].quantity, price: cart[id].price });
