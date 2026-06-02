@@ -711,6 +711,8 @@ window.renderOrdersList = () => {
             </div>
             <div class="bg-gray-50 border border-gray-100 p-2 rounded-lg mb-3 space-y-1">${itemsHtml}</div>
             
+            ${order.adminNote ? `<div class="bg-blue-50 border border-blue-200 p-2 rounded-lg mb-3 text-xs font-bold text-blue-700 shadow-sm"><i class="fa-solid fa-pen-to-square mr-1"></i> ملاحظة للإدارة والمندوب: ${order.adminNote}</div>` : ''}
+
             <div class="bg-brand-light/20 p-3 rounded-xl border border-brand-cyan/10 text-xs font-bold space-y-1 mb-3">
                 <div class="flex justify-between"><span>قيمة الطلبات:</span> <span>${order.subtotal || 0} ج.م</span></div>
                 ${(order.discount && order.discount > 0) ? `<div class="flex justify-between text-red-500"><span>الخصم:</span> <span>-${order.discount} ج.م</span></div>` : ''}
@@ -724,12 +726,39 @@ window.renderOrdersList = () => {
             <div class="flex gap-2 flex-wrap">
                 ${order.status === 'new' ? `<button onclick="updateOrderStatus('${order.id}', 'processing', ${order.total || 0})" class="flex-1 bg-yellow-500 hover:bg-yellow-600 transition-colors text-white py-2 rounded-lg text-xs font-black shadow-sm">قيد التجهيز</button>` : ''}
                 ${order.status === 'processing' ? `<button onclick="updateOrderStatus('${order.id}', 'completed', ${order.total || 0})" class="flex-1 bg-green-500 hover:bg-green-600 transition-colors text-white py-2 rounded-lg text-xs font-black shadow-sm">تم التوصيل</button>` : ''}
+                
+                ${order.status !== 'canceled' ? `<button onclick="addOrderNote('${order.id}')" class="flex-1 bg-blue-50 hover:bg-blue-100 transition-colors text-blue-600 py-2 rounded-lg text-xs font-black shadow-sm border border-blue-200">📝 ملاحظة</button>` : ''}
+
                 ${(order.status === 'new' || order.status === 'processing') ? `<button onclick="updateOrderStatus('${order.id}', 'canceled', ${order.total || 0})" class="flex-1 bg-red-50 hover:bg-red-100 transition-colors text-red-600 py-2 rounded-lg text-xs font-black shadow-sm border border-red-200">إلغاء</button>` : ''}
                 ${order.status === 'completed' ? `<button onclick="sendRatingRequest('${order.customerPhone}', ordersList.find(o=>o.id==='${order.id}'))" class="flex-1 bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-lg text-xs font-black"><i class="fa-solid fa-star"></i> إرسال تقييم</button>` : ''}
                 ${order.status === 'canceled' ? `<div class="flex-1 text-center bg-gray-100 text-red-500 py-2 rounded-lg text-xs font-black italic">❌ تم إلغاء الطلب</div>` : ''}
             </div>
         </div>`;
     }).join('');
+};
+
+window.addOrderNote = async (id) => {
+    const order = ordersList.find(o => o.id === id);
+    if(!order) return;
+    
+    // بيعرض الملاحظة القديمة لو موجودة عشان تقدر تعدلها
+    const currentNote = order.adminNote || "";
+    const note = prompt("اكتب ملاحظتك للمندوب (أو اتركها فارغة لحذف الملاحظة):", currentNote);
+    
+    if (note !== null) {
+        const btn = event.currentTarget;
+        const origHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+        
+        try {
+            await db.collection("orders").doc(id).update({ adminNote: note.trim() });
+            loadOrders(); // بيعمل ريفريش سريع للأوردرات عشان يظهر الملاحظة
+        } catch (e) {
+            console.error(e);
+            btn.innerHTML = origHtml;
+            alert("حدث خطأ أثناء حفظ الملاحظة! تأكد من اتصالك بالإنترنت.");
+        }
+    }
 };
 
 async function loadOrders() { 
@@ -856,6 +885,8 @@ window.renderDispatchOrders = () => {
     container.innerHTML = filtered.map(order => {
         const itemsText = order.items.map(i => `${i.quantity}x ${i.name}`).join('، ');
         const address = (order.customerAddress && order.customerAddress !== 'غير محدد') ? order.customerAddress : '';
+        const adminNoteHtml = order.adminNote ? `<div class="text-[10px] text-blue-700 font-bold bg-blue-50 p-1.5 rounded mt-1 border border-blue-100">📝 ملاحظة: ${order.adminNote}</div>` : '';
+        
         return `
         <div class="flex items-start gap-3 bg-white p-3 rounded-lg border shadow-sm">
             <input type="checkbox" class="dispatch-checkbox mt-1 accent-brand-cyanDark w-5 h-5" data-id="${order.id}" onchange="updateDispatchCount()">
@@ -864,6 +895,7 @@ window.renderDispatchOrders = () => {
                 <div class="text-xs text-gray-500 mt-1">📱 ${order.customerPhone}</div>
                 <div class="text-xs text-gray-500">📍 ${order.zone} ${address ? '- ' + address : ''}</div>
                 <div class="text-xs mt-1 bg-gray-50 p-1 rounded border border-gray-100">🛒 ${itemsText}</div>
+                ${adminNoteHtml}
                 <div class="text-xs font-bold text-brand-cyanDark mt-1">💰 الإجمالي: ${order.total} ج.م (توصيل: ${order.deliveryFee} ج.م)</div>
             </div>
         </div>`;
@@ -871,6 +903,7 @@ window.renderDispatchOrders = () => {
 
     updateDispatchCount();
 };
+
 
 window.updateDispatchCount = () => {
     const count = document.querySelectorAll('.dispatch-checkbox:checked').length;
@@ -907,6 +940,12 @@ window.sendDispatchToDriver = () => {
         let itemsText = order.items.map(i => `${i.quantity}x ${i.name}`).join('\n');
         let address = (order.customerAddress && order.customerAddress !== 'غير محدد') ? order.customerAddress : '';
         let msg = template.replace(/{اسم_العميل}/g, order.customerName).replace(/{رقم_العميل}/g, order.customerPhone).replace(/{المنطقة}/g, order.zone).replace(/{العنوان}/g, address).replace(/{تفاصيل_الطلبات}/g, itemsText).replace(/{إجمالي_الطلب}/g, order.subtotal).replace(/{التوصيل}/g, order.deliveryFee).replace(/{الإجمالي_النهائي}/g, order.total);
+        
+        // لو في ملاحظة للأوردر ده، ضيفها في آخر الرسالة
+        if (order.adminNote) {
+            msg += `\n📝 *ملاحظة للمندوب:* ${order.adminNote}`;
+        }
+        
         fullMessage += msg + '\n\n' + '─'.repeat(10) + '\n\n';
     });
 
