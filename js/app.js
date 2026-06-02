@@ -942,64 +942,64 @@ window.finalCheckoutStep = async function() {
         alertBtn.onclick = () => { closeAlert(); window.location.href = `https://api.whatsapp.com/send?phone=20${globalSettings.storePhone}&text=${encodeURIComponent(message)}`; };
         const md = document.getElementById('alert-modal'); md.classList.remove('hidden'); setTimeout(()=>md.classList.remove('opacity-0'),10);
     } else {
-        // حساب يوم الاستلام (بكرة)
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        const deliveryDay = tomorrow.toLocaleDateString('ar-EG', { weekday: 'long' });
-
-        // جلب الكلام من القاموس
+        // سحب النصوص الحقيقية من لوحة الإعدادات
         const uiTexts = globalSettings.uiTexts || {};
         const titleText = uiTexts['successTitle'] || 'تم تأكيد أوردرك بنجاح! 🎉';
-        let bodyTemplate = uiTexts['successMsgTemplate'] || 'أوردرك اتسجل في السيستم عندنا خلاص ومفيش حاجة تانية مطلوبة منك. هيتم التجهيز عشان تستلمه إن شاء الله غداً (يوم {اليوم}).<br><br>لو حابب تتواصل معانا أو تتابع الأوردر، تقدر تكلمنا ع الواتساب.';
         
-        // تبديل كلمة {اليوم} باليوم الحقيقي
-        const bodyText = bodyTemplate.replace(/{اليوم}/g, deliveryDay);
+        let bodyText = uiTexts['successMsgTemplate'] || 'أوردرك اتسجل في السيستم عندنا خلاص. هيتم التجهيز عشان تستلمه في أقرب دفعة.';
+        
+        // تعديل التاريخ عشان يظهر معدول (مش معكوس)
+        bodyText = bodyText.replace(/(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/g, '<span dir="ltr" style="display: inline-block; font-weight: 900; color: #b91c1c;">$1</span>');
         
         const waBtnText = uiTexts['waFollowUpBtn'] || 'التواصل والمتابعة ع الواتساب';
         const closeBtnText = uiTexts['closeFollowUpBtn'] || 'تمام، شكراً 👍';
 
-        // تخزين رابط الواتساب في الذاكرة
         window.currentOrderWaLink = `https://api.whatsapp.com/send?phone=20${globalSettings.storePhone}&text=${encodeURIComponent(message)}`;
 
         const msgHTML = `
-            <div class="w-16 h-16 bg-green-100 text-green-500 rounded-full flex items-center justify-center mx-auto mb-3 text-3xl">
-                <i class="fa-solid fa-check"></i>
-            </div>
-            <div class="font-black text-brand-navy mb-2 text-xl">${titleText}</div>
-            
-            <div class="text-sm font-bold text-green-800 mb-6 leading-relaxed bg-green-50 p-4 rounded-xl border border-green-200 shadow-inner">
-                ${bodyText}
-            </div>
-            
-            <div class="flex flex-col gap-3">
-                <button onclick="closeAlert(); window.open(window.currentOrderWaLink, '_blank');" class="w-full bg-[#25D366] hover:bg-[#1ebd57] text-white font-black py-4 px-6 rounded-xl transition-colors flex justify-center items-center gap-2 shadow-md">
-                    <i class="fa-brands fa-whatsapp text-2xl"></i> ${waBtnText}
-                </button>
+            <div dir="rtl" class="w-full block clear-both" style="font-family: 'Cairo', sans-serif; text-align: right; direction: rtl;">
                 
-                <div class="relative flex py-1 items-center">
-                    <div class="flex-grow border-t border-gray-200"></div>
-                    <span class="flex-shrink-0 mx-4 text-gray-400 text-[10px] font-bold">أو</span>
-                    <div class="flex-grow border-t border-gray-200"></div>
+                <div class="text-center w-full mb-2">
+                    <div class="w-14 h-14 bg-green-100 text-green-500 rounded-full flex items-center justify-center mx-auto text-2xl shadow-sm">
+                        <i class="fa-solid fa-check"></i>
+                    </div>
+                    <h3 class="font-black text-brand-navy mt-2 text-base md:text-lg">${titleText}</h3>
                 </div>
+                
+                <div class="text-xs md:text-sm font-bold text-green-800 leading-relaxed bg-[#f0fdf4] p-3 rounded-xl border border-green-200 block w-full mb-4 shadow-inner" style="text-align: right; direction: rtl; white-space: normal; word-break: break-word;">
+                    ${bodyText}
+                </div>
+                
+                <div class="flex flex-col gap-2 w-full">
+                    <button onclick="closeAlert(); window.open(window.currentOrderWaLink, '_blank');" class="w-full bg-[#25D366] hover:bg-[#1ebd57] text-white font-black py-3 px-4 rounded-xl transition-all flex justify-center items-center gap-2 shadow-md text-center">
+                        <i class="fa-brands fa-whatsapp text-xl"></i>
+                        <span>${waBtnText}</span>
+                    </button>
 
-                <button onclick="closeAlert()" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 px-6 rounded-xl transition-colors shadow-sm">
-                    ${closeBtnText}
-                </button>
+                    <button onclick="closeAlert()" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 px-4 rounded-xl transition-colors shadow-sm text-center text-xs">
+                        ${closeBtnText}
+                    </button>
+                </div>
             </div>
         `;
         
-        // 1. إخفاء الزرار القديم "حسناً" الأول (السر هنا!)
         const alertBtn = document.querySelector('#alert-box button');
         if(alertBtn) alertBtn.classList.add('hidden');
         
-        // 2. تركيب الشاشة الجديدة اللي فيها الزراير الصح
         document.getElementById('alert-icon-container').classList.add('hidden'); 
         document.getElementById('alert-title').classList.add('hidden'); 
-        document.getElementById('alert-message').innerHTML = msgHTML;
         
-        // إظهار الشاشة
+        const alertMsg = document.getElementById('alert-message');
+        if(alertMsg) {
+            alertMsg.className = "w-full block p-0 m-0";
+            alertMsg.style.textAlign = "right";
+            alertMsg.innerHTML = msgHTML;
+        }
+        
         const md = document.getElementById('alert-modal'); 
-        md.classList.remove('hidden'); 
-        setTimeout(() => md.classList.remove('opacity-0'), 10);
+        if(md) {
+            md.classList.remove('hidden'); 
+            setTimeout(() => md.classList.remove('opacity-0'), 10);
+        }
     }
 };
