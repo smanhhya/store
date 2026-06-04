@@ -16,6 +16,7 @@
 
     <style>
         :root {
+            /* الألوان الأساسية للمتجر (يمكنك تغييرها من هنا مباشرة) */
             --brand-navy: #1b4332;
             --brand-cyanDark: #b91c1c;
             --brand-yellow: #f59e0b;
@@ -31,7 +32,7 @@
             animation: pulse-btn 2s infinite;
         }
 
-        /* شريط الأخبار المتحرك (تم تعديل الاتجاه للعربي) */
+        /* شريط الأخبار المتحرك */
         .marquee-container {
             overflow: hidden;
             white-space: nowrap;
@@ -62,17 +63,19 @@
         .step-completed .step-icon { background-color: #10b981; color: white; border-color: #10b981; }
         .step-line { flex: 1; height: 2px; background-color: #e5e7eb; margin: 0 10px; }
         .step-line.active { background-color: #10b981; }
+        
+        /* ضبط السلايدر */
+        #slider-track > img, 
+        #slider-track > div {
+            width: 100% !important;
+            height: auto !important;
+            max-height: 85vh;
+            object-fit: contain;
+            background-color: #f9fafb;
+        }
     </style>
     
     <script>
-        const savedNavy = localStorage.getItem('theme_navy');
-        const savedCyanDark = localStorage.getItem('theme_cyanDark');
-        const savedYellow = localStorage.getItem('theme_yellow');
-        
-        if(savedNavy) document.documentElement.style.setProperty('--brand-navy', savedNavy);
-        if(savedCyanDark) document.documentElement.style.setProperty('--brand-cyanDark', savedCyanDark);
-        if(savedYellow) document.documentElement.style.setProperty('--brand-yellow', savedYellow);
-
         tailwind.config = {
             theme: {
                 extend: {
@@ -106,8 +109,7 @@
 
     <div id="top-banner" class="bg-[#fef3c7] text-[#92400e] py-2.5 font-bold text-sm md:text-base z-40 relative shadow-sm border-b border-[#fde68a] hidden">
         <div class="marquee-container w-full max-w-7xl mx-auto">
-            <div class="marquee-content" id="top-banner-text">
-            </div>
+            <div class="marquee-content" id="top-banner-text"></div>
         </div>
     </div>
 
@@ -130,30 +132,47 @@
     </header>
 
     <section class="max-w-3xl mx-auto px-4 mt-14 mb-8">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div class="bg-brand-light rounded-2xl p-3 text-center border border-brand-cyan/30 shadow-sm transition-transform hover:scale-105">
-                <i id="badge-1-icon" class="fa-regular fa-circle-check text-brand-navy text-2xl mb-2"></i>
-                <h3 id="badge-1-title" class="font-black text-brand-navy text-[12px] mb-1">أوزان دقيقة</h3>
-                <p id="badge-1-desc" class="text-[10px] text-brand-navy/70 font-bold">زي ما طلبت بالظبط</p>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+            <!-- المربعات الأربعة (تتم تعبئتها من app.js) -->
+            <div class="group bg-white rounded-3xl p-4 text-center border border-gray-100 shadow-[0_4px_15px_-3px_rgba(0,0,0,0.03)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_8px_25px_-5px_rgba(27,67,50,0.12)] relative overflow-hidden z-10">
+                <div class="absolute inset-0 bg-gradient-to-b from-brand-light/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10"></div>
+                <div class="w-14 h-14 mx-auto bg-gray-50 rounded-2xl flex items-center justify-center mb-3 border border-gray-100 group-hover:bg-white group-hover:border-brand-cyan/50 transition-all duration-300 shadow-sm group-hover:shadow-md transform group-hover:rotate-3">
+                    <i id="badge-1-icon" class="fa-regular fa-circle-check text-brand-navy text-2xl transition-transform duration-300 group-hover:scale-110"></i>
+                </div>
+                <h3 id="badge-1-title" class="font-black text-brand-navy text-[13px] mb-1 group-hover:text-brand-cyanDark transition-colors min-h-[20px]"></h3>
+                <p id="badge-1-desc" class="text-[10px] text-gray-500 font-bold min-h-[15px]"></p>
             </div>
-            <div class="bg-brand-light rounded-2xl p-3 text-center border border-brand-cyan/30 shadow-sm transition-transform hover:scale-105">
-                <i id="badge-2-icon" class="fa-regular fa-star text-brand-navy text-2xl mb-2"></i>
-                <h3 id="badge-2-title" class="font-black text-brand-navy text-[12px] mb-1">طلبك باسمك</h3>
-                <p id="badge-2-desc" class="text-[10px] text-brand-navy/70 font-bold">استيكر مخصص ليك</p>
+
+            <div class="group bg-white rounded-3xl p-4 text-center border border-gray-100 shadow-[0_4px_15px_-3px_rgba(0,0,0,0.03)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_8px_25px_-5px_rgba(27,67,50,0.12)] relative overflow-hidden z-10">
+                <div class="absolute inset-0 bg-gradient-to-b from-brand-light/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10"></div>
+                <div class="w-14 h-14 mx-auto bg-gray-50 rounded-2xl flex items-center justify-center mb-3 border border-gray-100 group-hover:bg-white group-hover:border-brand-cyan/50 transition-all duration-300 shadow-sm group-hover:shadow-md transform group-hover:-rotate-3">
+                    <i id="badge-2-icon" class="fa-regular fa-star text-brand-navy text-2xl transition-transform duration-300 group-hover:scale-110"></i>
+                </div>
+                <h3 id="badge-2-title" class="font-black text-brand-navy text-[13px] mb-1 group-hover:text-brand-cyanDark transition-colors min-h-[20px]"></h3>
+                <p id="badge-2-desc" class="text-[10px] text-gray-500 font-bold min-h-[15px]"></p>
             </div>
-            <div class="bg-brand-light rounded-2xl p-3 text-center border border-brand-cyan/30 shadow-sm transition-transform hover:scale-105">
-                <i id="badge-3-icon" class="fa-regular fa-clock text-brand-navy text-2xl mb-2"></i>
-                <h3 id="badge-3-title" class="font-black text-brand-navy text-[12px] mb-1">تجهيز يومي</h3>
-                <p id="badge-3-desc" class="text-[10px] text-brand-navy/70 font-bold">طازج مية بالمية</p>
+
+            <div class="group bg-white rounded-3xl p-4 text-center border border-gray-100 shadow-[0_4px_15px_-3px_rgba(0,0,0,0.03)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_8px_25px_-5px_rgba(27,67,50,0.12)] relative overflow-hidden z-10">
+                <div class="absolute inset-0 bg-gradient-to-b from-brand-light/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10"></div>
+                <div class="w-14 h-14 mx-auto bg-gray-50 rounded-2xl flex items-center justify-center mb-3 border border-gray-100 group-hover:bg-white group-hover:border-brand-cyan/50 transition-all duration-300 shadow-sm group-hover:shadow-md transform group-hover:rotate-3">
+                    <i id="badge-3-icon" class="fa-regular fa-clock text-brand-navy text-2xl transition-transform duration-300 group-hover:scale-110"></i>
+                </div>
+                <h3 id="badge-3-title" class="font-black text-brand-navy text-[13px] mb-1 group-hover:text-brand-cyanDark transition-colors min-h-[20px]"></h3>
+                <p id="badge-3-desc" class="text-[10px] text-gray-500 font-bold min-h-[15px]"></p>
             </div>
-            <div class="bg-brand-light rounded-2xl p-3 text-center border border-brand-cyan/30 shadow-sm transition-transform hover:scale-105">
-                <i id="badge-4-icon" class="fa-solid fa-shield-halved text-brand-navy text-2xl mb-2"></i>
-                <h3 id="badge-4-title" class="font-black text-brand-navy text-[12px] mb-1">تغليف آمن</h3>
-                <p id="badge-4-desc" class="text-[10px] text-brand-navy/70 font-bold">أطباق صحية</p>
+
+            <div class="group bg-white rounded-3xl p-4 text-center border border-gray-100 shadow-[0_4px_15px_-3px_rgba(0,0,0,0.03)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_8px_25px_-5px_rgba(27,67,50,0.12)] relative overflow-hidden z-10">
+                <div class="absolute inset-0 bg-gradient-to-b from-brand-light/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10"></div>
+                <div class="w-14 h-14 mx-auto bg-gray-50 rounded-2xl flex items-center justify-center mb-3 border border-gray-100 group-hover:bg-white group-hover:border-brand-cyan/50 transition-all duration-300 shadow-sm group-hover:shadow-md transform group-hover:-rotate-3">
+                    <i id="badge-4-icon" class="fa-solid fa-shield-halved text-brand-navy text-2xl transition-transform duration-300 group-hover:scale-110"></i>
+                </div>
+                <h3 id="badge-4-title" class="font-black text-brand-navy text-[13px] mb-1 group-hover:text-brand-cyanDark transition-colors min-h-[20px]"></h3>
+                <p id="badge-4-desc" class="text-[10px] text-gray-500 font-bold min-h-[15px]"></p>
             </div>
         </div>
     </section>
 
+    <!-- شريط السلة السفلي -->
     <div id="bottom-cart-bar" class="fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 shadow-[0_-10px_20px_rgba(0,0,0,0.08)] p-4 flex justify-between items-center z-40 transform translate-y-full transition-transform duration-300">
         <div class="flex flex-col">
             <span class="text-xs text-gray-500 font-bold" id="lbl-cart-total">الإجمالي (بدون التوصيل)</span>
@@ -168,6 +187,7 @@
         </button>
     </div>
 
+    <!-- نافذة السلة الجانبية -->
     <div id="cart-overlay" class="fixed inset-0 bg-brand-navy/60 z-50 hidden opacity-0 transition-opacity duration-300 backdrop-blur-sm" onclick="toggleCart()"></div>
     <div id="cart-sidebar" class="fixed top-0 right-0 h-full w-full sm:w-[450px] bg-gray-50 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 flex flex-col">
         
@@ -211,6 +231,7 @@
             الحد الأدنى للطلب هو <span id="min-order-value">0</span> ج.م (بدون التوصيل)
         </div>
 
+        <!-- الخطوة الأولى: المراجعة -->
         <div id="checkout-step-1" class="flex-1 flex flex-col overflow-hidden">
             <div id="cart-items" class="flex-1 overflow-y-auto p-4 space-y-3 cart-scroll bg-gray-50"></div>
 
@@ -242,6 +263,7 @@
             </div>
         </div>
 
+        <!-- الخطوة الثانية: الدفع والبيانات -->
         <div id="checkout-step-2" class="flex-1 flex flex-col overflow-hidden hidden">
             <div class="flex-1 overflow-y-auto p-4 cart-scroll bg-gray-50 space-y-4">
                 <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
@@ -285,6 +307,7 @@
         </div>
     </div>
 
+    <!-- الإشعارات الحية الوهمية -->
     <div id="live-notification" class="fixed bottom-24 left-4 bg-white/90 backdrop-blur-sm border-l-4 border-green-500 shadow-lg rounded-lg p-3 z-40 transform translate-y-20 opacity-0 transition-all duration-500 flex items-center gap-3 w-72 pointer-events-none">
         <div class="bg-green-100 text-green-600 rounded-full w-8 h-8 flex justify-center items-center shrink-0">
             <i class="fa-solid fa-bag-shopping text-sm"></i>
@@ -295,6 +318,7 @@
         </div>
     </div>
 
+    <!-- قسم المنتجات والسلايدر -->
     <section id="products" class="py-6 scroll-mt-20">
         <div class="max-w-3xl mx-auto px-4 sm:px-6 relative" id="store-wrapper">
             
@@ -302,24 +326,28 @@
                 <div>المتجر مغلق حالياً، نعود قريباً!</div>
             </div>
 
+            <!-- السلايدر -->
             <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-8 relative group" id="main-slider-container">
                 <div class="overflow-hidden relative touch-pan-y" id="slider-viewport">
-                    <div class="slider-wrapper" id="slider-track">
-                        <div class="w-full shrink-0 h-64 bg-gray-100 flex items-center justify-center text-gray-400"><i class="fa-solid fa-image text-4xl"></i></div>
+                    <div class="slider-wrapper items-center" id="slider-track">
+                        <div class="w-full shrink-0 aspect-[3/4] sm:aspect-[4/3] bg-gray-50 flex flex-col items-center justify-center text-brand-cyan/50">
+                            <i class="fa-regular fa-image text-5xl mb-2"></i>
+                            <span class="text-xs font-bold text-gray-400 mt-2">جاري تحميل الكتالوج...</span>
+                        </div>
                     </div>
                 </div>
                 
-                <button class="absolute top-1/2 -translate-y-1/2 right-2 w-8 h-8 bg-white/80 backdrop-blur text-brand-navy rounded-full shadow flex justify-center items-center hover:bg-white z-10" onclick="moveSlider(-1)">
-                    <i class="fa-solid fa-chevron-right text-sm"></i>
+                <button class="absolute top-1/2 -translate-y-1/2 right-3 w-10 h-10 bg-white/90 backdrop-blur text-brand-navy rounded-full shadow-md flex justify-center items-center hover:bg-brand-navy hover:text-white transition-colors z-10" onclick="moveSlider(-1)">
+                    <i class="fa-solid fa-chevron-right"></i>
                 </button>
-                <button class="absolute top-1/2 -translate-y-1/2 left-2 w-8 h-8 bg-white/80 backdrop-blur text-brand-navy rounded-full shadow flex justify-center items-center hover:bg-white z-10" onclick="moveSlider(1)">
-                    <i class="fa-solid fa-chevron-left text-sm"></i>
+                <button class="absolute top-1/2 -translate-y-1/2 left-3 w-10 h-10 bg-white/90 backdrop-blur text-brand-navy rounded-full shadow-md flex justify-center items-center hover:bg-brand-navy hover:text-white transition-colors z-10" onclick="moveSlider(1)">
+                    <i class="fa-solid fa-chevron-left"></i>
                 </button>
                 
-                <div class="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 z-10" id="slider-dots"></div>
+                <div class="absolute bottom-14 left-1/2 -translate-x-1/2 flex gap-2 z-10" id="slider-dots"></div>
                 
-                <div class="p-3 bg-brand-light/50 border-t border-gray-100 text-center relative z-20">
-                    <p class="text-brand-navy font-bold text-sm"><i class="fa-solid fa-images text-brand-cyanDark"></i> <span id="lbl-size-guide">اسحب لمشاهدة الكتالوج ودليل الأحجام</span></p>
+                <div class="p-3 bg-brand-light/80 backdrop-blur-sm border-t border-brand-cyan/20 text-center relative z-20">
+                    <p class="text-brand-navy font-bold text-sm"><i class="fa-solid fa-images text-brand-cyanDark ml-1"></i> <span id="lbl-size-guide">اسحب لمشاهدة الكتالوج ودليل الأحجام</span></p>
                 </div>
             </div>
 
@@ -331,16 +359,20 @@
         </div>
     </section>
 
+    <!-- الفوتر -->
     <footer class="bg-brand-navy text-gray-400 py-8 border-t border-[#143024] mt-10">
         <div class="max-w-7xl mx-auto px-4 flex justify-between items-center">
-            <div><p class="font-black text-white" id="footer-store-name">سمان ههيا</p><p class="text-xs mt-1">جميع الحقوق محفوظة &copy; 2024</p></div>
+            <div>
+                <p class="font-black text-white" id="footer-store-name">سمان ههيا</p>
+                <p class="text-xs mt-1">جميع الحقوق محفوظة &copy; 2024</p>
+            </div>
             <div class="text-sm flex gap-4 items-center">
                 <a href="tel:01208027294" id="footer-phone-link" class="hover:text-white transition-colors"><i class="fa-solid fa-phone text-brand-yellow"></i> <span id="footer-phone">01208027294</span></a>
-                <button type="button" onclick="openAdminLogin()" class="text-gray-500 hover:text-white transition-colors" title="إدارة الموقع"><i class="fa-solid fa-lock"></i></button>
             </div>
         </div>
     </footer>
 
+    <!-- نوافذ التنبيهات والاقتراحات -->
     <div id="cross-sell-modal" class="fixed inset-0 bg-brand-navy/80 z-[55] hidden opacity-0 transition-opacity duration-300 flex items-center justify-center backdrop-blur-sm">
         <div class="bg-white rounded-2xl p-6 w-11/12 max-w-sm text-center shadow-2xl transform scale-95 transition-transform duration-300" id="cross-sell-box">
             <div class="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-brand-yellow text-brand-navy font-black text-xs px-4 py-1 rounded-full shadow-md border-2 border-white">اقتراح لحضرتك 💡</div>
@@ -364,174 +396,19 @@
         </div>
     </div>
 
-    <div id="admin-login-modal" class="fixed inset-0 bg-brand-navy/90 z-[70] hidden opacity-0 transition-opacity duration-300 flex items-center justify-center backdrop-blur-sm">
-        <div class="bg-white rounded-2xl p-6 w-11/12 max-w-sm shadow-2xl">
-            <div class="flex justify-between items-center mb-6">
-                <h3 class="text-xl font-black text-brand-navy flex items-center gap-2"><i class="fa-solid fa-lock text-brand-yellow"></i> الإدارة الشاملة</h3>
-                <button onclick="closeAdminLogin()" class="text-gray-400 hover:text-red-500 bg-gray-100 w-8 h-8 rounded-full"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <input type="email" id="admin-email-input" class="w-full border-2 border-gray-200 rounded-xl p-3 mb-3 text-left focus:border-brand-cyan outline-none font-bold text-brand-navy" placeholder="البريد الإلكتروني للإدارة" dir="ltr">
-            <input type="password" id="admin-password-input" class="w-full border-2 border-gray-200 rounded-xl p-3 mb-4 text-left focus:border-brand-cyan outline-none font-bold text-brand-navy" placeholder="كلمة المرور" dir="ltr">
-            <button onclick="verifyAdminPin()" class="w-full bg-brand-navy text-white font-bold py-4 rounded-xl transition-colors">دخول</button>
-        </div>
-    </div>
-
-    <div id="admin-dashboard-modal" class="fixed inset-0 bg-gray-50 z-[80] hidden opacity-0 transition-opacity duration-300 flex flex-col">
-        <div class="bg-white border-b border-gray-200 p-4 flex justify-between items-center shadow-sm">
-            <div class="flex items-center gap-3">
-                <h2 class="text-lg font-black text-brand-navy"><i class="fa-solid fa-sliders text-brand-cyanDark"></i> لوحة التحكم</h2>
-            </div>
-            <button onclick="closeAdminDashboard()" class="text-gray-500 hover:text-red-500 bg-gray-100 w-8 h-8 rounded-full flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-
-        <div class="bg-white p-3 flex justify-between items-center border-b border-gray-200 shadow-sm z-10">
-            <span class="font-black text-brand-navy text-sm"><i class="fa-solid fa-door-open text-brand-cyanDark ml-1"></i> استقبال الطلبات:</span>
-            <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" id="admin-store-open" class="sr-only peer">
-                <div class="w-12 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:right-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
-                <span class="mr-3 text-sm font-black text-gray-500 w-12" id="store-open-label">مغلق</span>
-            </label>
-        </div>
-
-        <div class="bg-white border-b border-gray-200 px-4 pt-3 pb-2 flex gap-1 overflow-x-auto cart-scroll" id="admin-tabs-container">
-            <button onclick="switchAdminTab('stats')" id="admin-tab-stats" class="px-4 py-2 rounded-lg font-bold text-sm transition-colors bg-brand-cyanDark text-white whitespace-nowrap"><i class="fa-solid fa-chart-pie"></i> إحصائيات</button>
-            <button onclick="switchAdminTab('store')" id="admin-tab-store" class="px-4 py-2 rounded-lg font-bold text-sm transition-colors text-gray-600 hover:bg-gray-100 whitespace-nowrap"><i class="fa-solid fa-store"></i> المتجر</button>
-            <button onclick="switchAdminTab('gallery')" id="admin-tab-gallery" class="px-4 py-2 rounded-lg font-bold text-sm transition-colors text-gray-600 hover:bg-gray-100 whitespace-nowrap"><i class="fa-solid fa-images"></i> الكتالوج</button>
-            <button onclick="switchAdminTab('products')" id="admin-tab-products" class="px-4 py-2 rounded-lg font-bold text-sm transition-colors text-gray-600 hover:bg-gray-100 whitespace-nowrap"><i class="fa-solid fa-box-open"></i> المنتجات</button>
-            <button onclick="switchAdminTab('orders')" id="admin-tab-orders" class="px-4 py-2 rounded-lg font-bold text-sm transition-colors text-gray-600 hover:bg-gray-100 whitespace-nowrap relative"><i class="fa-solid fa-clipboard-list"></i> الطلبات</button>
-            <button onclick="switchAdminTab('dispatch')" id="admin-tab-dispatch" class="px-4 py-2 rounded-lg font-bold text-sm transition-colors text-gray-600 hover:bg-gray-100 whitespace-nowrap"><i class="fa-solid fa-truck-fast"></i> التوزيع</button>
-            <button onclick="switchAdminTab('delivery')" id="admin-tab-delivery" class="px-4 py-2 rounded-lg font-bold text-sm transition-colors text-gray-600 hover:bg-gray-100 whitespace-nowrap"><i class="fa-solid fa-motorcycle"></i> التوصيل</button>
-            <button onclick="switchAdminTab('marketing')" id="admin-tab-marketing" class="px-4 py-2 rounded-lg font-bold text-sm transition-colors text-gray-600 hover:bg-gray-100 whitespace-nowrap"><i class="fa-solid fa-bullhorn"></i> التسويق</button>
-            <button onclick="switchAdminTab('advanced')" id="admin-tab-advanced" class="px-4 py-2 rounded-lg font-bold text-sm transition-colors text-gray-600 hover:bg-gray-100 whitespace-nowrap"><i class="fa-solid fa-gear"></i> متقدم</button>
-            <button onclick="switchAdminTab('texts')" id="admin-tab-texts" class="px-4 py-2 rounded-lg font-bold text-sm transition-colors text-gray-600 hover:bg-gray-100 whitespace-nowrap"><i class="fa-solid fa-language"></i> القاموس</button>
-            <button onclick="switchAdminTab('theme')" id="admin-tab-theme" class="px-4 py-2 rounded-lg font-bold text-sm transition-colors text-gray-600 hover:bg-gray-100 whitespace-nowrap"><i class="fa-solid fa-palette"></i> المظهر</button>
-        </div>
-
-        <div class="p-4 flex-1 overflow-y-auto cart-scroll">
-            <div class="max-w-2xl mx-auto">
-                <div id="admin-panel-stats" class="space-y-4"></div>
-                <div id="admin-panel-store" class="hidden space-y-4"></div>
-                <div id="admin-panel-gallery" class="hidden space-y-4"></div>
-                <div id="admin-panel-products" class="hidden space-y-4"></div>
-                <div id="admin-panel-orders" class="hidden space-y-4"></div>
-                <div id="admin-panel-dispatch" class="hidden space-y-4"></div>
-                <div id="admin-panel-delivery" class="hidden space-y-4"></div>
-                <div id="admin-panel-marketing" class="hidden space-y-4"></div>
-                <div id="admin-panel-advanced" class="hidden space-y-4"></div>
-                <div id="admin-panel-texts" class="hidden space-y-4"></div>
-                <div id="admin-panel-theme" class="hidden space-y-4"></div>
-                
-                <button onclick="saveAdminData()" class="w-full mt-6 bg-green-500 hover:bg-green-600 text-white font-black py-4 rounded-xl shadow-lg flex justify-center items-center gap-2 transition-all transform hover:-translate-y-1 sticky bottom-4 z-50 border-2 border-white">
-                    <i class="fa-solid fa-floppy-disk text-xl"></i> حفظ جميع التعديلات
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-
-    <script>
-        function updateThemeColor(cssVar, colorHex, storageKey) {
-            document.documentElement.style.setProperty(cssVar, colorHex);
-            localStorage.setItem(storageKey, colorHex);
-        }
-
-        function resetThemeColors() {
-            const defaults = { '--brand-navy': '#1b4332', '--brand-cyanDark': '#b91c1c', '--brand-yellow': '#f59e0b' };
-            document.getElementById('color-navy').value = defaults['--brand-navy'];
-            document.getElementById('color-cyanDark').value = defaults['--brand-cyanDark'];
-            document.getElementById('color-yellow').value = defaults['--brand-yellow'];
-            for (const [cssVar, color] of Object.entries(defaults)) {
-                document.documentElement.style.setProperty(cssVar, color);
-                localStorage.removeItem(cssVar.replace('--brand-', 'theme_'));
-            }
-            alert('تم استعادة ألوان سمان ههيا الافتراضية بنجاح!');
-        }
-        
-        window.addEventListener('DOMContentLoaded', () => {
-            if(localStorage.getItem('theme_navy')) { const el = document.getElementById('color-navy'); if(el) el.value = localStorage.getItem('theme_navy'); }
-            if(localStorage.getItem('theme_cyanDark')) { const el = document.getElementById('color-cyanDark'); if(el) el.value = localStorage.getItem('theme_cyanDark'); }
-            if(localStorage.getItem('theme_yellow')) { const el = document.getElementById('color-yellow'); if(el) el.value = localStorage.getItem('theme_yellow'); }
-        });
-        
-        // -- برمجة السلايدر --
-        let currentSlide = 0;
-        let sliderImages = []; 
-        
-        function moveSlider(direction) {
-            if(sliderImages.length <= 1) return;
-            currentSlide = (currentSlide + direction + sliderImages.length) % sliderImages.length;
-            updateSliderView();
-        }
-        
-        function updateSliderView() {
-            const track = document.getElementById('slider-track');
-            if(track) track.style.transform = `translateX(-${window.currentSlide * 100}%)`;
-            
-            const dots = document.querySelectorAll('.slider-dot');
-            dots.forEach((dot, index) => {
-                dot.className = `slider-dot h-2 w-2 rounded-full transition-all duration-300 ${index === window.currentSlide ? 'active' : 'bg-gray-300'}`;
-            });
-        }
-
-        let touchStartX = 0;
-        let touchEndX = 0;
-        const sliderViewport = document.getElementById('slider-viewport');
-        if(sliderViewport) {
-            sliderViewport.addEventListener('touchstart', e => { touchStartX = e.changedTouches[0].screenX; }, {passive: true});
-            sliderViewport.addEventListener('touchend', e => { 
-                touchEndX = e.changedTouches[0].screenX; 
-                if(touchEndX < touchStartX - 30) window.moveSlider(-1); 
-                if(touchEndX > touchStartX + 30) window.moveSlider(1);  
-            }, {passive: true});
-        }
-    </script>
-    
+    <!-- زر التثبيت PWA -->
     <button id="install-app-btn" class="hidden fixed bottom-24 right-4 z-[90] bg-[#0d3b2a] text-[#f2b921] font-black py-3 px-5 rounded-2xl shadow-2xl border border-[#f2b921]/30 flex items-center gap-3 transition-transform transform hover:scale-105">
         <i class="fa-solid fa-download text-xl animate-bounce"></i>
         <span>تثبيت التطبيق</span>
     </button>
 
+    <!-- ملفات الجافاسكربت الأساسية -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
     <script src="js/config.js"></script>
     <script src="js/app.js"></script>
-    <script src="js/admin.js"></script>
-
-    <script>
-      let deferredPrompt;
-      const installBtn = document.getElementById('install-app-btn');
-
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js')
-            .then(reg => console.log('Sman Hhya App Registered! ✅'))
-            .catch(err => console.log('PWA Error:', err));
-        });
-      }
-
-      window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault(); 
-        deferredPrompt = e; 
-        if(installBtn) installBtn.classList.remove('hidden'); 
-      });
-
-      if(installBtn) {
-        installBtn.addEventListener('click', async () => {
-          if (deferredPrompt) {
-            deferredPrompt.prompt(); 
-            const { outcome } = await deferredPrompt.userChoice;
-            deferredPrompt = null; 
-            installBtn.classList.add('hidden'); 
-          }
-        });
-      }
-
-      window.addEventListener('appinstalled', () => {
-        if(installBtn) installBtn.classList.add('hidden');
-        deferredPrompt = null;
-      });
-    </script>
 
 </body>
 </html>
