@@ -8,10 +8,7 @@
 
     <link rel="stylesheet" href="css/style.css">
     
-    <!-- تسريع تحميل Tailwind -->
-    <link rel="preload" href="https://cdn.tailwindcss.com" as="script">
     <script src="https://cdn.tailwindcss.com"></script>
-    
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
@@ -34,7 +31,7 @@
             animation: pulse-btn 2s infinite;
         }
 
-        /* شريط الأخبار المتحرك */
+        /* شريط الأخبار المتحرك (تم تعديل الاتجاه للعربي) */
         .marquee-container {
             overflow: hidden;
             white-space: nowrap;
@@ -65,12 +62,6 @@
         .step-completed .step-icon { background-color: #10b981; color: white; border-color: #10b981; }
         .step-line { flex: 1; height: 2px; background-color: #e5e7eb; margin: 0 10px; }
         .step-line.active { background-color: #10b981; }
-
-        /* حل مشكلة طول السلة على موبايلات الآيفون والأندرويد */
-        #cart-sidebar {
-            height: 100vh; 
-            height: 100dvh; 
-        }
     </style>
     
     <script>
@@ -100,8 +91,7 @@
         }
     </script>
 </head>
-<!-- تمت إضافة pb-24 لحل تداخل شريط السلة مع محتوى الموقع -->
-<body class="text-gray-800 antialiased selection:bg-brand-navy selection:text-white bg-gray-50 pb-24">
+<body class="text-gray-800 antialiased selection:bg-brand-navy selection:text-white bg-gray-50">
 
     <nav class="bg-brand-navy shadow-md sticky top-0 z-30 border-b border-[#143024]">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -116,7 +106,8 @@
 
     <div id="top-banner" class="bg-[#fef3c7] text-[#92400e] py-2.5 font-bold text-sm md:text-base z-40 relative shadow-sm border-b border-[#fde68a] hidden">
         <div class="marquee-container w-full max-w-7xl mx-auto">
-            <div class="marquee-content" id="top-banner-text"></div>
+            <div class="marquee-content" id="top-banner-text">
+            </div>
         </div>
     </div>
 
@@ -195,15 +186,14 @@
         </div>
 
         <div class="bg-white py-3 px-6 border-b border-gray-100 flex items-center justify-center">
-            <!-- تم التعديل هنا لترتيب الأيقونات والنصوص بشكل سليم على الموبايل -->
-            <div class="flex flex-col items-center justify-center text-center step-active" id="step-1-indicator">
+            <div class="flex items-center text-center step-active" id="step-1-indicator">
                 <div class="w-6 h-6 rounded-full border-2 border-brand-navy bg-brand-navy text-white flex items-center justify-center text-[10px] font-black step-icon z-10">1</div>
-                <div class="text-[10px] mt-1 hidden sm:block font-black step-text">مراجعة الطلب</div>
+                <div class="text-[10px] mt-1 hidden sm:block font-black step-text absolute mt-8">مراجعة الطلب</div>
             </div>
             <div class="step-line" id="step-line-1"></div>
-            <div class="flex flex-col items-center justify-center text-center opacity-50" id="step-2-indicator">
+            <div class="flex items-center text-center opacity-50" id="step-2-indicator">
                 <div class="w-6 h-6 rounded-full border-2 border-gray-300 bg-white text-gray-400 flex items-center justify-center text-[10px] font-black step-icon z-10">2</div>
-                <div class="text-[10px] mt-1 hidden sm:block font-bold step-text text-gray-400">بيانات التوصيل</div>
+                <div class="text-[10px] mt-1 hidden sm:block font-bold step-text absolute mt-8 text-gray-400">بيانات التوصيل</div>
             </div>
         </div>
 
@@ -438,10 +428,9 @@
         </div>
     </div>
 
-    <!-- تأجيل ملفات الجافاسكريبت لعدم إعاقة تحميل الصفحة (defer) -->
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js" defer></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js" defer></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js" defer></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
     <script>
         function updateThemeColor(cssVar, colorHex, storageKey) {
@@ -467,6 +456,7 @@
             if(localStorage.getItem('theme_yellow')) { const el = document.getElementById('color-yellow'); if(el) el.value = localStorage.getItem('theme_yellow'); }
         });
         
+        // -- برمجة السلايدر --
         let currentSlide = 0;
         let sliderImages = []; 
         
@@ -497,17 +487,16 @@
                 if(touchEndX > touchStartX + 30) window.moveSlider(1);  
             }, {passive: true});
         }
-    </script> 
+    </script>
     
     <button id="install-app-btn" class="hidden fixed bottom-24 right-4 z-[90] bg-[#0d3b2a] text-[#f2b921] font-black py-3 px-5 rounded-2xl shadow-2xl border border-[#f2b921]/30 flex items-center gap-3 transition-transform transform hover:scale-105">
         <i class="fa-solid fa-download text-xl animate-bounce"></i>
         <span>تثبيت التطبيق</span>
     </button>
 
-    <!-- تأجيل ملفاتك أنت كمان -->
-    <script src="js/config.js" defer></script>
-    <script src="js/app.js" defer></script>
-    <script src="js/admin.js" defer></script>
+    <script src="js/config.js"></script>
+    <script src="js/app.js"></script>
+    <script src="js/admin.js"></script>
 
     <script>
       let deferredPrompt;
