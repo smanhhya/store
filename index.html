@@ -22,7 +22,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-    <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
@@ -32,7 +31,6 @@
         .hide-scroll::-webkit-scrollbar { display: none; }
         .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
         
-        /* تأثيرات الإشعارات الكاذبة والسلايدر */
         .slide-up { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
         @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         
@@ -45,12 +43,10 @@
 </head>
 <body class="text-slate-800 selection:bg-brand-main selection:text-white">
 
-    <!-- شريط الأخبار العُلوي -->
     <div id="marquee-bar" class="hidden bg-brand-accent text-white text-[10px] font-bold py-1.5 overflow-hidden whitespace-nowrap">
-        <marquee id="marquee-text" scrollamount="4"></marquee>
+        <marquee id="marquee-text" scrollamount="4" dir="rtl"></marquee>
     </div>
 
-    <!-- الهيدر الثابت -->
     <header class="bg-white/90 backdrop-blur-md sticky top-0 z-40 border-b border-slate-100 shadow-sm transition-all duration-300">
         <div class="max-w-4xl mx-auto px-4 h-16 flex justify-between items-center">
             <div class="flex items-center gap-2">
@@ -69,25 +65,20 @@
         </div>
     </header>
 
-    <!-- المحتوى الأساسي -->
     <main class="max-w-4xl mx-auto px-4 mt-4 space-y-6">
 
-        <!-- السلايدر -->
         <div id="main-slider" class="relative w-full h-48 md:h-64 bg-slate-200 rounded-2xl overflow-hidden shadow-sm hidden">
             <div id="slider-images" class="w-full h-full"></div>
             <div class="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5 z-10" id="slider-dots"></div>
         </div>
 
-        <!-- المربعات الأربعة (عناصر الثقة) -->
         <div id="trust-badges" class="grid grid-cols-4 gap-2 hidden"></div>
 
-        <!-- قائمة المنتجات -->
         <div>
             <div class="flex justify-between items-end mb-4">
                 <h2 class="font-black text-xl text-slate-800 border-r-4 border-brand-main pr-2">المنتجات المتاحة</h2>
             </div>
             
-            <!-- رسالة إغلاق المتجر -->
             <div id="closed-msg" class="hidden text-center bg-red-50 border border-red-200 p-6 rounded-2xl">
                 <i class="fa-solid fa-store-slash text-4xl text-red-300 mb-3"></i>
                 <h3 class="font-black text-red-600 text-lg mb-1">المتجر مغلق حالياً</h3>
@@ -95,7 +86,6 @@
             </div>
 
             <div id="products-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <!-- المنتجات هتتولد هنا -->
                 <div class="col-span-full text-center py-10 text-slate-400">
                     <i class="fa-solid fa-spinner fa-spin text-2xl mb-2 text-brand-main"></i><br><span class="text-xs font-bold">جاري تجهيز المنيو...</span>
                 </div>
@@ -103,7 +93,6 @@
         </div>
     </main>
 
-    <!-- شريط السلة السفلي (يظهر عند إضافة منتج) -->
     <div id="bottom-cart-bar" class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-4 transform translate-y-full transition-transform duration-300 z-40 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
         <div class="max-w-4xl mx-auto flex justify-between items-center">
             <div>
@@ -116,7 +105,6 @@
         </div>
     </div>
 
-    <!-- نافذة السلة (Checkout) -->
     <div id="checkout-modal" class="fixed inset-0 bg-slate-900/60 z-50 hidden flex flex-col justify-end transition-opacity opacity-0 backdrop-blur-sm">
         <div class="bg-white w-full max-w-xl mx-auto h-[90vh] rounded-t-3xl shadow-2xl flex flex-col slide-up overflow-hidden">
             <div class="flex justify-between items-center p-5 border-b border-slate-100 shrink-0 bg-slate-50">
@@ -175,7 +163,6 @@
         </div>
     </div>
 
-    <!-- نافذة الاقتراح الذكي (Cross-Sell) -->
     <div id="crosssell-modal" class="fixed inset-0 bg-slate-900/60 z-[60] hidden flex items-center justify-center p-4 transition-opacity opacity-0 backdrop-blur-sm">
         <div class="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl transform scale-95 transition-transform" id="crosssell-box">
             <div class="bg-yellow-50 p-6 text-center relative border-b border-yellow-100">
@@ -187,18 +174,16 @@
         </div>
     </div>
 
-    <!-- إشعار المبيعات الكاذبة -->
     <div id="live-noti" class="fixed bottom-24 left-4 bg-white/95 backdrop-blur border border-slate-100 shadow-xl rounded-xl p-3 pr-4 flex items-center gap-3 transform -translate-x-[150%] transition-transform duration-500 z-30 max-w-[280px]">
         <div class="w-8 h-8 rounded-full bg-green-50 text-green-500 border border-green-100 flex items-center justify-center shrink-0">
             <i class="fa-solid fa-bag-shopping text-sm"></i>
         </div>
         <div>
             <p class="text-[10px] font-bold text-slate-500 mb-0.5">شراء جديد الآن ⚡️</p>
-            <p class="text-xs font-black text-slate-800 leading-tight" id="live-noti-text">محمد من ههيا قام بشراء 3 طبق سوبر</p>
+            <p class="text-xs font-black text-slate-800 leading-tight" id="live-noti-text"></p>
         </div>
     </div>
 
-    <!-- شاشة النجاح -->
     <div id="success-screen" class="fixed inset-0 bg-brand-main z-[100] hidden flex-col items-center justify-center px-4 text-center">
         <div class="w-24 h-24 bg-white/20 rounded-full flex items-center justify-center mb-6">
             <i class="fa-solid fa-check text-5xl text-white"></i>
@@ -235,7 +220,7 @@
         let storeProducts = {};
         let storePrices = {};
         let storeStock = {};
-        let cart = {}; // صيغة السلة: { productId: quantity }
+        let cart = {}; 
         let currentPromo = null;
         let sliderCurrentIndex = 0;
 
@@ -250,11 +235,9 @@
         });
 
         function initStorefront() {
-            // 1. الألوان الديناميكية
             if(storeSettings.themeColorMain) document.documentElement.style.setProperty('--theme-main', storeSettings.themeColorMain);
             if(storeSettings.themeColorAccent) document.documentElement.style.setProperty('--theme-accent', storeSettings.themeColorAccent);
 
-            // 2. الهيدر والحالة
             document.getElementById('ui-store-name').innerText = storeSettings.storeName || 'سمان ههيا';
             const statusEl = document.getElementById('store-status');
             if(storeSettings.storeOpen !== false) {
@@ -269,7 +252,6 @@
                 document.getElementById('products-grid').classList.add('hidden');
             }
 
-            // 3. القاموس
             const dict = storeSettings.dictionary || {};
             if(dict.cartTotal) document.getElementById('dict-cart-total-label').innerText = dict.cartTotal;
             if(dict.cartBtn) document.getElementById('dict-cart-btn-label').innerText = dict.cartBtn;
@@ -279,29 +261,21 @@
             if(dict.deliveryFee) document.getElementById('dict-delivery-fee').innerText = dict.deliveryFee;
             if(dict.finalTotal) document.getElementById('dict-final-total').innerText = dict.finalTotal;
 
-            // 4. السلايدر والمربعات والشريط
             renderMarquee();
             renderSlider();
             renderTrustBadges();
-            
-            // 5. المنتجات
             renderProducts();
             
-            // 6. المناطق في السلة
             const zSel = document.getElementById('ch-zone');
             zSel.innerHTML = '<option value="" data-price="-1">اختر منطقتك (لحساب التوصيل)</option>';
             (storeSettings.deliveryZones || []).forEach(z => {
                 zSel.innerHTML += `<option value="${z.name}" data-price="${z.price}">${z.name}</option>`;
             });
 
-            // 7. إظهار/إخفاء خانة الكود
             document.getElementById('promo-section').classList.toggle('hidden', storeSettings.showPromoField === false);
-
-            // تحديث واجهة السلة
             updateCartUI();
         }
 
-        // === 4. دوال العرض والـ UI ===
         function renderMarquee() {
             const bar = document.getElementById('marquee-bar');
             if(storeSettings.bannerActive && storeSettings.marqueeMessages && storeSettings.marqueeMessages.length > 0) {
@@ -321,7 +295,7 @@
             if(images.length === 0) { container.classList.add('hidden'); return; }
             
             container.classList.remove('hidden');
-            imgsDiv.innerHTML = images.map((img, i) => `<img src="${img}" class="slider-image ${i===0?'active':''}" alt="صورة العرض">`).join('');
+            imgsDiv.innerHTML = images.map((img, i) => `<img src="${img}" class="slider-image ${i===0?'active':''}" alt="عرض">`).join('');
             
             if(images.length > 1) {
                 dotsDiv.innerHTML = images.map((_, i) => `<div class="w-1.5 h-1.5 rounded-full ${i===0?'bg-white':'bg-white/50'}"></div>`).join('');
@@ -344,7 +318,7 @@
         function renderTrustBadges() {
             const cont = document.getElementById('trust-badges');
             const badges = storeSettings.trustBadges || [];
-            if(badges.length !== 4) return;
+            if(badges.length !== 4) { cont.classList.add('hidden'); return; }
             cont.classList.remove('hidden');
             cont.innerHTML = badges.map(b => `
                 <div class="bg-white p-2 rounded-2xl text-center shadow-sm border border-slate-100">
@@ -358,8 +332,6 @@
         function renderProducts() {
             const grid = document.getElementById('products-grid');
             let html = '';
-            
-            // ترتيب المنتجات: العادي الأول وبعدين الإضافي
             let sortedIds = Object.keys(storeProducts).sort((a,b) => (storeProducts[a].isExtra?1:0) - (storeProducts[b].isExtra?1:0));
 
             sortedIds.forEach(id => {
@@ -406,11 +378,9 @@
                     </div>
                 </div>`;
             });
-
             grid.innerHTML = html;
         }
 
-        // === 5. سلة المشتريات والعمليات الحسابية ===
         window.updateCart = (id, change) => {
             const stock = storeStock[id] || 0;
             let currentQty = cart[id] || 0;
@@ -420,7 +390,7 @@
             if(newQty <= 0) { delete cart[id]; } else { cart[id] = newQty; }
             
             updateCartUI();
-            renderProducts(); // لتحديث أزرار (زائد/ناقص)
+            renderProducts(); 
         };
 
         function updateCartUI() {
@@ -450,7 +420,6 @@
                 </div>`;
             });
 
-            // تحديث البادج والشريط السفلي
             const badge = document.getElementById('cart-badge');
             const bottomBar = document.getElementById('bottom-cart-bar');
             
@@ -478,7 +447,6 @@
                 Object.keys(cart).forEach(id => subtotal += (cart[id] * (storePrices[id] || storeProducts[id].basePrice || 0)));
             }
 
-            // حساب التوصيل
             const zSel = document.getElementById('ch-zone');
             let deliveryFee = 0;
             let delText = "يحدد بالمنطقة";
@@ -486,8 +454,6 @@
             if(zSel.selectedIndex > 0) {
                 deliveryFee = parseInt(zSel.options[zSel.selectedIndex].getAttribute('data-price')) || 0;
                 delText = deliveryFee + ' ج';
-                
-                // تطبيق عرض التوصيل المجاني
                 if(storeSettings.freeDeliveryActive && subtotal >= (storeSettings.freeDeliveryThreshold || 0)) {
                     deliveryFee = 0;
                     delText = `<span class="line-through text-slate-400 mr-1 text-[10px]">${zSel.options[zSel.selectedIndex].getAttribute('data-price')}</span> <span class="text-green-600 bg-green-50 px-1.5 py-0.5 rounded">مجاني!</span>`;
@@ -495,7 +461,6 @@
             }
             document.getElementById('summ-delivery').innerHTML = delText;
 
-            // حساب الخصم
             let discountVal = 0;
             const discRow = document.getElementById('summ-discount-row');
             if(currentPromo) {
@@ -508,9 +473,8 @@
                         discountVal = Math.floor(subtotal * (currentPromo.discount / 100));
                         if(currentPromo.maxDiscount && discountVal > currentPromo.maxDiscount) discountVal = currentPromo.maxDiscount;
                     }
-                    else if(currentPromo.type === 'free_delivery') {
-                        discountVal = deliveryFee; // خصم يوازي مصاريف التوصيل
-                    }
+                    else if(currentPromo.type === 'free_delivery') discountVal = deliveryFee;
+                    
                     discRow.classList.remove('hidden');
                     document.getElementById('summ-discount').innerText = `-${discountVal} ج`;
                 }
@@ -526,19 +490,13 @@
         window.applyPromoCode = () => {
             const input = document.getElementById('ch-promo-code').value.trim().toUpperCase();
             if(!input) return;
-            
-            const codes = storeSettings.promoCodes || [];
-            const promo = codes.find(c => c.code === input);
-            
-            if(!promo) { showPromoMsg("كود غير صحيح!", false); return; }
-            if(promo.usesLeft !== null && promo.usesLeft !== undefined && Number(promo.usesLeft) <= 0) { showPromoMsg("عفواً، تم استهلاك هذا الكود بالكامل.", false); return; }
+            const promo = (storeSettings.promoCodes || []).find(c => c.code === input);
+            if(!promo) return showPromoMsg("كود غير صحيح!", false); 
+            if(promo.usesLeft !== null && promo.usesLeft !== undefined && Number(promo.usesLeft) <= 0) return showPromoMsg("عفواً، تم استهلاك هذا الكود بالكامل.", false); 
             if(promo.customerPhone) {
                 const userPhone = document.getElementById('ch-phone').value.trim();
-                if(userPhone !== promo.customerPhone && userPhone !== ('0'+promo.customerPhone)) {
-                    showPromoMsg("هذا الكود مخصص لرقم موبايل آخر.", false); return;
-                }
+                if(userPhone !== promo.customerPhone && userPhone !== ('0'+promo.customerPhone)) return showPromoMsg("هذا الكود مخصص لرقم موبايل آخر.", false);
             }
-
             currentPromo = promo;
             showPromoMsg("تم تفعيل الكود بنجاح! 🎉", true);
             updateCartMath();
@@ -551,32 +509,22 @@
             el.classList.remove('hidden');
         }
 
-        // === 6. التحكم في النوافذ والاقتراح الذكي ===
         window.openCart = () => {
             if(Object.keys(cart).length === 0) return alert("سلة مشترياتك فارغة!");
-            
-            // فحص الحد الأدنى للطلب
             let subtotal = 0; Object.keys(cart).forEach(id => subtotal += (cart[id] * (storePrices[id] || storeProducts[id].basePrice || 0)));
-            if(storeSettings.minOrder && subtotal < storeSettings.minOrder) {
-                return alert(`عذراً، الحد الأدنى للطلب هو ${storeSettings.minOrder} ج.م`);
-            }
-
+            if(storeSettings.minOrder && subtotal < storeSettings.minOrder) return alert(`عذراً، الحد الأدنى للطلب هو ${storeSettings.minOrder} ج.م`);
             const modal = document.getElementById('checkout-modal');
-            modal.classList.remove('hidden');
-            setTimeout(() => modal.classList.remove('opacity-0'), 10);
+            modal.classList.remove('hidden'); setTimeout(() => modal.classList.remove('opacity-0'), 10);
             document.body.style.overflow = 'hidden';
         };
 
         window.closeCart = () => {
             const modal = document.getElementById('checkout-modal');
-            modal.classList.add('opacity-0');
-            setTimeout(() => modal.classList.add('hidden'), 300);
+            modal.classList.add('opacity-0'); setTimeout(() => modal.classList.add('hidden'), 300);
             document.body.style.overflow = '';
         };
 
-        // الاقتراح الذكي (يشتغل لما يدوس إتمام الطلب)
         window.submitCustomerOrder = () => {
-            // تحقق من البيانات الأول
             const phone = document.getElementById('ch-phone').value.trim();
             const name = document.getElementById('ch-name').value.trim();
             const zone = document.getElementById('ch-zone').value;
@@ -585,182 +533,111 @@
             if(!name) return alert("برجاء كتابة اسمك الكريم!");
             if(!zone) return alert("برجاء اختيار المنطقة لحساب التوصيل!");
 
-            // لو الاقتراح الذكي شغال، والمنتج المقترح مش في السلة أصلاً، والمخزن فيه منه
             if(storeSettings.crossSellActive && storeSettings.crossSellProductId && !cart[storeSettings.crossSellProductId]) {
                 const csId = storeSettings.crossSellProductId;
                 const p = storeProducts[csId];
-                if(p && (storeStock[csId] > 0)) {
-                    showCrossSellModal(csId, p);
-                    return; // نوقف الإرسال لحد ما يقرر
-                }
+                if(p && (storeStock[csId] > 0)) return showCrossSellModal(csId, p);
             }
-
-            // لو مفيش اقتراح، أو رفضه، نكمل إرسال عادي
             finalizeOrder();
         };
 
         function showCrossSellModal(id, p) {
             const price = storePrices[id] || p.basePrice;
             const imgSrc = (p.images && p.images.length > 0) ? p.images[0] : 'https://placehold.co/400x300';
-            
             document.getElementById('crosssell-content').innerHTML = `
                 <div class="flex gap-3 items-center mb-4 text-right">
                     <img src="${imgSrc}" class="w-16 h-16 rounded-xl object-cover border border-slate-100 shadow-sm">
-                    <div>
-                        <h4 class="font-black text-slate-800 text-sm">${p.name}</h4>
-                        <p class="font-black text-brand-main mt-1">+ ${price} ج <span class="text-[10px] text-slate-500 font-bold">فقط</span></p>
-                    </div>
+                    <div><h4 class="font-black text-slate-800 text-sm">${p.name}</h4><p class="font-black text-brand-main mt-1">+ ${price} ج <span class="text-[10px] text-slate-500 font-bold">فقط</span></p></div>
                 </div>
                 <div class="flex gap-2">
                     <button onclick="acceptCrossSell('${id}')" class="flex-1 bg-brand-main text-white font-black py-2.5 rounded-xl shadow-md text-sm">ضيفه للسلة</button>
                     <button onclick="closeCrossSell(true)" class="flex-1 bg-slate-100 text-slate-600 hover:bg-slate-200 font-black py-2.5 rounded-xl text-sm transition-colors">لا شكراً، تأكيد طلبي</button>
                 </div>
             `;
-            const m = document.getElementById('crosssell-modal');
-            const b = document.getElementById('crosssell-box');
+            const m = document.getElementById('crosssell-modal'); const b = document.getElementById('crosssell-box');
             m.classList.remove('hidden'); setTimeout(() => { m.classList.remove('opacity-0'); b.classList.remove('scale-95'); }, 10);
         }
 
         window.closeCrossSell = (continueCheckout) => {
-            const m = document.getElementById('crosssell-modal');
-            const b = document.getElementById('crosssell-box');
-            m.classList.add('opacity-0'); b.classList.add('scale-95');
-            setTimeout(() => m.classList.add('hidden'), 300);
+            const m = document.getElementById('crosssell-modal'); const b = document.getElementById('crosssell-box');
+            m.classList.add('opacity-0'); b.classList.add('scale-95'); setTimeout(() => m.classList.add('hidden'), 300);
             if(continueCheckout) finalizeOrder();
         };
 
-        window.acceptCrossSell = (id) => {
-            cart[id] = 1; updateCartUI(); closeCrossSell(true);
-        };
+        window.acceptCrossSell = (id) => { cart[id] = 1; updateCartUI(); closeCrossSell(true); };
 
-
-        // === 7. حفظ الأوردر النهائي في فايربيس ===
         async function finalizeOrder() {
-            const btn = document.getElementById('btn-submit-order');
-            const origHtml = btn.innerHTML;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xl"></i> جاري تأكيد طلبك...';
-            btn.disabled = true;
-
+            const btn = document.getElementById('btn-submit-order'); const origHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xl"></i> جاري تأكيد طلبك...'; btn.disabled = true;
             try {
-                // تجميع بيانات الأوردر
                 let subtotal = 0; let items = [];
                 Object.keys(cart).forEach(id => {
                     const q = cart[id]; const price = storePrices[id] || storeProducts[id].basePrice || 0;
-                    subtotal += (q * price);
-                    items.push({ id: id, name: storeProducts[id].name, quantity: q, price: price });
+                    subtotal += (q * price); items.push({ id: id, name: storeProducts[id].name, quantity: q, price: price });
                 });
 
                 const zSel = document.getElementById('ch-zone');
                 let deliveryFee = parseInt(zSel.options[zSel.selectedIndex].getAttribute('data-price')) || 0;
                 if(storeSettings.freeDeliveryActive && subtotal >= (storeSettings.freeDeliveryThreshold || 0)) deliveryFee = 0;
 
-                let discountVal = 0;
-                let usedPromoCode = null;
+                let discountVal = 0; let usedPromoCode = null;
                 if(currentPromo) {
                     if(currentPromo.type === 'fixed') discountVal = currentPromo.discount;
-                    else if(currentPromo.type === 'percent') {
-                        discountVal = Math.floor(subtotal * (currentPromo.discount / 100));
-                        if(currentPromo.maxDiscount && discountVal > currentPromo.maxDiscount) discountVal = currentPromo.maxDiscount;
-                    } else if(currentPromo.type === 'free_delivery') discountVal = deliveryFee;
+                    else if(currentPromo.type === 'percent') { discountVal = Math.floor(subtotal * (currentPromo.discount / 100)); if(currentPromo.maxDiscount && discountVal > currentPromo.maxDiscount) discountVal = currentPromo.maxDiscount; } 
+                    else if(currentPromo.type === 'free_delivery') discountVal = deliveryFee;
                     usedPromoCode = currentPromo.code;
                 }
 
                 let finalTotal = subtotal + deliveryFee - discountVal; if(finalTotal < 0) finalTotal = 0;
-
-                const phone = document.getElementById('ch-phone').value.trim().replace(/\D/g, '');
-                const cleanPhone = phone.startsWith('0') ? phone : '0'+phone;
+                const phone = document.getElementById('ch-phone').value.trim().replace(/\D/g, ''); const cleanPhone = phone.startsWith('0') ? phone : '0'+phone;
 
                 const orderData = {
-                    customerName: document.getElementById('ch-name').value.trim(),
-                    customerPhone: cleanPhone,
-                    zone: zSel.value,
-                    customerAddress: document.getElementById('ch-address').value.trim(),
-                    adminNote: document.getElementById('ch-note').value.trim(),
-                    items: items,
-                    subtotal: subtotal,
-                    deliveryFee: deliveryFee,
-                    discount: discountVal,
-                    promoCodeUsed: usedPromoCode,
-                    total: finalTotal,
-                    status: 'new',
-                    orderDate: new Date().toLocaleDateString('en-US'),
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    customerName: document.getElementById('ch-name').value.trim(), customerPhone: cleanPhone, zone: zSel.value, customerAddress: document.getElementById('ch-address').value.trim(), adminNote: document.getElementById('ch-note').value.trim(), items: items, subtotal: subtotal, deliveryFee: deliveryFee, discount: discountVal, promoCodeUsed: usedPromoCode, total: finalTotal, status: 'new', orderDate: new Date().toLocaleDateString('en-US'), createdAt: firebase.firestore.FieldValue.serverTimestamp()
                 };
 
-                // إرسال لفايربيس
                 await db.collection('orders').add(orderData);
-                
-                // تحديث الإحصائيات وأرشيف العميل
                 await db.collection('inventory').doc('stats').update({ sales: firebase.firestore.FieldValue.increment(finalTotal), orders: firebase.firestore.FieldValue.increment(1) });
                 await db.collection('customers').doc(cleanPhone).set({ name: orderData.customerName, phone: cleanPhone, zone: orderData.zone, address: orderData.customerAddress, ordersCount: firebase.firestore.FieldValue.increment(1), totalSpent: firebase.firestore.FieldValue.increment(finalTotal), lastOrder: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
 
-                // لو استخدم كود خصم، نقلل عدد الاستخدامات المتبقية
                 if(currentPromo && currentPromo.usesLeft !== null) {
                     const pIndex = storeSettings.promoCodes.findIndex(c => c.code === currentPromo.code);
-                    if(pIndex !== -1) {
-                        storeSettings.promoCodes[pIndex].usesLeft -= 1;
-                        await db.collection("inventory").doc("settings").update({ promoCodes: storeSettings.promoCodes });
-                    }
+                    if(pIndex !== -1) { storeSettings.promoCodes[pIndex].usesLeft -= 1; await db.collection("inventory").doc("settings").update({ promoCodes: storeSettings.promoCodes }); }
                 }
 
-                // نظام الولاء التلقائي (توليد كود للعميل)
                 if(storeSettings.rewardActive) {
                     const genCount = storeSettings.promoCodes ? storeSettings.promoCodes.filter(c => c.isAuto).length : 0;
                     if(!storeSettings.rewardMaxGenerations || genCount < storeSettings.rewardMaxGenerations) {
                         const newCode = "GFT-" + Math.floor(100 + Math.random() * 900);
                         const newPromo = { code: newCode, type: storeSettings.rewardType || 'fixed', discount: storeSettings.rewardValue || 0, minOrder: 0, maxDiscount: storeSettings.rewardMaxDiscount || 0, isAuto: true, usesLeft: 1, customerPhone: cleanPhone };
-                        if(!storeSettings.promoCodes) storeSettings.promoCodes = [];
-                        storeSettings.promoCodes.unshift(newPromo);
+                        if(!storeSettings.promoCodes) storeSettings.promoCodes = []; storeSettings.promoCodes.unshift(newPromo);
                         await db.collection("inventory").doc("settings").update({ promoCodes: storeSettings.promoCodes });
                         
-                        // عرض الكود للعميل في شاشة النجاح
-                        document.getElementById('success-loyalty-box').classList.remove('hidden');
-                        setTimeout(() => document.getElementById('success-loyalty-box').classList.remove('scale-0'), 100);
-                        document.getElementById('success-loyalty-msg').innerText = storeSettings.autoPromoModalMsg || 'هدية مخصوصة ليك';
-                        document.getElementById('success-promo-code').innerText = newCode;
+                        document.getElementById('success-loyalty-box').classList.remove('hidden'); setTimeout(() => document.getElementById('success-loyalty-box').classList.remove('scale-0'), 100);
+                        document.getElementById('success-loyalty-msg').innerText = storeSettings.autoPromoModalMsg || 'هدية مخصوصة ليك'; document.getElementById('success-promo-code').innerText = newCode;
                     }
                 }
 
-                closeCart();
-                document.getElementById('success-screen').classList.remove('hidden');
-                document.getElementById('success-screen').style.display = 'flex';
-                cart = {}; // تصفير السلة
-
+                closeCart(); document.getElementById('success-screen').classList.remove('hidden'); document.getElementById('success-screen').style.display = 'flex'; cart = {};
             } catch (e) {
-                console.log(e);
-                alert("حدث خطأ أثناء إرسال الطلب، تأكد من اتصالك بالإنترنت وحاول مرة أخرى.");
-                btn.innerHTML = origHtml; btn.disabled = false;
+                console.log(e); alert("حدث خطأ أثناء إرسال الطلب، تأكد من اتصالك بالإنترنت وحاول مرة أخرى."); btn.innerHTML = origHtml; btn.disabled = false;
             }
         }
 
-        // === 8. نظام الإشعارات الكاذبة ===
         function triggerFakeNotification() {
             if(!storeSettings.liveNotiActive) return;
-            const names = storeSettings.liveNotiNames || [];
-            const places = storeSettings.liveNotiPlaces || [];
+            const names = storeSettings.liveNotiNames || []; const places = storeSettings.liveNotiPlaces || [];
             if(names.length === 0 || places.length === 0) return;
             
-            const randomName = names[Math.floor(Math.random() * names.length)];
-            const randomPlace = places[Math.floor(Math.random() * places.length)];
-            
+            const randomName = names[Math.floor(Math.random() * names.length)]; const randomPlace = places[Math.floor(Math.random() * places.length)];
             const activeProducts = Object.values(storeProducts).filter(p => !p.isExtra);
             const randomProduct = activeProducts.length > 0 ? activeProducts[Math.floor(Math.random() * activeProducts.length)].name : 'طلب';
             const randomQty = Math.floor(Math.random() * 3) + 1;
 
             const notiEl = document.getElementById('live-noti');
             document.getElementById('live-noti-text').innerText = `${randomName} من ${randomPlace} قام بشراء ${randomQty} ${randomProduct}`;
-            
-            notiEl.classList.remove('-translate-x-[150%]');
-            
-            setTimeout(() => {
-                notiEl.classList.add('-translate-x-[150%]');
-            }, 4000);
+            notiEl.classList.remove('-translate-x-[150%]'); setTimeout(() => { notiEl.classList.add('-translate-x-[150%]'); }, 4000);
         }
-
-        // تشغيل الإشعارات كل فترة عشوائية (بين 15 و 45 ثانية)
-        setInterval(() => {
-            if(Math.random() > 0.4) triggerFakeNotification();
-        }, Math.floor(Math.random() * 30000) + 15000);
+        setInterval(() => { if(Math.random() > 0.4) triggerFakeNotification(); }, Math.floor(Math.random() * 30000) + 15000);
 
     </script>
 </body>
