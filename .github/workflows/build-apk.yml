@@ -25,11 +25,10 @@ jobs:
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: subosito/android-action@v2
-        with:
-          api-level: 34
-          build-tools: 34.0.0
-          cmdline-tools: latest
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK Licenses
+        run: yes | sdkmanager --licenses || true
 
       - name: Install Dependencies
         run: npm install
