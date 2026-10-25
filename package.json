@@ -1,0 +1,15 @@
+{
+  "name": "sman-crm-app",
+  "version": "1.0.0",
+  "description": "سمان ههيا CRM",
+  "scripts": {
+    "build": "echo 'No web build required'"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/android": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.0.0"
+  }
+}
