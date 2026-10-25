@@ -1,4 +1,3 @@
-
 name: Build Android APK
 
 on:
@@ -26,25 +25,25 @@ jobs:
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: subosito/android-action@v2
         with:
-          accept-license: true
+          api-level: 34
+          build-tools: 34.0.0
+          cmdline-tools: latest
 
       - name: Install Dependencies
         run: npm install
 
       - name: Add Capacitor Android Platform
-        run: npx cap add android
+        run: npx cap add android || true
 
       - name: Sync Web Assets
         run: npx cap sync android
 
-      - name: Grant Execute Permission for Gradle
-        run: chmod +x android/gradlew
-
       - name: Build Debug APK
         run: |
           cd android
+          chmod +x gradlew
           ./gradlew assembleDebug
 
       - name: Upload APK Artifact
