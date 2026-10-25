@@ -7448,6 +7448,475 @@ window.deleteProductUI = async (id) => {
         
 
     </script>
+<!-- ================================================================= -->
+<!-- 📡 كبسولة رادار المناديب اللحظي (غرفة العمليات وتتبع خطوط السير) 📡 -->
+<!-- ================================================================= -->
+<script>
+(function initDriversRadarModule() {
+    let radarStatusFilter = 'all'; // all | dispatched | no_answer | completed
+    let radarDriverFilter = 'all';
+    let radarShowSupplied = false;
+
+    function injectRadarDOM() {
+        // 1. زرع زرار "رادار المناديب" في القائمة الجانبية فوق "تقفيل المناديب"
+        const reconBtn = document.querySelector('button[onclick*="switchTab(\'reconciliation\'"]');
+        if (reconBtn && !document.getElementById('nav-btn-radar')) {
+            const radarBtn = document.createElement('button');
+            radarBtn.id = 'nav-btn-radar';
+            radarBtn.setAttribute('onclick', "switchTab('radar', this)");
+            radarBtn.className = "nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-800/50 hover:text-white text-emerald-100/70 transition-all";
+            radarBtn.innerHTML = `<i class="fa-solid fa-satellite-dish w-7 text-center text-amber-400 animate-pulse"></i> رادار المناديب`;
+            reconBtn.parentNode.insertBefore(radarBtn, reconBtn);
+        }
+
+        // 2. زرع شاشة الرادار داخل مساحة العرض الرئيسية
+        const reconView = document.getElementById('view-reconciliation');
+        if (reconView && !document.getElementById('view-radar')) {
+            const radarView = document.createElement('div');
+            radarView.id = 'view-radar';
+            radarView.className = 'page-view h-full flex flex-col space-y-5 max-w-7xl mx-auto';
+            radarView.innerHTML = `
+                <!-- الهيدر وأدوات الفلترة السريعة -->
+                <div class="bg-white p-5 rounded-[1.5rem] shadow-soft border border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 shrink-0">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full bg-emerald-500 animate-ping"></span>
+                            <h2 class="text-xl font-black text-slate-800"><i class="fa-solid fa-satellite-dish text-brand-primary mr-1"></i> رادار المناديب وخطوط السير الحية</h2>
+                        </div>
+                        <p class="text-xs text-slate-500 font-bold mt-1">متابعة لحظية لكل مندوب: معاه إيه في الشارع، راح لمين، خلّص مين، ومحفظته فيها كام دلوقتي.</p>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                        <select id="radar-driver-select" onchange="window.setRadarDriverFilter(this.value)" class="border border-slate-200 bg-slate-50 rounded-xl px-3 py-2.5 text-xs font-black text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-brand-primary/20">
+                            <option value="all">🛵 كل المناديب</option>
+                        </select>
+
+                        <div class="relative flex-1 sm:w-56">
+                            <i class="fa-solid fa-search absolute right-3.5 top-3 text-slate-400 text-xs"></i>
+                            <input type="search" id="radar-search-input" oninput="window.renderDriversRadarUI()" placeholder="ابحث باسم عميل، منطقة، رقم..." class="w-full pr-9 pl-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold outline-none focus:bg-white focus:ring-2 focus:ring-brand-primary/20">
+                        </div>
+
+                        <label class="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-2.5 rounded-xl text-[11px] font-black text-slate-600 cursor-pointer hover:bg-slate-100">
+                            <input type="checkbox" id="radar-show-supplied" onchange="window.toggleRadarSupplied(this.checked)" class="w-3.5 h-3.5 accent-brand-primary rounded">
+                            إظهار المورّد اليوم
+                        </label>
+                    </div>
+                </div>
+
+                <!-- كروت ملخص الشارع اللحظي -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 shrink-0">
+                    <div class="bg-white p-5 rounded-[1.5rem] border border-slate-100 shadow-soft flex items-center justify-between">
+                        <div>
+                            <p class="text-[11px] font-bold text-slate-400 mb-1">مناديب في الشارع</p>
+                            <h3 id="radar-stat-drivers" class="text-2xl font-black text-slate-800">0</h3>
+                        </div>
+                        <div class="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-lg"><i class="fa-solid fa-users-gear"></i></div>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-[1.5rem] border border-slate-100 shadow-soft flex items-center justify-between">
+                        <div>
+                            <p class="text-[11px] font-bold text-slate-400 mb-1">جاري توصيله الآن</p>
+                            <h3 id="radar-stat-dispatched" class="text-2xl font-black text-blue-600">0</h3>
+                        </div>
+                        <div class="w-11 h-11 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg"><i class="fa-solid fa-motorcycle"></i></div>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-[1.5rem] border border-slate-100 shadow-soft flex items-center justify-between">
+                        <div>
+                            <p class="text-[11px] font-bold text-slate-400 mb-1">تم تسليمه (بالعهدة)</p>
+                            <h3 id="radar-stat-completed" class="text-2xl font-black text-emerald-600">0</h3>
+                        </div>
+                        <div class="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg"><i class="fa-solid fa-check-double"></i></div>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-[1.5rem] border border-amber-200/80 shadow-soft flex items-center justify-between bg-gradient-to-l from-amber-50/40 to-white">
+                        <div>
+                            <p class="text-[11px] font-black text-amber-700 mb-1">صافي كاش مع المناديب</p>
+                            <h3 id="radar-stat-cash" class="text-2xl font-black text-amber-600">0 <span class="text-xs">ج</span></h3>
+                        </div>
+                        <div class="w-11 h-11 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center text-lg"><i class="fa-solid fa-sack-dollar"></i></div>
+                    </div>
+                </div>
+
+                <!-- فلاتر حالة الطلبات داخل الرادار -->
+                <div class="flex gap-2 overflow-x-auto custom-scroll pb-1 shrink-0">
+                    <button onclick="window.setRadarStatusFilter('all')" id="r-tab-all" class="radar-tab bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-black shadow-sm transition-all whitespace-nowrap">كل خط السير</button>
+                    <button onclick="window.setRadarStatusFilter('dispatched')" id="r-tab-dispatched" class="radar-tab bg-white text-slate-600 border border-slate-200 px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap"><i class="fa-solid fa-motorcycle text-indigo-500 mr-1"></i> معاه في الطريق الآن</button>
+                    <button onclick="window.setRadarStatusFilter('completed')" id="r-tab-completed" class="radar-tab bg-white text-slate-600 border border-slate-200 px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap"><i class="fa-solid fa-check-double text-emerald-500 mr-1"></i> راح لمين وخلّص مين</button>
+                    <button onclick="window.setRadarStatusFilter('no_answer')" id="r-tab-no_answer" class="radar-tab bg-white text-slate-600 border border-slate-200 px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap"><i class="fa-solid fa-phone-slash text-purple-500 mr-1"></i> لم يرد / مؤجل</button>
+                </div>
+
+                <!-- حاوية كروت المناديب وخطوط السير -->
+                <div id="radar-drivers-container" class="flex-1 overflow-y-auto custom-scroll space-y-6 pr-1 pb-10"></div>
+            `;
+            reconView.parentNode.insertBefore(radarView, reconView);
+        }
+    }
+
+    window.setRadarStatusFilter = (status) => {
+        radarStatusFilter = status;
+        document.querySelectorAll('.radar-tab').forEach(btn => {
+            btn.className = "radar-tab bg-white text-slate-600 border border-slate-200 px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap";
+        });
+        const activeBtn = document.getElementById('r-tab-' + status);
+        if (activeBtn) {
+            activeBtn.className = "radar-tab bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-black shadow-sm transition-all whitespace-nowrap";
+        }
+        window.renderDriversRadarUI();
+    };
+
+    window.setRadarDriverFilter = (driverVal) => {
+        radarDriverFilter = driverVal;
+        window.renderDriversRadarUI();
+    };
+
+    window.toggleRadarSupplied = (val) => {
+        radarShowSupplied = val;
+        window.renderDriversRadarUI();
+    };
+
+    // التحويل السريع لشاشة تقفيل عهدة مندوب معين
+    window.jumpToDriverRecon = (driverPhone) => {
+        const reconBtn = document.querySelector('button[onclick*="switchTab(\'reconciliation\'"]');
+        if (reconBtn) {
+            window.switchTab('reconciliation', reconBtn);
+            setTimeout(() => {
+                const sel = document.getElementById('recon-driver-select');
+                if (sel) {
+                    sel.value = driverPhone;
+                    if (window.calculateDriverReconciliation) window.calculateDriverReconciliation();
+                }
+            }, 100);
+        }
+    };
+
+    // الدالة الرئيسية لرسم وتحديث رادار المناديب لحظياً
+    window.renderDriversRadarUI = () => {
+        const container = document.getElementById('radar-drivers-container');
+        if (!container) return;
+
+        const nowStr = new Date().toLocaleDateString('en-US');
+        const searchVal = (document.getElementById('radar-search-input')?.value || '').toLowerCase().trim();
+
+        // تحديث قائمة اختيار المناديب
+        const driverSelect = document.getElementById('radar-driver-select');
+        const configuredDrivers = (typeof storeSettings !== 'undefined' && storeSettings.drivers) ? storeSettings.drivers : [];
+        if (driverSelect) {
+            const currentVal = driverSelect.value || 'all';
+            let opts = '<option value="all">🛵 كل المناديب</option>';
+            configuredDrivers.forEach(d => {
+                opts += `<option value="${window.normalizePhone(d.phone)}" ${currentVal === window.normalizePhone(d.phone) ? 'selected' : ''}>${d.name}</option>`;
+            });
+            driverSelect.innerHTML = opts;
+        }
+
+        // تجميع المناديب (المسجلين في الإعدادات + أي مندوب معاه أوردر حي)
+        const driversMap = {};
+        configuredDrivers.forEach(d => {
+            const normP = window.normalizePhone(d.phone);
+            if (!normP && !d.name) return;
+            const key = normP || d.name.trim();
+            driversMap[key] = {
+                key: key,
+                name: d.name || 'مندوب',
+                phone: d.phone || '',
+                normPhone: normP,
+                orders: []
+            };
+        });
+
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+
+        ordersList.forEach(o => {
+            if (o.status === 'trash' || o.isArchived) return;
+            if (!['dispatched', 'no_answer', 'completed'].includes(o.status)) return;
+
+            // إخفاء الأوردرات التي تم توريدها وتقفيل عهدتها إلا لو الأدمن فعل خيار (إظهار المورّد اليوم)
+            if (o.status === 'completed' && o.isSupplied === true) {
+                if (!radarShowSupplied || o.completedAtStr !== nowStr) return;
+            }
+
+            const oDriverPhone = window.normalizePhone(o.driverPhone || '');
+            const oDriverName = (o.driverName || '').trim();
+            if (!oDriverPhone && !oDriverName) return;
+
+            // مطابقة المندوب بالرقم أو الاسم
+            let matchedKey = null;
+            Object.keys(driversMap).forEach(k => {
+                const drv = driversMap[k];
+                if ((oDriverPhone && drv.normPhone === oDriverPhone) || (oDriverName && drv.name.trim() === oDriverName)) {
+                    matchedKey = k;
+                }
+            });
+
+            if (!matchedKey) {
+                matchedKey = oDriverPhone || oDriverName;
+                driversMap[matchedKey] = {
+                    key: matchedKey,
+                    name: oDriverName || 'مندوب توصيل',
+                    phone: o.driverPhone || '',
+                    normPhone: oDriverPhone,
+                    orders: []
+                };
+            }
+
+            driversMap[matchedKey].orders.push(o);
+        });
+
+        // حساب الإحصائيات الكلية للشارع
+        let totalActiveDrivers = 0;
+        let totalDispatchedAll = 0;
+        let totalCompletedAll = 0;
+        let totalNetCashAll = 0;
+
+        let cardsHtml = '';
+
+        Object.values(driversMap).forEach(drv => {
+            // فلترة بالمندوب المحدد
+            if (radarDriverFilter !== 'all' && drv.normPhone !== radarDriverFilter && drv.key !== radarDriverFilter) return;
+
+            let dispatchedOrders = [];
+            let noAnswerOrders = [];
+            let completedOrders = [];
+            let collectedCash = 0;
+            let driverFees = 0;
+
+            drv.orders.forEach(o => {
+                const total = Number(o.total) || 0;
+                const fee = Number(o.deliveryFee) || 0;
+
+                if (o.status === 'dispatched') {
+                    dispatchedOrders.push(o);
+                    totalDispatchedAll++;
+                } else if (o.status === 'no_answer') {
+                    noAnswerOrders.push(o);
+                } else if (o.status === 'completed') {
+                    completedOrders.push(o);
+                    totalCompletedAll++;
+                    if (!o.isSupplied) {
+                        if (o.paymentMethod !== 'online') collectedCash += total;
+                        driverFees += fee;
+                    }
+                }
+            });
+
+            const totalRouteOrders = dispatchedOrders.length + noAnswerOrders.length + completedOrders.length;
+            if (totalRouteOrders === 0) return; // إخفاء المندوب اللي معندوش أي أوردرات حالياً
+
+            totalActiveDrivers++;
+            const netToRemit = Math.max(0, collectedCash - driverFees);
+            totalNetCashAll += netToRemit;
+
+            // فلترة البحث النصي وحالة التبويب للعرض داخل الكارت
+            const filterOrderFn = (o) => {
+                if (radarStatusFilter !== 'all' && o.status !== radarStatusFilter) return false;
+                if (!searchVal) return true;
+                const itemsTxt = (o.items && Array.isArray(o.items)) ? o.items.map(i => i.name).join(' ') : '';
+                const hay = `${o.customerName || ''} ${o.customerPhone || ''} ${o.customerPhone2 || ''} ${o.zone || ''} ${o.customerAddress || ''} ${itemsTxt} ${o.driverNote || ''}`.toLowerCase();
+                return hay.includes(searchVal);
+            };
+
+            const shownDispatched = dispatchedOrders.filter(filterOrderFn);
+            const shownNoAnswer = noAnswerOrders.filter(filterOrderFn);
+            const shownCompleted = completedOrders.filter(filterOrderFn);
+
+            if (searchVal && shownDispatched.length === 0 && shownNoAnswer.length === 0 && shownCompleted.length === 0) return;
+
+            const progressPercent = totalRouteOrders > 0 ? Math.round((completedOrders.length / totalRouteOrders) * 100) : 0;
+            const waPhone = (drv.phone || '').startsWith('0') ? '2' + drv.phone : drv.phone;
+
+            cardsHtml += `
+            <div class="bg-white rounded-[1.75rem] shadow-soft border border-slate-200/80 overflow-hidden">
+                <!-- رأس كارت المندوب + المحفظة -->
+                <div class="p-5 bg-gradient-to-l from-slate-900 via-slate-800 to-emerald-950 text-white">
+                    <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                        <div class="flex items-center gap-3.5">
+                            <div class="w-13 h-13 w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-300 text-xl font-black shrink-0">
+                                <i class="fa-solid fa-motorcycle"></i>
+                            </div>
+                            <div>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <h3 class="text-lg font-black text-white">${drv.name}</h3>
+                                    <span class="text-[11px] bg-white/10 text-emerald-200 px-2.5 py-0.5 rounded-full font-bold" dir="ltr">${drv.phone || ''}</span>
+                                    ${drv.phone ? `
+                                        <a href="tel:${drv.phone}" class="w-7 h-7 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white flex items-center justify-center text-xs transition-transform active:scale-90" title="اتصال بالمندوب"><i class="fa-solid fa-phone"></i></a>
+                                        <a href="https://wa.me/${waPhone}" target="_blank" class="w-7 h-7 rounded-full bg-[#25D366] hover:bg-green-500 text-white flex items-center justify-center text-sm transition-transform active:scale-90" title="واتساب المندوب"><i class="fa-brands fa-whatsapp"></i></a>
+                                    ` : ''}
+                                </div>
+                                <!-- شريط إنجاز خط السير -->
+                                <div class="mt-2 flex items-center gap-3">
+                                    <div class="w-40 sm:w-56 h-2 bg-white/10 rounded-full overflow-hidden">
+                                        <div class="h-full bg-emerald-400 rounded-full transition-all duration-500" style="width: ${progressPercent}%"></div>
+                                    </div>
+                                    <span class="text-[11px] font-black text-emerald-300">أنجز ${completedOrders.length} من ${totalRouteOrders} (${progressPercent}%)</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- محفظة المندوب اللحظية -->
+                        <div class="grid grid-cols-3 sm:flex items-center gap-2 w-full lg:w-auto bg-white/5 p-2.5 rounded-2xl border border-white/10">
+                            <div class="px-3 py-1 text-center border-l border-white/10">
+                                <span class="block text-[10px] text-slate-300 font-bold">كاش محصّل</span>
+                                <span class="text-sm font-black text-white">${collectedCash.toLocaleString()} ج</span>
+                            </div>
+                            <div class="px-3 py-1 text-center border-l border-white/10">
+                                <span class="block text-[10px] text-slate-300 font-bold">عمولة المندوب</span>
+                                <span class="text-sm font-black text-sky-300">${driverFees.toLocaleString()} ج</span>
+                            </div>
+                            <div class="px-3 py-1 text-center">
+                                <span class="block text-[10px] text-amber-300 font-black">صافي مطلوب منّه</span>
+                                <span class="text-base font-black text-amber-400">${netToRemit.toLocaleString()} ج</span>
+                            </div>
+                            ${drv.phone ? `
+                            <button onclick="window.jumpToDriverRecon('${drv.phone}')" class="col-span-3 sm:col-span-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-3.5 py-2 rounded-xl text-xs transition-all shadow-md whitespace-nowrap">
+                                <i class="fa-solid fa-hand-holding-dollar mr-1"></i> تقفيل العهدة
+                            </button>` : ''}
+                        </div>
+                    </div>
+
+                    <!-- عدادات سريعة تحت الهيدر -->
+                    <div class="flex flex-wrap gap-2 mt-4 pt-3 border-t border-white/10 text-xs font-black">
+                        <span class="bg-blue-500/20 text-blue-200 border border-blue-400/30 px-3 py-1 rounded-lg">🛵 في الطريق الآن: ${dispatchedOrders.length}</span>
+                        <span class="bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 px-3 py-1 rounded-lg">✅ سلّم وخلّص: ${completedOrders.length}</span>
+                        <span class="bg-purple-500/20 text-purple-200 border border-purple-400/30 px-3 py-1 rounded-lg">📵 لم يرد: ${noAnswerOrders.length}</span>
+                    </div>
+                </div>
+
+                <!-- تفاصيل خط السير (3 أقسام واضحة) -->
+                <div class="p-5 bg-slate-50/60 space-y-5">
+                    ${renderRadarSection('🛵 معاه في الطريق الآن (جاري التوصيل)', 'blue', shownDispatched)}
+                    ${renderRadarSection('📵 عملاء لم ترد على المندوب (تحتاج تدخل)', 'purple', shownNoAnswer)}
+                    ${renderRadarSection('✅ راح لمين وخلّص مين (تم التسليم)', 'emerald', shownCompleted)}
+                </div>
+            </div>`;
+        });
+
+        // تحديث الكروت العلوية
+        const elDrv = document.getElementById('radar-stat-drivers');
+        if (elDrv) elDrv.innerText = totalActiveDrivers;
+        const elDisp = document.getElementById('radar-stat-dispatched');
+        if (elDisp) elDisp.innerText = totalDispatchedAll;
+        const elComp = document.getElementById('radar-stat-completed');
+        if (elComp) elComp.innerText = totalCompletedAll;
+        const elCash = document.getElementById('radar-stat-cash');
+        if (elCash) elCash.innerHTML = `${totalNetCashAll.toLocaleString()} <span class="text-xs">ج</span>`;
+
+        container.innerHTML = cardsHtml || `
+            <div class="bg-white p-14 rounded-[2rem] border-2 border-dashed border-slate-200 text-center">
+                <div class="w-16 h-16 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mx-auto mb-3 text-2xl">
+                    <i class="fa-solid fa-motorcycle"></i>
+                </div>
+                <h4 class="font-black text-slate-700 text-base mb-1">لا توجد خطوط سير نشطة حالياً في الشارع</h4>
+                <p class="text-xs text-slate-400 font-bold">بمجرد توجيه الطلبات للمناديب من قسم (الطلبات الحية)، ستظهر حركة كل مندوب هنا لحظة بلحظة.</p>
+            </div>`;
+    };
+
+    function renderRadarSection(title, color, ordersArr) {
+        if (!ordersArr || ordersArr.length === 0) return '';
+
+        const rowsHtml = ordersArr.map((o, idx) => {
+            const itemsBadges = (o.items && Array.isArray(o.items))
+                ? o.items.map(i => `<span class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-0.5 rounded-md text-[10px] font-black">${i.quantity}x ${i.name}</span>`).join(' ')
+                : '';
+
+            const isOnline = o.paymentMethod === 'online';
+            const priceBadge = isOnline
+                ? `<span class="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-lg text-[10px] font-black">خالص أونلاين ✅</span>`
+                : `<span class="bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-1 rounded-lg text-xs font-black">${o.total || 0} ج</span>`;
+
+            // استخراج وقت التسليم الفعلي لو الطلب مكتمل
+            let timeInfoHtml = '';
+            if (o.status === 'completed') {
+                const cTime = o.completedTimeDisplay || (o.completedAt ? new Date(o.completedAt.toMillis()).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : (o.completedAtStr || 'تم التسليم'));
+                timeInfoHtml = `<span class="bg-emerald-500 text-white px-2.5 py-0.5 rounded-lg text-[10px] font-black shadow-sm"><i class="fa-solid fa-clock mr-1"></i> سُلّم: ${cTime}</span>`;
+                if (o.isSupplied) {
+                    timeInfoHtml += ` <span class="bg-slate-200 text-slate-600 px-2 py-0.5 rounded text-[9px] font-black">تم التوريد</span>`;
+                }
+            }
+
+            // آخر ملاحظة كتبها المندوب بالمايك أو الكيبورد
+            const latestDriverNote = o.driverNote ? o.driverNote.split('\n---\n').pop() : '';
+
+            return `
+            <div class="bg-white p-3.5 rounded-2xl border border-slate-200/70 shadow-sm hover:border-${color}-400 transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                <div class="space-y-1.5 flex-1">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="w-6 h-6 rounded-lg bg-${color}-50 text-${color}-700 border border-${color}-200 text-[11px] font-black flex items-center justify-center">${idx + 1}</span>
+                        <span onclick="window.openCustomerCard && window.openCustomerCard('${o.customerPhone}')" class="font-black text-slate-800 text-sm cursor-pointer hover:text-brand-primary">${o.customerName || 'عميل'}</span>
+                        <a href="tel:${o.customerPhone}" class="text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-emerald-500 hover:text-white px-2 py-0.5 rounded-md transition-colors" dir="ltr"><i class="fa-solid fa-phone text-[9px] mr-1"></i>${o.customerPhone || ''}</a>
+                        ${o.customerPhone2 ? `<a href="tel:${o.customerPhone2}" class="text-[10px] font-black text-purple-600 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-md" dir="ltr">بديل: ${o.customerPhone2}</a>` : ''}
+                        ${timeInfoHtml}
+                    </div>
+
+                    <p class="text-[11px] font-bold text-slate-500">
+                        <i class="fa-solid fa-location-dot text-indigo-500 mr-1"></i>
+                        <strong class="text-slate-700">${o.zone || 'بدون منطقة'}</strong> ${o.customerAddress ? ' - ' + o.customerAddress : ''}
+                    </p>
+
+                    <div class="flex flex-wrap gap-1 pt-0.5">${itemsBadges}</div>
+
+                    ${latestDriverNote ? `
+                    <div class="mt-1.5 bg-blue-50/90 border border-blue-200/80 text-blue-900 px-3 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5">
+                        <i class="fa-solid fa-microphone-lines text-blue-600"></i>
+                        <span>ملاحظة المندوب: ${latestDriverNote}</span>
+                    </div>` : ''}
+                </div>
+
+                <div class="flex sm:flex-col items-center sm:items-end justify-between w-full md:w-auto gap-2 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 shrink-0">
+                    ${priceBadge}
+                    <div class="flex items-center gap-1.5">
+                        <button onclick="window.openOrderTracking && window.openOrderTracking('${o.id}')" class="bg-sky-50 text-sky-600 hover:bg-sky-600 hover:text-white px-2.5 py-1 rounded-lg text-[10px] font-black border border-sky-200 transition-colors" title="السجل الزمني للطلب"><i class="fa-solid fa-route"></i> السجل</button>
+                        <button onclick="window.openEditOrderModal && window.openEditOrderModal('${o.id}')" class="bg-slate-100 text-slate-700 hover:bg-slate-800 hover:text-white px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors"><i class="fa-solid fa-pen"></i></button>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+
+        return `
+        <div class="space-y-2.5">
+            <h4 class="text-xs font-black text-${color}-700 flex items-center gap-1.5 px-1">
+                <span>${title}</span>
+                <span class="bg-${color}-100 text-${color}-800 px-2 py-0.5 rounded-full text-[10px]">${ordersArr.length}</span>
+            </h4>
+            <div class="space-y-2">${rowsHtml}</div>
+        </div>`;
+    }
+
+    // ربط الرادار بالتبديل بين التبويبات والتحديث اللحظي لفايربيز
+    function hookIntoCRM() {
+        injectRadarDOM();
+
+        const origSwitchTab = window.switchTab;
+        if (typeof origSwitchTab === 'function' && !window._radarSwitchHooked) {
+            window._radarSwitchHooked = true;
+            window.switchTab = function(tabId, btnElement, isFromBackButton) {
+                origSwitchTab(tabId, btnElement, isFromBackButton);
+                if (tabId === 'radar') {
+                    window.renderDriversRadarUI();
+                }
+            };
+        }
+
+        const origSchedule = window.scheduleSystemRender;
+        if (typeof origSchedule === 'function' && !window._radarRenderHooked) {
+            window._radarRenderHooked = true;
+            window.scheduleSystemRender = function() {
+                origSchedule();
+                if (document.getElementById('view-radar')?.classList.contains('active')) {
+                    window.renderDriversRadarUI();
+                }
+            };
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', hookIntoCRM);
+    } else {
+        hookIntoCRM();
+    }
+    setTimeout(hookIntoCRM, 1000);
+})();
+</script>
 
 </body>
 </html>
