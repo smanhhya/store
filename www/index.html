@@ -676,17 +676,37 @@
                             <input type="text" id="wb-footer-msg" placeholder="مثال: تشرفنا بخدمتكم.. بالهنا والشفا من سمان ههيا 🤍" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20">
                         </div>
                         <div>
-                            <label class="text-xs font-bold text-slate-600 block mb-2">رابط صورة اللوجو (اتركه فارغاً لاستخدام لوجو سمان ههيا المرسوم)</label>
-                            <input type="text" id="wb-logo-url" dir="ltr" placeholder="https://... أو logo.png" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20 text-left">
+                            <label class="text-xs font-bold text-slate-600 block mb-2">لوجو البوليصة (ارفع صورة من جهازك أو اتركه للوجو التلقائي)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="file" id="wb-logo-file" accept="image/*" class="hidden" onchange="handleWaybillLogoUpload(event)">
+                                <button type="button" onclick="document.getElementById('wb-logo-file').click()" class="bg-brand-primary hover:bg-emerald-800 text-white px-3.5 py-2.5 rounded-xl text-xs font-black shadow-sm flex items-center gap-1.5 shrink-0 transition-all active:scale-95">
+                                    <i class="fa-solid fa-upload"></i> اختر صورة اللوجو
+                                </button>
+                                <button type="button" onclick="clearWaybillLogo()" class="bg-red-50 hover:bg-red-500 text-red-600 hover:text-white px-3 py-2.5 rounded-xl text-xs font-black border border-red-100 shrink-0 transition-all" title="مسح الصورة والرجوع للوجو المرسوم">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>
+                                <div id="wb-logo-preview-box" class="w-10 h-10 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden shrink-0">
+                                    <i class="fa-solid fa-kiwi-bird text-slate-400"></i>
+                                </div>
+                                <input type="hidden" id="wb-logo-url">
+                            </div>
                         </div>
                         <div>
                             <label class="text-xs font-bold text-slate-600 block mb-2">مقاس استيكر الطابعة الحرارية (Deli 750W)</label>
-                            <select id="wb-paper-size" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-black text-slate-700 bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20">
-                                <option value="100x100">مقاس 10×10 سم (100x100 mm) - قياسي</option>
-                                <option value="100x150">مقاس 10×15 سم (100x150 mm) - بوليصة شحن كبيرة</option>
-                                <option value="80xAuto">عرض 8 سم مرن (80mm Roll) - رول حراري مستمر</option>
-                            </select>
+                            <div class="flex gap-2">
+                                <select id="wb-paper-size" onchange="toggleCustomPaperWidth()" class="flex-1 border border-slate-200 rounded-xl p-3 text-xs font-black text-slate-700 bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20">
+                                    <option value="100x100">مقاس 10×10 سم (100x100 مم)</option>
+                                    <option value="100x150">مقاس 10×15 سم (100x150 مم)</option>
+                                    <option value="80xAuto">مقاس 8 سم (80 مم)</option>
+                                    <option value="70xAuto">مقاس 7 سم (70 مم - وسط)</option>
+                                    <option value="60xAuto">مقاس 6 سم (60 مم - صغير)</option>
+                                    <option value="50xAuto">مقاس 5 سم (50 مم - ميني)</option>
+                                    <option value="custom">📏 مقاس آخر (اكتب العرض بالمللي)</option>
+                                </select>
+                                <input type="number" id="wb-custom-width" placeholder="مثلاً: 75" class="hidden w-24 border border-amber-300 bg-amber-50 rounded-xl p-2.5 text-xs font-black text-center text-slate-800 outline-none focus:ring-2 focus:ring-amber-400" title="اكتب عرض الورقة بالمللي متر (السنتي = 10 مم، يعني 7 سم تكتب 70)">
+                            </div>
                         </div>
+
                     </div>
 
                     <div class="flex flex-wrap items-center gap-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
@@ -7896,7 +7916,70 @@ window.deleteProductUI = async (id) => {
         // 🖨️ منظومة طباعة بوالص الشحن والباركود الحرارية (Deli DL-750W) 🖨️
         // =========================================================================
 
-        // 1. ربط إعدادات البوليصة تلقائياً مع دوال الإعدادات الأصلية بدون المساس بها
+        // دالة ضغط وتحويل صورة اللوجو من الجهاز مباشرة بدون الحاجة لأي روابط خارجية
+        window.handleWaybillLogoUpload = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const maxDim = 220; // حجم مثالي جداً وواضح للطابعة الحرارية وخفيف على الداتابيز
+                    let w = img.width;
+                    let h = img.height;
+                    if (w > h) {
+                        if (w > maxDim) { h = Math.round(h * (maxDim / w)); w = maxDim; }
+                    } else {
+                        if (h > maxDim) { w = Math.round(w * (maxDim / h)); h = maxDim; }
+                    }
+                    canvas.width = w;
+                    canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillRect(0, 0, w, h);
+                    ctx.drawImage(img, 0, 0, w, h);
+                    const dataUrl = canvas.toDataURL('image/png');
+                    
+                    document.getElementById('wb-logo-url').value = dataUrl;
+                    storeSettings.waybillLogoUrl = dataUrl;
+                    window.updateWaybillLogoPreview(dataUrl);
+                    alert("✅ تم تجهيز اللوجو بنجاح! اضغط على زرار (حفظ التعديلات) فوق لحفظه دائماً.");
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        window.clearWaybillLogo = () => {
+            document.getElementById('wb-logo-url').value = '';
+            if (document.getElementById('wb-logo-file')) document.getElementById('wb-logo-file').value = '';
+            storeSettings.waybillLogoUrl = '';
+            window.updateWaybillLogoPreview('');
+        };
+
+        window.updateWaybillLogoPreview = (url) => {
+            const box = document.getElementById('wb-logo-preview-box');
+            if (!box) return;
+            if (url) {
+                box.innerHTML = `<img src="${url}" class="w-full h-full object-contain">`;
+            } else {
+                box.innerHTML = `<i class="fa-solid fa-kiwi-bird text-slate-400"></i>`;
+            }
+        };
+
+        window.toggleCustomPaperWidth = () => {
+            const sel = document.getElementById('wb-paper-size');
+            const customInp = document.getElementById('wb-custom-width');
+            if (!sel || !customInp) return;
+            if (sel.value === 'custom') {
+                customInp.classList.remove('hidden');
+            } else {
+                customInp.classList.add('hidden');
+            }
+        };
+
+        // 1. ربط إعدادات البوليصة تلقائياً مع دوال الإعدادات الأصلية
         const _origRenderSettingsUI = renderSettingsUI;
         renderSettingsUI = function() {
             _origRenderSettingsUI();
@@ -7904,7 +7987,12 @@ window.deleteProductUI = async (id) => {
                 document.getElementById('wb-slogan').value = storeSettings.waybillSlogan || 'طازج من مزارعنا لمائدتك';
                 document.getElementById('wb-footer-msg').value = storeSettings.waybillFooterMsg || 'تشرفنا بخدمتكم.. بالهنا والشفا من سمان ههيا 🤍';
                 document.getElementById('wb-logo-url').value = storeSettings.waybillLogoUrl || '';
+                window.updateWaybillLogoPreview(storeSettings.waybillLogoUrl || '');
                 document.getElementById('wb-paper-size').value = storeSettings.waybillPaperSize || '100x100';
+                if (document.getElementById('wb-custom-width')) {
+                    document.getElementById('wb-custom-width').value = storeSettings.waybillCustomWidth || 70;
+                }
+                window.toggleCustomPaperWidth();
                 document.getElementById('wb-show-barcode').checked = storeSettings.waybillShowBarcode !== false;
                 document.getElementById('wb-show-breakdown').checked = storeSettings.waybillShowBreakdown !== false;
                 document.getElementById('wb-show-driver-note').checked = storeSettings.waybillShowDriverNote !== false;
@@ -7918,6 +8006,9 @@ window.deleteProductUI = async (id) => {
                 storeSettings.waybillFooterMsg = document.getElementById('wb-footer-msg').value.trim() || 'تشرفنا بخدمتكم.. بالهنا والشفا من سمان ههيا 🤍';
                 storeSettings.waybillLogoUrl = document.getElementById('wb-logo-url').value.trim();
                 storeSettings.waybillPaperSize = document.getElementById('wb-paper-size').value || '100x100';
+                if (document.getElementById('wb-custom-width')) {
+                    storeSettings.waybillCustomWidth = parseInt(document.getElementById('wb-custom-width').value) || 70;
+                }
                 storeSettings.waybillShowBarcode = document.getElementById('wb-show-barcode').checked;
                 storeSettings.waybillShowBreakdown = document.getElementById('wb-show-breakdown').checked;
                 storeSettings.waybillShowDriverNote = document.getElementById('wb-show-driver-note').checked;
@@ -7949,15 +8040,15 @@ window.deleteProductUI = async (id) => {
                 customerPhone: '01208027294',
                 customerPhone2: '01000000000',
                 zone: 'ههيا',
-                customerAddress: 'شارع الجمهورية - بجوار صيدلية الشفاء - الدور الثالث',
-                batchName: 'دفعة الخميس الممتازة',
+                customerAddress: 'شارع الجمهورية - بجوار صيدلية الشفاء',
+                batchName: 'دفعة الخميس',
                 orderDate: new Date().toLocaleDateString('en-US'),
                 paymentMethod: 'cash',
                 subtotal: 340,
                 deliveryFee: 20,
                 discount: 10,
                 total: 350,
-                driverNote: 'العميل هينزل يستلم، رن عليه قبل الوصول بـ 5 دقائق',
+                driverNote: 'العميل هينزل يستلم، رن عليه قبل الوصول',
                 items: [
                     { name: 'طبق جامبو (350-400 جم)', quantity: 2, price: 110 },
                     { name: 'طبق سبشيال (400-450 جم)', quantity: 1, price: 120 }
@@ -7966,7 +8057,7 @@ window.deleteProductUI = async (id) => {
             window.openWaybillPrintWindow([sampleOrder], true);
         };
 
-        // 5. المحرك الرئيسي لتوليد صفحة البوالص والباركود الحراري
+        // 5. المحرك الذكي لتوليد البوليصة المتجاوبة مع كل المقاسات (10سم، 8سم، 7سم، 6سم، 5سم)
         window.openWaybillPrintWindow = (ordersList, isPreviewFromSettings = false) => {
             const storeName = storeSettings.storeName || 'سمان ههيا';
             const storePhone = storeSettings.storePhone || '01208027294';
@@ -7987,6 +8078,10 @@ window.deleteProductUI = async (id) => {
                 ? document.getElementById('wb-paper-size').value
                 : (storeSettings.waybillPaperSize || '100x100');
 
+            const customWidthVal = (isPreviewFromSettings && document.getElementById('wb-custom-width'))
+                ? (parseInt(document.getElementById('wb-custom-width').value) || 70)
+                : (storeSettings.waybillCustomWidth || 70);
+
             const showBarcode = (isPreviewFromSettings && document.getElementById('wb-show-barcode'))
                 ? document.getElementById('wb-show-barcode').checked
                 : (storeSettings.waybillShowBarcode !== false);
@@ -7999,28 +8094,50 @@ window.deleteProductUI = async (id) => {
                 ? document.getElementById('wb-show-driver-note').checked
                 : (storeSettings.waybillShowDriverNote !== false);
 
-            // ضبط المقاس للطابعة الحرارية Deli 750W
-            let pageWidth = '100mm';
+            // حساب العرض والخطوط أوتوماتيك حسب مقاس البكرة (سواء 10 أو 8 أو 7 أو 6 أو 5 سم)
+            let widthMm = 100;
             let pageSizeCss = '100mm 100mm';
+
             if (paperSize === '100x150') {
-                pageWidth = '100mm';
-                pageSizeCss = '100mm 150mm';
+                widthMm = 100; pageSizeCss = '100mm 150mm';
             } else if (paperSize === '80xAuto') {
-                pageWidth = '80mm';
-                pageSizeCss = '80mm auto';
+                widthMm = 80; pageSizeCss = '80mm auto';
+            } else if (paperSize === '70xAuto') {
+                widthMm = 70; pageSizeCss = '70mm auto';
+            } else if (paperSize === '60xAuto') {
+                widthMm = 60; pageSizeCss = '60mm auto';
+            } else if (paperSize === '50xAuto') {
+                widthMm = 50; pageSizeCss = '50mm auto';
+            } else if (paperSize === 'custom') {
+                widthMm = customWidthVal < 30 ? customWidthVal * 10 : customWidthVal; // لو كتب 7 يحولها لـ 70 مم أوتوماتيك!
+                pageSizeCss = `${widthMm}mm auto`;
             }
 
-            // لوجو سمان ههيا المرسوم بدقة SVG للطابعات الحرارية (أو الصورة المرفوعة)
+            // تحجيم ذكي للخطوط واللوجو والباركود لو الاستيكر صغير (7 سم أو 6 سم أو 5 سم)
+            const isSmall = widthMm <= 72;
+            const isTiny = widthMm <= 62;
+
+            const titleFont = isTiny ? '11.5pt' : (isSmall ? '13pt' : '16pt');
+            const custNameFont = isTiny ? '10.5pt' : (isSmall ? '11.5pt' : '13pt');
+            const phoneFont = isTiny ? '9.5pt' : (isSmall ? '10.5pt' : '11.5pt');
+            const addrFont = isTiny ? '8pt' : (isSmall ? '8.5pt' : '9.5pt');
+            const tableFont = isTiny ? '8pt' : (isSmall ? '8.5pt' : '9.5pt');
+            const codFont = isTiny ? '10pt' : (isSmall ? '11pt' : '13pt');
+            const padMm = isTiny ? '2mm' : (isSmall ? '2.5mm' : '3.5mm');
+            const logoSize = isTiny ? '28px' : (isSmall ? '32px' : '40px');
+            const barcodeHeight = isTiny ? 22 : (isSmall ? 25 : 28);
+            const barcodeWidth = isTiny ? 1.2 : (isSmall ? 1.4 : 1.7);
+
+            // اللوجو (صورة مرفوعة أو لوجو مرسوم)
             const brandLogoHtml = logoUrl 
-                ? `<img src="${logoUrl}" alt="${storeName}" style="max-height: 42px; max-width: 55px; object-fit: contain; filter: grayscale(100%) contrast(200%);">`
-                : `<div class="svg-logo-box">
-                    <svg viewBox="0 0 64 64" width="34" height="34" fill="#000">
+                ? `<img src="${logoUrl}" alt="${storeName}" style="width: ${logoSize}; height: ${logoSize}; object-fit: contain; filter: grayscale(100%) contrast(180%); border: 1.5px solid #000; border-radius: 6px; padding: 1px; background: #fff;">`
+                : `<div class="svg-logo-box" style="width: ${logoSize}; height: ${logoSize};">
+                    <svg viewBox="0 0 64 64" width="80%" height="80%" fill="#000">
                         <path d="M52 18c-3.5 0-6.4 2.2-7.5 5.3-4.8-.9-9.8.6-13.3 4.1l-2.8 2.8c-2.6-1.5-5.7-2.2-8.9-1.8-6.1.8-11 5.7-11.8 11.8-.2 1.8.8 3.5 2.5 4.1 1.1.4 2.3.6 3.5.6h21.8c8.8 0 16-7.2 16-16v-2.1l4.9-2.5c1.2-.6 1.6-2.2.8-3.3-1.2-1.8-3.1-3-5.2-3zm-2 6c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2z"/>
                         <path d="M22 47l-3 7h-4l2-7h5zm12 0l-2 7h-4l1-7h5z"/>
                     </svg>
                    </div>`;
 
-            // بناء كروت البوالص لكل طلب
             const labelsHtml = ordersList.map((o, idx) => {
                 const shortCode = (o.id || '000000').toString().slice(-6).toUpperCase();
                 const barcodeValue = window.normalizePhone(o.customerPhone) || shortCode;
@@ -8044,14 +8161,13 @@ window.deleteProductUI = async (id) => {
 
                 return `
                 <div class="waybill-sheet">
-                    <!-- 1. رأس البوليصة واللوجو -->
                     <div class="wb-header">
                         <div class="wb-brand">
                             ${brandLogoHtml}
                             <div>
                                 <div class="wb-title" contenteditable="true">${storeName}</div>
                                 <div class="wb-slogan" contenteditable="true">${slogan}</div>
-                                <div class="wb-store-phone" dir="ltr">واتساب: ${storePhone}</div>
+                                <div class="wb-store-phone" dir="ltr">${storePhone}</div>
                             </div>
                         </div>
                         <div class="wb-meta">
@@ -8061,11 +8177,9 @@ window.deleteProductUI = async (id) => {
                         </div>
                     </div>
 
-                    <!-- 2. بيانات العميل والعنوان -->
                     <div class="wb-customer-box">
                         <div class="wb-cust-row">
-                            <span class="wb-label">العميل:</span>
-                            <span class="wb-cust-name" contenteditable="true">${o.customerName || 'عميل سمان ههيا'}</span>
+                            <span class="wb-cust-name" contenteditable="true">👤 ${o.customerName || 'عميل سمان ههيا'}</span>
                         </div>
                         <div class="wb-phones-row">
                             <span class="wb-phone-main" dir="ltr">📞 ${o.customerPhone || ''}</span>
@@ -8076,11 +8190,10 @@ window.deleteProductUI = async (id) => {
                         </div>
                     </div>
 
-                    <!-- 3. جدول الأصناف المطلوبة -->
                     <table class="wb-items-table">
                         <thead>
                             <tr>
-                                <th>الصنف والوزن</th>
+                                <th>الصنف</th>
                                 <th style="width: 22%; text-align: center;">العدد</th>
                             </tr>
                         </thead>
@@ -8089,26 +8202,24 @@ window.deleteProductUI = async (id) => {
                         </tbody>
                     </table>
 
-                    <!-- 4. تفصيلة الحساب والمطلوب تحصيله -->
                     ${showBreakdown ? `
                     <div class="wb-breakdown">
-                        <span>المنتجات: ${subtotalVal} ج</span>
-                        <span>التوصيل: ${deliveryVal} ج</span>
-                        ${discountVal > 0 ? `<span>خصم: -${discountVal} ج</span>` : ''}
+                        <span>الطلب: ${subtotalVal}ج</span>
+                        <span>توصيل: ${deliveryVal}ج</span>
+                        ${discountVal > 0 ? `<span>خصم: -${discountVal}ج</span>` : ''}
                     </div>` : ''}
 
                     <div class="wb-cod-box ${isOnline ? 'online-paid' : ''}" contenteditable="true">
                         ${isOnline 
-                            ? `✅ خالص أونلاين — المطلوب تحصيله: 0 ج.م` 
+                            ? `✅ خالص أونلاين (المطلوب: 0 ج)` 
                             : `💰 المطلوب تحصيله: ${totalVal} ج.م`}
                     </div>
 
                     ${(showDriverNote && latestDriverNote) ? `
                     <div class="wb-driver-note" contenteditable="true">
-                        🛵 <strong>ملاحظة التوصيل:</strong> ${latestDriverNote}
+                        🛵 ${latestDriverNote}
                     </div>` : ''}
 
-                    <!-- 5. الباركود والكلمة الحلوة للعميل -->
                     <div class="wb-footer">
                         ${showBarcode ? `
                         <div class="wb-barcode-wrap">
@@ -8127,7 +8238,7 @@ window.deleteProductUI = async (id) => {
                 <html lang="ar" dir="rtl">
                 <head>
                     <meta charset="UTF-8">
-                    <title>طباعة بوليصة شحن - ${storeName}</title>
+                    <title>طباعة بوليصة (${widthMm} مم) - ${storeName}</title>
                     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&display=swap" rel="stylesheet">
                     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/barcodes/JsBarcode.code128.min.js"><\/script>
                     <style>
@@ -8187,11 +8298,11 @@ window.deleteProductUI = async (id) => {
                             font-weight: 700;
                         }
                         .waybill-sheet {
-                            width: ${pageWidth};
+                            width: ${widthMm}mm;
                             background: #fff;
-                            border: 2.5px solid #000;
-                            border-radius: 6px;
-                            padding: 3.5mm;
+                            border: 2px solid #000;
+                            border-radius: 5px;
+                            padding: ${padMm};
                             margin-bottom: 15px;
                             display: flex;
                             flex-direction: column;
@@ -8205,111 +8316,110 @@ window.deleteProductUI = async (id) => {
                             justify-content: space-between;
                             align-items: center;
                             border-bottom: 2px solid #000;
-                            padding-bottom: 2mm;
-                            margin-bottom: 2mm;
+                            padding-bottom: 1.5mm;
+                            margin-bottom: 1.5mm;
                         }
-                        .wb-brand { display: flex; align-items: center; gap: 2.5mm; }
+                        .wb-brand { display: flex; align-items: center; gap: 2mm; }
                         .svg-logo-box {
-                            width: 38px; height: 38px;
                             border: 2px solid #000;
-                            border-radius: 8px;
+                            border-radius: 6px;
                             display: flex; align-items: center; justify-content: center;
+                            flex-shrink: 0;
                         }
-                        .wb-title { font-size: 16pt; font-weight: 900; line-height: 1.05; }
-                        .wb-slogan { font-size: 7.5pt; font-weight: 800; }
-                        .wb-store-phone { font-size: 7.5pt; font-weight: 900; margin-top: 1px; }
-                        .wb-meta { text-align: left; }
-                        .wb-order-num { font-size: 11pt; font-weight: 900; background: #000; color: #fff; padding: 1px 6px; border-radius: 4px; display: inline-block; }
-                        .wb-date { font-size: 7.5pt; font-weight: 800; margin-top: 1px; }
-                        .wb-batch { font-size: 7.5pt; font-weight: 900; border: 1px solid #000; padding: 0 4px; border-radius: 3px; margin-top: 1px; }
+                        .wb-title { font-size: ${titleFont}; font-weight: 900; line-height: 1.05; }
+                        .wb-slogan { font-size: 7pt; font-weight: 800; }
+                        .wb-store-phone { font-size: 7.5pt; font-weight: 900; }
+                        .wb-meta { text-align: left; flex-shrink: 0; }
+                        .wb-order-num { font-size: 9.5pt; font-weight: 900; background: #000; color: #fff; padding: 0.5px 5px; border-radius: 3px; display: inline-block; }
+                        .wb-date { font-size: 7pt; font-weight: 800; }
+                        .wb-batch { font-size: 7pt; font-weight: 900; border: 1px solid #000; padding: 0 3px; border-radius: 3px; }
                         
                         .wb-customer-box {
-                            border: 2px solid #000;
-                            border-radius: 5px;
-                            padding: 2mm;
-                            margin-bottom: 2mm;
+                            border: 1.5px solid #000;
+                            border-radius: 4px;
+                            padding: 1.5mm;
+                            margin-bottom: 1.5mm;
                         }
-                        .wb-cust-row { display: flex; align-items: baseline; gap: 4px; margin-bottom: 1mm; }
-                        .wb-label { font-size: 8.5pt; font-weight: 800; }
-                        .wb-cust-name { font-size: 13pt; font-weight: 900; line-height: 1.15; }
-                        .wb-phones-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px; margin-bottom: 1mm; padding: 1mm 0; border-top: 1px dashed #000; border-bottom: 1px dashed #000; }
-                        .wb-phone-main { font-size: 11.5pt; font-weight: 900; letter-spacing: 0.3px; }
-                        .wb-phone-alt { font-size: 8.5pt; font-weight: 900; border: 1px solid #000; padding: 0 4px; border-radius: 3px; }
-                        .wb-address { font-size: 9.5pt; font-weight: 800; line-height: 1.3; }
+                        .wb-cust-row { margin-bottom: 0.8mm; }
+                        .wb-cust-name { font-size: ${custNameFont}; font-weight: 900; line-height: 1.15; }
+                        .wb-phones-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 2px; margin-bottom: 0.8mm; padding: 0.8mm 0; border-top: 1px dashed #000; border-bottom: 1px dashed #000; }
+                        .wb-phone-main { font-size: ${phoneFont}; font-weight: 900; }
+                        .wb-phone-alt { font-size: 7.5pt; font-weight: 900; border: 1px solid #000; padding: 0 3px; border-radius: 3px; }
+                        .wb-address { font-size: ${addrFont}; font-weight: 800; line-height: 1.25; }
 
                         .wb-items-table {
                             width: 100%;
                             border-collapse: collapse;
-                            margin-bottom: 2mm;
+                            margin-bottom: 1.5mm;
                         }
                         .wb-items-table th {
                             border: 1.5px solid #000;
                             background: #000;
                             color: #fff;
-                            font-size: 8.5pt;
+                            font-size: 8pt;
                             font-weight: 900;
-                            padding: 1mm 2mm;
+                            padding: 0.8mm 1.5mm;
                             text-align: right;
                         }
                         .wb-items-table td {
                             border: 1.5px solid #000;
-                            padding: 1mm 2mm;
-                            font-size: 9.5pt;
+                            padding: 0.8mm 1.5mm;
+                            font-size: ${tableFont};
                             font-weight: 900;
                         }
                         .wb-items-table td.item-qty {
                             text-align: center;
-                            font-size: 11pt;
+                            font-size: ${custNameFont};
                             font-weight: 900;
                         }
 
                         .wb-breakdown {
                             display: flex;
                             justify-content: space-between;
-                            font-size: 8pt;
+                            font-size: 7.5pt;
                             font-weight: 900;
-                            margin-bottom: 1.5mm;
-                            padding: 0 1mm;
+                            margin-bottom: 1mm;
+                            padding: 0 0.5mm;
                         }
                         .wb-cod-box {
-                            border: 2.5px solid #000;
+                            border: 2px solid #000;
                             background: #000;
                             color: #fff;
                             text-align: center;
-                            padding: 1.8mm;
-                            border-radius: 5px;
-                            font-size: 13pt;
+                            padding: 1.2mm;
+                            border-radius: 4px;
+                            font-size: ${codFont};
                             font-weight: 900;
-                            margin-bottom: 1.5mm;
+                            margin-bottom: 1mm;
                         }
                         .wb-cod-box.online-paid {
                             background: #fff;
                             color: #000;
-                            border: 2.5px dashed #000;
-                            font-size: 11pt;
+                            border: 2px dashed #000;
                         }
                         .wb-driver-note {
                             border: 1.5px solid #000;
                             border-radius: 4px;
-                            padding: 1mm 2mm;
-                            font-size: 8.5pt;
+                            padding: 0.8mm 1.5mm;
+                            font-size: 7.5pt;
                             font-weight: 800;
-                            margin-bottom: 1.5mm;
-                            line-height: 1.25;
+                            margin-bottom: 1mm;
+                            line-height: 1.2;
                         }
                         .wb-footer {
                             text-align: center;
                             border-top: 1.5px solid #000;
-                            padding-top: 1.5mm;
+                            padding-top: 1mm;
                         }
                         .wb-barcode-wrap {
                             display: flex;
                             justify-content: center;
-                            margin-bottom: 1mm;
+                            margin-bottom: 0.5mm;
+                            overflow: hidden;
                         }
-                        .barcode-svg { max-width: 100%; height: 34px; }
+                        .barcode-svg { max-width: 100%; height: auto; }
                         .wb-sweet-word {
-                            font-size: 8.5pt;
+                            font-size: 7.5pt;
                             font-weight: 900;
                         }
 
@@ -8322,9 +8432,9 @@ window.deleteProductUI = async (id) => {
                             .no-print-toolbar { display: none !important; }
                             .waybill-sheet {
                                 margin: 0;
-                                border: 2px solid #000;
+                                border: 1.5px solid #000;
                                 border-radius: 0;
-                                width: ${pageWidth};
+                                width: ${widthMm}mm;
                             }
                         }
                     </style>
@@ -8332,10 +8442,10 @@ window.deleteProductUI = async (id) => {
                 <body>
                     <div class="no-print-toolbar">
                         <div class="toolbar-btns">
-                            <button class="btn-print-now" onclick="window.print()">🖨️ أمر طباعة مباشر (${ordersList.length} بوليصة)</button>
+                            <button class="btn-print-now" onclick="window.print()">🖨️ طباعة (${ordersList.length} بوليصة - عرض ${widthMm} مم)</button>
                             <button class="btn-close-win" onclick="window.close()">إغلاق</button>
                         </div>
-                        <div class="edit-hint">💡 ميزة ذكية: يمكنك الضغط على أي كلمة داخل البوليصة لتعديلها فوراً قبل الطباعة!</div>
+                        <div class="edit-hint">💡 يمكنك الضغط على أي نص داخل البوليصة لتعديله فوراً قبل الطباعة!</div>
                     </div>
 
                     ${labelsHtml}
@@ -8349,10 +8459,10 @@ window.deleteProductUI = async (id) => {
                                         JsBarcode(svgEl, codeVal, {
                                             format: "CODE128",
                                             lineColor: "#000000",
-                                            width: 1.7,
-                                            height: 28,
+                                            width: ${barcodeWidth},
+                                            height: ${barcodeHeight},
                                             displayValue: true,
-                                            fontSize: 11,
+                                            fontSize: 10,
                                             fontOptions: "bold",
                                             margin: 0
                                         });
