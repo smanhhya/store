@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>سمان ههيا | استوديو الطباعة الحرارية والباركود (Deli 750W)</title>
     <meta name="theme-color" content="#064e3b">
 
@@ -90,34 +90,71 @@
 
         /* إخفاء واجهة البرنامج بالكامل وقت الطباعة وإظهار الاستيكرات فقط */
         @media print {
+            @page { margin: 0mm; }
             * {
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
+                box-sizing: border-box !important;
             }
             html, body {
                 background: #ffffff !important;
                 margin: 0 !important;
                 padding: 0 !important;
                 width: 100% !important;
+                min-height: 0 !important;
+                display: block !important;
             }
-            .no-print {
-                display: none !important;
+            body > * { display: none !important; }
+            body > main#studio-main { display: block !important; }
+            #studio-main {
+                display: block !important;
+                width: 100% !important;
+                max-width: none !important;
+                margin: 0 !important;
+                padding: 0 !important;
             }
+            #studio-main > .no-print { display: none !important; }
+            #preview-panel {
+                display: block !important;
+                width: 100% !important;
+                max-width: none !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                position: static !important;
+                top: auto !important;
+            }
+            #preview-panel > .no-print { display: none !important; }
             #print-stage-wrapper {
+                display: block !important;
                 padding: 0 !important;
                 margin: 0 !important;
                 background: transparent !important;
                 border: none !important;
+                border-radius: 0 !important;
                 box-shadow: none !important;
                 max-height: none !important;
+                height: auto !important;
                 overflow: visible !important;
                 width: 100% !important;
             }
-            .thermal-sticker {
+            #thermal-print-stage {
+                display: block !important;
+                width: 100% !important;
                 margin: 0 !important;
+                padding: 0 !important;
+            }
+            .thermal-sticker {
+                margin: 0 auto !important;
                 box-shadow: none !important;
                 border-radius: 0 !important;
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
             }
+            .thermal-sticker:last-child {
+                page-break-after: auto !important;
+                break-after: auto !important;
+            }
+            [contenteditable="true"] { outline: none !important; background: transparent !important; }
         }
     </style>
 </head>
@@ -136,7 +173,7 @@
                 <input type="password" id="p-login-pass" dir="ltr" placeholder="••••••••" class="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 text-sm font-bold outline-none focus:border-brand-primary">
             </div>
             <button onclick="loginPrinterStudio()" id="p-login-btn" class="w-full bg-brand-primary hover:bg-emerald-800 text-white font-black py-3.5 rounded-xl shadow-lg transition-all">دخول للاستوديو</button>
-            <p id="p-login-err" class="hidden text-red-500 text-xs font-bold mt-3"></p>
+            <p id="p-login-err" class="hidden text-red-500 text-xs font-bold mt-3" role="alert"></p>
         </div>
     </div>
 
@@ -174,8 +211,8 @@
                     </select>
                 </div>
 
-                <button onclick="connectBluetoothPrinter()" id="bt-status-btn" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition-all active:scale-95" title="اقتران البلوتوث المباشر مع طابعة Deli 750W">
-                    <i class="fa-brands fa-bluetooth-b text-sm"></i> <span id="bt-status-text" class="hidden sm:inline">ربط البلوتوث</span>
+                <button onclick="showPrinterConnectionGuide()" id="bt-status-btn" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition-all active:scale-95" title="طرق توصيل وطباعة Deli E750W">
+                    <i class="fa-solid fa-circle-info text-sm"></i> <span id="bt-status-text" class="hidden sm:inline">إعداد الطابعة</span>
                 </button>
 
                 <button onclick="executeDirectPrint()" class="bg-amber-400 hover:bg-amber-300 text-slate-950 px-4 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1.5 shadow-md transition-all active:scale-95">
@@ -204,7 +241,7 @@
     </header>
 
     <!-- المحتوى الرئيسي للاستوديو (ينقسم لعمود التحكم على اليمين + منصة المعاينة والطباعة على اليسار) -->
-    <main class="flex-1 max-w-7xl w-full mx-auto p-4 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+    <main id="studio-main" class="flex-1 max-w-7xl w-full mx-auto p-4 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
 
         <!-- ================= الجانب الأيمن: أدوات التحكم (7 أعمدة) ================= -->
         <div class="no-print lg:col-span-7 space-y-4">
@@ -221,16 +258,23 @@
                             <button onclick="selectAllFilteredOrders()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-black transition-all">
                                 <i class="fa-solid fa-check-double mr-1"></i> تحديد الكل
                             </button>
+                            <button onclick="clearOrderSelection()" class="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-3 py-1.5 rounded-lg text-[11px] font-black transition-all">
+                                <i class="fa-solid fa-xmark mr-1"></i> إلغاء التحديد
+                            </button>
                             <button onclick="printDriverManifestSticker()" class="bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 px-3 py-1.5 rounded-lg text-[11px] font-black transition-all">
                                 <i class="fa-solid fa-clipboard-list mr-1"></i> استيكر ملخص المندوب
                             </button>
                         </div>
+                    </div>
+                    <div id="selected-orders-summary" class="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-[11px] font-bold text-emerald-900" aria-live="polite">
+                        لم يتم تحديد طلبات بعد.
                     </div>
 
                     <!-- فلاتر البحث السريع (الحالة، الدفعة، المنطقة، المندوب) -->
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         <select id="q-status-filter" onchange="renderOrdersQueue()" class="border border-slate-200 bg-slate-50 rounded-xl p-2 text-xs font-black text-slate-700 outline-none">
                             <option value="active">🔥 كل النشط (جديد + تجهيز + بالطريق)</option>
+                            <option value="all">📚 كل الحالات (عدا الملغي والمحذوف)</option>
                             <option value="processing">⏳ قيد التجهيز فقط</option>
                             <option value="new">🆕 جديد فقط</option>
                             <option value="dispatched">🛵 في الطريق فقط</option>
@@ -368,6 +412,14 @@
                             <input type="date" id="pr-prod-date" onchange="renderProductTrayStickers()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50">
                         </div>
                         <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">رقم التشغيلة / الدفعة (اختياري)</label>
+                            <input type="text" id="pr-lot-number" oninput="renderProductTrayStickers()" maxlength="40" placeholder="مثال: QW-3110-01" dir="ltr" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50">
+                        </div>
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">باركود التشغيلة (اختياري)</label>
+                            <input type="text" id="pr-barcode" oninput="renderProductTrayStickers()" maxlength="60" placeholder="رقم أو كود لاتيني" dir="ltr" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50">
+                        </div>
+                        <div>
                             <label class="text-xs font-black text-slate-700 block mb-1">مدة الصلاحية وطريقة الحفظ</label>
                             <select id="pr-expiry-mode" onchange="renderProductTrayStickers()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50">
                                 <option value="3months">صلاحية 3 شهور (مجمد في الفريزر -18°)</option>
@@ -378,6 +430,9 @@
                         </div>
                     </div>
 
+                    <p class="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] leading-relaxed font-bold text-amber-900">
+                        تنبيه تشغيلي: مدد الصلاحية ودرجات الحفظ المعروضة قوالب قابلة للاختيار، ويجب اعتمادها وفق سياسة سلامة الغذاء الخاصة بالمنتج وظروف التخزين الفعلية قبل الطباعة.
+                    </p>
                     <div class="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-slate-100">
                         <div class="text-xs font-bold text-slate-500">
                             💡 يمكنك تحديد عدد الأطباق التي ذبحتها ليطبعها السيستم دفعة واحدة.
@@ -456,8 +511,9 @@
                                     <option value="40x30">4×3 سم (باركود صغير)</option>
                                     <option value="custom">📏 مقاس مخصص...</option>
                                 </select>
-                                <input type="number" id="st-wb-custom-w" oninput="refreshCurrentPreview()" placeholder="العرض مم" class="w-24 border border-amber-300 bg-amber-50 rounded-xl p-2 text-xs font-black text-center" title="العرض بالمللي (مثلاً 70 لـ 7 سم)">
+                                <input type="number" id="st-wb-custom-w" min="20" max="108" oninput="refreshCurrentPreview()" placeholder="العرض مم" class="w-24 border border-amber-300 bg-amber-50 rounded-xl p-2 text-xs font-black text-center" title="العرض بالملليمتر">
                             </div>
+                            <input type="number" id="st-wb-custom-h" min="30" max="300" oninput="refreshCurrentPreview()" placeholder="طول الملصق مم (لرول Auto)" class="w-full mt-2 border border-amber-300 bg-amber-50 rounded-xl p-2 text-xs font-black text-center" title="طول الملصق بالملليمتر لمقاسات الرول">
                         </div>
                         <div>
                             <label class="text-xs font-black text-slate-700 block mb-1">وظيفة رمز الـ QR Code الذكي على البوليصة</label>
@@ -487,7 +543,7 @@
         </div>
 
         <!-- ================= الجانب الأيسر: منصة المعاينة الحية والطباعة (5 أعمدة) ================= -->
-        <div class="lg:col-span-5 lg:sticky lg:top-28 space-y-3">
+        <div id="preview-panel" class="lg:col-span-5 lg:sticky lg:top-28 space-y-3">
             <div class="no-print bg-slate-900 text-white p-4 rounded-2xl shadow-lg flex flex-col gap-3">
                 <div class="flex items-center justify-between">
                     <div>
@@ -503,8 +559,8 @@
                     <button onclick="executeDirectPrint()" class="flex-[2] bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3 rounded-xl text-sm shadow-md flex items-center justify-center gap-2 transition-all active:scale-95">
                         <i class="fa-solid fa-print text-base"></i> طباعة مباشرة الآن
                     </button>
-                    <button onclick="sendToRawBTAndroid()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-black py-3 px-2 rounded-xl text-[11px] flex items-center justify-center gap-1.5 transition-all" title="طباعة بلوتوث سريعة للموبايل عبر RawBT">
-                        <i class="fa-brands fa-android"></i> بلوتوث موبايل
+                    <button onclick="exportForMobile()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-black py-3 px-2 rounded-xl text-[11px] flex items-center justify-center gap-1.5 transition-all" title="احفظ الملصقات PDF ثم اطبعها عبر تطبيق Deli Print">
+                        <i class="fa-solid fa-file-pdf"></i> PDF للموبايل
                     </button>
                 </div>
             </div>
@@ -518,7 +574,9 @@
     </main>
 
     <script>
-        // === 1. إعدادات الاتصال بقاعدة بيانات سمان ههيا ===
+        // ================================================================
+        // SMAN HAHYA PRINT STUDIO — safer, more reliable client-side logic
+        // ================================================================
         const firebaseConfig = {
             apiKey: "AIzaSyD7ZJP8n8fhMewPfEsTBANn0h9To_q15BY",
             authDomain: "sman-ca8f8.firebaseapp.com",
@@ -527,7 +585,13 @@
             messagingSenderId: "538778803310",
             appId: "1:538778803310:web:5eeff42bae534375a21a7f"
         };
-        if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
+
+        if (!window.firebase) {
+            const queue = document.getElementById('orders-queue-list');
+            if (queue) queue.innerHTML = '<div class="p-5 rounded-xl bg-red-50 text-red-800 text-sm font-bold">تعذر تحميل Firebase. تأكد من اتصال الإنترنت ثم أعد تحميل الصفحة.</div>';
+            throw new Error('Firebase SDK failed to load');
+        }
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
 
@@ -539,6 +603,7 @@
             waybillLogoUrl: '',
             waybillPaperSize: '100x100',
             waybillCustomWidth: 70,
+            waybillRollHeight: 100,
             waybillQrMode: 'whatsapp',
             waybillShowBarcode: true,
             waybillShowBreakdown: true,
@@ -549,9 +614,13 @@
         let storeBatches = {};
         let allOrdersRaw = [];
         let selectedOrderIds = new Set();
-        let orderBagsCountMap = {}; // عدد الشنط لكل طلب (افتراضي 1)
+        let orderBagsCountMap = {};
         let activeStudioTab = 'orders';
-        let bluetoothDevice = null;
+        let currentPreviewType = 'orders';
+        let ordersUnsubscribe = null;
+        let isStudioInitialized = false;
+        let hasAutoSelectedFirstOrder = false;
+        let isPrinting = false;
 
         const defaultFreeformTemplates = [
             { name: '❄️ حفظ بالفريزر', title: 'تنبيه هام للحفظ', body: 'يُحفظ السمان مجمداً في الفريزر فور الاستلام للحفاظ على الطزاجة والجودة العالية.', footer: 'سمان ههيا — 01208027294' },
@@ -559,153 +628,313 @@
             { name: '⚠️ قابل للكسر (بيض)', title: '⚠️ احترس! بيض سمان طازج', body: 'برجاء التعامل مع العبوة برفق شديد وعدم وضع أوزان فوقها.', footer: 'سمان ههيا — 01208027294' }
         ];
 
-        window.normalizePhone = (phone) => {
-            if (!phone) return '';
-            let n = phone.toString()
-                .replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660)
-                .replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0)
-                .replace(/\D/g, '');
-            if (n.length >= 10) {
-                if (n.startsWith('0020')) n = '0' + n.substring(4);
-                else if (n.startsWith('201')) n = '0' + n.substring(2);
-                else if (n.length === 10 && n.startsWith('1')) n = '0' + n;
-            }
+        // All values originating from Firestore, localStorage or text inputs are escaped
+        // before being inserted into generated HTML. This prevents malformed labels and XSS.
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[ch]));
+        }
+        function safeInlineArg(value) { return escapeHtml(JSON.stringify(String(value ?? ''))); }
+        function safeNumber(value, fallback = 0) {
+            const n = Number(value);
+            return Number.isFinite(n) ? n : fallback;
+        }
+        function normalizeDigits(value) {
+            return String(value ?? '')
+                .replace(/[\u0660-\u0669]/g, c => String(c.charCodeAt(0) - 0x0660))
+                .replace(/[\u06F0-\u06F9]/g, c => String(c.charCodeAt(0) - 0x06F0));
+        }
+        function normalizePhone(phone) {
+            let n = normalizeDigits(phone).replace(/\D/g, '');
+            if (n.startsWith('0020')) n = '0' + n.slice(4);
+            else if (n.startsWith('201')) n = '0' + n.slice(2);
+            else if (n.length === 10 && n.startsWith('1')) n = '0' + n;
             return n;
-        };
-
-        // === 2. المصادقة وبدء تشغيل الاستوديو ===
-        auth.onAuthStateChanged(user => {
-            if (user) {
-                document.getElementById('login-overlay').classList.add('hidden');
-                initPrinterStudio();
-            } else {
-                document.getElementById('login-overlay').classList.remove('hidden');
+        }
+        function toWhatsAppPhone(phone) {
+            let n = normalizeDigits(phone).replace(/\D/g, '');
+            if (n.startsWith('00')) n = n.slice(2);
+            if (n.startsWith('0')) n = '20' + n.slice(1);
+            else if (n.startsWith('1') && n.length === 10) n = '20' + n;
+            return n;
+        }
+        function localDateInputValue(date = new Date()) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+        function parseLocalDate(value) {
+            if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+            const [y, m, d] = value.split('-').map(Number);
+            const date = new Date(y, m - 1, d);
+            return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d ? date : null;
+        }
+        function formatArabicDate(date) {
+            if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+            return new Intl.DateTimeFormat('ar-EG', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+        }
+        function addMonthsClamped(date, months) {
+            const result = new Date(date.getFullYear(), date.getMonth() + months, 1);
+            const lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+            result.setDate(Math.min(date.getDate(), lastDay));
+            return result;
+        }
+        function formatOrderDate(rawValue) {
+            if (!rawValue) return formatArabicDate(new Date());
+            let date = null;
+            if (rawValue && typeof rawValue.toDate === 'function') date = rawValue.toDate();
+            else if (rawValue instanceof Date) date = rawValue;
+            else if (typeof rawValue === 'string') {
+                date = parseLocalDate(rawValue) || new Date(rawValue);
+            } else if (typeof rawValue === 'number') date = new Date(rawValue);
+            return date && !Number.isNaN(date.getTime()) ? formatArabicDate(date) : String(rawValue);
+        }
+        function readSavedTemplates() {
+            try {
+                const parsed = JSON.parse(localStorage.getItem('sman_ff_templates') || '[]');
+                return Array.isArray(parsed) ? parsed.filter(t => t && typeof t === 'object').slice(0, 30) : [];
+            } catch (error) {
+                console.warn('Saved templates were unreadable; starting with an empty list.', error);
+                return [];
             }
+        }
+        function setQueueMessage(message, isError = false) {
+            const el = document.getElementById('orders-queue-list');
+            if (!el) return;
+            el.innerHTML = `<div class="p-5 rounded-xl border ${isError ? 'border-red-200 bg-red-50 text-red-800' : 'border-slate-200 bg-white text-slate-500'} text-sm font-bold">${escapeHtml(message)}</div>`;
+        }
+        function getPrintableSelectedOrders() {
+            return allOrdersRaw.filter(o => selectedOrderIds.has(o.id) &&
+                o.status !== 'trash' && o.status !== 'canceled' && !o.isArchived);
+        }
+        function getSelectedStickerCount(orders = getPrintableSelectedOrders()) {
+            return orders.reduce((sum, order) => sum + Math.max(1, Math.min(10, Number(orderBagsCountMap[order.id]) || 1)), 0);
+        }
+        function updateSelectionSummary() {
+            const el = document.getElementById('selected-orders-summary');
+            if (!el) return;
+            const orders = getPrintableSelectedOrders();
+            const cash = orders.reduce((sum, o) => sum + (o.paymentMethod === 'online' ? 0 : safeNumber(o.total)), 0);
+            const stickers = getSelectedStickerCount(orders);
+            el.textContent = orders.length
+                ? `المحدد: ${orders.length} طلب • ${stickers} استيكر/شنطة • التحصيل النقدي المتوقع: ${cash.toLocaleString('ar-EG')} ج.م`
+                : 'لم يتم تحديد طلبات. اختر طلبًا من القائمة أو استخدم «تحديد الكل».';
+        }
+
+        window.normalizePhone = normalizePhone;
+
+        // ================================================================
+        // Authentication and initialization
+        // ================================================================
+        auth.onAuthStateChanged(user => {
+            const overlay = document.getElementById('login-overlay');
+            if (user) {
+                overlay.classList.add('hidden');
+                if (!isStudioInitialized) {
+                    isStudioInitialized = true;
+                    initPrinterStudio().catch(error => {
+                        console.error('Printer studio initialization failed:', error);
+                        setQueueMessage('تعذر بدء الاستوديو. راجع الاتصال بالإنترنت وصلاحيات Firebase ثم أعد تحميل الصفحة.', true);
+                        isStudioInitialized = false;
+                    });
+                }
+            } else {
+                isStudioInitialized = false;
+                if (ordersUnsubscribe) {
+                    ordersUnsubscribe();
+                    ordersUnsubscribe = null;
+                }
+                overlay.classList.remove('hidden');
+            }
+        }, error => {
+            console.error('Firebase auth state error:', error);
+            setQueueMessage('تعذر التحقق من جلسة الدخول. أعد تحميل الصفحة أو تحقق من اتصال الإنترنت.', true);
         });
 
-        window.loginPrinterStudio = () => {
-            const e = document.getElementById('p-login-email').value.trim();
-            const p = document.getElementById('p-login-pass').value;
-            if (!e || !p) return;
+        window.loginPrinterStudio = async () => {
+            const emailInput = document.getElementById('p-login-email');
+            const passInput = document.getElementById('p-login-pass');
+            const errorEl = document.getElementById('p-login-err');
             const btn = document.getElementById('p-login-btn');
+            const email = emailInput.value.trim();
+            const password = passInput.value;
+            errorEl.classList.add('hidden');
+            if (!email || !password) {
+                errorEl.textContent = 'اكتب البريد الإلكتروني وكلمة المرور أولاً.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            const originalText = btn.textContent;
+            btn.disabled = true;
             btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الدخول...';
-            auth.signInWithEmailAndPassword(e, p).catch(() => {
-                btn.innerHTML = 'دخول للاستوديو';
-                const err = document.getElementById('p-login-err');
-                err.innerText = 'بيانات الدخول غير صحيحة!';
-                err.classList.remove('hidden');
-            });
+            try {
+                await auth.signInWithEmailAndPassword(email, password);
+            } catch (error) {
+                console.error('Printer login failed:', error);
+                const messages = {
+                    'auth/invalid-credential': 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
+                    'auth/user-not-found': 'لا يوجد حساب بهذا البريد الإلكتروني.',
+                    'auth/wrong-password': 'كلمة المرور غير صحيحة.',
+                    'auth/too-many-requests': 'تمت محاولات كثيرة. انتظر قليلًا ثم أعد المحاولة.',
+                    'auth/network-request-failed': 'تعذر الاتصال بالإنترنت. تحقق من الشبكة ثم حاول مجددًا.'
+                };
+                errorEl.textContent = messages[error.code] || 'تعذر تسجيل الدخول. راجع بيانات الحساب أو صلاحيات Firebase.';
+                errorEl.classList.remove('hidden');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
         };
+        document.getElementById('p-login-pass').addEventListener('keydown', event => {
+            if (event.key === 'Enter') window.loginPrinterStudio();
+        });
 
         async function initPrinterStudio() {
-            // تعيين تاريخ اليوم في تبويب المنتجات
-            document.getElementById('pr-prod-date').value = new Date().toISOString().split('T')[0];
+            document.getElementById('pr-prod-date').value = localDateInputValue();
             renderSavedFreeformTemplates();
 
-            // سحب الإعدادات والأصناف والدفعات
             try {
                 const invSnap = await db.collection('inventory').get();
                 invSnap.forEach(doc => {
+                    const data = doc.data() || {};
                     if (doc.id === 'settings') {
-                        storeSettings = Object.assign(storeSettings, doc.data());
-                        storeProducts = storeSettings.productsData || {};
+                        storeSettings = Object.assign(storeSettings, data);
+                        storeProducts = storeSettings.productsData && typeof storeSettings.productsData === 'object'
+                            ? storeSettings.productsData : {};
                     }
-                    if (doc.id === 'prices') storePrices = doc.data() || {};
-                    if (doc.id === 'batches') storeBatches = doc.data() || {};
+                    if (doc.id === 'prices') storePrices = data || {};
+                    if (doc.id === 'batches') storeBatches = data || {};
                 });
-                populateStudioSettingsUI();
-                populateFiltersAndProducts();
-            } catch (e) { console.error("Error loading inventory:", e); }
+            } catch (error) {
+                console.error('Inventory loading failed:', error);
+                setQueueMessage('تعذر تحميل إعدادات المخزون. يمكنك متابعة عرض الطلبات، لكن راجع صلاحيات قراءة inventory.', true);
+            }
 
-            // قراءة الرابط لو قادم من الـ CRM بطلب محدد أو عدة طلبات
+            populateStudioSettingsUI();
+            populateFiltersAndProducts();
+
             const urlParams = new URLSearchParams(window.location.search);
             const singleId = urlParams.get('orderId');
             const multiIds = urlParams.get('orderIds');
             if (singleId) selectedOrderIds.add(singleId);
             if (multiIds) multiIds.split(',').filter(Boolean).forEach(id => selectedOrderIds.add(id));
 
-            // استماع حي للطلبات
-            db.collection('orders').onSnapshot(snap => {
+            if (ordersUnsubscribe) ordersUnsubscribe();
+            ordersUnsubscribe = db.collection('orders').onSnapshot(snap => {
                 allOrdersRaw = [];
                 snap.forEach(doc => {
-                    let d = doc.data();
-                    if (!d.batchName && d.batchId && storeBatches[d.batchId]) {
-                        d.batchName = storeBatches[d.batchId].name;
+                    const data = doc.data() || {};
+                    if (!data.batchName && data.batchId && storeBatches[data.batchId]) {
+                        data.batchName = storeBatches[data.batchId].name;
                     }
-                    allOrdersRaw.push({ id: doc.id, ...d });
+                    allOrdersRaw.push({ id: doc.id, ...data });
                 });
-                allOrdersRaw.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+                allOrdersRaw.sort((a, b) => {
+                    const aTime = a.createdAt && typeof a.createdAt.toMillis === 'function' ? a.createdAt.toMillis() : 0;
+                    const bTime = b.createdAt && typeof b.createdAt.toMillis === 'function' ? b.createdAt.toMillis() : 0;
+                    return bTime - aTime;
+                });
+
+                const existingIds = new Set(allOrdersRaw.map(o => o.id));
+                selectedOrderIds = new Set([...selectedOrderIds].filter(id => existingIds.has(id)));
+                if (!hasAutoSelectedFirstOrder && selectedOrderIds.size === 0) {
+                    const firstActive = allOrdersRaw.find(o => ['new', 'processing', 'dispatched'].includes(o.status) && !o.isArchived);
+                    if (firstActive) selectedOrderIds.add(firstActive.id);
+                    hasAutoSelectedFirstOrder = true;
+                }
 
                 populateDynamicOrderFilters();
                 renderOrdersQueue();
-                if (activeStudioTab === 'orders') renderSelectedOrdersToStage();
+                if (activeStudioTab === 'orders' || activeStudioTab === 'settings') renderSelectedOrdersToStage();
+            }, error => {
+                console.error('Orders live listener failed:', error);
+                setQueueMessage('فشل تحميل الطلبات الحية. راجع صلاحيات قراءة orders في Firestore واتصال الإنترنت.', true);
             });
         }
 
-        // === 3. التنقل بين التبويبات ===
+        // ================================================================
+        // Tabs and preview refresh
+        // ================================================================
         window.switchStudioTab = (tabId, btnEl) => {
+            if (!['orders', 'freeform', 'products', 'settings'].includes(tabId)) return;
             activeStudioTab = tabId;
             document.querySelectorAll('.studio-tab').forEach(t => t.classList.remove('active'));
             document.getElementById('tab-' + tabId).classList.add('active');
-
             document.querySelectorAll('.s-tab-btn').forEach(b => {
-                b.className = "s-tab-btn bg-emerald-900/50 text-emerald-100 hover:bg-emerald-800 px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap flex items-center gap-1.5 transition-all";
+                b.className = 's-tab-btn bg-emerald-900/50 text-emerald-100 hover:bg-emerald-800 px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap flex items-center gap-1.5 transition-all';
             });
-            btnEl.className = "s-tab-btn active bg-amber-400 text-slate-950 px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap flex items-center gap-1.5 shadow-sm transition-all";
-
+            btnEl.className = 's-tab-btn active bg-amber-400 text-slate-950 px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap flex items-center gap-1.5 shadow-sm transition-all';
             refreshCurrentPreview();
         };
 
         window.refreshCurrentPreview = () => {
             syncSettingsFromInputs();
-            if (activeStudioTab === 'orders' || activeStudioTab === 'settings') {
-                renderSelectedOrdersToStage();
-            } else if (activeStudioTab === 'freeform') {
-                renderFreeformSticker();
-            } else if (activeStudioTab === 'products') {
-                renderProductTrayStickers();
-            }
+            if (activeStudioTab === 'orders' || activeStudioTab === 'settings') renderSelectedOrdersToStage();
+            else if (activeStudioTab === 'freeform') renderFreeformSticker();
+            else if (activeStudioTab === 'products') renderProductTrayStickers();
         };
 
-        // === 4. إدارة إعدادات المقاسات واللوجو ===
+        // ================================================================
+        // Settings, paper dimensions and logo handling
+        // ================================================================
         function populateStudioSettingsUI() {
             document.getElementById('st-wb-storename').value = storeSettings.storeName || 'سمان ههيا';
             document.getElementById('st-wb-phone').value = storeSettings.storePhone || '01208027294';
             document.getElementById('st-wb-slogan').value = storeSettings.waybillSlogan || 'طازج من مزارعنا لمائدتك';
             document.getElementById('st-wb-footer').value = storeSettings.waybillFooterMsg || 'تشرفنا بخدمتكم.. بالهنا والشفا من سمان ههيا 🤍';
-            document.getElementById('st-wb-size').value = storeSettings.waybillPaperSize || '100x100';
-            document.getElementById('header-paper-size').value = storeSettings.waybillPaperSize || '100x100';
+            const allowedSizes = ['100x100', '100x150', '80xAuto', '70xAuto', '60xAuto', '50xAuto', '40x30', 'custom'];
+            if (!allowedSizes.includes(storeSettings.waybillPaperSize)) storeSettings.waybillPaperSize = '100x100';
+            document.getElementById('st-wb-size').value = storeSettings.waybillPaperSize;
+            document.getElementById('header-paper-size').value = storeSettings.waybillPaperSize;
             document.getElementById('st-wb-custom-w').value = storeSettings.waybillCustomWidth || 70;
-            document.getElementById('st-wb-qr-mode').value = storeSettings.waybillQrMode || 'whatsapp';
+            document.getElementById('st-wb-custom-h').value = storeSettings.waybillRollHeight || 100;
+            if (!['whatsapp', 'website', 'hide'].includes(storeSettings.waybillQrMode)) storeSettings.waybillQrMode = 'whatsapp';
+            document.getElementById('st-wb-qr-mode').value = storeSettings.waybillQrMode;
             document.getElementById('st-wb-show-barcode').checked = storeSettings.waybillShowBarcode !== false;
             document.getElementById('st-wb-show-breakdown').checked = storeSettings.waybillShowBreakdown !== false;
             document.getElementById('st-wb-show-drivernote').checked = storeSettings.waybillShowDriverNote !== false;
             updateLogoPreviewBox(storeSettings.waybillLogoUrl);
+            getPaperDimensions();
         }
 
         function syncSettingsFromInputs() {
-            if (!document.getElementById('st-wb-storename')) return;
-            storeSettings.storeName = document.getElementById('st-wb-storename').value.trim() || 'سمان ههيا';
+            const nameEl = document.getElementById('st-wb-storename');
+            if (!nameEl) return;
+            storeSettings.storeName = nameEl.value.trim() || 'سمان ههيا';
             storeSettings.storePhone = document.getElementById('st-wb-phone').value.trim() || '01208027294';
             storeSettings.waybillSlogan = document.getElementById('st-wb-slogan').value.trim() || 'طازج من مزارعنا لمائدتك';
             storeSettings.waybillFooterMsg = document.getElementById('st-wb-footer').value.trim() || 'تشرفنا بخدمتكم.. بالهنا والشفا من سمان ههيا 🤍';
             storeSettings.waybillPaperSize = document.getElementById('st-wb-size').value || '100x100';
-            storeSettings.waybillCustomWidth = parseInt(document.getElementById('st-wb-custom-w').value) || 70;
+            const customWidth = Number(document.getElementById('st-wb-custom-w').value);
+            storeSettings.waybillCustomWidth = Number.isFinite(customWidth) && customWidth >= 20 && customWidth <= 108 ? customWidth : 70;
+            const customHeight = Number(document.getElementById('st-wb-custom-h').value);
+            storeSettings.waybillRollHeight = Number.isFinite(customHeight) && customHeight >= 30 && customHeight <= 300 ? customHeight : 100;
             storeSettings.waybillQrMode = document.getElementById('st-wb-qr-mode').value || 'whatsapp';
             storeSettings.waybillShowBarcode = document.getElementById('st-wb-show-barcode').checked;
             storeSettings.waybillShowBreakdown = document.getElementById('st-wb-show-breakdown').checked;
             storeSettings.waybillShowDriverNote = document.getElementById('st-wb-show-drivernote').checked;
         }
 
-        window.changeGlobalPaperSize = (val) => {
-            if ( val === 'custom' ) {
-                const userW = prompt("📏 اكتب عرض بكرة الاستيكر بالمللي متر (مثلاً: 70 لـ 7 سم، أو 60 لـ 6 سم):", storeSettings.waybillCustomWidth || 70);
-                if (userW) {
-                    let parsed = parseInt(userW) || 70;
-                    if (parsed < 25) parsed = parsed * 10; // تحويل السنتي لمللي تلقائياً
-                    storeSettings.waybillCustomWidth = parsed;
-                    document.getElementById('st-wb-custom-w').value = parsed;
+        window.changeGlobalPaperSize = val => {
+            const previous = storeSettings.waybillPaperSize || '100x100';
+            if (val === 'custom') {
+                const userW = prompt('اكتب عرض البكرة بالملليمتر (من 20 إلى 108 مم):', storeSettings.waybillCustomWidth || 70);
+                if (userW === null || userW.trim() === '') {
+                    document.getElementById('st-wb-size').value = previous;
+                    document.getElementById('header-paper-size').value = previous;
+                    return;
                 }
+                const parsed = Number(userW);
+                if (!Number.isFinite(parsed) || parsed < 20 || parsed > 108) {
+                    alert('العرض غير صالح. الحد المدعوم هنا من 20 إلى 108 مم.');
+                    document.getElementById('st-wb-size').value = previous;
+                    document.getElementById('header-paper-size').value = previous;
+                    return;
+                }
+                storeSettings.waybillCustomWidth = parsed;
+                document.getElementById('st-wb-custom-w').value = parsed;
             }
             storeSettings.waybillPaperSize = val;
             document.getElementById('st-wb-size').value = val;
@@ -713,24 +942,42 @@
             refreshCurrentPreview();
         };
 
-        window.uploadStudioLogo = (event) => {
-            const file = event.target.files[0];
+        window.uploadStudioLogo = event => {
+            const file = event.target.files && event.target.files[0];
             if (!file) return;
+            if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
+                alert('اختر ملف صورة صالحًا.');
+                event.target.value = '';
+                return;
+            }
+            if (file.size > 5 * 1024 * 1024) {
+                alert('حجم الصورة أكبر من 5 ميجابايت. اختر صورة أصغر.');
+                event.target.value = '';
+                return;
+            }
             const reader = new FileReader();
-            reader.onload = function(e) {
+            reader.onerror = () => alert('تعذر قراءة ملف الصورة.');
+            reader.onload = e => {
                 const img = new Image();
-                img.onload = function() {
+                img.onerror = () => alert('ملف الصورة تالف أو غير مدعوم.');
+                img.onload = () => {
                     const canvas = document.createElement('canvas');
-                    const maxDim = 220;
-                    let w = img.width, h = img.height;
-                    if (w > h) { if (w > maxDim) { h = Math.round(h * (maxDim / w)); w = maxDim; } }
-                    else { if (h > maxDim) { w = Math.round(w * (maxDim / h)); h = maxDim; } }
-                    canvas.width = w; canvas.height = h;
+                    const maxDim = 360;
+                    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+                    const w = Math.max(1, Math.round(img.width * scale));
+                    const h = Math.max(1, Math.round(img.height * scale));
+                    canvas.width = w;
+                    canvas.height = h;
                     const ctx = canvas.getContext('2d');
+                    if (!ctx) return alert('المتصفح لا يدعم معالجة الصور المطلوبة.');
                     ctx.fillStyle = '#FFFFFF';
                     ctx.fillRect(0, 0, w, h);
                     ctx.drawImage(img, 0, 0, w, h);
-                    const dataUrl = canvas.toDataURL('image/png');
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
+                    if (dataUrl.length > 700000) {
+                        alert('الصورة ما زالت كبيرة للحفظ الآمن داخل إعدادات Firestore. اختر صورة أبسط.');
+                        return;
+                    }
                     storeSettings.waybillLogoUrl = dataUrl;
                     updateLogoPreviewBox(dataUrl);
                     refreshCurrentPreview();
@@ -746,56 +993,61 @@
             refreshCurrentPreview();
         };
 
+        function isSafeImageDataUrl(value) {
+            return typeof value === 'string' && value.length <= 700000 && /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(value);
+        }
         function updateLogoPreviewBox(url) {
             const box = document.getElementById('st-logo-preview');
             if (!box) return;
-            box.innerHTML = url ? `<img src="${url}" class="w-full h-full object-contain">` : `<i class="fa-solid fa-kiwi-bird text-2xl text-slate-400"></i>`;
+            if (isSafeImageDataUrl(url)) {
+                box.innerHTML = `<img src="${url}" class="w-full h-full object-contain" alt="لوجو سمان ههيا">`;
+            } else {
+                box.innerHTML = '<i class="fa-solid fa-kiwi-bird text-2xl text-slate-400"></i>';
+            }
         }
 
         window.savePrinterStudioSettings = async () => {
             syncSettingsFromInputs();
             const btn = document.getElementById('btn-save-p-settings');
-            const orig = btn.innerHTML;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الحفظ...';
+            const original = btn.innerHTML;
             btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الحفظ...';
             try {
                 await db.collection('inventory').doc('settings').set(storeSettings, { merge: true });
-                alert('✅ تم حفظ إعدادات البوليصة واللوجو والمقاس في قاعدة البيانات بنجاح!');
-            } catch (e) {
-                alert('حدث خطأ أثناء حفظ الإعدادات!');
+                alert('تم حفظ إعدادات الاستوديو بنجاح.');
+            } catch (error) {
+                console.error('Saving printer settings failed:', error);
+                alert('تعذر حفظ الإعدادات. تحقق من اتصال الإنترنت وصلاحية الكتابة على inventory/settings.');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = original;
             }
-            btn.innerHTML = orig;
-            btn.disabled = false;
         };
 
-        // حساب أبعاد الورقة والخطوط ديناميكياً لأي مقاس (10سم، 8سم، 7سم، 6سم، 5سم، 4×3سم)
         function getPaperDimensions() {
             const size = storeSettings.waybillPaperSize || '100x100';
             let widthMm = 100;
+            let heightMm = 100;
             let pageSizeCss = '100mm 100mm';
-
-            if (size === '100x150') { widthMm = 100; pageSizeCss = '100mm 150mm'; }
-            else if (size === '80xAuto') { widthMm = 80; pageSizeCss = '80mm auto'; }
-            else if (size === '70xAuto') { widthMm = 70; pageSizeCss = '70mm auto'; }
-            else if (size === '60xAuto') { widthMm = 60; pageSizeCss = '60mm auto'; }
-            else if (size === '50xAuto') { widthMm = 50; pageSizeCss = '50mm auto'; }
-            else if (size === '40x30') { widthMm = 40; pageSizeCss = '40mm 30mm'; }
+            const rollHeight = Math.max(30, Math.min(300, Number(storeSettings.waybillRollHeight) || 100));
+            if (size === '100x150') { widthMm = 100; heightMm = 150; pageSizeCss = '100mm 150mm'; }
+            else if (size === '80xAuto') { widthMm = 80; heightMm = rollHeight; pageSizeCss = `80mm ${heightMm}mm`; }
+            else if (size === '70xAuto') { widthMm = 70; heightMm = rollHeight; pageSizeCss = `70mm ${heightMm}mm`; }
+            else if (size === '60xAuto') { widthMm = 60; heightMm = rollHeight; pageSizeCss = `60mm ${heightMm}mm`; }
+            else if (size === '50xAuto') { widthMm = 50; heightMm = rollHeight; pageSizeCss = `50mm ${heightMm}mm`; }
+            else if (size === '40x30') { widthMm = 40; heightMm = 30; pageSizeCss = '40mm 30mm'; }
             else if (size === 'custom') {
-                let cw = storeSettings.waybillCustomWidth || 70;
-                widthMm = cw < 25 ? cw * 10 : cw;
-                pageSizeCss = `${widthMm}mm auto`;
+                const rawWidth = Number(storeSettings.waybillCustomWidth) || 70;
+                widthMm = Math.max(20, Math.min(108, rawWidth));
+                heightMm = rollHeight;
+                pageSizeCss = `${widthMm}mm ${heightMm}mm`;
             }
-
-            // تحديث ستايل @page للطباعة المباشرة
             const styleEl = document.getElementById('dynamic-page-style');
-            if (styleEl) styleEl.innerHTML = `@page { size: ${pageSizeCss}; margin: 0mm; }`;
-
+            if (styleEl) styleEl.textContent = `@page { size: ${pageSizeCss}; margin: 0mm; }`;
             const isSmall = widthMm <= 72;
             const isTiny = widthMm <= 58;
             return {
-                widthMm,
-                isSmall,
-                isTiny,
+                widthMm, heightMm, isSmall, isTiny,
                 padMm: isTiny ? '1.8mm' : (isSmall ? '2.5mm' : '3.5mm'),
                 titleFont: isTiny ? '10.5pt' : (isSmall ? '12.5pt' : '15.5pt'),
                 custFont: isTiny ? '10pt' : (isSmall ? '11.5pt' : '13pt'),
@@ -810,8 +1062,8 @@
         }
 
         function getBrandLogoHTML(logoPx) {
-            if (storeSettings.waybillLogoUrl) {
-                return `<img src="${storeSettings.waybillLogoUrl}" style="width:${logoPx};height:${logoPx};object-fit:contain;filter:grayscale(100%) contrast(180%);border:1.5px solid #000;border-radius:6px;padding:1px;background:#fff;flex-shrink:0;">`;
+            if (isSafeImageDataUrl(storeSettings.waybillLogoUrl)) {
+                return `<img src="${storeSettings.waybillLogoUrl}" alt="لوجو سمان ههيا" style="width:${logoPx};height:${logoPx};object-fit:contain;filter:grayscale(100%) contrast(180%);border:1.5px solid #000;border-radius:6px;padding:1px;background:#fff;flex-shrink:0;">`;
             }
             return `
             <div style="width:${logoPx};height:${logoPx};border:2px solid #000;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:#fff;">
@@ -822,29 +1074,29 @@
             </div>`;
         }
 
-        // === 5. طابور الطلبات الحية وتوليد البوالص ===
+        // ================================================================
+        // Live order queue, filtering and selection
+        // ================================================================
         function populateDynamicOrderFilters() {
             const bSel = document.getElementById('q-batch-filter');
             const zSel = document.getElementById('q-zone-filter');
             const dSel = document.getElementById('q-driver-filter');
-
             const curB = bSel.value, curZ = zSel.value, curD = dSel.value;
             const batchesSet = new Set(), zonesSet = new Set(), driversSet = new Set();
-
             allOrdersRaw.forEach(o => {
                 if (o.status === 'trash' || o.isArchived) return;
-                if (o.batchName && o.batchName !== 'undefined') batchesSet.add(o.batchName);
-                if (o.zone) zonesSet.add(o.zone);
-                if (o.driverName) driversSet.add(o.driverName);
+                if (o.batchName && o.batchName !== 'undefined') batchesSet.add(String(o.batchName));
+                if (o.zone) zonesSet.add(String(o.zone));
+                if (o.driverName) driversSet.add(String(o.driverName));
             });
-
-            bSel.innerHTML = '<option value="all">📦 كل الدفعات</option>' + Array.from(batchesSet).map(b => `<option value="${b}">${b}</option>`).join('');
-            zSel.innerHTML = '<option value="all">📍 كل المناطق</option>' + Array.from(zonesSet).map(z => `<option value="${z}">${z}</option>`).join('');
-            dSel.innerHTML = '<option value="all">🛵 كل المناديب</option>' + Array.from(driversSet).map(d => `<option value="${d}">${d}</option>`).join('');
-
-            if (Array.from(batchesSet).includes(curB)) bSel.value = curB;
-            if (Array.from(zonesSet).includes(curZ)) zSel.value = curZ;
-            if (Array.from(driversSet).includes(curD)) dSel.value = curD;
+            const makeOptions = (set, label, emoji) => `<option value="all">${emoji} ${label}</option>` +
+                [...set].sort((a, b) => a.localeCompare(b, 'ar')).map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+            bSel.innerHTML = makeOptions(batchesSet, 'كل الدفعات', '📦');
+            zSel.innerHTML = makeOptions(zonesSet, 'كل المناطق', '📍');
+            dSel.innerHTML = makeOptions(driversSet, 'كل المناديب', '🛵');
+            if ([...batchesSet].includes(curB)) bSel.value = curB;
+            if ([...zonesSet].includes(curZ)) zSel.value = curZ;
+            if ([...driversSet].includes(curD)) dSel.value = curD;
         }
 
         window.getFilteredQueueOrders = () => {
@@ -852,8 +1104,7 @@
             const bFilter = document.getElementById('q-batch-filter').value;
             const zFilter = document.getElementById('q-zone-filter').value;
             const dFilter = document.getElementById('q-driver-filter').value;
-            const qSearch = (document.getElementById('q-search-input').value || '').toLowerCase().trim();
-
+            const qSearch = normalizeDigits(document.getElementById('q-search-input').value || '').toLocaleLowerCase('ar');
             return allOrdersRaw.filter(o => {
                 if (o.status === 'trash' || o.status === 'canceled' || o.isArchived) return false;
                 if (stFilter === 'active' && !['new', 'processing', 'dispatched'].includes(o.status)) return false;
@@ -861,15 +1112,13 @@
                 if (stFilter === 'new' && o.status !== 'new') return false;
                 if (stFilter === 'dispatched' && o.status !== 'dispatched') return false;
                 if (stFilter === 'completed' && o.status !== 'completed') return false;
-                if (stFilter === 'unprinted' && (o.printedCount > 0 || !['new', 'processing', 'dispatched'].includes(o.status))) return false;
-
+                if (stFilter === 'unprinted' && (safeNumber(o.printedCount) > 0 || !['new', 'processing', 'dispatched'].includes(o.status))) return false;
                 if (bFilter !== 'all' && o.batchName !== bFilter) return false;
                 if (zFilter !== 'all' && o.zone !== zFilter) return false;
                 if (dFilter !== 'all' && o.driverName !== dFilter) return false;
-
                 if (qSearch) {
-                    const itemsStr = (o.items || []).map(i => i.name).join(' ');
-                    const hay = `${o.customerName || ''} ${o.customerPhone || ''} ${o.zone || ''} ${o.customerAddress || ''} ${itemsStr}`.toLowerCase();
+                    const itemsStr = (Array.isArray(o.items) ? o.items : []).map(i => i && i.name || '').join(' ');
+                    const hay = normalizeDigits(`${o.id || ''} ${o.customerName || ''} ${o.customerPhone || ''} ${o.zone || ''} ${o.customerAddress || ''} ${itemsStr}`).toLocaleLowerCase('ar');
                     if (!hay.includes(qSearch)) return false;
                 }
                 return true;
@@ -879,51 +1128,48 @@
         window.renderOrdersQueue = () => {
             const listEl = document.getElementById('orders-queue-list');
             const filtered = window.getFilteredQueueOrders();
-            document.getElementById('queue-count-badge').innerText = `${filtered.length} طلب`;
-
+            document.getElementById('queue-count-badge').textContent = `${filtered.length} طلب`;
+            updateSelectionSummary();
             if (filtered.length === 0) {
-                listEl.innerHTML = `<div class="bg-white p-10 rounded-2xl border border-dashed border-slate-300 text-center text-slate-400 font-bold text-xs">لا توجد طلبات مطابقة للفلتر الحالي.</div>`;
+                listEl.innerHTML = '<div class="bg-white p-10 rounded-2xl border border-dashed border-slate-300 text-center text-slate-400 font-bold text-xs">لا توجد طلبات مطابقة للفلتر الحالي.</div>';
                 return;
             }
-
-            // إذا لم يكن هناك أي طلب محدد بعد، نحدد أول طلب تلقائياً للمعاينة
-            if (selectedOrderIds.size === 0 && filtered.length > 0) {
-                selectedOrderIds.add(filtered[0].id);
-            }
-
             listEl.innerHTML = filtered.map(o => {
                 const isSelected = selectedOrderIds.has(o.id);
-                const bagsCount = orderBagsCountMap[o.id] || 1;
-                const itemsTxt = (o.items || []).map(i => `${i.quantity}x ${i.name}`).join(' ، ');
-                const printedBadge = o.printedCount > 0
-                    ? `<span class="bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-md text-[10px] font-black" title="تمت طباعته ${o.printedCount} مرة"><i class="fa-solid fa-check-double mr-0.5"></i> طُبع (${o.printedCount})</span>`
-                    : `<span class="bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-md text-[10px] font-black">لم يُطبع</span>`;
-
+                const bagsCount = Math.max(1, Math.min(10, Number(orderBagsCountMap[o.id]) || 1));
+                const itemsTxt = (Array.isArray(o.items) ? o.items : []).map(i => `${safeNumber(i && i.quantity, 0)} × ${escapeHtml(i && i.name || '')}`).join(' ، ');
+                const printedCount = safeNumber(o.printedCount);
+                const printedBadge = printedCount > 0
+                    ? `<span class="bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-md text-[10px] font-black" title="تم تسجيل الطباعة ${printedCount} مرة"><i class="fa-solid fa-check-double mr-0.5"></i> طُبع (${printedCount})</span>`
+                    : '<span class="bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-md text-[10px] font-black">لم يُسجل</span>';
+                const idArg = safeInlineArg(o.id);
+                const totalText = o.paymentMethod === 'online'
+                    ? '<span class="text-xs bg-emerald-600 text-white px-2 py-0.5 rounded">خالص أونلاين</span>'
+                    : `${safeNumber(o.total).toLocaleString('ar-EG')} ج`;
                 return `
-                <div onclick="toggleOrderSelection('${o.id}')" class="p-3.5 rounded-2xl border-2 transition-all cursor-pointer ${isSelected ? 'bg-emerald-50/70 border-brand-primary shadow-sm' : 'bg-white border-slate-200/80 hover:border-slate-300'}">
+                <div onclick="toggleOrderSelection(${idArg})" class="p-3.5 rounded-2xl border-2 transition-all cursor-pointer ${isSelected ? 'bg-emerald-50/70 border-brand-primary shadow-sm' : 'bg-white border-slate-200/80 hover:border-slate-300'}">
                     <div class="flex justify-between items-start gap-2">
-                        <div class="flex items-start gap-2.5">
-                            <input type="checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); toggleOrderSelection('${o.id}')" class="mt-1 w-4 h-4 accent-brand-primary cursor-pointer">
-                            <div>
+                        <div class="flex items-start gap-2.5 min-w-0">
+                            <input type="checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); toggleOrderSelection(${idArg})" class="mt-1 w-4 h-4 accent-brand-primary cursor-pointer">
+                            <div class="min-w-0">
                                 <div class="flex flex-wrap items-center gap-1.5">
-                                    <span class="font-black text-sm text-slate-800">${o.customerName || 'عميل'}</span>
-                                    <span class="text-[11px] font-bold text-slate-500" dir="ltr">${o.customerPhone || ''}</span>
+                                    <span class="font-black text-sm text-slate-800">${escapeHtml(o.customerName || 'عميل')}</span>
+                                    <span class="text-[11px] font-bold text-slate-500" dir="ltr">${escapeHtml(o.customerPhone || '')}</span>
                                     ${printedBadge}
                                 </div>
-                                <p class="text-[11px] font-bold text-slate-500 mt-0.5">📍 ${o.zone || ''} ${o.customerAddress ? ' - ' + o.customerAddress : ''}</p>
-                                <p class="text-[11px] font-black text-brand-primary mt-1 bg-white px-2 py-1 rounded-lg border border-slate-200 inline-block">🛒 ${itemsTxt}</p>
+                                <p class="text-[11px] font-bold text-slate-500 mt-0.5 break-words">📍 ${escapeHtml(o.zone || '')} ${o.customerAddress ? ' - ' + escapeHtml(o.customerAddress) : ''}</p>
+                                <p class="text-[11px] font-black text-brand-primary mt-1 bg-white px-2 py-1 rounded-lg border border-slate-200 inline-block max-w-full break-words">🛒 ${itemsTxt || 'بدون أصناف'}</p>
                             </div>
                         </div>
-
                         <div class="flex flex-col items-end gap-1.5 shrink-0" onclick="event.stopPropagation()">
-                            <span class="font-black text-base text-slate-900">${o.paymentMethod === 'online' ? '<span class="text-xs bg-emerald-600 text-white px-2 py-0.5 rounded">خالص أونلاين</span>' : (o.total + ' ج')}</span>
-                            <div class="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200" title="تقسيم الطلب على أكثر من شنطة/كيس">
+                            <span class="font-black text-base text-slate-900">${totalText}</span>
+                            <div class="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200" title="عدد الشنط المطبوعة لهذا الطلب">
                                 <span class="text-[10px] font-black text-slate-600">شنط:</span>
-                                <button onclick="changeOrderBags('${o.id}', -1)" class="w-5 h-5 bg-white rounded text-xs font-black text-red-600">-</button>
+                                <button type="button" onclick="changeOrderBags(${idArg}, -1)" class="w-5 h-5 bg-white rounded text-xs font-black text-red-600" aria-label="تقليل عدد الشنط">-</button>
                                 <span class="text-xs font-black px-1">${bagsCount}</span>
-                                <button onclick="changeOrderBags('${o.id}', 1)" class="w-5 h-5 bg-white rounded text-xs font-black text-emerald-700">+</button>
+                                <button type="button" onclick="changeOrderBags(${idArg}, 1)" class="w-5 h-5 bg-white rounded text-xs font-black text-emerald-700" aria-label="زيادة عدد الشنط">+</button>
                             </div>
-                            <button onclick="printSingleOrderNow('${o.id}')" class="bg-slate-900 hover:bg-brand-primary text-white px-3 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 transition-colors">
+                            <button type="button" onclick="printSingleOrderNow(${idArg})" class="bg-slate-900 hover:bg-brand-primary text-white px-3 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 transition-colors">
                                 <i class="fa-solid fa-print text-amber-400"></i> اطبع فوراً
                             </button>
                         </div>
@@ -932,258 +1178,239 @@
             }).join('');
         };
 
-        window.toggleOrderSelection = (orderId) => {
+        window.toggleOrderSelection = orderId => {
             if (selectedOrderIds.has(orderId)) selectedOrderIds.delete(orderId);
             else selectedOrderIds.add(orderId);
             renderOrdersQueue();
             renderSelectedOrdersToStage();
         };
-
-        window.selectAllFilteredOrders = () => {
-            const filtered = window.getFilteredQueueOrders();
-            const allSelected = filtered.every(o => selectedOrderIds.has(o.id));
-            if (allSelected) {
-                filtered.forEach(o => selectedOrderIds.delete(o.id));
-            } else {
-                filtered.forEach(o => selectedOrderIds.add(o.id));
-            }
+        window.clearOrderSelection = () => {
+            selectedOrderIds.clear();
             renderOrdersQueue();
             renderSelectedOrdersToStage();
         };
-
+        window.selectAllFilteredOrders = () => {
+            const filtered = window.getFilteredQueueOrders();
+            if (!filtered.length) return;
+            const allSelected = filtered.every(o => selectedOrderIds.has(o.id));
+            filtered.forEach(o => allSelected ? selectedOrderIds.delete(o.id) : selectedOrderIds.add(o.id));
+            renderOrdersQueue();
+            renderSelectedOrdersToStage();
+        };
         window.changeOrderBags = (orderId, delta) => {
-            let cur = orderBagsCountMap[orderId] || 1;
-            cur = Math.max(1, Math.min(10, cur + delta));
-            orderBagsCountMap[orderId] = cur;
+            const current = Math.max(1, Math.min(10, Number(orderBagsCountMap[orderId]) || 1));
+            orderBagsCountMap[orderId] = Math.max(1, Math.min(10, current + Number(delta || 0)));
             selectedOrderIds.add(orderId);
             renderOrdersQueue();
             renderSelectedOrdersToStage();
         };
-
-        window.printSingleOrderNow = (orderId) => {
+        window.printSingleOrderNow = async orderId => {
             selectedOrderIds.clear();
             selectedOrderIds.add(orderId);
             renderOrdersQueue();
             renderSelectedOrdersToStage();
-            setTimeout(() => executeDirectPrint(), 150);
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            await window.executeDirectPrint();
         };
 
-        // بناء البوالص في منصة الطباعة والمعاينة الحية
+        // ================================================================
+        // Build thermal waybills for selected orders
+        // ================================================================
         window.renderSelectedOrdersToStage = () => {
+            currentPreviewType = 'orders';
             const stage = document.getElementById('thermal-print-stage');
             const dim = getPaperDimensions();
-            const selectedOrders = allOrdersRaw.filter(o => selectedOrderIds.has(o.id));
-
-            if (selectedOrders.length === 0) {
-                document.getElementById('preview-count-label').innerText = '0 ملصق';
-                stage.innerHTML = `<div class="no-print text-center py-14 text-slate-500 font-bold text-xs">اختر طلباً واحداً أو أكثر من القائمة على اليمين لمعاينة البوليصة وطباعتها.</div>`;
+            const selectedOrders = getPrintableSelectedOrders();
+            if (!selectedOrders.length) {
+                document.getElementById('preview-count-label').textContent = '0 ملصق';
+                stage.innerHTML = '<div class="no-print text-center py-14 text-slate-500 font-bold text-xs">اختر طلبًا واحدًا أو أكثر من القائمة على اليمين لمعاينة البوليصة وطباعتها.</div>';
+                updateSelectionSummary();
                 return;
             }
 
             let html = '';
             let totalStickers = 0;
-
-            selectedOrders.forEach((o) => {
-                const bagsTotal = orderBagsCountMap[o.id] || 1;
-                const shortCode = (o.id || '000000').toString().slice(-6).toUpperCase();
-                const barcodeValue = window.normalizePhone(o.customerPhone) || shortCode;
-                const dDate = o.orderDate || new Date().toLocaleDateString('en-US');
-                const batchTitle = (o.batchName && o.batchName !== 'undefined') ? o.batchName : 'طلب فوري';
-
-                const isOnline = (o.paymentMethod === 'online');
-                const subtotalVal = Number(o.subtotal) || Number(o.total) || 0;
-                const deliveryVal = Number(o.deliveryFee) || 0;
-                const discountVal = Number(o.discount) || 0;
-                const totalVal = Number(o.total) || 0;
-
-                const itemsRowsHtml = (o.items && Array.isArray(o.items)) ? o.items.map(item => `
+            selectedOrders.forEach(o => {
+                const bagsTotal = Math.max(1, Math.min(10, Number(orderBagsCountMap[o.id]) || 1));
+                const shortCode = String(o.id || '000000').slice(-6).toUpperCase();
+                const barcodeValue = normalizePhone(o.customerPhone) || shortCode;
+                const dDate = escapeHtml(formatOrderDate(o.orderDate));
+                const batchTitle = escapeHtml(o.batchName && o.batchName !== 'undefined' ? o.batchName : 'طلب فوري');
+                const isOnline = o.paymentMethod === 'online';
+                const subtotalVal = safeNumber(o.subtotal, safeNumber(o.total));
+                const deliveryVal = safeNumber(o.deliveryFee);
+                const discountVal = safeNumber(o.discount);
+                const totalVal = safeNumber(o.total);
+                const itemsRowsHtml = (Array.isArray(o.items) ? o.items : []).map(item => `
                     <tr>
-                        <td style="border:1.5px solid #000;padding:1mm 1.5mm;font-size:${dim.tableFont};font-weight:900;">${item.name}</td>
-                        <td style="border:1.5px solid #000;padding:1mm 1.5mm;font-size:${dim.custFont};font-weight:900;text-align:center;">${item.quantity}</td>
-                    </tr>
-                `).join('') : '';
-
-                const latestDriverNote = o.driverNote ? o.driverNote.split('\n---\n').pop().replace(/^\[.*?\]\s*/, '') : '';
+                        <td style="border:1.5px solid #000;padding:1mm 1.5mm;font-size:${dim.tableFont};font-weight:900;">${escapeHtml(item && item.name || 'صنف')}</td>
+                        <td style="border:1.5px solid #000;padding:1mm 1.5mm;font-size:${dim.custFont};font-weight:900;text-align:center;">${escapeHtml(item && item.quantity !== undefined ? item.quantity : 1)}</td>
+                    </tr>`).join('');
+                const latestDriverNote = o.driverNote
+                    ? String(o.driverNote).split('\n---\n').pop().replace(/^\[.*?\]\s*/, '') : '';
 
                 for (let bagIdx = 1; bagIdx <= bagsTotal; bagIdx++) {
                     totalStickers++;
                     const bagBadgeHtml = bagsTotal > 1
-                        ? `<div style="background:#000;color:#fff;font-size:8.5pt;font-weight:900;padding:1px 6px;border-radius:4px;margin-top:2px;display:inline-block;">🛍️ شنطة ${bagIdx} من ${bagsTotal}</div>`
-                        : '';
-
+                        ? `<div style="background:#000;color:#fff;font-size:8.5pt;font-weight:900;padding:1px 6px;border-radius:4px;margin-top:2px;display:inline-block;">🛍️ شنطة ${bagIdx} من ${bagsTotal}</div>` : '';
                     const qrId = `qr-order-${totalStickers}`;
                     const bcId = `bc-order-${totalStickers}`;
-
                     html += `
-                    <div class="thermal-sticker" data-order-id="${o.id}" style="width:${dim.widthMm}mm;padding:${dim.padMm};">
-                        <!-- رأس البوليصة -->
-                        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #000;padding-bottom:1.5mm;margin-bottom:1.5mm;">
-                            <div style="display:flex;align-items:center;gap:2mm;">
+                    <div class="thermal-sticker" data-order-id="${escapeHtml(o.id)}" style="width:${dim.widthMm}mm;min-height:${dim.heightMm}mm;padding:${dim.padMm};">
+                        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #000;padding-bottom:1.5mm;margin-bottom:1.5mm;gap:1mm;">
+                            <div style="display:flex;align-items:center;gap:2mm;min-width:0;">
                                 ${getBrandLogoHTML(dim.logoPx)}
-                                <div>
-                                    <div contenteditable="true" style="font-size:${dim.titleFont};font-weight:900;line-height:1.05;">${storeSettings.storeName}</div>
-                                    <div contenteditable="true" style="font-size:7pt;font-weight:800;">${storeSettings.waybillSlogan}</div>
-                                    <div dir="ltr" contenteditable="true" style="font-size:7.5pt;font-weight:900;">${storeSettings.storePhone}</div>
+                                <div style="min-width:0;">
+                                    <div contenteditable="true" style="font-size:${dim.titleFont};font-weight:900;line-height:1.05;">${escapeHtml(storeSettings.storeName)}</div>
+                                    <div contenteditable="true" style="font-size:7pt;font-weight:800;">${escapeHtml(storeSettings.waybillSlogan)}</div>
+                                    <div dir="ltr" contenteditable="true" style="font-size:7.5pt;font-weight:900;">${escapeHtml(storeSettings.storePhone)}</div>
                                 </div>
                             </div>
                             <div style="text-align:left;flex-shrink:0;">
-                                <div style="font-size:9.5pt;font-weight:900;background:#000;color:#fff;padding:0.5px 5px;border-radius:3px;display:inline-block;">#${shortCode}</div>
+                                <div style="font-size:9.5pt;font-weight:900;background:#000;color:#fff;padding:0.5px 5px;border-radius:3px;display:inline-block;">#${escapeHtml(shortCode)}</div>
                                 <div style="font-size:7pt;font-weight:800;">${dDate}</div>
                                 <div contenteditable="true" style="font-size:7pt;font-weight:900;border:1px solid #000;padding:0 3px;border-radius:3px;">${batchTitle}</div>
                                 ${bagBadgeHtml}
                             </div>
                         </div>
-
-                        <!-- بيانات العميل -->
                         <div style="border:1.5px solid #000;border-radius:4px;padding:1.5mm;margin-bottom:1.5mm;">
-                            <div contenteditable="true" style="font-size:${dim.custFont};font-weight:900;line-height:1.15;margin-bottom:0.8mm;">👤 ${o.customerName || 'عميل سمان ههيا'}</div>
+                            <div contenteditable="true" style="font-size:${dim.custFont};font-weight:900;line-height:1.15;margin-bottom:0.8mm;">👤 ${escapeHtml(o.customerName || 'عميل سمان ههيا')}</div>
                             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:2px;margin-bottom:0.8mm;padding:0.8mm 0;border-top:1px dashed #000;border-bottom:1px dashed #000;">
-                                <span dir="ltr" contenteditable="true" style="font-size:${dim.phoneFont};font-weight:900;">📞 ${o.customerPhone || ''}</span>
-                                ${o.customerPhone2 ? `<span dir="ltr" contenteditable="true" style="font-size:7.5pt;font-weight:900;border:1px solid #000;padding:0 3px;border-radius:3px;">بديل: ${o.customerPhone2}</span>` : ''}
+                                <span dir="ltr" contenteditable="true" style="font-size:${dim.phoneFont};font-weight:900;">📞 ${escapeHtml(o.customerPhone || '')}</span>
+                                ${o.customerPhone2 ? `<span dir="ltr" contenteditable="true" style="font-size:7.5pt;font-weight:900;border:1px solid #000;padding:0 3px;border-radius:3px;">بديل: ${escapeHtml(o.customerPhone2)}</span>` : ''}
                             </div>
-                            <div contenteditable="true" style="font-size:${dim.addrFont};font-weight:800;line-height:1.25;">📍 <strong>${o.zone || ''}</strong> ${o.customerAddress ? ' - ' + o.customerAddress : ''}</div>
+                            <div contenteditable="true" style="font-size:${dim.addrFont};font-weight:800;line-height:1.25;">📍 <strong>${escapeHtml(o.zone || '')}</strong> ${o.customerAddress ? ' - ' + escapeHtml(o.customerAddress) : ''}</div>
                         </div>
-
-                        <!-- جدول الأصناف -->
                         <table style="width:100%;border-collapse:collapse;margin-bottom:1.5mm;">
-                            <thead>
-                                <tr>
-                                    <th style="border:1.5px solid #000;background:#000;color:#fff;font-size:8pt;font-weight:900;padding:0.8mm 1.5mm;text-align:right;">الصنف</th>
-                                    <th style="border:1.5px solid #000;background:#000;color:#fff;font-size:8pt;font-weight:900;padding:0.8mm 1.5mm;width:22%;text-align:center;">العدد</th>
-                                </tr>
-                            </thead>
+                            <thead><tr>
+                                <th style="border:1.5px solid #000;background:#000;color:#fff;font-size:8pt;font-weight:900;padding:0.8mm 1.5mm;text-align:right;">الصنف</th>
+                                <th style="border:1.5px solid #000;background:#000;color:#fff;font-size:8pt;font-weight:900;padding:0.8mm 1.5mm;width:22%;text-align:center;">العدد</th>
+                            </tr></thead>
                             <tbody contenteditable="true">${itemsRowsHtml}</tbody>
                         </table>
-
                         ${storeSettings.waybillShowBreakdown ? `
-                        <div contenteditable="true" style="display:flex;justify-content:space-between;font-size:7.5pt;font-weight:900;margin-bottom:1mm;padding:0 0.5mm;">
-                            <span>الطلب: ${subtotalVal}ج</span>
-                            <span>توصيل: ${deliveryVal}ج</span>
+                        <div contenteditable="true" style="display:flex;justify-content:space-between;gap:1mm;font-size:7.5pt;font-weight:900;margin-bottom:1mm;padding:0 0.5mm;">
+                            <span>الطلب: ${subtotalVal}ج</span><span>توصيل: ${deliveryVal}ج</span>
                             ${discountVal > 0 ? `<span>خصم: -${discountVal}ج</span>` : ''}
                         </div>` : ''}
-
-                        <!-- المبلغ المطلوب تحصيله -->
                         <div contenteditable="true" style="border:2px ${isOnline ? 'dashed' : 'solid'} #000;background:${isOnline ? '#fff' : '#000'};color:${isOnline ? '#000' : '#fff'};text-align:center;padding:1.2mm;border-radius:4px;font-size:${dim.codFont};font-weight:900;margin-bottom:1mm;">
                             ${isOnline ? '✅ خالص أونلاين — المطلوب: 0 ج' : `💰 المطلوب تحصيله: ${totalVal} ج.م`}
                         </div>
-
                         ${(storeSettings.waybillShowDriverNote && latestDriverNote) ? `
-                        <div contenteditable="true" style="border:1.5px solid #000;border-radius:4px;padding:0.8mm 1.5mm;font-size:7.5pt;font-weight:800;margin-bottom:1mm;line-height:1.2;">
-                            🛵 ${latestDriverNote}
-                        </div>` : ''}
-
-                        <!-- التذييل والباركود والـ QR -->
+                        <div contenteditable="true" style="border:1.5px solid #000;border-radius:4px;padding:0.8mm 1.5mm;font-size:7.5pt;font-weight:800;margin-bottom:1mm;line-height:1.2;">🛵 ${escapeHtml(latestDriverNote)}</div>` : ''}
                         <div style="border-top:1.5px solid #000;padding-top:1mm;display:flex;align-items:center;justify-content:space-between;gap:2mm;">
                             <div style="flex:1;text-align:center;overflow:hidden;">
-                                ${storeSettings.waybillShowBarcode ? `<svg id="${bcId}" class="dynamic-barcode" data-code="${barcodeValue}" style="max-width:100%;height:auto;"></svg>` : ''}
-                                <div contenteditable="true" style="font-size:7.5pt;font-weight:900;margin-top:0.5mm;">${storeSettings.waybillFooterMsg}</div>
+                                ${storeSettings.waybillShowBarcode ? `<svg id="${bcId}" class="dynamic-barcode" data-code="${escapeHtml(barcodeValue)}" style="max-width:100%;height:auto;"></svg>` : ''}
+                                <div contenteditable="true" style="font-size:7.5pt;font-weight:900;margin-top:0.5mm;">${escapeHtml(storeSettings.waybillFooterMsg)}</div>
                             </div>
-                            ${(storeSettings.waybillQrMode !== 'hide' && !dim.isTiny) ? `<div id="${qrId}" class="dynamic-qr shrink-0" data-customer="${o.customerName || ''}" style="padding:1px;border:1px solid #000;border-radius:3px;"></div>` : ''}
+                            ${(storeSettings.waybillQrMode !== 'hide' && !dim.isTiny) ? `<div id="${qrId}" class="dynamic-qr shrink-0" style="padding:1px;border:1px solid #000;border-radius:3px;"></div>` : ''}
                         </div>
                     </div>`;
                 }
             });
-
-            document.getElementById('preview-count-label').innerText = `${totalStickers} ملصق`;
+            document.getElementById('preview-count-label').textContent = `${totalStickers} ملصق`;
             stage.innerHTML = html;
             renderBarcodesAndQRCodes(dim);
         };
 
-        // طباعة استيكر ملخص خط سير المندوب (يلزق على بوكس المندوب)
+        // ================================================================
+        // Driver manifest — split long lists to avoid overflowing the label
+        // ================================================================
         window.printDriverManifestSticker = () => {
-            const selectedOrders = allOrdersRaw.filter(o => selectedOrderIds.has(o.id));
-            if (selectedOrders.length === 0) return alert("حدد طلبات المندوب أولاً لطباعة استيكر ملخص خط السير!");
-
+            currentPreviewType = 'manifest';
+            const selectedOrders = getPrintableSelectedOrders();
+            if (!selectedOrders.length) return alert('حدد طلبات المندوب أولاً لطباعة ملخص خط السير.');
             const dim = getPaperDimensions();
-            let totalCash = 0;
-            const rows = selectedOrders.map((o, idx) => {
-                const cash = o.paymentMethod === 'online' ? 0 : (Number(o.total) || 0);
-                totalCash += cash;
-                return `
-                <tr>
-                    <td style="border:1px solid #000;padding:1mm;font-size:8pt;font-weight:900;">${idx + 1}. ${o.customerName} (${o.zone || ''})</td>
-                    <td style="border:1px solid #000;padding:1mm;font-size:8pt;font-weight:900;text-align:center;">${cash === 0 ? 'خالص' : cash + 'ج'}</td>
-                </tr>`;
-            }).join('');
-
+            const chunkSize = dim.isTiny ? 4 : (dim.isSmall ? 6 : 8);
+            const chunks = [];
+            for (let i = 0; i < selectedOrders.length; i += chunkSize) chunks.push(selectedOrders.slice(i, i + chunkSize));
             const stage = document.getElementById('thermal-print-stage');
-            stage.innerHTML = `
-            <div class="thermal-sticker" style="width:${dim.widthMm}mm;padding:${dim.padMm};">
-                <div style="text-align:center;border-bottom:2px solid #000;padding-bottom:1.5mm;margin-bottom:2mm;">
-                    <div contenteditable="true" style="font-size:13pt;font-weight:900;">🛵 ملخص عهدة وخط سير المندوب</div>
-                    <div contenteditable="true" style="font-size:8.5pt;font-weight:800;">التاريخ: ${new Date().toLocaleDateString('ar-EG')} | عدد الطلبات: ${selectedOrders.length}</div>
-                </div>
-                <table style="width:100%;border-collapse:collapse;margin-bottom:2mm;">
-                    <thead>
-                        <tr style="background:#000;color:#fff;font-size:8pt;">
-                            <th style="padding:1mm;text-align:right;">العميل والمنطقة</th>
-                            <th style="padding:1mm;text-align:center;width:25%;">التحصيل</th>
-                        </tr>
-                    </thead>
-                    <tbody contenteditable="true">${rows}</tbody>
-                </table>
-                <div contenteditable="true" style="background:#000;color:#fff;text-align:center;padding:1.5mm;border-radius:4px;font-size:11pt;font-weight:900;">
-                    💰 إجمالي الكاش المطلوب توريده: ${totalCash} ج.م
-                </div>
-            </div>`;
-            document.getElementById('preview-count-label').innerText = '1 ملصق عهدة';
+            const grandCash = selectedOrders.reduce((sum, o) => sum + (o.paymentMethod === 'online' ? 0 : safeNumber(o.total)), 0);
+            const html = chunks.map((chunk, chunkIndex) => {
+                const pageCash = chunk.reduce((sum, o) => sum + (o.paymentMethod === 'online' ? 0 : safeNumber(o.total)), 0);
+                const rows = chunk.map((o, idx) => {
+                    const cash = o.paymentMethod === 'online' ? 0 : safeNumber(o.total);
+                    return `<tr>
+                        <td style="border:1px solid #000;padding:1mm;font-size:8pt;font-weight:900;">${chunkIndex * chunkSize + idx + 1}. ${escapeHtml(o.customerName || 'عميل')} (${escapeHtml(o.zone || '')})</td>
+                        <td style="border:1px solid #000;padding:1mm;font-size:8pt;font-weight:900;text-align:center;">${cash === 0 ? 'خالص' : cash + 'ج'}</td>
+                    </tr>`;
+                }).join('');
+                return `<div class="thermal-sticker" style="width:${dim.widthMm}mm;min-height:${dim.heightMm}mm;padding:${dim.padMm};">
+                    <div style="text-align:center;border-bottom:2px solid #000;padding-bottom:1.5mm;margin-bottom:2mm;">
+                        <div style="font-size:13pt;font-weight:900;">🛵 ملخص خط سير المندوب</div>
+                        <div style="font-size:8.5pt;font-weight:800;">${formatArabicDate(new Date())} | صفحة ${chunkIndex + 1}/${chunks.length} | ${chunk.length} طلبات</div>
+                    </div>
+                    <table style="width:100%;border-collapse:collapse;margin-bottom:2mm;">
+                        <thead><tr style="background:#000;color:#fff;font-size:8pt;"><th style="padding:1mm;text-align:right;">العميل والمنطقة</th><th style="padding:1mm;text-align:center;width:25%;">التحصيل</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                    <div style="border:1px solid #000;text-align:center;padding:1mm;font-size:8pt;font-weight:900;margin-bottom:1mm;">تحصيل هذه الصفحة: ${pageCash} ج.م</div>
+                    <div style="background:#000;color:#fff;text-align:center;padding:1.5mm;border-radius:4px;font-size:10pt;font-weight:900;">إجمالي الكاش لكل الطلبات: ${grandCash} ج.م</div>
+                </div>`;
+            }).join('');
+            stage.innerHTML = html;
+            document.getElementById('preview-count-label').textContent = `${chunks.length} استيكر ملخص`;
         };
 
-        // === 6. استوديو الكتابة الحرة (Freeform Label Maker) ===
+        // ================================================================
+        // Freeform label studio and locally saved templates
+        // ================================================================
         function renderSavedFreeformTemplates() {
-            const customList = JSON.parse(localStorage.getItem('sman_ff_templates') || '[]');
-            const allT = [...defaultFreeformTemplates, ...customList];
+            const allTemplates = [...defaultFreeformTemplates, ...readSavedTemplates()];
             const cont = document.getElementById('freeform-saved-templates');
             if (!cont) return;
-            cont.innerHTML = allT.map((t, i) => `
-                <button onclick="applyFreeformTemplate(${i})" class="bg-slate-100 hover:bg-brand-primary hover:text-white text-slate-700 px-3 py-1.5 rounded-xl text-xs font-black border border-slate-200 transition-all">
-                    ${t.name}
-                </button>
+            cont.innerHTML = allTemplates.map((t, i) => `
+                <button type="button" onclick="applyFreeformTemplate(${i})" class="bg-slate-100 hover:bg-brand-primary hover:text-white text-slate-700 px-3 py-1.5 rounded-xl text-xs font-black border border-slate-200 transition-all">${escapeHtml(t.name || 'قالب')}</button>
             `).join('');
         }
-
-        window.applyFreeformTemplate = (idx) => {
-            const customList = JSON.parse(localStorage.getItem('sman_ff_templates') || '[]');
-            const allT = [...defaultFreeformTemplates, ...customList];
-            const t = allT[idx];
-            if (!t) return;
-            document.getElementById('ff-title').value = t.title;
-            document.getElementById('ff-body').value = t.body;
-            document.getElementById('ff-footer').value = t.footer;
+        window.applyFreeformTemplate = idx => {
+            const allTemplates = [...defaultFreeformTemplates, ...readSavedTemplates()];
+            const template = allTemplates[Number(idx)];
+            if (!template) return;
+            document.getElementById('ff-title').value = String(template.title || '');
+            document.getElementById('ff-body').value = String(template.body || '');
+            document.getElementById('ff-footer').value = String(template.footer || '');
             renderFreeformSticker();
         };
-
         window.saveCurrentFreeformTemplate = () => {
-            const name = prompt("اكتب اسماً مختصراً لهذا القالب لحفظه (مثال: استيكر عرض الجمعة):");
-            if (!name) return;
-            const customList = JSON.parse(localStorage.getItem('sman_ff_templates') || '[]');
+            const name = prompt('اكتب اسمًا مختصرًا للقالب:');
+            if (!name || !name.trim()) return;
+            const customList = readSavedTemplates();
+            if (customList.length >= 30) return alert('وصلت للحد الأقصى وهو 30 قالبًا محفوظًا. احذف بعض القوالب من تخزين المتصفح أولاً.');
             customList.push({
-                name: '📌 ' + name.trim(),
-                title: document.getElementById('ff-title').value,
-                body: document.getElementById('ff-body').value,
-                footer: document.getElementById('ff-footer').value
+                name: '📌 ' + name.trim().slice(0, 60),
+                title: document.getElementById('ff-title').value.slice(0, 180),
+                body: document.getElementById('ff-body').value.slice(0, 1200),
+                footer: document.getElementById('ff-footer').value.slice(0, 180)
             });
-            localStorage.setItem('sman_ff_templates', JSON.stringify(customList));
-            renderSavedFreeformTemplates();
-            alert("✅ تم حفظ القالب بنجاح!");
+            try {
+                localStorage.setItem('sman_ff_templates', JSON.stringify(customList));
+                renderSavedFreeformTemplates();
+                alert('تم حفظ القالب على هذا الجهاز.');
+            } catch (error) {
+                console.error('Saving local template failed:', error);
+                alert('تعذر الحفظ في تخزين المتصفح. قد تكون المساحة ممتلئة أو غير متاحة.');
+            }
         };
-
         window.renderFreeformSticker = () => {
+            currentPreviewType = 'freeform';
             const dim = getPaperDimensions();
-            const title = document.getElementById('ff-title').value;
-            const body = document.getElementById('ff-body').value.replace(/\n/g, '<br>');
-            const footer = document.getElementById('ff-footer').value;
-            const fontSize = document.getElementById('ff-font-size').value;
-            const bcVal = document.getElementById('ff-barcode').value.trim();
-            const qrVal = document.getElementById('ff-qrcode').value.trim();
+            const title = escapeHtml(document.getElementById('ff-title').value.slice(0, 180));
+            const bodyText = document.getElementById('ff-body').value.slice(0, 1200);
+            const body = escapeHtml(bodyText).replace(/\r?\n/g, '<br>');
+            const footer = escapeHtml(document.getElementById('ff-footer').value.slice(0, 180));
+            const allowedFontSizes = ['11pt', '14pt', '18pt', '22pt'];
+            const requestedFontSize = document.getElementById('ff-font-size').value;
+            const fontSize = allowedFontSizes.includes(requestedFontSize) ? requestedFontSize : '14pt';
+            const bcVal = normalizeDigits(document.getElementById('ff-barcode').value.trim()).slice(0, 60);
+            const qrVal = document.getElementById('ff-qrcode').value.trim().slice(0, 500);
             const showLogo = document.getElementById('ff-show-logo').checked;
             const showBorder = document.getElementById('ff-show-border').checked;
-            const copies = Math.max(1, Math.min(50, parseInt(document.getElementById('ff-copies').value) || 1));
-
+            const copies = Math.max(1, Math.min(50, parseInt(document.getElementById('ff-copies').value, 10) || 1));
             let html = '';
             for (let c = 1; c <= copies; c++) {
                 html += `
-                <div class="thermal-sticker" style="width:${dim.widthMm}mm;padding:${dim.padMm};border:${showBorder ? '3px double #000' : '1.5px solid #000'};">
+                <div class="thermal-sticker" style="width:${dim.widthMm}mm;min-height:${dim.heightMm}mm;padding:${dim.padMm};border:${showBorder ? '3px double #000' : '1.5px solid #000'};">
                     <div style="display:flex;align-items:center;justify-content:center;gap:2.5mm;border-bottom:2px solid #000;padding-bottom:1.5mm;margin-bottom:2mm;text-align:center;">
                         ${showLogo ? getBrandLogoHTML(dim.logoPx) : ''}
                         <div contenteditable="true" style="font-size:${dim.titleFont};font-weight:900;line-height:1.15;">${title}</div>
@@ -1193,203 +1420,256 @@
                     </div>
                     <div style="border-top:1.5px solid #000;padding-top:1.5mm;display:flex;align-items:center;justify-content:space-between;gap:2mm;">
                         <div style="flex:1;text-align:center;">
-                            ${bcVal ? `<svg id="ff-bc-${c}" class="dynamic-barcode" data-code="${bcVal}" style="max-width:100%;"></svg>` : ''}
+                            ${bcVal ? `<svg id="ff-bc-${c}" class="dynamic-barcode" data-code="${escapeHtml(bcVal)}" style="max-width:100%;"></svg>` : ''}
                             <div contenteditable="true" style="font-size:8.5pt;font-weight:900;margin-top:1mm;">${footer}</div>
                         </div>
-                        ${qrVal ? `<div id="ff-qr-${c}" class="dynamic-qr shrink-0" data-url="${qrVal}" style="padding:1px;border:1px solid #000;"></div>` : ''}
+                        ${qrVal ? `<div id="ff-qr-${c}" class="dynamic-qr shrink-0" data-url="${escapeHtml(qrVal)}" style="padding:1px;border:1px solid #000;"></div>` : ''}
                     </div>
                 </div>`;
             }
-
-            document.getElementById('preview-count-label').innerText = `${copies} ملصق حر`;
+            document.getElementById('preview-count-label').textContent = `${copies} ملصق حر`;
             document.getElementById('thermal-print-stage').innerHTML = html;
             renderBarcodesAndQRCodes(dim);
         };
 
-        // === 7. مطبعة استيكرات أطباق السمان والفريزر ===
+        // ================================================================
+        // Product / freezer tray labels
+        // ================================================================
         function populateFiltersAndProducts() {
             const prSel = document.getElementById('pr-select');
             if (!prSel) return;
-            const keys = Object.keys(storeProducts);
-            if (keys.length === 0) {
-                prSel.innerHTML = `<option value="default">طبق سمان جامبو</option>`;
+            const keys = Object.keys(storeProducts || {});
+            if (!keys.length) {
+                prSel.innerHTML = '<option value="default">طبق سمان جامبو</option>';
+                onSelectProductForLabel();
                 return;
             }
-            prSel.innerHTML = keys.map(k => `<option value="${k}">${storeProducts[k].name}</option>`).join('');
+            prSel.innerHTML = keys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(storeProducts[k] && storeProducts[k].name || k)}</option>`).join('');
             onSelectProductForLabel();
         }
-
         window.onSelectProductForLabel = () => {
-            const k = document.getElementById('pr-select').value;
-            const p = storeProducts[k];
-            if (p) {
-                document.getElementById('pr-custom-name').value = p.name || '';
-                document.getElementById('pr-weight').value = p.weight || '350 - 400 جرام';
-                document.getElementById('pr-price').value = storePrices[k] || p.basePrice || 100;
+            const key = document.getElementById('pr-select').value;
+            const product = storeProducts[key];
+            if (product) {
+                document.getElementById('pr-custom-name').value = product.name || '';
+                document.getElementById('pr-weight').value = product.weight || '350 - 400 جرام';
+                const price = storePrices[key] ?? product.basePrice ?? '';
+                document.getElementById('pr-price').value = price;
             }
             renderProductTrayStickers();
         };
-
         window.renderProductTrayStickers = () => {
             if (activeStudioTab !== 'products') return;
+            currentPreviewType = 'products';
             const dim = getPaperDimensions();
-            const pName = document.getElementById('pr-custom-name').value || 'طبق سمان طازج';
-            const pWeight = document.getElementById('pr-weight').value || '';
-            const pPrice = document.getElementById('pr-price').value || '';
+            const pName = escapeHtml(document.getElementById('pr-custom-name').value.slice(0, 160) || 'طبق سمان طازج');
+            const pWeight = escapeHtml(document.getElementById('pr-weight').value.slice(0, 100));
+            const pPrice = safeNumber(document.getElementById('pr-price').value, 0);
             const showPrice = document.getElementById('pr-show-price').checked;
             const prodDateVal = document.getElementById('pr-prod-date').value;
+            const prodDateObj = parseLocalDate(prodDateVal) || new Date();
             const expMode = document.getElementById('pr-expiry-mode').value;
-            const copies = Math.max(1, Math.min(100, parseInt(document.getElementById('pr-copies').value) || 1));
-
-            const prodDateObj = prodDateVal ? new Date(prodDateVal) : new Date();
+            const lotNumber = escapeHtml(document.getElementById('pr-lot-number').value.trim().slice(0, 40));
+            const barcodeValue = normalizeDigits(document.getElementById('pr-barcode').value.trim()).slice(0, 60);
+            const copies = Math.max(1, Math.min(100, parseInt(document.getElementById('pr-copies').value, 10) || 1));
+            const expiryRules = {
+                '3months': { months: 3, note: '❄️ يحفظ مجمداً في الفريزر عند -18°' },
+                '6months': { months: 6, note: '❄️ يحفظ مجمداً في الفريزر' },
+                '3days': { days: 3, note: '🌡️ يحفظ مبرداً في الثلاجة (طازج)' },
+                '15days': { days: 15, note: '🥚 يحفظ في مكان بارد وجاف' }
+            };
+            const rule = expiryRules[expMode] || expiryRules['3months'];
             const expDateObj = new Date(prodDateObj);
-            let storageNote = '❄️ يحفظ مجمداً في الفريزر عند -18°';
-
-            if (expMode === '3months') expDateObj.setMonth(expDateObj.getMonth() + 3);
-            else if (expMode === '6months') expDateObj.setMonth(expDateObj.getMonth() + 6);
-            else if (expMode === '3days') { expDateObj.setDate(expDateObj.getDate() + 3); storageNote = '🌡️ يحفظ مبرداً في الثلاجة (طازج)'; }
-            else if (expMode === '15days') { expDateObj.setDate(expDateObj.getDate() + 15); storageNote = '🥚 يحفظ في مكان بارد وجاف'; }
-
-            const prodStr = prodDateObj.toLocaleDateString('ar-EG');
-            const expStr = expDateObj.toLocaleDateString('ar-EG');
-
+            if (rule.months) {
+                const clamped = addMonthsClamped(prodDateObj, rule.months);
+                expDateObj.setTime(clamped.getTime());
+            } else expDateObj.setDate(expDateObj.getDate() + rule.days);
+            const prodStr = formatArabicDate(prodDateObj);
+            const expStr = formatArabicDate(expDateObj);
             let html = '';
             for (let c = 1; c <= copies; c++) {
                 html += `
-                <div class="thermal-sticker" style="width:${dim.widthMm}mm;padding:${dim.padMm};">
-                    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #000;padding-bottom:1.5mm;margin-bottom:1.5mm;">
-                        <div style="display:flex;align-items:center;gap:2mm;">
+                <div class="thermal-sticker" style="width:${dim.widthMm}mm;min-height:${dim.heightMm}mm;padding:${dim.padMm};">
+                    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #000;padding-bottom:1.5mm;margin-bottom:1.5mm;gap:1mm;">
+                        <div style="display:flex;align-items:center;gap:2mm;min-width:0;">
                             ${getBrandLogoHTML(dim.logoPx)}
                             <div>
-                                <div contenteditable="true" style="font-size:${dim.titleFont};font-weight:900;line-height:1;">${storeSettings.storeName}</div>
+                                <div contenteditable="true" style="font-size:${dim.titleFont};font-weight:900;line-height:1;">${escapeHtml(storeSettings.storeName)}</div>
                                 <div contenteditable="true" style="font-size:7.5pt;font-weight:900;">✅ مذبوح حلال طازج 100%</div>
                             </div>
                         </div>
-                        <div contenteditable="true" style="font-size:8pt;font-weight:900;border:1.5px solid #000;padding:1px 5px;border-radius:4px;" dir="ltr">
-                            ${storeSettings.storePhone}
-                        </div>
+                        <div contenteditable="true" style="font-size:8pt;font-weight:900;border:1.5px solid #000;padding:1px 5px;border-radius:4px;" dir="ltr">${escapeHtml(storeSettings.storePhone)}</div>
                     </div>
-
                     <div style="border:2px solid #000;border-radius:5px;padding:2mm;text-align:center;margin-bottom:1.5mm;">
                         <div contenteditable="true" style="font-size:${dim.custFont};font-weight:900;">${pName}</div>
                         <div contenteditable="true" style="font-size:10pt;font-weight:900;margin-top:0.5mm;">⚖️ الوزن/الوصف: ${pWeight}</div>
                         ${showPrice ? `<div contenteditable="true" style="background:#000;color:#fff;display:inline-block;padding:0.5mm 3mm;border-radius:4px;font-size:10.5pt;font-weight:900;margin-top:1mm;">السعر: ${pPrice} ج.م</div>` : ''}
+                        ${lotNumber ? `<div contenteditable="true" style="font-size:8pt;font-weight:900;margin-top:1mm;">رقم التشغيلة: ${lotNumber}</div>` : ''}
                     </div>
-
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5mm;text-align:center;margin-bottom:1.5mm;">
-                        <div style="border:1.5px solid #000;border-radius:4px;padding:1mm;">
-                            <div style="font-size:7pt;font-weight:800;">تاريخ الذبح / الإنتاج</div>
-                            <div contenteditable="true" style="font-size:9pt;font-weight:900;">${prodStr}</div>
-                        </div>
-                        <div style="border:1.5px solid #000;border-radius:4px;padding:1mm;">
-                            <div style="font-size:7pt;font-weight:800;">تاريخ انتهاء الصلاحية</div>
-                            <div contenteditable="true" style="font-size:9pt;font-weight:900;">${expStr}</div>
-                        </div>
+                        <div style="border:1.5px solid #000;border-radius:4px;padding:1mm;"><div style="font-size:7pt;font-weight:800;">تاريخ الذبح / الإنتاج</div><div contenteditable="true" style="font-size:9pt;font-weight:900;">${prodStr}</div></div>
+                        <div style="border:1.5px solid #000;border-radius:4px;padding:1mm;"><div style="font-size:7pt;font-weight:800;">تاريخ انتهاء الصلاحية</div><div contenteditable="true" style="font-size:9pt;font-weight:900;">${expStr}</div></div>
                     </div>
-
-                    <div contenteditable="true" style="text-align:center;font-size:7.5pt;font-weight:900;border-top:1.5px dashed #000;padding-top:1mm;">
-                        ${storageNote} — بالهنا والشفا 🤍
-                    </div>
+                    ${barcodeValue ? `<div style="text-align:center;margin:1mm 0;"><svg id="pr-bc-${c}" class="dynamic-barcode" data-code="${escapeHtml(barcodeValue)}" style="max-width:100%;height:auto;"></svg></div>` : ''}
+                    <div contenteditable="true" style="text-align:center;font-size:7.5pt;font-weight:900;border-top:1.5px dashed #000;padding-top:1mm;">${escapeHtml(rule.note)} — بالهنا والشفا 🤍</div>
                 </div>`;
             }
-
-            document.getElementById('preview-count-label').innerText = `${copies} ملصق منتج`;
+            document.getElementById('preview-count-label').textContent = `${copies} ملصق منتج`;
             document.getElementById('thermal-print-stage').innerHTML = html;
+            renderBarcodesAndQRCodes(dim);
         };
 
-        // === 8. رسم الباركود والـ QR Code وتنفيذ أمر الطباعة وتحديث حالة "طُبع" ===
+        // ================================================================
+        // Barcode / QR rendering with visible diagnostics
+        // ================================================================
         function renderBarcodesAndQRCodes(dim) {
-            if (typeof JsBarcode !== 'undefined') {
-                document.querySelectorAll('.dynamic-barcode').forEach(svgEl => {
-                    const codeVal = svgEl.getAttribute('data-code') || '01208027294';
-                    try {
-                        JsBarcode(svgEl, codeVal, {
-                            format: "CODE128",
-                            lineColor: "#000000",
-                            width: dim.bcWidth,
-                            height: dim.bcHeight,
-                            displayValue: true,
-                            fontSize: 10,
-                            fontOptions: "bold",
-                            margin: 0
-                        });
-                    } catch (e) {}
-                });
-            }
+            document.querySelectorAll('.dynamic-barcode').forEach(svgEl => {
+                const codeVal = normalizeDigits(svgEl.getAttribute('data-code') || '').trim();
+                try {
+                    if (!codeVal || !/^[\x20-\x7E]+$/.test(codeVal)) throw new Error('CODE128 accepts basic Latin characters only.');
+                    if (typeof JsBarcode !== 'function') throw new Error('JsBarcode library is unavailable.');
+                    JsBarcode(svgEl, codeVal, {
+                        format: 'CODE128', lineColor: '#000000', width: dim.bcWidth,
+                        height: dim.bcHeight, displayValue: true, fontSize: 10,
+                        fontOptions: 'bold', margin: 0
+                    });
+                } catch (error) {
+                    console.warn('Barcode rendering failed:', error);
+                    svgEl.outerHTML = `<div class="barcode-error" style="font-size:7pt;font-weight:800;color:#000;border:1px dashed #000;padding:1mm;">تعذر إنشاء الباركود: ${escapeHtml(codeVal || 'بدون كود')}</div>`;
+                }
+            });
 
-            if (typeof QRCode !== 'undefined') {
-                document.querySelectorAll('.dynamic-qr').forEach(qrEl => {
-                    qrEl.innerHTML = '';
-                    let targetUrl = qrEl.getAttribute('data-url');
-                    if (!targetUrl) {
-                        if (storeSettings.waybillQrMode === 'website') {
-                            targetUrl = 'https://smanhhya.github.io/';
-                        } else {
-                            let waP = (storeSettings.storePhone || '01208027294').replace(/\D/g, '');
-                            if (waP.startsWith('0')) waP = '2' + waP;
-                            targetUrl = `https://wa.me/${waP}`;
-                        }
+            document.querySelectorAll('.dynamic-qr').forEach(qrEl => {
+                qrEl.innerHTML = '';
+                let targetUrl = qrEl.getAttribute('data-url') || '';
+                if (!targetUrl) {
+                    if (storeSettings.waybillQrMode === 'website') targetUrl = 'https://smanhhya.github.io/';
+                    else {
+                        const waPhone = toWhatsAppPhone(storeSettings.storePhone || '01208027294');
+                        targetUrl = waPhone ? `https://wa.me/${waPhone}` : 'https://smanhhya.github.io/';
                     }
-                    try {
-                        new QRCode(qrEl, {
-                            text: targetUrl,
-                            width: dim.isSmall ? 42 : 50,
-                            height: dim.isSmall ? 42 : 50,
-                            colorDark: "#000000",
-                            colorLight: "#ffffff",
-                            correctLevel: QRCode.CorrectLevel.L
-                        });
-                    } catch (e) {}
-                });
-            }
+                }
+                try {
+                    if (typeof QRCode !== 'function') throw new Error('QRCode library is unavailable.');
+                    new QRCode(qrEl, {
+                        text: targetUrl, width: dim.isSmall ? 42 : 50,
+                        height: dim.isSmall ? 42 : 50,
+                        colorDark: '#000000', colorLight: '#ffffff',
+                        correctLevel: QRCode.CorrectLevel.L
+                    });
+                } catch (error) {
+                    console.warn('QR rendering failed:', error);
+                    qrEl.textContent = 'QR غير متاح';
+                }
+            });
         }
 
-        // تنفيذ أمر الطباعة المباشر وتسجيل ختم "تمت الطباعة" في قاعدة البيانات
-        window.executeDirectPrint = async () => {
-            window.print();
-
-            // إذا كنا نطبع بوالص طلبات حية، نحدث عداد الطباعة لكل طلب طُبع
-            if (activeStudioTab === 'orders' && selectedOrderIds.size > 0) {
-                try {
-                    const batch = db.batch();
-                    selectedOrderIds.forEach(id => {
-                        const o = allOrdersRaw.find(x => x.id === id);
-                        if (o) {
-                            const newCnt = (o.printedCount || 0) + 1;
-                            o.printedCount = newCnt;
-                            batch.update(db.collection('orders').doc(id), {
-                                printedCount: firebase.firestore.FieldValue.increment(1),
-                                lastPrintedAt: firebase.firestore.FieldValue.serverTimestamp()
-                            });
-                        }
-                    });
-                    await batch.commit();
-                    renderOrdersQueue();
-                } catch (e) { console.log("Error updating printed count:", e); }
+        // ================================================================
+        // Print lifecycle and accounting
+        // ================================================================
+        async function waitForPrintAssets() {
+            if (document.fonts && document.fonts.ready) {
+                try { await document.fonts.ready; } catch (_) { /* use the fallback font */ }
             }
-        };
-
-        // الربط المباشر بالبلوتوث (Web Bluetooth API لطابعة Deli 750W)
-        window.connectBluetoothPrinter = async () => {
-            if (!navigator.bluetooth) {
-                alert("📱 للطباعة بالبلوتوث من الموبايل أو الكمبيوتر:\nتأكد من عمل اقتران (Pairing) مع طابعة Deli 750W من إعدادات البلوتوث في جهازك، ثم اضغط على زر (طباعة الآن) واختر الطابعة مباشرة!");
+            const images = [...document.querySelectorAll('#thermal-print-stage img')];
+            const results = await Promise.all(images.map(img => new Promise(resolve => {
+                if (img.complete) {
+                    resolve({ ok: img.naturalWidth > 0, src: img.currentSrc || img.src || '' });
+                    return;
+                }
+                let finished = false;
+                const finish = ok => {
+                    if (finished) return;
+                    finished = true;
+                    clearTimeout(timer);
+                    resolve({ ok, src: img.currentSrc || img.src || '' });
+                };
+                const timer = setTimeout(() => finish(false), 5000);
+                img.addEventListener('load', () => finish(img.naturalWidth > 0), { once: true });
+                img.addEventListener('error', () => finish(false), { once: true });
+            })));
+            return results.filter(result => !result.ok);
+        }
+        function findStickerOverflows() {
+            const dimensions = getPaperDimensions();
+            return [...document.querySelectorAll('#thermal-print-stage .thermal-sticker')]
+                .filter(sticker => sticker.scrollHeight * 25.4 / 96 > dimensions.heightMm + 3);
+        }
+        async function recordPrintConfirmation(orders) {
+            const uniqueOrders = [...new Map(orders.map(o => [o.id, o])).values()];
+            for (let i = 0; i < uniqueOrders.length; i += 450) {
+                const chunk = uniqueOrders.slice(i, i + 450);
+                const batch = db.batch();
+                chunk.forEach(order => {
+                    batch.update(db.collection('orders').doc(order.id), {
+                        printedCount: firebase.firestore.FieldValue.increment(1),
+                        lastPrintedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                });
+                await batch.commit();
+            }
+        }
+        window.executeDirectPrint = async () => {
+            if (isPrinting) return;
+            const stickers = document.querySelectorAll('#thermal-print-stage .thermal-sticker');
+            if (!stickers.length) {
+                alert('لا توجد ملصقات جاهزة للطباعة. اختر طلبًا أو أنشئ استيكر أولاً.');
                 return;
             }
+            if (activeStudioTab === 'orders' && !getPrintableSelectedOrders().length) {
+                alert('لم يتم تحديد أي طلب صالح للطباعة.');
+                return;
+            }
+            isPrinting = true;
             try {
-                bluetoothDevice = await navigator.bluetooth.requestDevice({
-                    acceptAllDevices: true,
-                    optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb']
-                });
-                document.getElementById('bt-status-text').innerText = bluetoothDevice.name || 'متصل بالبلوتوث ✅';
-                document.getElementById('bt-status-btn').classList.replace('bg-blue-600', 'bg-emerald-600');
-                alert(`✅ تم الاقتران بنجاح مع الطابعة: ${bluetoothDevice.name || 'Deli 750W'}\nيمكنك الآن الضغط على (طباعة الآن) للطباعة الفورية.`);
-            } catch (err) {
-                console.log("Bluetooth selection canceled or failed:", err);
+                const failedAssets = await waitForPrintAssets();
+                if (failedAssets.length && !window.confirm(`تعذر تحميل ${failedAssets.length} صورة/شعار في المعاينة.
+هل تريد الطباعة على أي حال؟`)) return;
+                const overflowStickers = findStickerOverflows();
+                if (overflowStickers.length && !window.confirm(`تنبيه: ${overflowStickers.length} ملصق قد يتجاوز طول الورقة المحدد (${getPaperDimensions().heightMm} مم)، وقد يظهر جزء منه في صفحة أخرى أو يتم قصّه.
+هل تريد المتابعة؟`)) return;
+                window.print();
+                // A browser cannot reliably tell the page whether a physical print succeeded.
+                // The user confirms only after choosing Print (not Cancel) in the system dialog.
+                if (activeStudioTab === 'orders' && currentPreviewType === 'orders') {
+                    const orders = getPrintableSelectedOrders();
+                    const confirmed = window.confirm('هل اخترت «طباعة / Print» فعلًا في نافذة الطباعة؟\n\nموافق: يسجل النظام محاولة الطباعة ضمن عداد الطلبات.\nإلغاء: لا يغير عداد الطباعة.');
+                    if (confirmed) {
+                        try {
+                            await recordPrintConfirmation(orders);
+                            alert('تم تسجيل الطباعة للطلبات المحددة.');
+                        } catch (error) {
+                            console.error('Print count update failed:', error);
+                            alert('تم تنفيذ الطباعة، لكن تعذر تحديث عداد الطباعة في قاعدة البيانات.');
+                        }
+                    }
+                }
+            } finally {
+                isPrinting = false;
             }
         };
 
-        // دعم تطبيق الطباعة الحرارية السريع للأندرويد (RawBT) إن وُجد
-        window.sendToRawBTAndroid = () => {
+        // ================================================================
+        // Printer connection guide and Android PDF workflow
+        // ================================================================
+        window.showPrinterConnectionGuide = () => {
+            alert(
+                'توصيل طابعة Deli E750W:\n\n' +
+                '1) الكمبيوتر: ثبّت تعريف Deli E750W، ثم وصّل USB أو اعمل Pairing من إعدادات Windows. بعد ذلك اختر الطابعة من نافذة الطباعة.\n\n' +
+                '2) Android: اعمل Pairing من إعدادات Bluetooth، ثم احفظ الملصقات PDF من نافذة الطباعة وافتح الملف من تطبيق Deli Print واختر الطابعة.\n\n' +
+                'ملاحظة: صفحة الويب لا تعتبر الجهاز متصلًا بمجرد الاقتران. الطباعة المباشرة عبر Bluetooth تحتاج واجهة وبروتوكولًا تدعمهما الطابعة والمتصفح، لذلك لن نعرض اتصالًا وهميًا.'
+            );
+        };
+        window.exportForMobile = async () => {
+            if (!document.querySelector('#thermal-print-stage .thermal-sticker')) {
+                alert('أنشئ الملصق أولاً قبل تصديره.');
+                return;
+            }
+            alert('من نافذة الطباعة اختر «Save as PDF / حفظ PDF»، ثم افتح الملف في تطبيق Deli Print على الهاتف واطبعه عبر Bluetooth.');
+            const failedAssets = await waitForPrintAssets();
+            if (failedAssets.length && !window.confirm(`تعذر تحميل ${failedAssets.length} صورة/شعار. هل تريد حفظ PDF على أي حال؟`)) return;
+            const overflowStickers = findStickerOverflows();
+            if (overflowStickers.length && !window.confirm(`تنبيه: ${overflowStickers.length} ملصق قد يتجاوز طول الورقة المحدد. هل تريد المتابعة وحفظ PDF؟`)) return;
             window.print();
         };
     </script>
