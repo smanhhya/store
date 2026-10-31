@@ -62,7 +62,7 @@ jobs:
             }, null, 2));
             fs.writeFileSync("capacitor.config.json", JSON.stringify({
               appId: "com.smanhehya.crm",
-              appName: "سمان ههيا CRM",
+              appName: " ههيا CRM",
               webDir: "www",
               server: {
                 androidScheme: "https",
