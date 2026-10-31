@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>سمان ههيا | استوديو الطباعة الحرارية والباركود (Deli 750W)</title>
+    <meta name="theme-color" content="#064e3b">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            dark: '#064e3b',
+                            primary: '#166534',
+                            accent: '#f59e0b',
+                            bg: '#f8fafc'
+                        }
+                    },
+                    fontFamily: { cairo: ['Cairo', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- مكتبات الباركود والـ QR Code -->
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/barcodes/JsBarcode.code128.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+    <style id="dynamic-page-style">
+        @page {
+            size: 100mm 100mm;
+            margin: 0mm;
+        }
+    </style>
+
+    <style>
+        body {
+            font-family: 'Cairo', sans-serif;
+            background-color: #f1f5f9;
+            -webkit-font-smoothing: antialiased;
+        }
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 10px; }
+
+        .studio-tab { display: none !important; }
+        .studio-tab.active { display: grid !important; }
+
+        /* ستايل الاستيكر الحراري الموحد للعرض والطباعة */
+        .thermal-sticker {
+            background: #ffffff;
+            color: #000000;
+            border: 2.5px solid #000000;
+            border-radius: 6px;
+            box-sizing: border-box;
+            margin: 0 auto 16px auto;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+            page-break-after: always;
+            break-after: page;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15);
+        }
+        .thermal-sticker:last-child {
+            page-break-after: auto;
+            break-after: auto;
+        }
+        .thermal-sticker [contenteditable="true"]:hover {
+            outline: 1.5px dashed #f59e0b;
+            background-color: #fefce8;
+            cursor: text;
+        }
+        .thermal-sticker [contenteditable="true"]:focus {
+            outline: 2px solid #166534;
+            background-color: #f0fdf4;
+        }
+
+        /* إخفاء واجهة البرنامج بالكامل وقت الطباعة وإظهار الاستيكرات فقط */
+        @media print {
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            html, body {
+                background: #ffffff !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+            }
+            .no-print {
+                display: none !important;
+            }
+            #print-stage-wrapper {
+                padding: 0 !important;
+                margin: 0 !important;
+                background: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+                max-height: none !important;
+                overflow: visible !important;
+                width: 100% !important;
+            }
+            .thermal-sticker {
+                margin: 0 !important;
+                box-shadow: none !important;
+                border-radius: 0 !important;
+            }
+        }
+    </style>
+</head>
+<body class="text-slate-800 min-h-screen flex flex-col">
+
+    <!-- شاشة تسجيل الدخول في حال فتح الرابط مباشرة بدون جلسة -->
+    <div id="login-overlay" class="no-print fixed inset-0 bg-slate-900 z-[200] hidden flex items-center justify-center p-4">
+        <div class="bg-white p-8 rounded-[2rem] shadow-2xl w-full max-w-sm text-center">
+            <div class="w-16 h-16 bg-emerald-50 text-brand-primary rounded-full flex items-center justify-center mx-auto mb-4 text-3xl border border-emerald-100">
+                <i class="fa-solid fa-print"></i>
+            </div>
+            <h2 class="text-2xl font-black text-slate-800 mb-1">استوديو طباعة سمان ههيا</h2>
+            <p class="text-xs font-bold text-slate-400 mb-6">سجل دخولك للاتصال بقاعدة البيانات الحية</p>
+            <div class="space-y-3 mb-5">
+                <input type="email" id="p-login-email" dir="ltr" placeholder="admin@example.com" class="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 text-sm font-bold outline-none focus:border-brand-primary">
+                <input type="password" id="p-login-pass" dir="ltr" placeholder="••••••••" class="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 text-sm font-bold outline-none focus:border-brand-primary">
+            </div>
+            <button onclick="loginPrinterStudio()" id="p-login-btn" class="w-full bg-brand-primary hover:bg-emerald-800 text-white font-black py-3.5 rounded-xl shadow-lg transition-all">دخول للاستوديو</button>
+            <p id="p-login-err" class="hidden text-red-500 text-xs font-bold mt-3"></p>
+        </div>
+    </div>
+
+    <!-- الشريط العلوي (Header) -->
+    <header class="no-print bg-brand-dark text-white border-b border-emerald-800 shadow-lg sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <a href="index.html" class="bg-emerald-800/70 hover:bg-emerald-700 text-emerald-100 px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 border border-emerald-600/40 transition-all" title="العودة للـ CRM">
+                    <i class="fa-solid fa-arrow-right"></i> <span class="hidden sm:inline">العودة للـ CRM</span>
+                </a>
+                <div class="flex items-center gap-2">
+                    <div class="w-9 h-9 rounded-xl bg-amber-400 text-slate-900 flex items-center justify-center font-black text-lg shadow-sm">
+                        <i class="fa-solid fa-print"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-sm sm:text-base font-black leading-tight">استوديو الطباعة الحرارية (Deli 750W)</h1>
+                        <p class="text-[10px] text-emerald-300 font-bold">سمان ههيا — طباعة مباشرة وتصميم حر</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- شريط المقاس السريع وحالة البلوتوث -->
+            <div class="flex items-center gap-2">
+                <div class="hidden md:flex items-center gap-1.5 bg-emerald-900/60 border border-emerald-700/60 px-3 py-1.5 rounded-xl">
+                    <span class="text-[10px] font-bold text-emerald-200">مقاس الورق:</span>
+                    <select id="header-paper-size" onchange="changeGlobalPaperSize(this.value)" class="bg-transparent text-white text-xs font-black outline-none cursor-pointer">
+                        <option value="100x100" class="text-slate-800">10×10 سم (100 مم)</option>
+                        <option value="100x150" class="text-slate-800">10×15 سم (بوليصة كبيرة)</option>
+                        <option value="80xAuto" class="text-slate-800">8 سم (80 مم رول)</option>
+                        <option value="70xAuto" class="text-slate-800">7 سم (70 مم وسط)</option>
+                        <option value="60xAuto" class="text-slate-800">6 سم (60 مم صغير)</option>
+                        <option value="50xAuto" class="text-slate-800">5 سم (50 مم ميني)</option>
+                        <option value="40x30" class="text-slate-800">4×3 سم (باركود صغير)</option>
+                        <option value="custom" class="text-slate-800">📏 مقاس مخصص...</option>
+                    </select>
+                </div>
+
+                <button onclick="connectBluetoothPrinter()" id="bt-status-btn" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition-all active:scale-95" title="اقتران البلوتوث المباشر مع طابعة Deli 750W">
+                    <i class="fa-brands fa-bluetooth-b text-sm"></i> <span id="bt-status-text" class="hidden sm:inline">ربط البلوتوث</span>
+                </button>
+
+                <button onclick="executeDirectPrint()" class="bg-amber-400 hover:bg-amber-300 text-slate-950 px-4 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-1.5 shadow-md transition-all active:scale-95">
+                    <i class="fa-solid fa-print"></i> طباعة الآن
+                </button>
+            </div>
+        </div>
+
+        <!-- أزرار التنقل بين الـ 4 أنظمة داخل الاستوديو -->
+        <div class="bg-emerald-950/80 border-t border-emerald-800/60 px-4 py-2">
+            <div class="max-w-7xl mx-auto flex gap-2 overflow-x-auto custom-scroll">
+                <button onclick="switchStudioTab('orders', this)" class="s-tab-btn active bg-amber-400 text-slate-950 px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap flex items-center gap-1.5 shadow-sm transition-all">
+                    <i class="fa-solid fa-truck-fast"></i> 1. بوالص الطلبات الحية والمندوب
+                </button>
+                <button onclick="switchStudioTab('freeform', this)" class="s-tab-btn bg-emerald-900/50 text-emerald-100 hover:bg-emerald-800 px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap flex items-center gap-1.5 transition-all">
+                    <i class="fa-solid fa-pen-ruler"></i> 2. استوديو الكتابة الحرة وأي استيكر
+                </button>
+                <button onclick="switchStudioTab('products', this)" class="s-tab-btn bg-emerald-900/50 text-emerald-100 hover:bg-emerald-800 px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap flex items-center gap-1.5 transition-all">
+                    <i class="fa-solid fa-box-open"></i> 3. استيكرات أطباق السمان والفريزر
+                </button>
+                <button onclick="switchStudioTab('settings', this)" class="s-tab-btn bg-emerald-900/50 text-emerald-100 hover:bg-emerald-800 px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap flex items-center gap-1.5 transition-all">
+                    <i class="fa-solid fa-sliders"></i> 4. إعدادات البوليصة واللوجو والمقاسات
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- المحتوى الرئيسي للاستوديو (ينقسم لعمود التحكم على اليمين + منصة المعاينة والطباعة على اليسار) -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+        <!-- ================= الجانب الأيمن: أدوات التحكم (7 أعمدة) ================= -->
+        <div class="no-print lg:col-span-7 space-y-4">
+
+            <!-- 1️⃣ تبويب بوالص الطلبات الحية والمندوب -->
+            <div id="tab-orders" class="studio-tab active grid-cols-1 gap-4">
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200/80 space-y-3">
+                    <div class="flex flex-wrap justify-between items-center gap-2">
+                        <h2 class="text-sm font-black text-slate-800 flex items-center gap-2">
+                            <i class="fa-solid fa-bolt text-amber-500"></i> طابور الطلبات الجاهزة للطباعة
+                            <span id="queue-count-badge" class="bg-emerald-100 text-emerald-800 text-[11px] px-2.5 py-0.5 rounded-full font-black">0 طلب</span>
+                        </h2>
+                        <div class="flex flex-wrap gap-1.5">
+                            <button onclick="selectAllFilteredOrders()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-black transition-all">
+                                <i class="fa-solid fa-check-double mr-1"></i> تحديد الكل
+                            </button>
+                            <button onclick="printDriverManifestSticker()" class="bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 px-3 py-1.5 rounded-lg text-[11px] font-black transition-all">
+                                <i class="fa-solid fa-clipboard-list mr-1"></i> استيكر ملخص المندوب
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- فلاتر البحث السريع (الحالة، الدفعة، المنطقة، المندوب) -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <select id="q-status-filter" onchange="renderOrdersQueue()" class="border border-slate-200 bg-slate-50 rounded-xl p-2 text-xs font-black text-slate-700 outline-none">
+                            <option value="active">🔥 كل النشط (جديد + تجهيز + بالطريق)</option>
+                            <option value="processing">⏳ قيد التجهيز فقط</option>
+                            <option value="new">🆕 جديد فقط</option>
+                            <option value="dispatched">🛵 في الطريق فقط</option>
+                            <option value="unprinted">🖨️ لم يُطبع بعد فقط</option>
+                            <option value="completed">✅ مكتمل</option>
+                        </select>
+                        <select id="q-batch-filter" onchange="renderOrdersQueue()" class="border border-slate-200 bg-slate-50 rounded-xl p-2 text-xs font-black text-slate-700 outline-none">
+                            <option value="all">📦 كل الدفعات</option>
+                        </select>
+                        <select id="q-zone-filter" onchange="renderOrdersQueue()" class="border border-slate-200 bg-slate-50 rounded-xl p-2 text-xs font-black text-slate-700 outline-none">
+                            <option value="all">📍 كل المناطق</option>
+                        </select>
+                        <select id="q-driver-filter" onchange="renderOrdersQueue()" class="border border-slate-200 bg-slate-50 rounded-xl p-2 text-xs font-black text-slate-700 outline-none">
+                            <option value="all">🛵 كل المناديب</option>
+                        </select>
+                    </div>
+
+                    <div class="relative">
+                        <i class="fa-solid fa-magnifying-glass absolute right-3.5 top-3 text-slate-400 text-xs"></i>
+                        <input type="search" id="q-search-input" oninput="renderOrdersQueue()" placeholder="ابحث باسم العميل، رقم الموبايل، أو الصنف..." class="w-full pr-9 pl-4 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold outline-none focus:bg-white focus:border-brand-primary">
+                    </div>
+                </div>
+
+                <!-- قائمة كروت الطلبات -->
+                <div id="orders-queue-list" class="space-y-2.5 max-h-[62vh] overflow-y-auto custom-scroll pr-1">
+                    <div class="text-center py-12 text-slate-400 font-bold text-xs bg-white rounded-2xl border border-slate-200">
+                        <i class="fa-solid fa-spinner fa-spin text-2xl text-brand-primary mb-2"></i>
+                        <p>جاري سحب الطلبات الحية من قاعدة بيانات سمان ههيا...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2️⃣ تبويب استوديو الكتابة الحرة وتصميم أي استيكر -->
+            <div id="tab-freeform" class="studio-tab grid-cols-1 gap-4">
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                        <div>
+                            <h2 class="text-base font-black text-slate-800"><i class="fa-solid fa-wand-magic-sparkles text-amber-500 mr-1"></i> استوديو الكتابة الحرة وتصميم الاستيكرات</h2>
+                            <p class="text-[11px] font-bold text-slate-400">اكتب أي نص أو إعلان أو تنبيه أو باركود واطبعه فوراً على الطابعة الحرارية</p>
+                        </div>
+                        <button onclick="saveCurrentFreeformTemplate()" class="bg-emerald-50 hover:bg-brand-primary text-brand-primary hover:text-white border border-emerald-200 px-3 py-2 rounded-xl text-xs font-black transition-all">
+                            <i class="fa-solid fa-bookmark mr-1"></i> حفظ كقالب جاهز
+                        </button>
+                    </div>
+
+                    <!-- القوالب الجاهزة السريعة -->
+                    <div>
+                        <label class="text-[11px] font-black text-slate-500 block mb-1.5">قوالب سريعة جاهزة (اضغط للتعبئة الفورية):</label>
+                        <div id="freeform-saved-templates" class="flex flex-wrap gap-1.5"></div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="sm:col-span-2">
+                            <label class="text-xs font-black text-slate-700 block mb-1">العنوان الرئيسي الكبير (Header)</label>
+                            <input type="text" id="ff-title" oninput="renderFreeformSticker()" value="سمان ههيا — طازج يومياً" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm font-black bg-slate-50 focus:bg-white outline-none">
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label class="text-xs font-black text-slate-700 block mb-1">النص الرئيسي (اكتب أي كلام أو تفاصيل في عدة سطور)</label>
+                            <textarea id="ff-body" rows="4" oninput="renderFreeformSticker()" class="w-full border border-slate-200 rounded-xl p-3 text-sm font-bold bg-slate-50 focus:bg-white outline-none leading-relaxed">يُحفظ مجمداً في الفريزر فور الاستلام
+مذبوح حلال طازج من مزارعنا
+للطلب والتواصل واتساب: 01208027294</textarea>
+                        </div>
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">نص سفلي / كلمة ختامية</label>
+                            <input type="text" id="ff-footer" oninput="renderFreeformSticker()" value="بالهنا والشفا من سمان ههيا 🤍" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">حجم الخط في الوسط</label>
+                            <select id="ff-font-size" onchange="renderFreeformSticker()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50">
+                                <option value="11pt">عادي (11pt)</option>
+                                <option value="14pt" selected>كبير وواضح (14pt)</option>
+                                <option value="18pt">ضخم جداً (18pt)</option>
+                                <option value="22pt">عملاق للإعلانات (22pt)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">رقم الباركود (اتركه فارغاً لإخفائه)</label>
+                            <input type="text" id="ff-barcode" dir="ltr" oninput="renderFreeformSticker()" placeholder="مثال: 01208027294" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">رابط QR Code (موقع أو واتساب)</label>
+                            <input type="text" id="ff-qrcode" dir="ltr" oninput="renderFreeformSticker()" placeholder="https://smanhhya.github.io/" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none">
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-slate-100">
+                        <div class="flex flex-wrap items-center gap-4">
+                            <label class="flex items-center gap-1.5 text-xs font-black cursor-pointer">
+                                <input type="checkbox" id="ff-show-logo" onchange="renderFreeformSticker()" checked class="w-4 h-4 accent-brand-primary"> إظهار اللوجو
+                            </label>
+                            <label class="flex items-center gap-1.5 text-xs font-black cursor-pointer">
+                                <input type="checkbox" id="ff-show-border" onchange="renderFreeformSticker()" checked class="w-4 h-4 accent-brand-primary"> برواز مزدوج فخم
+                            </label>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-black text-slate-600">عدد النسخ:</span>
+                            <input type="number" id="ff-copies" value="1" min="1" max="50" onchange="renderFreeformSticker()" class="w-16 border border-slate-300 rounded-xl p-2 text-center text-sm font-black">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3️⃣ تبويب استيكرات أطباق السمان والفريزر -->
+            <div id="tab-products" class="studio-tab grid-cols-1 gap-4">
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+                    <div class="border-b border-slate-100 pb-3">
+                        <h2 class="text-base font-black text-slate-800"><i class="fa-solid fa-snowflake text-cyan-600 mr-1"></i> مطبعة استيكرات أطباق السمان والفريزر</h2>
+                        <p class="text-[11px] font-bold text-slate-400">اطبع استيكرات احترافية تلزق على الأطباق بعد الذبح والتغليف (الوزن + تاريخ الذبح + الصلاحية)</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">اختر الصنف من الكتالوج</label>
+                            <select id="pr-select" onchange="onSelectProductForLabel()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50"></select>
+                        </div>
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">اسم الصنف على الاستيكر</label>
+                            <input type="text" id="pr-custom-name" oninput="renderProductTrayStickers()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 focus:bg-white">
+                        </div>
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">الوزن الصافي / الوصف</label>
+                            <input type="text" id="pr-weight" oninput="renderProductTrayStickers()" placeholder="مثال: 350 - 400 جرام صافي" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 focus:bg-white">
+                        </div>
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">السعر على الطبق (اختياري)</label>
+                            <div class="flex items-center gap-2">
+                                <input type="number" id="pr-price" oninput="renderProductTrayStickers()" class="flex-1 border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 focus:bg-white text-center">
+                                <label class="flex items-center gap-1 text-[11px] font-black cursor-pointer shrink-0">
+                                    <input type="checkbox" id="pr-show-price" onchange="renderProductTrayStickers()" class="w-4 h-4 accent-brand-primary"> إظهار السعر
+                                </label>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">تاريخ الذبح / الإنتاج</label>
+                            <input type="date" id="pr-prod-date" onchange="renderProductTrayStickers()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50">
+                        </div>
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">مدة الصلاحية وطريقة الحفظ</label>
+                            <select id="pr-expiry-mode" onchange="renderProductTrayStickers()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50">
+                                <option value="3months">صلاحية 3 شهور (مجمد في الفريزر -18°)</option>
+                                <option value="6months">صلاحية 6 شهور (مجمد في الفريزر)</option>
+                                <option value="3days">صلاحية 3 أيام (طازج بالثلاجة)</option>
+                                <option value="15days">صلاحية 15 يوم (أطباق بيض سمان)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center justify-between gap-4 pt-3 border-t border-slate-100">
+                        <div class="text-xs font-bold text-slate-500">
+                            💡 يمكنك تحديد عدد الأطباق التي ذبحتها ليطبعها السيستم دفعة واحدة.
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-black text-slate-700">عدد الملصقات المطلوبة:</span>
+                            <input type="number" id="pr-copies" value="1" min="1" max="100" onchange="renderProductTrayStickers()" class="w-20 border-2 border-brand-primary rounded-xl p-2 text-center text-sm font-black text-brand-primary">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4️⃣ تبويب إعدادات البوليصة واللوجو والمقاسات -->
+            <div id="tab-settings" class="studio-tab grid-cols-1 gap-4">
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-5">
+                    <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                        <div>
+                            <h2 class="text-base font-black text-slate-800"><i class="fa-solid fa-gear text-brand-primary mr-1"></i> الإعدادات الدائمة للبوليصة وطابعة Deli 750W</h2>
+                            <p class="text-[11px] font-bold text-slate-400">أي تعديل تحفظه هنا يُحفظ في قاعدة البيانات ويسمع في كل الأجهزة</p>
+                        </div>
+                        <button onclick="savePrinterStudioSettings()" id="btn-save-p-settings" class="bg-brand-primary hover:bg-emerald-800 text-white px-5 py-2.5 rounded-xl text-xs font-black shadow-md flex items-center gap-2 transition-all">
+                            <i class="fa-solid fa-floppy-disk text-amber-300"></i> حفظ الإعدادات دائماً
+                        </button>
+                    </div>
+
+                    <!-- رفع اللوجو من الجهاز مباشرة -->
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div class="flex items-center gap-3">
+                            <div id="st-logo-preview" class="w-16 h-16 rounded-2xl bg-white border-2 border-slate-300 flex items-center justify-center overflow-hidden shrink-0 shadow-sm">
+                                <i class="fa-solid fa-kiwi-bird text-2xl text-slate-400"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-xs font-black text-slate-800">لوجو سمان ههيا على البوليصة</h4>
+                                <p class="text-[10px] font-bold text-slate-500 mt-0.5">اختر صورة اللوجو من موبايلك أو الكمبيوتر وسيتم تحويلها للطباعة الحرارية تلقائياً</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-2 shrink-0">
+                            <input type="file" id="st-logo-input" accept="image/*" class="hidden" onchange="uploadStudioLogo(event)">
+                            <button onclick="document.getElementById('st-logo-input').click()" class="bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5">
+                                <i class="fa-solid fa-upload text-amber-400"></i> رفع صورة لوجو
+                            </button>
+                            <button onclick="resetStudioLogo()" class="bg-red-50 hover:bg-red-500 text-red-600 hover:text-white px-3 py-2 rounded-xl text-xs font-black border border-red-200" title="الرجوع للوجو السمان المرسوم">
+                                <i class="fa-solid fa-rotate-left"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- النصوص والمقاسات -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">اسم العلامة التجارية</label>
+                            <input type="text" id="st-wb-storename" oninput="refreshCurrentPreview()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 focus:bg-white">
+                        </div>
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">رقم واتساب المتجر على البوليصة</label>
+                            <input type="text" id="st-wb-phone" dir="ltr" oninput="refreshCurrentPreview()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 focus:bg-white text-left">
+                        </div>
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">الجملة الترحيبية تحت الاسم</label>
+                            <input type="text" id="st-wb-slogan" oninput="refreshCurrentPreview()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white">
+                        </div>
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">الكلمة الحلوة للزبون (أسفل البوليصة)</label>
+                            <input type="text" id="st-wb-footer" oninput="refreshCurrentPreview()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white">
+                        </div>
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">مقاس الورق الحراري (بالمللي أو السنتي)</label>
+                            <div class="flex gap-2">
+                                <select id="st-wb-size" onchange="changeGlobalPaperSize(this.value)" class="flex-1 border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50">
+                                    <option value="100x100">10×10 سم (100x100 مم)</option>
+                                    <option value="100x150">10×15 سم (100x150 مم)</option>
+                                    <option value="80xAuto">8 سم رول (80 مم)</option>
+                                    <option value="70xAuto">7 سم وسط (70 مم)</option>
+                                    <option value="60xAuto">6 سم صغير (60 مم)</option>
+                                    <option value="50xAuto">5 سم ميني (50 مم)</option>
+                                    <option value="40x30">4×3 سم (باركود صغير)</option>
+                                    <option value="custom">📏 مقاس مخصص...</option>
+                                </select>
+                                <input type="number" id="st-wb-custom-w" oninput="refreshCurrentPreview()" placeholder="العرض مم" class="w-24 border border-amber-300 bg-amber-50 rounded-xl p-2 text-xs font-black text-center" title="العرض بالمللي (مثلاً 70 لـ 7 سم)">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="text-xs font-black text-slate-700 block mb-1">وظيفة رمز الـ QR Code الذكي على البوليصة</label>
+                            <select id="st-wb-qr-mode" onchange="refreshCurrentPreview()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50">
+                                <option value="whatsapp">💬 يفتح محادثة واتساب تقييم واستفسار مع سمان ههيا</option>
+                                <option value="website">🌐 يفتح موقع طلبات سمان ههيا (smanhhya.github.io)</option>
+                                <option value="hide">🚫 إخفاء الـ QR Code (الاكتفاء بالباركود فقط)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- خيارات الإظهار والإخفاء -->
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200/60">
+                        <label class="flex items-center gap-2 text-xs font-black cursor-pointer">
+                            <input type="checkbox" id="st-wb-show-barcode" onchange="refreshCurrentPreview()" checked class="w-4 h-4 accent-brand-primary"> إظهار الباركود
+                        </label>
+                        <label class="flex items-center gap-2 text-xs font-black cursor-pointer">
+                            <input type="checkbox" id="st-wb-show-breakdown" onchange="refreshCurrentPreview()" checked class="w-4 h-4 accent-brand-primary"> تفصيلة الحساب والخصم
+                        </label>
+                        <label class="flex items-center gap-2 text-xs font-black cursor-pointer">
+                            <input type="checkbox" id="st-wb-show-drivernote" onchange="refreshCurrentPreview()" checked class="w-4 h-4 accent-brand-primary"> ملاحظات المندوب
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ================= الجانب الأيسر: منصة المعاينة الحية والطباعة (5 أعمدة) ================= -->
+        <div class="lg:col-span-5 lg:sticky lg:top-28 space-y-3">
+            <div class="no-print bg-slate-900 text-white p-4 rounded-2xl shadow-lg flex flex-col gap-3">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-xs font-black text-amber-400 flex items-center gap-1.5">
+                            <i class="fa-solid fa-eye"></i> المعاينة الحية لبكرة الاستيكر الحراري
+                        </h3>
+                        <p class="text-[10px] text-slate-300 font-bold mt-0.5">💡 اضغط على أي كلمة داخل الاستيكر بالأسفل لتعديلها فوراً قبل الطباعة!</p>
+                    </div>
+                    <span id="preview-count-label" class="bg-white/10 text-white px-2.5 py-1 rounded-lg text-[11px] font-black">1 ملصق</span>
+                </div>
+
+                <div class="flex gap-2">
+                    <button onclick="executeDirectPrint()" class="flex-[2] bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3 rounded-xl text-sm shadow-md flex items-center justify-center gap-2 transition-all active:scale-95">
+                        <i class="fa-solid fa-print text-base"></i> طباعة مباشرة الآن
+                    </button>
+                    <button onclick="sendToRawBTAndroid()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-black py-3 px-2 rounded-xl text-[11px] flex items-center justify-center gap-1.5 transition-all" title="طباعة بلوتوث سريعة للموبايل عبر RawBT">
+                        <i class="fa-brands fa-android"></i> بلوتوث موبايل
+                    </button>
+                </div>
+            </div>
+
+            <!-- منطقة عرض الملصقات الحقيقية التي ستُطبع -->
+            <div id="print-stage-wrapper" class="bg-slate-200/80 border-2 border-dashed border-slate-300 rounded-2xl p-4 max-h-[75vh] overflow-y-auto custom-scroll flex flex-col items-center">
+                <div id="thermal-print-stage" class="w-full flex flex-col items-center"></div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // === 1. إعدادات الاتصال بقاعدة بيانات سمان ههيا ===
+        const firebaseConfig = {
+            apiKey: "AIzaSyD7ZJP8n8fhMewPfEsTBANn0h9To_q15BY",
+            authDomain: "sman-ca8f8.firebaseapp.com",
+            projectId: "sman-ca8f8",
+            storageBucket: "sman-ca8f8.firebasestorage.app",
+            messagingSenderId: "538778803310",
+            appId: "1:538778803310:web:5eeff42bae534375a21a7f"
+        };
+        if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        let storeSettings = {
+            storeName: 'سمان ههيا',
+            storePhone: '01208027294',
+            waybillSlogan: 'طازج من مزارعنا لمائدتك',
+            waybillFooterMsg: 'تشرفنا بخدمتكم.. بالهنا والشفا من سمان ههيا 🤍',
+            waybillLogoUrl: '',
+            waybillPaperSize: '100x100',
+            waybillCustomWidth: 70,
+            waybillQrMode: 'whatsapp',
+            waybillShowBarcode: true,
+            waybillShowBreakdown: true,
+            waybillShowDriverNote: true
+        };
+        let storeProducts = {};
+        let storePrices = {};
+        let storeBatches = {};
+        let allOrdersRaw = [];
+        let selectedOrderIds = new Set();
+        let orderBagsCountMap = {}; // عدد الشنط لكل طلب (افتراضي 1)
+        let activeStudioTab = 'orders';
+        let bluetoothDevice = null;
+
+        const defaultFreeformTemplates = [
+            { name: '❄️ حفظ بالفريزر', title: 'تنبيه هام للحفظ', body: 'يُحفظ السمان مجمداً في الفريزر فور الاستلام للحفاظ على الطزاجة والجودة العالية.', footer: 'سمان ههيا — 01208027294' },
+            { name: '🎁 هدية خاصة', title: 'هدية خاصة لعميلنا المميز 🎁', body: 'شكراً لثقتكم الغالية في سمان ههيا.. نتمنى لكم وجبة شهية!', footer: 'بالهنا والشفا 🤍' },
+            { name: '⚠️ قابل للكسر (بيض)', title: '⚠️ احترس! بيض سمان طازج', body: 'برجاء التعامل مع العبوة برفق شديد وعدم وضع أوزان فوقها.', footer: 'سمان ههيا — 01208027294' }
+        ];
+
+        window.normalizePhone = (phone) => {
+            if (!phone) return '';
+            let n = phone.toString()
+                .replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660)
+                .replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0)
+                .replace(/\D/g, '');
+            if (n.length >= 10) {
+                if (n.startsWith('0020')) n = '0' + n.substring(4);
+                else if (n.startsWith('201')) n = '0' + n.substring(2);
+                else if (n.length === 10 && n.startsWith('1')) n = '0' + n;
+            }
+            return n;
+        };
+
+        // === 2. المصادقة وبدء تشغيل الاستوديو ===
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                document.getElementById('login-overlay').classList.add('hidden');
+                initPrinterStudio();
+            } else {
+                document.getElementById('login-overlay').classList.remove('hidden');
+            }
+        });
+
+        window.loginPrinterStudio = () => {
+            const e = document.getElementById('p-login-email').value.trim();
+            const p = document.getElementById('p-login-pass').value;
+            if (!e || !p) return;
+            const btn = document.getElementById('p-login-btn');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الدخول...';
+            auth.signInWithEmailAndPassword(e, p).catch(() => {
+                btn.innerHTML = 'دخول للاستوديو';
+                const err = document.getElementById('p-login-err');
+                err.innerText = 'بيانات الدخول غير صحيحة!';
+                err.classList.remove('hidden');
+            });
+        };
+
+        async function initPrinterStudio() {
+            // تعيين تاريخ اليوم في تبويب المنتجات
+            document.getElementById('pr-prod-date').value = new Date().toISOString().split('T')[0];
+            renderSavedFreeformTemplates();
+
+            // سحب الإعدادات والأصناف والدفعات
+            try {
+                const invSnap = await db.collection('inventory').get();
+                invSnap.forEach(doc => {
+                    if (doc.id === 'settings') {
+                        storeSettings = Object.assign(storeSettings, doc.data());
+                        storeProducts = storeSettings.productsData || {};
+                    }
+                    if (doc.id === 'prices') storePrices = doc.data() || {};
+                    if (doc.id === 'batches') storeBatches = doc.data() || {};
+                });
+                populateStudioSettingsUI();
+                populateFiltersAndProducts();
+            } catch (e) { console.error("Error loading inventory:", e); }
+
+            // قراءة الرابط لو قادم من الـ CRM بطلب محدد أو عدة طلبات
+            const urlParams = new URLSearchParams(window.location.search);
+            const singleId = urlParams.get('orderId');
+            const multiIds = urlParams.get('orderIds');
+            if (singleId) selectedOrderIds.add(singleId);
+            if (multiIds) multiIds.split(',').filter(Boolean).forEach(id => selectedOrderIds.add(id));
+
+            // استماع حي للطلبات
+            db.collection('orders').onSnapshot(snap => {
+                allOrdersRaw = [];
+                snap.forEach(doc => {
+                    let d = doc.data();
+                    if (!d.batchName && d.batchId && storeBatches[d.batchId]) {
+                        d.batchName = storeBatches[d.batchId].name;
+                    }
+                    allOrdersRaw.push({ id: doc.id, ...d });
+                });
+                allOrdersRaw.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+
+                populateDynamicOrderFilters();
+                renderOrdersQueue();
+                if (activeStudioTab === 'orders') renderSelectedOrdersToStage();
+            });
+        }
+
+        // === 3. التنقل بين التبويبات ===
+        window.switchStudioTab = (tabId, btnEl) => {
+            activeStudioTab = tabId;
+            document.querySelectorAll('.studio-tab').forEach(t => t.classList.remove('active'));
+            document.getElementById('tab-' + tabId).classList.add('active');
+
+            document.querySelectorAll('.s-tab-btn').forEach(b => {
+                b.className = "s-tab-btn bg-emerald-900/50 text-emerald-100 hover:bg-emerald-800 px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap flex items-center gap-1.5 transition-all";
+            });
+            btnEl.className = "s-tab-btn active bg-amber-400 text-slate-950 px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap flex items-center gap-1.5 shadow-sm transition-all";
+
+            refreshCurrentPreview();
+        };
+
+        window.refreshCurrentPreview = () => {
+            syncSettingsFromInputs();
+            if (activeStudioTab === 'orders' || activeStudioTab === 'settings') {
+                renderSelectedOrdersToStage();
+            } else if (activeStudioTab === 'freeform') {
+                renderFreeformSticker();
+            } else if (activeStudioTab === 'products') {
+                renderProductTrayStickers();
+            }
+        };
+
+        // === 4. إدارة إعدادات المقاسات واللوجو ===
+        function populateStudioSettingsUI() {
+            document.getElementById('st-wb-storename').value = storeSettings.storeName || 'سمان ههيا';
+            document.getElementById('st-wb-phone').value = storeSettings.storePhone || '01208027294';
+            document.getElementById('st-wb-slogan').value = storeSettings.waybillSlogan || 'طازج من مزارعنا لمائدتك';
+            document.getElementById('st-wb-footer').value = storeSettings.waybillFooterMsg || 'تشرفنا بخدمتكم.. بالهنا والشفا من سمان ههيا 🤍';
+            document.getElementById('st-wb-size').value = storeSettings.waybillPaperSize || '100x100';
+            document.getElementById('header-paper-size').value = storeSettings.waybillPaperSize || '100x100';
+            document.getElementById('st-wb-custom-w').value = storeSettings.waybillCustomWidth || 70;
+            document.getElementById('st-wb-qr-mode').value = storeSettings.waybillQrMode || 'whatsapp';
+            document.getElementById('st-wb-show-barcode').checked = storeSettings.waybillShowBarcode !== false;
+            document.getElementById('st-wb-show-breakdown').checked = storeSettings.waybillShowBreakdown !== false;
+            document.getElementById('st-wb-show-drivernote').checked = storeSettings.waybillShowDriverNote !== false;
+            updateLogoPreviewBox(storeSettings.waybillLogoUrl);
+        }
+
+        function syncSettingsFromInputs() {
+            if (!document.getElementById('st-wb-storename')) return;
+            storeSettings.storeName = document.getElementById('st-wb-storename').value.trim() || 'سمان ههيا';
+            storeSettings.storePhone = document.getElementById('st-wb-phone').value.trim() || '01208027294';
+            storeSettings.waybillSlogan = document.getElementById('st-wb-slogan').value.trim() || 'طازج من مزارعنا لمائدتك';
+            storeSettings.waybillFooterMsg = document.getElementById('st-wb-footer').value.trim() || 'تشرفنا بخدمتكم.. بالهنا والشفا من سمان ههيا 🤍';
+            storeSettings.waybillPaperSize = document.getElementById('st-wb-size').value || '100x100';
+            storeSettings.waybillCustomWidth = parseInt(document.getElementById('st-wb-custom-w').value) || 70;
+            storeSettings.waybillQrMode = document.getElementById('st-wb-qr-mode').value || 'whatsapp';
+            storeSettings.waybillShowBarcode = document.getElementById('st-wb-show-barcode').checked;
+            storeSettings.waybillShowBreakdown = document.getElementById('st-wb-show-breakdown').checked;
+            storeSettings.waybillShowDriverNote = document.getElementById('st-wb-show-drivernote').checked;
+        }
+
+        window.changeGlobalPaperSize = (val) => {
+            if ( val === 'custom' ) {
+                const userW = prompt("📏 اكتب عرض بكرة الاستيكر بالمللي متر (مثلاً: 70 لـ 7 سم، أو 60 لـ 6 سم):", storeSettings.waybillCustomWidth || 70);
+                if (userW) {
+                    let parsed = parseInt(userW) || 70;
+                    if (parsed < 25) parsed = parsed * 10; // تحويل السنتي لمللي تلقائياً
+                    storeSettings.waybillCustomWidth = parsed;
+                    document.getElementById('st-wb-custom-w').value = parsed;
+                }
+            }
+            storeSettings.waybillPaperSize = val;
+            document.getElementById('st-wb-size').value = val;
+            document.getElementById('header-paper-size').value = val;
+            refreshCurrentPreview();
+        };
+
+        window.uploadStudioLogo = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const maxDim = 220;
+                    let w = img.width, h = img.height;
+                    if (w > h) { if (w > maxDim) { h = Math.round(h * (maxDim / w)); w = maxDim; } }
+                    else { if (h > maxDim) { w = Math.round(w * (maxDim / h)); h = maxDim; } }
+                    canvas.width = w; canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillRect(0, 0, w, h);
+                    ctx.drawImage(img, 0, 0, w, h);
+                    const dataUrl = canvas.toDataURL('image/png');
+                    storeSettings.waybillLogoUrl = dataUrl;
+                    updateLogoPreviewBox(dataUrl);
+                    refreshCurrentPreview();
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        window.resetStudioLogo = () => {
+            storeSettings.waybillLogoUrl = '';
+            updateLogoPreviewBox('');
+            refreshCurrentPreview();
+        };
+
+        function updateLogoPreviewBox(url) {
+            const box = document.getElementById('st-logo-preview');
+            if (!box) return;
+            box.innerHTML = url ? `<img src="${url}" class="w-full h-full object-contain">` : `<i class="fa-solid fa-kiwi-bird text-2xl text-slate-400"></i>`;
+        }
+
+        window.savePrinterStudioSettings = async () => {
+            syncSettingsFromInputs();
+            const btn = document.getElementById('btn-save-p-settings');
+            const orig = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الحفظ...';
+            btn.disabled = true;
+            try {
+                await db.collection('inventory').doc('settings').set(storeSettings, { merge: true });
+                alert('✅ تم حفظ إعدادات البوليصة واللوجو والمقاس في قاعدة البيانات بنجاح!');
+            } catch (e) {
+                alert('حدث خطأ أثناء حفظ الإعدادات!');
+            }
+            btn.innerHTML = orig;
+            btn.disabled = false;
+        };
+
+        // حساب أبعاد الورقة والخطوط ديناميكياً لأي مقاس (10سم، 8سم، 7سم، 6سم، 5سم، 4×3سم)
+        function getPaperDimensions() {
+            const size = storeSettings.waybillPaperSize || '100x100';
+            let widthMm = 100;
+            let pageSizeCss = '100mm 100mm';
+
+            if (size === '100x150') { widthMm = 100; pageSizeCss = '100mm 150mm'; }
+            else if (size === '80xAuto') { widthMm = 80; pageSizeCss = '80mm auto'; }
+            else if (size === '70xAuto') { widthMm = 70; pageSizeCss = '70mm auto'; }
+            else if (size === '60xAuto') { widthMm = 60; pageSizeCss = '60mm auto'; }
+            else if (size === '50xAuto') { widthMm = 50; pageSizeCss = '50mm auto'; }
+            else if (size === '40x30') { widthMm = 40; pageSizeCss = '40mm 30mm'; }
+            else if (size === 'custom') {
+                let cw = storeSettings.waybillCustomWidth || 70;
+                widthMm = cw < 25 ? cw * 10 : cw;
+                pageSizeCss = `${widthMm}mm auto`;
+            }
+
+            // تحديث ستايل @page للطباعة المباشرة
+            const styleEl = document.getElementById('dynamic-page-style');
+            if (styleEl) styleEl.innerHTML = `@page { size: ${pageSizeCss}; margin: 0mm; }`;
+
+            const isSmall = widthMm <= 72;
+            const isTiny = widthMm <= 58;
+            return {
+                widthMm,
+                isSmall,
+                isTiny,
+                padMm: isTiny ? '1.8mm' : (isSmall ? '2.5mm' : '3.5mm'),
+                titleFont: isTiny ? '10.5pt' : (isSmall ? '12.5pt' : '15.5pt'),
+                custFont: isTiny ? '10pt' : (isSmall ? '11.5pt' : '13pt'),
+                phoneFont: isTiny ? '9pt' : (isSmall ? '10.5pt' : '11.5pt'),
+                addrFont: isTiny ? '7.5pt' : (isSmall ? '8.5pt' : '9.5pt'),
+                tableFont: isTiny ? '7.5pt' : (isSmall ? '8.5pt' : '9.5pt'),
+                codFont: isTiny ? '9.5pt' : (isSmall ? '11pt' : '13pt'),
+                logoPx: isTiny ? '26px' : (isSmall ? '32px' : '40px'),
+                bcHeight: isTiny ? 20 : (isSmall ? 24 : 28),
+                bcWidth: isTiny ? 1.1 : (isSmall ? 1.35 : 1.65)
+            };
+        }
+
+        function getBrandLogoHTML(logoPx) {
+            if (storeSettings.waybillLogoUrl) {
+                return `<img src="${storeSettings.waybillLogoUrl}" style="width:${logoPx};height:${logoPx};object-fit:contain;filter:grayscale(100%) contrast(180%);border:1.5px solid #000;border-radius:6px;padding:1px;background:#fff;flex-shrink:0;">`;
+            }
+            return `
+            <div style="width:${logoPx};height:${logoPx};border:2px solid #000;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:#fff;">
+                <svg viewBox="0 0 64 64" width="80%" height="80%" fill="#000">
+                    <path d="M52 18c-3.5 0-6.4 2.2-7.5 5.3-4.8-.9-9.8.6-13.3 4.1l-2.8 2.8c-2.6-1.5-5.7-2.2-8.9-1.8-6.1.8-11 5.7-11.8 11.8-.2 1.8.8 3.5 2.5 4.1 1.1.4 2.3.6 3.5.6h21.8c8.8 0 16-7.2 16-16v-2.1l4.9-2.5c1.2-.6 1.6-2.2.8-3.3-1.2-1.8-3.1-3-5.2-3zm-2 6c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2z"/>
+                    <path d="M22 47l-3 7h-4l2-7h5zm12 0l-2 7h-4l1-7h5z"/>
+                </svg>
+            </div>`;
+        }
+
+        // === 5. طابور الطلبات الحية وتوليد البوالص ===
+        function populateDynamicOrderFilters() {
+            const bSel = document.getElementById('q-batch-filter');
+            const zSel = document.getElementById('q-zone-filter');
+            const dSel = document.getElementById('q-driver-filter');
+
+            const curB = bSel.value, curZ = zSel.value, curD = dSel.value;
+            const batchesSet = new Set(), zonesSet = new Set(), driversSet = new Set();
+
+            allOrdersRaw.forEach(o => {
+                if (o.status === 'trash' || o.isArchived) return;
+                if (o.batchName && o.batchName !== 'undefined') batchesSet.add(o.batchName);
+                if (o.zone) zonesSet.add(o.zone);
+                if (o.driverName) driversSet.add(o.driverName);
+            });
+
+            bSel.innerHTML = '<option value="all">📦 كل الدفعات</option>' + Array.from(batchesSet).map(b => `<option value="${b}">${b}</option>`).join('');
+            zSel.innerHTML = '<option value="all">📍 كل المناطق</option>' + Array.from(zonesSet).map(z => `<option value="${z}">${z}</option>`).join('');
+            dSel.innerHTML = '<option value="all">🛵 كل المناديب</option>' + Array.from(driversSet).map(d => `<option value="${d}">${d}</option>`).join('');
+
+            if (Array.from(batchesSet).includes(curB)) bSel.value = curB;
+            if (Array.from(zonesSet).includes(curZ)) zSel.value = curZ;
+            if (Array.from(driversSet).includes(curD)) dSel.value = curD;
+        }
+
+        window.getFilteredQueueOrders = () => {
+            const stFilter = document.getElementById('q-status-filter').value;
+            const bFilter = document.getElementById('q-batch-filter').value;
+            const zFilter = document.getElementById('q-zone-filter').value;
+            const dFilter = document.getElementById('q-driver-filter').value;
+            const qSearch = (document.getElementById('q-search-input').value || '').toLowerCase().trim();
+
+            return allOrdersRaw.filter(o => {
+                if (o.status === 'trash' || o.status === 'canceled' || o.isArchived) return false;
+                if (stFilter === 'active' && !['new', 'processing', 'dispatched'].includes(o.status)) return false;
+                if (stFilter === 'processing' && o.status !== 'processing') return false;
+                if (stFilter === 'new' && o.status !== 'new') return false;
+                if (stFilter === 'dispatched' && o.status !== 'dispatched') return false;
+                if (stFilter === 'completed' && o.status !== 'completed') return false;
+                if (stFilter === 'unprinted' && (o.printedCount > 0 || !['new', 'processing', 'dispatched'].includes(o.status))) return false;
+
+                if (bFilter !== 'all' && o.batchName !== bFilter) return false;
+                if (zFilter !== 'all' && o.zone !== zFilter) return false;
+                if (dFilter !== 'all' && o.driverName !== dFilter) return false;
+
+                if (qSearch) {
+                    const itemsStr = (o.items || []).map(i => i.name).join(' ');
+                    const hay = `${o.customerName || ''} ${o.customerPhone || ''} ${o.zone || ''} ${o.customerAddress || ''} ${itemsStr}`.toLowerCase();
+                    if (!hay.includes(qSearch)) return false;
+                }
+                return true;
+            });
+        };
+
+        window.renderOrdersQueue = () => {
+            const listEl = document.getElementById('orders-queue-list');
+            const filtered = window.getFilteredQueueOrders();
+            document.getElementById('queue-count-badge').innerText = `${filtered.length} طلب`;
+
+            if (filtered.length === 0) {
+                listEl.innerHTML = `<div class="bg-white p-10 rounded-2xl border border-dashed border-slate-300 text-center text-slate-400 font-bold text-xs">لا توجد طلبات مطابقة للفلتر الحالي.</div>`;
+                return;
+            }
+
+            // إذا لم يكن هناك أي طلب محدد بعد، نحدد أول طلب تلقائياً للمعاينة
+            if (selectedOrderIds.size === 0 && filtered.length > 0) {
+                selectedOrderIds.add(filtered[0].id);
+            }
+
+            listEl.innerHTML = filtered.map(o => {
+                const isSelected = selectedOrderIds.has(o.id);
+                const bagsCount = orderBagsCountMap[o.id] || 1;
+                const itemsTxt = (o.items || []).map(i => `${i.quantity}x ${i.name}`).join(' ، ');
+                const printedBadge = o.printedCount > 0
+                    ? `<span class="bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-md text-[10px] font-black" title="تمت طباعته ${o.printedCount} مرة"><i class="fa-solid fa-check-double mr-0.5"></i> طُبع (${o.printedCount})</span>`
+                    : `<span class="bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-md text-[10px] font-black">لم يُطبع</span>`;
+
+                return `
+                <div onclick="toggleOrderSelection('${o.id}')" class="p-3.5 rounded-2xl border-2 transition-all cursor-pointer ${isSelected ? 'bg-emerald-50/70 border-brand-primary shadow-sm' : 'bg-white border-slate-200/80 hover:border-slate-300'}">
+                    <div class="flex justify-between items-start gap-2">
+                        <div class="flex items-start gap-2.5">
+                            <input type="checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); toggleOrderSelection('${o.id}')" class="mt-1 w-4 h-4 accent-brand-primary cursor-pointer">
+                            <div>
+                                <div class="flex flex-wrap items-center gap-1.5">
+                                    <span class="font-black text-sm text-slate-800">${o.customerName || 'عميل'}</span>
+                                    <span class="text-[11px] font-bold text-slate-500" dir="ltr">${o.customerPhone || ''}</span>
+                                    ${printedBadge}
+                                </div>
+                                <p class="text-[11px] font-bold text-slate-500 mt-0.5">📍 ${o.zone || ''} ${o.customerAddress ? ' - ' + o.customerAddress : ''}</p>
+                                <p class="text-[11px] font-black text-brand-primary mt-1 bg-white px-2 py-1 rounded-lg border border-slate-200 inline-block">🛒 ${itemsTxt}</p>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col items-end gap-1.5 shrink-0" onclick="event.stopPropagation()">
+                            <span class="font-black text-base text-slate-900">${o.paymentMethod === 'online' ? '<span class="text-xs bg-emerald-600 text-white px-2 py-0.5 rounded">خالص أونلاين</span>' : (o.total + ' ج')}</span>
+                            <div class="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200" title="تقسيم الطلب على أكثر من شنطة/كيس">
+                                <span class="text-[10px] font-black text-slate-600">شنط:</span>
+                                <button onclick="changeOrderBags('${o.id}', -1)" class="w-5 h-5 bg-white rounded text-xs font-black text-red-600">-</button>
+                                <span class="text-xs font-black px-1">${bagsCount}</span>
+                                <button onclick="changeOrderBags('${o.id}', 1)" class="w-5 h-5 bg-white rounded text-xs font-black text-emerald-700">+</button>
+                            </div>
+                            <button onclick="printSingleOrderNow('${o.id}')" class="bg-slate-900 hover:bg-brand-primary text-white px-3 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 transition-colors">
+                                <i class="fa-solid fa-print text-amber-400"></i> اطبع فوراً
+                            </button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        };
+
+        window.toggleOrderSelection = (orderId) => {
+            if (selectedOrderIds.has(orderId)) selectedOrderIds.delete(orderId);
+            else selectedOrderIds.add(orderId);
+            renderOrdersQueue();
+            renderSelectedOrdersToStage();
+        };
+
+        window.selectAllFilteredOrders = () => {
+            const filtered = window.getFilteredQueueOrders();
+            const allSelected = filtered.every(o => selectedOrderIds.has(o.id));
+            if (allSelected) {
+                filtered.forEach(o => selectedOrderIds.delete(o.id));
+            } else {
+                filtered.forEach(o => selectedOrderIds.add(o.id));
+            }
+            renderOrdersQueue();
+            renderSelectedOrdersToStage();
+        };
+
+        window.changeOrderBags = (orderId, delta) => {
+            let cur = orderBagsCountMap[orderId] || 1;
+            cur = Math.max(1, Math.min(10, cur + delta));
+            orderBagsCountMap[orderId] = cur;
+            selectedOrderIds.add(orderId);
+            renderOrdersQueue();
+            renderSelectedOrdersToStage();
+        };
+
+        window.printSingleOrderNow = (orderId) => {
+            selectedOrderIds.clear();
+            selectedOrderIds.add(orderId);
+            renderOrdersQueue();
+            renderSelectedOrdersToStage();
+            setTimeout(() => executeDirectPrint(), 150);
+        };
+
+        // بناء البوالص في منصة الطباعة والمعاينة الحية
+        window.renderSelectedOrdersToStage = () => {
+            const stage = document.getElementById('thermal-print-stage');
+            const dim = getPaperDimensions();
+            const selectedOrders = allOrdersRaw.filter(o => selectedOrderIds.has(o.id));
+
+            if (selectedOrders.length === 0) {
+                document.getElementById('preview-count-label').innerText = '0 ملصق';
+                stage.innerHTML = `<div class="no-print text-center py-14 text-slate-500 font-bold text-xs">اختر طلباً واحداً أو أكثر من القائمة على اليمين لمعاينة البوليصة وطباعتها.</div>`;
+                return;
+            }
+
+            let html = '';
+            let totalStickers = 0;
+
+            selectedOrders.forEach((o) => {
+                const bagsTotal = orderBagsCountMap[o.id] || 1;
+                const shortCode = (o.id || '000000').toString().slice(-6).toUpperCase();
+                const barcodeValue = window.normalizePhone(o.customerPhone) || shortCode;
+                const dDate = o.orderDate || new Date().toLocaleDateString('en-US');
+                const batchTitle = (o.batchName && o.batchName !== 'undefined') ? o.batchName : 'طلب فوري';
+
+                const isOnline = (o.paymentMethod === 'online');
+                const subtotalVal = Number(o.subtotal) || Number(o.total) || 0;
+                const deliveryVal = Number(o.deliveryFee) || 0;
+                const discountVal = Number(o.discount) || 0;
+                const totalVal = Number(o.total) || 0;
+
+                const itemsRowsHtml = (o.items && Array.isArray(o.items)) ? o.items.map(item => `
+                    <tr>
+                        <td style="border:1.5px solid #000;padding:1mm 1.5mm;font-size:${dim.tableFont};font-weight:900;">${item.name}</td>
+                        <td style="border:1.5px solid #000;padding:1mm 1.5mm;font-size:${dim.custFont};font-weight:900;text-align:center;">${item.quantity}</td>
+                    </tr>
+                `).join('') : '';
+
+                const latestDriverNote = o.driverNote ? o.driverNote.split('\n---\n').pop().replace(/^\[.*?\]\s*/, '') : '';
+
+                for (let bagIdx = 1; bagIdx <= bagsTotal; bagIdx++) {
+                    totalStickers++;
+                    const bagBadgeHtml = bagsTotal > 1
+                        ? `<div style="background:#000;color:#fff;font-size:8.5pt;font-weight:900;padding:1px 6px;border-radius:4px;margin-top:2px;display:inline-block;">🛍️ شنطة ${bagIdx} من ${bagsTotal}</div>`
+                        : '';
+
+                    const qrId = `qr-order-${totalStickers}`;
+                    const bcId = `bc-order-${totalStickers}`;
+
+                    html += `
+                    <div class="thermal-sticker" data-order-id="${o.id}" style="width:${dim.widthMm}mm;padding:${dim.padMm};">
+                        <!-- رأس البوليصة -->
+                        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #000;padding-bottom:1.5mm;margin-bottom:1.5mm;">
+                            <div style="display:flex;align-items:center;gap:2mm;">
+                                ${getBrandLogoHTML(dim.logoPx)}
+                                <div>
+                                    <div contenteditable="true" style="font-size:${dim.titleFont};font-weight:900;line-height:1.05;">${storeSettings.storeName}</div>
+                                    <div contenteditable="true" style="font-size:7pt;font-weight:800;">${storeSettings.waybillSlogan}</div>
+                                    <div dir="ltr" contenteditable="true" style="font-size:7.5pt;font-weight:900;">${storeSettings.storePhone}</div>
+                                </div>
+                            </div>
+                            <div style="text-align:left;flex-shrink:0;">
+                                <div style="font-size:9.5pt;font-weight:900;background:#000;color:#fff;padding:0.5px 5px;border-radius:3px;display:inline-block;">#${shortCode}</div>
+                                <div style="font-size:7pt;font-weight:800;">${dDate}</div>
+                                <div contenteditable="true" style="font-size:7pt;font-weight:900;border:1px solid #000;padding:0 3px;border-radius:3px;">${batchTitle}</div>
+                                ${bagBadgeHtml}
+                            </div>
+                        </div>
+
+                        <!-- بيانات العميل -->
+                        <div style="border:1.5px solid #000;border-radius:4px;padding:1.5mm;margin-bottom:1.5mm;">
+                            <div contenteditable="true" style="font-size:${dim.custFont};font-weight:900;line-height:1.15;margin-bottom:0.8mm;">👤 ${o.customerName || 'عميل سمان ههيا'}</div>
+                            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:2px;margin-bottom:0.8mm;padding:0.8mm 0;border-top:1px dashed #000;border-bottom:1px dashed #000;">
+                                <span dir="ltr" contenteditable="true" style="font-size:${dim.phoneFont};font-weight:900;">📞 ${o.customerPhone || ''}</span>
+                                ${o.customerPhone2 ? `<span dir="ltr" contenteditable="true" style="font-size:7.5pt;font-weight:900;border:1px solid #000;padding:0 3px;border-radius:3px;">بديل: ${o.customerPhone2}</span>` : ''}
+                            </div>
+                            <div contenteditable="true" style="font-size:${dim.addrFont};font-weight:800;line-height:1.25;">📍 <strong>${o.zone || ''}</strong> ${o.customerAddress ? ' - ' + o.customerAddress : ''}</div>
+                        </div>
+
+                        <!-- جدول الأصناف -->
+                        <table style="width:100%;border-collapse:collapse;margin-bottom:1.5mm;">
+                            <thead>
+                                <tr>
+                                    <th style="border:1.5px solid #000;background:#000;color:#fff;font-size:8pt;font-weight:900;padding:0.8mm 1.5mm;text-align:right;">الصنف</th>
+                                    <th style="border:1.5px solid #000;background:#000;color:#fff;font-size:8pt;font-weight:900;padding:0.8mm 1.5mm;width:22%;text-align:center;">العدد</th>
+                                </tr>
+                            </thead>
+                            <tbody contenteditable="true">${itemsRowsHtml}</tbody>
+                        </table>
+
+                        ${storeSettings.waybillShowBreakdown ? `
+                        <div contenteditable="true" style="display:flex;justify-content:space-between;font-size:7.5pt;font-weight:900;margin-bottom:1mm;padding:0 0.5mm;">
+                            <span>الطلب: ${subtotalVal}ج</span>
+                            <span>توصيل: ${deliveryVal}ج</span>
+                            ${discountVal > 0 ? `<span>خصم: -${discountVal}ج</span>` : ''}
+                        </div>` : ''}
+
+                        <!-- المبلغ المطلوب تحصيله -->
+                        <div contenteditable="true" style="border:2px ${isOnline ? 'dashed' : 'solid'} #000;background:${isOnline ? '#fff' : '#000'};color:${isOnline ? '#000' : '#fff'};text-align:center;padding:1.2mm;border-radius:4px;font-size:${dim.codFont};font-weight:900;margin-bottom:1mm;">
+                            ${isOnline ? '✅ خالص أونلاين — المطلوب: 0 ج' : `💰 المطلوب تحصيله: ${totalVal} ج.م`}
+                        </div>
+
+                        ${(storeSettings.waybillShowDriverNote && latestDriverNote) ? `
+                        <div contenteditable="true" style="border:1.5px solid #000;border-radius:4px;padding:0.8mm 1.5mm;font-size:7.5pt;font-weight:800;margin-bottom:1mm;line-height:1.2;">
+                            🛵 ${latestDriverNote}
+                        </div>` : ''}
+
+                        <!-- التذييل والباركود والـ QR -->
+                        <div style="border-top:1.5px solid #000;padding-top:1mm;display:flex;align-items:center;justify-content:space-between;gap:2mm;">
+                            <div style="flex:1;text-align:center;overflow:hidden;">
+                                ${storeSettings.waybillShowBarcode ? `<svg id="${bcId}" class="dynamic-barcode" data-code="${barcodeValue}" style="max-width:100%;height:auto;"></svg>` : ''}
+                                <div contenteditable="true" style="font-size:7.5pt;font-weight:900;margin-top:0.5mm;">${storeSettings.waybillFooterMsg}</div>
+                            </div>
+                            ${(storeSettings.waybillQrMode !== 'hide' && !dim.isTiny) ? `<div id="${qrId}" class="dynamic-qr shrink-0" data-customer="${o.customerName || ''}" style="padding:1px;border:1px solid #000;border-radius:3px;"></div>` : ''}
+                        </div>
+                    </div>`;
+                }
+            });
+
+            document.getElementById('preview-count-label').innerText = `${totalStickers} ملصق`;
+            stage.innerHTML = html;
+            renderBarcodesAndQRCodes(dim);
+        };
+
+        // طباعة استيكر ملخص خط سير المندوب (يلزق على بوكس المندوب)
+        window.printDriverManifestSticker = () => {
+            const selectedOrders = allOrdersRaw.filter(o => selectedOrderIds.has(o.id));
+            if (selectedOrders.length === 0) return alert("حدد طلبات المندوب أولاً لطباعة استيكر ملخص خط السير!");
+
+            const dim = getPaperDimensions();
+            let totalCash = 0;
+            const rows = selectedOrders.map((o, idx) => {
+                const cash = o.paymentMethod === 'online' ? 0 : (Number(o.total) || 0);
+                totalCash += cash;
+                return `
+                <tr>
+                    <td style="border:1px solid #000;padding:1mm;font-size:8pt;font-weight:900;">${idx + 1}. ${o.customerName} (${o.zone || ''})</td>
+                    <td style="border:1px solid #000;padding:1mm;font-size:8pt;font-weight:900;text-align:center;">${cash === 0 ? 'خالص' : cash + 'ج'}</td>
+                </tr>`;
+            }).join('');
+
+            const stage = document.getElementById('thermal-print-stage');
+            stage.innerHTML = `
+            <div class="thermal-sticker" style="width:${dim.widthMm}mm;padding:${dim.padMm};">
+                <div style="text-align:center;border-bottom:2px solid #000;padding-bottom:1.5mm;margin-bottom:2mm;">
+                    <div contenteditable="true" style="font-size:13pt;font-weight:900;">🛵 ملخص عهدة وخط سير المندوب</div>
+                    <div contenteditable="true" style="font-size:8.5pt;font-weight:800;">التاريخ: ${new Date().toLocaleDateString('ar-EG')} | عدد الطلبات: ${selectedOrders.length}</div>
+                </div>
+                <table style="width:100%;border-collapse:collapse;margin-bottom:2mm;">
+                    <thead>
+                        <tr style="background:#000;color:#fff;font-size:8pt;">
+                            <th style="padding:1mm;text-align:right;">العميل والمنطقة</th>
+                            <th style="padding:1mm;text-align:center;width:25%;">التحصيل</th>
+                        </tr>
+                    </thead>
+                    <tbody contenteditable="true">${rows}</tbody>
+                </table>
+                <div contenteditable="true" style="background:#000;color:#fff;text-align:center;padding:1.5mm;border-radius:4px;font-size:11pt;font-weight:900;">
+                    💰 إجمالي الكاش المطلوب توريده: ${totalCash} ج.م
+                </div>
+            </div>`;
+            document.getElementById('preview-count-label').innerText = '1 ملصق عهدة';
+        };
+
+        // === 6. استوديو الكتابة الحرة (Freeform Label Maker) ===
+        function renderSavedFreeformTemplates() {
+            const customList = JSON.parse(localStorage.getItem('sman_ff_templates') || '[]');
+            const allT = [...defaultFreeformTemplates, ...customList];
+            const cont = document.getElementById('freeform-saved-templates');
+            if (!cont) return;
+            cont.innerHTML = allT.map((t, i) => `
+                <button onclick="applyFreeformTemplate(${i})" class="bg-slate-100 hover:bg-brand-primary hover:text-white text-slate-700 px-3 py-1.5 rounded-xl text-xs font-black border border-slate-200 transition-all">
+                    ${t.name}
+                </button>
+            `).join('');
+        }
+
+        window.applyFreeformTemplate = (idx) => {
+            const customList = JSON.parse(localStorage.getItem('sman_ff_templates') || '[]');
+            const allT = [...defaultFreeformTemplates, ...customList];
+            const t = allT[idx];
+            if (!t) return;
+            document.getElementById('ff-title').value = t.title;
+            document.getElementById('ff-body').value = t.body;
+            document.getElementById('ff-footer').value = t.footer;
+            renderFreeformSticker();
+        };
+
+        window.saveCurrentFreeformTemplate = () => {
+            const name = prompt("اكتب اسماً مختصراً لهذا القالب لحفظه (مثال: استيكر عرض الجمعة):");
+            if (!name) return;
+            const customList = JSON.parse(localStorage.getItem('sman_ff_templates') || '[]');
+            customList.push({
+                name: '📌 ' + name.trim(),
+                title: document.getElementById('ff-title').value,
+                body: document.getElementById('ff-body').value,
+                footer: document.getElementById('ff-footer').value
+            });
+            localStorage.setItem('sman_ff_templates', JSON.stringify(customList));
+            renderSavedFreeformTemplates();
+            alert("✅ تم حفظ القالب بنجاح!");
+        };
+
+        window.renderFreeformSticker = () => {
+            const dim = getPaperDimensions();
+            const title = document.getElementById('ff-title').value;
+            const body = document.getElementById('ff-body').value.replace(/\n/g, '<br>');
+            const footer = document.getElementById('ff-footer').value;
+            const fontSize = document.getElementById('ff-font-size').value;
+            const bcVal = document.getElementById('ff-barcode').value.trim();
+            const qrVal = document.getElementById('ff-qrcode').value.trim();
+            const showLogo = document.getElementById('ff-show-logo').checked;
+            const showBorder = document.getElementById('ff-show-border').checked;
+            const copies = Math.max(1, Math.min(50, parseInt(document.getElementById('ff-copies').value) || 1));
+
+            let html = '';
+            for (let c = 1; c <= copies; c++) {
+                html += `
+                <div class="thermal-sticker" style="width:${dim.widthMm}mm;padding:${dim.padMm};border:${showBorder ? '3px double #000' : '1.5px solid #000'};">
+                    <div style="display:flex;align-items:center;justify-content:center;gap:2.5mm;border-bottom:2px solid #000;padding-bottom:1.5mm;margin-bottom:2mm;text-align:center;">
+                        ${showLogo ? getBrandLogoHTML(dim.logoPx) : ''}
+                        <div contenteditable="true" style="font-size:${dim.titleFont};font-weight:900;line-height:1.15;">${title}</div>
+                    </div>
+                    <div contenteditable="true" style="font-size:${fontSize};font-weight:900;text-align:center;line-height:1.45;padding:3mm 1mm;min-height:22mm;display:flex;align-items:center;justify-content:center;">
+                        <div>${body}</div>
+                    </div>
+                    <div style="border-top:1.5px solid #000;padding-top:1.5mm;display:flex;align-items:center;justify-content:space-between;gap:2mm;">
+                        <div style="flex:1;text-align:center;">
+                            ${bcVal ? `<svg id="ff-bc-${c}" class="dynamic-barcode" data-code="${bcVal}" style="max-width:100%;"></svg>` : ''}
+                            <div contenteditable="true" style="font-size:8.5pt;font-weight:900;margin-top:1mm;">${footer}</div>
+                        </div>
+                        ${qrVal ? `<div id="ff-qr-${c}" class="dynamic-qr shrink-0" data-url="${qrVal}" style="padding:1px;border:1px solid #000;"></div>` : ''}
+                    </div>
+                </div>`;
+            }
+
+            document.getElementById('preview-count-label').innerText = `${copies} ملصق حر`;
+            document.getElementById('thermal-print-stage').innerHTML = html;
+            renderBarcodesAndQRCodes(dim);
+        };
+
+        // === 7. مطبعة استيكرات أطباق السمان والفريزر ===
+        function populateFiltersAndProducts() {
+            const prSel = document.getElementById('pr-select');
+            if (!prSel) return;
+            const keys = Object.keys(storeProducts);
+            if (keys.length === 0) {
+                prSel.innerHTML = `<option value="default">طبق سمان جامبو</option>`;
+                return;
+            }
+            prSel.innerHTML = keys.map(k => `<option value="${k}">${storeProducts[k].name}</option>`).join('');
+            onSelectProductForLabel();
+        }
+
+        window.onSelectProductForLabel = () => {
+            const k = document.getElementById('pr-select').value;
+            const p = storeProducts[k];
+            if (p) {
+                document.getElementById('pr-custom-name').value = p.name || '';
+                document.getElementById('pr-weight').value = p.weight || '350 - 400 جرام';
+                document.getElementById('pr-price').value = storePrices[k] || p.basePrice || 100;
+            }
+            renderProductTrayStickers();
+        };
+
+        window.renderProductTrayStickers = () => {
+            if (activeStudioTab !== 'products') return;
+            const dim = getPaperDimensions();
+            const pName = document.getElementById('pr-custom-name').value || 'طبق سمان طازج';
+            const pWeight = document.getElementById('pr-weight').value || '';
+            const pPrice = document.getElementById('pr-price').value || '';
+            const showPrice = document.getElementById('pr-show-price').checked;
+            const prodDateVal = document.getElementById('pr-prod-date').value;
+            const expMode = document.getElementById('pr-expiry-mode').value;
+            const copies = Math.max(1, Math.min(100, parseInt(document.getElementById('pr-copies').value) || 1));
+
+            const prodDateObj = prodDateVal ? new Date(prodDateVal) : new Date();
+            const expDateObj = new Date(prodDateObj);
+            let storageNote = '❄️ يحفظ مجمداً في الفريزر عند -18°';
+
+            if (expMode === '3months') expDateObj.setMonth(expDateObj.getMonth() + 3);
+            else if (expMode === '6months') expDateObj.setMonth(expDateObj.getMonth() + 6);
+            else if (expMode === '3days') { expDateObj.setDate(expDateObj.getDate() + 3); storageNote = '🌡️ يحفظ مبرداً في الثلاجة (طازج)'; }
+            else if (expMode === '15days') { expDateObj.setDate(expDateObj.getDate() + 15); storageNote = '🥚 يحفظ في مكان بارد وجاف'; }
+
+            const prodStr = prodDateObj.toLocaleDateString('ar-EG');
+            const expStr = expDateObj.toLocaleDateString('ar-EG');
+
+            let html = '';
+            for (let c = 1; c <= copies; c++) {
+                html += `
+                <div class="thermal-sticker" style="width:${dim.widthMm}mm;padding:${dim.padMm};">
+                    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #000;padding-bottom:1.5mm;margin-bottom:1.5mm;">
+                        <div style="display:flex;align-items:center;gap:2mm;">
+                            ${getBrandLogoHTML(dim.logoPx)}
+                            <div>
+                                <div contenteditable="true" style="font-size:${dim.titleFont};font-weight:900;line-height:1;">${storeSettings.storeName}</div>
+                                <div contenteditable="true" style="font-size:7.5pt;font-weight:900;">✅ مذبوح حلال طازج 100%</div>
+                            </div>
+                        </div>
+                        <div contenteditable="true" style="font-size:8pt;font-weight:900;border:1.5px solid #000;padding:1px 5px;border-radius:4px;" dir="ltr">
+                            ${storeSettings.storePhone}
+                        </div>
+                    </div>
+
+                    <div style="border:2px solid #000;border-radius:5px;padding:2mm;text-align:center;margin-bottom:1.5mm;">
+                        <div contenteditable="true" style="font-size:${dim.custFont};font-weight:900;">${pName}</div>
+                        <div contenteditable="true" style="font-size:10pt;font-weight:900;margin-top:0.5mm;">⚖️ الوزن/الوصف: ${pWeight}</div>
+                        ${showPrice ? `<div contenteditable="true" style="background:#000;color:#fff;display:inline-block;padding:0.5mm 3mm;border-radius:4px;font-size:10.5pt;font-weight:900;margin-top:1mm;">السعر: ${pPrice} ج.م</div>` : ''}
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5mm;text-align:center;margin-bottom:1.5mm;">
+                        <div style="border:1.5px solid #000;border-radius:4px;padding:1mm;">
+                            <div style="font-size:7pt;font-weight:800;">تاريخ الذبح / الإنتاج</div>
+                            <div contenteditable="true" style="font-size:9pt;font-weight:900;">${prodStr}</div>
+                        </div>
+                        <div style="border:1.5px solid #000;border-radius:4px;padding:1mm;">
+                            <div style="font-size:7pt;font-weight:800;">تاريخ انتهاء الصلاحية</div>
+                            <div contenteditable="true" style="font-size:9pt;font-weight:900;">${expStr}</div>
+                        </div>
+                    </div>
+
+                    <div contenteditable="true" style="text-align:center;font-size:7.5pt;font-weight:900;border-top:1.5px dashed #000;padding-top:1mm;">
+                        ${storageNote} — بالهنا والشفا 🤍
+                    </div>
+                </div>`;
+            }
+
+            document.getElementById('preview-count-label').innerText = `${copies} ملصق منتج`;
+            document.getElementById('thermal-print-stage').innerHTML = html;
+        };
+
+        // === 8. رسم الباركود والـ QR Code وتنفيذ أمر الطباعة وتحديث حالة "طُبع" ===
+        function renderBarcodesAndQRCodes(dim) {
+            if (typeof JsBarcode !== 'undefined') {
+                document.querySelectorAll('.dynamic-barcode').forEach(svgEl => {
+                    const codeVal = svgEl.getAttribute('data-code') || '01208027294';
+                    try {
+                        JsBarcode(svgEl, codeVal, {
+                            format: "CODE128",
+                            lineColor: "#000000",
+                            width: dim.bcWidth,
+                            height: dim.bcHeight,
+                            displayValue: true,
+                            fontSize: 10,
+                            fontOptions: "bold",
+                            margin: 0
+                        });
+                    } catch (e) {}
+                });
+            }
+
+            if (typeof QRCode !== 'undefined') {
+                document.querySelectorAll('.dynamic-qr').forEach(qrEl => {
+                    qrEl.innerHTML = '';
+                    let targetUrl = qrEl.getAttribute('data-url');
+                    if (!targetUrl) {
+                        if (storeSettings.waybillQrMode === 'website') {
+                            targetUrl = 'https://smanhhya.github.io/';
+                        } else {
+                            let waP = (storeSettings.storePhone || '01208027294').replace(/\D/g, '');
+                            if (waP.startsWith('0')) waP = '2' + waP;
+                            targetUrl = `https://wa.me/${waP}`;
+                        }
+                    }
+                    try {
+                        new QRCode(qrEl, {
+                            text: targetUrl,
+                            width: dim.isSmall ? 42 : 50,
+                            height: dim.isSmall ? 42 : 50,
+                            colorDark: "#000000",
+                            colorLight: "#ffffff",
+                            correctLevel: QRCode.CorrectLevel.L
+                        });
+                    } catch (e) {}
+                });
+            }
+        }
+
+        // تنفيذ أمر الطباعة المباشر وتسجيل ختم "تمت الطباعة" في قاعدة البيانات
+        window.executeDirectPrint = async () => {
+            window.print();
+
+            // إذا كنا نطبع بوالص طلبات حية، نحدث عداد الطباعة لكل طلب طُبع
+            if (activeStudioTab === 'orders' && selectedOrderIds.size > 0) {
+                try {
+                    const batch = db.batch();
+                    selectedOrderIds.forEach(id => {
+                        const o = allOrdersRaw.find(x => x.id === id);
+                        if (o) {
+                            const newCnt = (o.printedCount || 0) + 1;
+                            o.printedCount = newCnt;
+                            batch.update(db.collection('orders').doc(id), {
+                                printedCount: firebase.firestore.FieldValue.increment(1),
+                                lastPrintedAt: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                        }
+                    });
+                    await batch.commit();
+                    renderOrdersQueue();
+                } catch (e) { console.log("Error updating printed count:", e); }
+            }
+        };
+
+        // الربط المباشر بالبلوتوث (Web Bluetooth API لطابعة Deli 750W)
+        window.connectBluetoothPrinter = async () => {
+            if (!navigator.bluetooth) {
+                alert("📱 للطباعة بالبلوتوث من الموبايل أو الكمبيوتر:\nتأكد من عمل اقتران (Pairing) مع طابعة Deli 750W من إعدادات البلوتوث في جهازك، ثم اضغط على زر (طباعة الآن) واختر الطابعة مباشرة!");
+                return;
+            }
+            try {
+                bluetoothDevice = await navigator.bluetooth.requestDevice({
+                    acceptAllDevices: true,
+                    optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb']
+                });
+                document.getElementById('bt-status-text').innerText = bluetoothDevice.name || 'متصل بالبلوتوث ✅';
+                document.getElementById('bt-status-btn').classList.replace('bg-blue-600', 'bg-emerald-600');
+                alert(`✅ تم الاقتران بنجاح مع الطابعة: ${bluetoothDevice.name || 'Deli 750W'}\nيمكنك الآن الضغط على (طباعة الآن) للطباعة الفورية.`);
+            } catch (err) {
+                console.log("Bluetooth selection canceled or failed:", err);
+            }
+        };
+
+        // دعم تطبيق الطباعة الحرارية السريع للأندرويد (RawBT) إن وُجد
+        window.sendToRawBTAndroid = () => {
+            window.print();
+        };
+    </script>
+</body>
+</html>
