@@ -1,26 +1,28 @@
 // =========================================================================
-// 📊 المحرك الذكي المستقل للوحة القيادة المالية والتحليلية (www/dashboard.js)
+// 📊 المحرك الذكي المستقل للوحة القيادة المالية والتحليلية (dashboard.js)
 // خاص بمشروع: سمان ههيا (CRM)
 // =========================================================================
 
 (function () {
+    // 1. إعدادات الفلترة الافتراضية للوحة القيادة (تفتح على الشهر الحالي تلقائياً)
     const now = new Date();
     const defaultMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
     window.dashState = {
-        period: 'this_month',        // 'today' | 'this_month' | 'last_month' | 'pick_month' | 'custom' | 'all_time'
+        period: 'this_month',      // 'today' | 'this_month' | 'last_month' | 'pick_month' | 'custom' | 'all_time'
         selectedMonth: defaultMonthStr,
         dateFrom: '',
         dateTo: '',
-        sourceFilter: 'all',         // 'all' | 'batches_only' | 'normal_only' | 'batch:BATCH_NAME'
-        dateBasis: 'effective',      // 'effective' (تاريخ التسليم الفعلي) | 'created' (تاريخ إنشاء الطلب)
+        sourceFilter: 'all',       // 'all' | 'batches_only' | 'normal_only' | 'batch:BATCH_NAME'
+        dateBasis: 'effective',    // 'effective' (تاريخ التسليم الفعلي) | 'created' (تاريخ إنشاء الطلب)
         tableSubFilter: 'completed', // 'completed' | 'all_active' | 'discounted' | 'debt' | 'canceled'
         tableSearch: ''
     };
 
+    // دالة مساعدة للتنبيهات السريعة (حماية للسيستم في حال عدم وجودها)
     if (typeof window.showToast !== 'function') {
         window.showToast = function (msg) {
-            let toast = document.getElementById('global-toast-notif');
+            let toast = document.getElementById(' global-toast-notif');
             if (!toast) {
                 toast = document.createElement('div');
                 toast.id = 'global-toast-notif';
@@ -38,11 +40,12 @@
         };
     }
 
+    // 2. بناء الهيكل البصري الذكي داخل #view-dashboard مع الحفاظ التام على كشاف الطوارئ
     window.initSmartDashboardLayout = function () {
         const dashView = document.getElementById('view-dashboard');
         if (!dashView || document.getElementById('smart-dashboard-root')) return;
 
-        // الحفاظ على كشاف الطوارئ كما هو في أعلى لوحة القيادة
+        // الاحتفاظ بكشاف الطوارئ (أول عنصر داخل لوحة القيادة)
         const emergencySearchEl = dashView.firstElementChild;
         dashView.innerHTML = '';
         if (emergencySearchEl) {
@@ -113,6 +116,7 @@
 
             <!-- 💰 الكروت المالية الـ 6 الشاملة -->
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- 1. إجمالي التحصيل الصافي للدرج -->
                 <div class="bg-white p-5 rounded-[1.5rem] border border-amber-200/80 shadow-soft relative overflow-hidden">
                     <div class="flex justify-between items-start mb-3">
                         <div>
@@ -127,6 +131,7 @@
                     </div>
                 </div>
 
+                <!-- 2. صافي قيمة المنتجات بدون توصيل -->
                 <div class="bg-white p-5 rounded-[1.5rem] border border-emerald-200/80 shadow-soft relative overflow-hidden">
                     <div class="flex justify-between items-start mb-3">
                         <div>
@@ -141,6 +146,7 @@
                     </div>
                 </div>
 
+                <!-- 3. كارت الخصومات والواجب (قابل للضغط للفلترة) -->
                 <div onclick="updateDashState('tableSubFilter', 'discounted'); document.getElementById('sm-dash-orders-section').scrollIntoView({behavior:'smooth'});" class="bg-white p-5 rounded-[1.5rem] border border-red-200 shadow-soft relative overflow-hidden cursor-pointer hover:border-red-400 transition-all group" title="اضغط لعرض الطلبات التي حصلت على خصم في الجدول بالأسفل">
                     <div class="flex justify-between items-start mb-3">
                         <div>
@@ -155,6 +161,7 @@
                     </div>
                 </div>
 
+                <!-- 4. إيرادات التوصيل -->
                 <div class="bg-white p-5 rounded-[1.5rem] border border-indigo-100 shadow-soft">
                     <div class="flex justify-between items-start mb-3">
                         <div>
@@ -168,6 +175,7 @@
                     </div>
                 </div>
 
+                <!-- 5. إحصائيات الطلبات (المكتمل مقابل قيد التنفيذ والملغي) -->
                 <div class="bg-white p-5 rounded-[1.5rem] border border-blue-100 shadow-soft">
                     <div class="flex justify-between items-start mb-3">
                         <div>
@@ -182,6 +190,7 @@
                     </div>
                 </div>
 
+                <!-- 6. الآجل المتبقي في الفترة -->
                 <div onclick="updateDashState('tableSubFilter', 'debt'); document.getElementById('sm-dash-orders-section').scrollIntoView({behavior:'smooth'});" class="bg-white p-5 rounded-[1.5rem] border border-rose-100 shadow-soft cursor-pointer hover:border-rose-300 transition-all">
                     <div class="flex justify-between items-start mb-3">
                         <div>
@@ -196,7 +205,7 @@
                 </div>
             </div>
 
-            <!-- 🏷️ مقارنة أداء الدفعات مقابل البيع الفوري -->
+            <!-- 🏷️ مقارنة أداء الدفعات مقابل البيع الفوري في هذه الفترة -->
             <div class="bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft">
                 <div class="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
                     <div>
@@ -208,7 +217,7 @@
                 <div id="sm-dash-batches-breakdown" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
             </div>
 
-            <!-- 📦 جرد الأصناف المباعة في الفترة -->
+            <!-- 📦 جرد الأصناف المباعة في الفترة (بالعدد وبالجنيه) -->
             <div class="bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft">
                 <h4 class="text-sm font-black text-slate-800 mb-4 pb-2 border-b border-slate-100">
                     <i class="fa-solid fa-boxes-packing text-brand-primary mr-1.5"></i> جرد الأصناف المسلمة فعلياً في الفترة (كميات + إيراد كل صنف)
@@ -216,7 +225,7 @@
                 <div id="sm-dash-items-grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3"></div>
             </div>
 
-            <!-- 📋 جدول سجل الطلبات التفصيلي للفترة -->
+            <!-- 📋 جدول سجل الطلبات التفصيلي للفترة المحددة -->
             <div id="sm-dash-orders-section" class="bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft space-y-4">
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 pb-3 border-b border-slate-100">
                     <div>
@@ -262,6 +271,7 @@
         dashView.appendChild(root);
     };
 
+    // 3. قراءة التاريخ الفعلي للطلب بأمان تام (يدعم التواريخ القديمة والجديدة)
     function parseOrderDateObj(o, basis) {
         if (basis === 'effective' && o.status === 'completed') {
             if (o.completedAt && typeof o.completedAt.toMillis === 'function') {
@@ -282,6 +292,7 @@
         return null;
     }
 
+    // 4. فحص هل الطلب يقع داخل الفترة الزمنية المحددة
     function isOrderInSelectedPeriod(o) {
         const st = window.dashState;
         if (st.period === 'all_time') return true;
@@ -326,6 +337,7 @@
         return true;
     }
 
+    // 5. حساب فرق السعر (الواجب أو السعر القديم) في أصناف الطلب
     function calcOrderImplicitPriceDiscount(o) {
         if (!o.items || !Array.isArray(o.items)) return 0;
         const pricesObj = (typeof storePrices !== 'undefined' && storePrices) ? storePrices : {};
@@ -343,9 +355,11 @@
         return Math.round(implicitDisc);
     }
 
+    // 6. تحديث حالة الفلترة وإعادة رسم اللوحة فوراً
     window.updateDashState = function (key, val) {
         window.dashState[key] = val;
 
+        // تحديث أزرار الفترة الزمنية
         if (key === 'period') {
             document.querySelectorAll('.dash-period-btn').forEach(btn => {
                 btn.className = 'dash-period-btn bg-slate-100 text-slate-600 hover:bg-slate-200 px-4 py-2 rounded-xl text-xs font-black transition-all';
@@ -372,6 +386,7 @@
             }
         }
 
+        // تحديث أزرار فلتر الجدول السفلي
         if (key === 'tableSubFilter') {
             document.querySelectorAll('.sm-tf-btn').forEach(btn => {
                 btn.className = 'sm-tf-btn bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all';
@@ -395,6 +410,7 @@
         window.renderSmartDashboard();
     };
 
+    // 7. المحرك الرئيسي لحساب ورسم لوحة القيادة الذكية
     window.renderSmartDashboard = function () {
         window.initSmartDashboardLayout();
         if (!document.getElementById('smart-dashboard-root')) return;
@@ -403,6 +419,7 @@
         const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
         const archivedArr = (typeof archivedBatchesData !== 'undefined' && Array.isArray(archivedBatchesData)) ? archivedBatchesData : [];
 
+        // تحديث قائمة الدفعات في الفلتر العلوي (تشمل الدفعات الحية والمؤرشفة وأي دفعة في الطلبات)
         const sourceSelect = document.getElementById('dash-source-select');
         if (sourceSelect) {
             const currentVal = window.dashState.sourceFilter;
@@ -425,6 +442,7 @@
             sourceSelect.value = currentVal;
         }
 
+        // تحديث شارة اسم الفترة النشطة
         const periodBadge = document.getElementById('dash-active-period-badge');
         if (periodBadge) {
             const pNames = {
@@ -438,11 +456,13 @@
             periodBadge.innerText = pNames[window.dashState.period] || 'هذا الشهر';
         }
 
+        // أ) فلترة الطلبات حسب الفترة الزمنية أولاً (لحساب مقارنة الدفعات داخل الشهر)
         const periodOrders = ordersList.filter(o => {
             if (!o || o.status === 'trash') return false;
             return isOrderInSelectedPeriod(o);
         });
 
+        // ب) تجميع أداء الدفعات مقابل الفوري داخل هذه الفترة الزمنية
         const sourcesSummary = {};
         periodOrders.forEach(o => {
             const hasBatch = Boolean((o.batchName && o.batchName !== 'undefined' && o.batchName.trim() !== '') || o.batchId);
@@ -470,6 +490,7 @@
             }
         });
 
+        // ج) تطبيق فلتر المصدر (دفعة معينة أو فوري أو الكل)
         const finalPeriodOrders = periodOrders.filter(o => {
             const sf = window.dashState.sourceFilter;
             if (sf === 'all') return true;
@@ -483,6 +504,7 @@
             return true;
         });
 
+        // د) الحسابات المالية الشاملة للفترة المحددة
         let completedCount = 0;
         let activeCount = 0;
         let activeExpectedRev = 0;
@@ -501,7 +523,7 @@
 
         let periodDebtTotal = 0;
         let totalUnitsSold = 0;
-        const itemsSoldMap = {};
+        const itemsSoldMap = {}; // { itemName: { qty: 0, revenue: 0 } }
 
         finalPeriodOrders.forEach(o => {
             const stat = o.status || 'new';
@@ -555,6 +577,7 @@
         const totalAllDiscounts = directDiscounts + implicitPriceDiscounts;
         const avgOrderVal = completedCount > 0 ? Math.round(totalRevenue / completedCount) : 0;
 
+        // هـ) تحديث الكروت الـ 6 في الواجهة
         const setElHtml = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
 
         setElHtml('sm-dash-total-revenue', `${totalRevenue.toLocaleString()} <span class="text-sm font-bold text-slate-400">ج</span>`);
@@ -574,6 +597,7 @@
 
         setElHtml('sm-dash-debt-total', `${periodDebtTotal.toLocaleString()} <span class="text-sm font-bold text-slate-400">ج</span>`);
 
+        // و) رسم كروت مقارنة (الدفعات مقابل الفوري)
         const batchesCont = document.getElementById('sm-dash-batches-breakdown');
         if (batchesCont) {
             const sortedSources = Object.values(sourcesSummary).sort((a, b) => b.revenue - a.revenue);
@@ -602,6 +626,7 @@
             }
         }
 
+        // ز) رسم جرد الأصناف المباعة بالكمية والإيراد
         const itemsGrid = document.getElementById('sm-dash-items-grid');
         if (itemsGrid) {
             const sortedItems = Object.keys(itemsSoldMap).sort((a, b) => itemsSoldMap[b].revenue - itemsSoldMap[a].revenue);
@@ -625,6 +650,7 @@
             }
         }
 
+        // ح) رسم جدول سجل الطلبات التفصيلي للفترة
         const tbody = document.getElementById('sm-dash-orders-tbody');
         if (tbody) {
             const subFilter = window.dashState.tableSubFilter;
@@ -706,6 +732,7 @@
         }
     };
 
+    // 8. طباعة تقرير الفترة المحددة (الشهر أو الدفعة)
     window.printSmartDashboardReport = function () {
         const periodTitle = document.getElementById('dash-active-period-badge')?.innerText || 'تقرير المبيعات';
         const totalRev = document.getElementById('sm-dash-total-revenue')?.innerText || '0';
@@ -713,6 +740,7 @@
         const discTotal = document.getElementById('sm-dash-discounts-total')?.innerText || '0';
         const delRev = document.getElementById('sm-dash-delivery-revenue')?.innerText || '0';
         const compCount = document.getElementById('sm-dash-completed-count')?.innerText || '0';
+        const itemsHtml = document.getElementById('sm-dash-items-grid')?.innerHTML || '';
         const tableHtml = document.getElementById('sm-dash-orders-tbody')?.innerHTML || '';
 
         const win = window.open('', '_blank', 'width=900,height=800');
@@ -769,45 +797,22 @@
         win.document.close();
     };
 
-    // تهيئة اللوحة فور فتح الصفحة
-    if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', () => {
-            window.initSmartDashboardLayout();
-            setTimeout(() => window.renderSmartDashboard(), 300);
-        });
-    } else {
+    // 9. الربط التلقائي الآمن مع دوال النظام الأصلي دون تعديلها
+    window.addEventListener('DOMContentLoaded', () => {
         window.initSmartDashboardLayout();
-        setTimeout(() => window.renderSmartDashboard(), 300);
-    }
+        setTimeout(() => window.renderSmartDashboard(), 400);
+    });
 
-    // ربط مع تحديث الطلبات
+    // ربط مع scheduleSystemRender ليتم تحديث اللوحة تلقائياً مع أي طلب جديد أو تعديل في فايربيس
     const _origScheduleSystemRender = window.scheduleSystemRender;
     window.scheduleSystemRender = function () {
         if (typeof _origScheduleSystemRender === 'function') {
             _origScheduleSystemRender();
         }
-        setTimeout(() => window.renderSmartDashboard(), 180);
+        window.renderSmartDashboard();
     };
 
-    // ربط مع تحميل الدفعات الحية والأسعار
-    const _origRenderBatchesUI = window.renderBatchesUI;
-    if (typeof _origRenderBatchesUI === 'function') {
-        window.renderBatchesUI = function () {
-            _origRenderBatchesUI();
-            window.renderSmartDashboard();
-        };
-    }
-
-    // ربط مع تحميل أرشيف الدفعات
-    const _origRenderArchiveUI = window.renderArchiveUI;
-    if (typeof _origRenderArchiveUI === 'function') {
-        window.renderArchiveUI = function () {
-            _origRenderArchiveUI();
-            window.renderSmartDashboard();
-        };
-    }
-
-    // ربط مع التنقل بين التبويبات
+    // ربط مع switchTab لتحديث اللوحة فور الضغط على زر لوحة القيادة
     const _origSwitchTab = window.switchTab;
     if (typeof _origSwitchTab === 'function') {
         window.switchTab = function (tabId, btnElement, isFromBackButton) {
