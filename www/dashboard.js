@@ -409,12 +409,19 @@
             const wasteKind = document.getElementById('lg-waste-kind')?.value || 'هالك تربية / نافق';
             const prodId = document.getElementById('lg-waste-product')?.value || '';
             const qty = Number(document.getElementById('lg-waste-qty')?.value) || 0;
-            const estCost = Number(document.getElementById('lg-waste-cost')?.value) || 0;
             const deductFz = document.getElementById('lg-waste-deduct-fz')?.checked || false;
+            
+            const estCostInput = document.getElementById('lg-waste-cost')?.value;
+            let estCost = Number(estCostInput) || 0;
 
             if (qty <= 0) return alert('برجاء إدخال العدد أو الكمية (أجواز / أطباق)!');
 
             const prodName = (prodId && typeof storeProducts !== 'undefined' && storeProducts[prodId]) ? storeProducts[prodId].name : 'سمان عام';
+            
+            // استشاري: حساب تكلفة الهالك أوتوماتيكياً إذا نسي المستخدم كتابتها ليتم خصمها بدقة من الأرباح!
+            if (!estCostInput && prodId && typeof storeProducts !== 'undefined' && storeProducts[prodId]) {
+                estCost = (Number(storeProducts[prodId].basePrice) || 0) * qty;
+            }
             recordObj.category = wasteKind;
             recordObj.productId = prodId;
             recordObj.productName = prodName;
@@ -423,9 +430,16 @@
             recordObj.deductFreezer = deductFz;
 
             // إذا طلب المستخدم خصم التالف أو مسحوبات البيت من الفريزر تلقائياً
-            if (deductFz && prodId && typeof window.triggerFreezerDeltaSave === 'function') {
-                await window.triggerFreezerDeltaSave(prodId, -qty);
+            if (deductFz && prodId) {
+                // خصم فوري من الذاكرة لتحديث شريط القائد في لوحة القيادة فوراً
+                if (typeof window.storeFreezer !== 'undefined') {
+                    window.storeFreezer[prodId] = Math.max(0, (Number(window.storeFreezer[prodId]) || 0) - qty);
+                }
+                if (typeof window.triggerFreezerDeltaSave === 'function') {
+                    await window.triggerFreezerDeltaSave(prodId, -qty);
+                }
             }
+
         }
 
         try {
@@ -1111,8 +1125,16 @@
                 ? '<i class="fa-solid fa-circle-check"></i> <span>المتجر مفتوح</span>'
                 : '<i class="fa-solid fa-lock"></i> <span>المتجر مغلق</span>';
         }
-        const totalFreezerUnits = Object.values(freezerObj).reduce((sum, v) => sum + (Number(v) || 0), 0);
-        setElHtml('sm-cmd-freezer-total', totalFreezerUnits);
+        // حساب مخزون الفريزر ككمية + كقيمة مالية (رأس مال مجمد)
+        let totalFreezerUnits = 0;
+        let totalFreezerValue = 0;
+        Object.keys(freezerObj).forEach(pId => {
+            const qty = Number(freezerObj[pId]) || 0;
+            totalFreezerUnits += qty;
+            const price = prodsObj[pId] ? Number(prodsObj[pId].basePrice || 0) : 0;
+            totalFreezerValue += (qty * price);
+        });
+        setElHtml('sm-cmd-freezer-total', `${totalFreezerUnits} وحدة | ${totalFreezerValue.toLocaleString()} ج`);
 
         // 2. تغذية قوائم الدفعات والأصناف في الفلاتر والفورم
         const batchNamesSet = new Set();
@@ -1284,8 +1306,12 @@
         let totalRevenue = 0, cashRevenue = 0, onlineRevenue = 0, productsSubtotal = 0, deliveryRevenue = 0, freeDeliveryCount = 0;
         let directDiscounts = 0, implicitPriceDiscounts = 0, discountedOrdersCount = 0;
         let periodDebtTotal = 0, totalUnitsSold = 0;
+        // فصل دقيق لـ 3 قطاعات: لحم، كتاكيت، بيض
+        let totalMeatUnits = 0, totalChickUnits = 0, totalEggUnits = 0; 
+        let meatRevenue = 0, chickRevenue = 0, eggRevenue = 0;
         const itemsSoldMap = {};
         const zoneStatsMap = {};
+
         const driverStatsMap = {};
 
         finalPeriodOrders.forEach(o => {
@@ -1334,11 +1360,29 @@
                         const p = Number(item.price) || 0;
                         const cleanName = item.name || 'صنف';
                         totalUnitsSold += q;
-                        if (!itemsSoldMap[cleanName]) itemsSoldMap[cleanName] = { qty: 0, revenue: 0 };
+
+                        // تصنيف ذكي ثلاثي الأبعاد: لحم (أساسي) | كتاكيت (تسمين/أعمار) | بيض (مائدة/تفريخ)
+                        let itemType = 'meat';
+                        if (cleanName.includes('بيض')) itemType = 'egg';
+                        else if (cleanName.includes('كتكوت') || cleanName.includes('كتاكيت') || cleanName.includes('أعمار') || cleanName.includes('عمر')) itemType = 'chick';
+
+                        if (itemType === 'egg') {
+                            totalEggUnits += q;
+                            eggRevenue += (q * p);
+                        } else if (itemType === 'chick') {
+                            totalChickUnits += q;
+                            chickRevenue += (q * p);
+                        } else {
+                            totalMeatUnits += q;
+                            meatRevenue += (q * p);
+                        }
+
+                        if (!itemsSoldMap[cleanName]) itemsSoldMap[cleanName] = { qty: 0, revenue: 0, type: itemType };
                         itemsSoldMap[cleanName].qty += q;
                         itemsSoldMap[cleanName].revenue += (q * p);
                     });
                 }
+
             } else if (stat === 'canceled') {
                 canceledCount++;
                 zoneStatsMap[zName].canceled++;
@@ -1373,9 +1417,17 @@
         setElHtml('sm-dash-payment-split', `<span>💵 كاش: ${cashRevenue.toLocaleString()} ج</span><span>💳 أونلاين: ${onlineRevenue.toLocaleString()} ج</span>`);
 
         setElHtml('sm-dash-products-revenue', `${productsSubtotal.toLocaleString()} <span class="text-sm font-bold text-slate-400">ج</span>`);
-        setElHtml('sm-dash-avg-order', `<span>متوسط الطلب: ${avgOrderVal.toLocaleString()} ج</span><span>📦 ${Number(totalUnitsSold.toFixed(2))} طبق/وحدة</span>`);
+        
+        let unitsBadge = `🥩 ${Number(totalMeatUnits.toFixed(1))} لحم`;
+        if (totalChickUnits > 0) unitsBadge += ` | 🐣 ${Number(totalChickUnits.toFixed(1))} كتاكيت`;
+        if (totalEggUnits > 0) unitsBadge += ` | 🥚 ${Number(totalEggUnits.toFixed(1))} بيض`;
+        
+        setElHtml('sm-dash-avg-order', `<span>متوسط الطلب: ${avgOrderVal.toLocaleString()} ج</span><span class="text-[10px] font-black">${unitsBadge}</span>`);
 
-        setElHtml('sm-dash-true-net-profit', `${trueNetProfit.toLocaleString()} <span class="text-sm font-bold">ج</span>`);
+        // استشاري: حساب هامش الربح المئوي (Net Profit Margin)
+        const profitMargin = productsSubtotal > 0 ? ((trueNetProfit / productsSubtotal) * 100).toFixed(1) : 0;
+        const marginBadge = trueNetProfit > 0 ? `<span class="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-lg border border-emerald-200 ml-1">هامش ${profitMargin}%</span>` : `<span class="text-xs bg-rose-50 text-rose-700 px-2 py-0.5 rounded-lg border border-rose-200 ml-1">خسارة</span>`;
+        setElHtml('sm-dash-true-net-profit', `${trueNetProfit.toLocaleString()} <span class="text-sm font-bold">ج</span> ${marginBadge}`);
         setElHtml('sm-dash-expenses-summary', `<span>مصروفات: ${totalPeriodExpenses.toLocaleString()} ج</span><span>هالك/بايظ: ${periodWasteUnits} (${periodWasteCost.toLocaleString()} ج)</span>`);
 
         setElHtml('sm-dash-discounts-total', `${totalAllDiscounts.toLocaleString()} <span class="text-sm font-bold text-red-400">ج</span> <span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">في ${discountedOrdersCount} طلب</span>`);
@@ -1390,10 +1442,11 @@
         // 11. حساب ورسم شريط متوسطات الدفعات (Batch Benchmarks)
         const batchSourcesOnly = Object.values(sourcesSummary).filter(s => s.isBatch && (s.completedCount > 0 || s.activeCount > 0));
         const batchesCount = batchSourcesOnly.length;
+        // تم التعديل كاستشاري: حسابات دقيقة بناءً على اللحم فقط لمنع تشويه الأرقام بسبب البيض والكتاكيت
         const avgUnitsPerBatch = batchesCount > 0 ? Math.round(batchSourcesOnly.reduce((s, b) => s + b.soldUnits, 0) / batchesCount) : 0;
         const avgRevPerBatch = batchesCount > 0 ? Math.round(batchSourcesOnly.reduce((s, b) => s + b.revenue, 0) / batchesCount) : 0;
-        const avgUnitPrice = totalUnitsSold > 0 ? Math.round(productsSubtotal / totalUnitsSold) : 0;
-        const wasteRatio = (totalUnitsSold + periodWasteUnits) > 0 ? ((periodWasteUnits / (totalUnitsSold + periodWasteUnits)) * 100).toFixed(1) : '0.0';
+        const avgUnitPrice = totalMeatUnits > 0 ? Math.round(meatRevenue / totalMeatUnits) : 0; // حساب متوسط السعر للحم فقط
+        const wasteRatio = (totalMeatUnits + periodWasteUnits) > 0 ? ((periodWasteUnits / (totalMeatUnits + periodWasteUnits)) * 100).toFixed(1) : '0.0';
 
         setElHtml('sm-dash-benchmarks-bar', `
             <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/70 text-center">
@@ -1507,7 +1560,12 @@
                     const avgP = info.qty > 0 ? Math.round(info.revenue / info.qty) : 0;
                     return `
                     <div class="bg-slate-50 border border-slate-200/70 p-3.5 rounded-2xl text-center shadow-sm flex flex-col justify-between">
-                        <span class="text-[11px] font-black text-slate-700 mb-1 leading-snug">${itemName}</span>
+                        <span class="text-[11px] font-black text-slate-700 mb-1 leading-snug flex flex-col items-center justify-center gap-1">
+                            <span>${itemName}</span>
+                            ${info.type === 'egg' ? '<span class="bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded text-[9px]">(بيض 🥚)</span>' : 
+                              info.type === 'chick' ? '<span class="bg-blue-50 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded text-[9px]">(كتاكيت 🐣)</span>' : 
+                              '<span class="bg-emerald-50 text-emerald-600 border border-emerald-200 px-1.5 py-0.5 rounded text-[9px]">(لحم 🥩)</span>'}
+                        </span>
                         <div class="my-1">
                             <span class="text-2xl font-black text-brand-primary">${Number(info.qty.toFixed(2))}</span>
                             <span class="text-[10px] font-bold text-slate-400 block">متوسط: ${avgP} ج/وحدة</span>
