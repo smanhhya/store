@@ -1429,6 +1429,69 @@
         let isHandlingPopState = false;
         let lastBackPressTime = 0;
 
+        // دالة موحدة للرجوع (تشتغل مع زرار الموبايل ومع السهم العلوي)
+        window. triggerSmartBack = () => {
+            // 1. لو فيه نافذة منبثقة (Modal) مفتوحة، اقفلها فوراً
+            const openModals = getOpenModals();
+            if (openModals.length > 0) {
+                closeModal(openModals[0]);
+                return;
+            }
+
+            // 2. لو القائمة الجانبية في الموبايل مفتوحة، اقفلها
+            const sb = document.getElementById('sidebar');
+            if (sb && sb.classList.contains('open')) {
+                toggleSidebar(true);
+                return;
+            }
+
+            // 3. لو نتائج كشاف الطوارئ مفتوحة، اقفلها
+            const searchRes = document.getElementById('global-search-results');
+            if (searchRes && !searchRes.classList.contains('hidden')) {
+                searchRes.classList.add('hidden');
+                return;
+            }
+
+            // 4. لو الملاحظات المنسدلة مفتوحة، اقفلها
+            if (typeof openInlineNoteId !== 'undefined' && openInlineNoteId) {
+                const noteCont = document.getElementById(`inline-notes-container-${openInlineNoteId}`);
+                if (noteCont) noteCont.classList.add('hidden');
+                openInlineNoteId = null;
+                return;
+            }
+
+            // 5. لو في أي قسم غير لوحة القيادة، ارجع فوراً للوحة القيادة
+            const currentActiveView = document.querySelector('.page-view.active');
+            const currentTabId = currentActiveView ? currentActiveView.id.replace('view-', '') : 'dashboard';
+
+            if (currentTabId !== 'dashboard') {
+                let dashBtn = document.querySelector(`button[onclick*="switchTab('dashboard'"]`);
+                if (dashBtn) switchTab('dashboard', dashBtn, true);
+                return;
+            }
+        };
+
+        function updateHeaderBackBtn(tabId) {
+            let backBtn = document.getElementById('crm-top-back-btn');
+            const headerTitle = document.getElementById('header-title');
+            if (!backBtn && headerTitle && headerTitle.parentElement) {
+                backBtn = document.createElement('button');
+                backBtn.id = 'crm-top-back-btn';
+                backBtn.onclick = () => window.triggerSmartBack();
+                backBtn.className = 'hidden w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 text-brand-primary flex items-center justify-center hover:bg-emerald-100 transition-all active:scale-90 shadow-sm';
+                backBtn.title = 'رجوع للوحة القيادة';
+                backBtn.innerHTML = '<i class="fa-solid fa-arrow-right"></i>';
+                headerTitle.parentElement.insertBefore(backBtn, headerTitle);
+            }
+            if (backBtn) {
+                if (tabId && tabId !== 'dashboard') {
+                    backBtn.classList.remove('hidden');
+                } else {
+                    backBtn.classList.add('hidden');
+                }
+            }
+        }
+
         function toggleSidebar(forceClose = false) {
             const sb = document.getElementById('sidebar'), ov = document.getElementById('mobile-overlay');
             const isOpen = sb.classList.contains('open');
@@ -1440,7 +1503,7 @@
                 ov.classList.remove('hidden');
                 setTimeout(() => ov.classList.add('opacity-100'), 10);
                 if (!isHandlingPopState) {
-                    history.pushState({ ui: 'sidebar' }, '');
+                    history.pushState({ guard: 'sidebar' }, '');
                 }
             } else {
                 sb.classList.remove('open');
@@ -1453,7 +1516,7 @@
             closeAllOpenOverlays();
 
             if (!isFromBackButton && !isHandlingPopState) {
-                history.pushState({ tab: tabId }, '', '#' + tabId);
+                history.pushState({ guard: 'tab', tab: tabId }, '', '#' + tabId);
             }
 
             document.querySelectorAll('.page-view').forEach(view => view.classList.remove('active'));
@@ -1471,6 +1534,8 @@
                 const titleSpan = btnElement.querySelector('span:first-child');
                 document.getElementById('header-title').innerText = titleSpan ? titleSpan.innerText.trim() : btnElement.innerText.trim();
             }
+
+            updateHeaderBackBtn(tabId);
             
             const saveBtn = document.getElementById('global-save-btn');
             if (['inventory', 'settings', 'marketing', 'batches'].includes(tabId)) {
@@ -1495,7 +1560,7 @@
             const wasHidden = el.classList.contains('hidden');
             el.classList.remove('hidden');
             if (wasHidden && !isHandlingPopState) {
-                history.pushState({ modal: id }, '');
+                history.pushState({ guard: 'modal', modal: id }, '');
             }
         }
 
@@ -1528,51 +1593,31 @@
             if (quickBl) quickBl.classList.add('hidden');
         }
 
+        // تأمين سجل المتصفح عند أول لمسة للشاشة عشان أندرويد كروم ميخرجش من التطبيق
+        document.addEventListener('click', () => {
+            if (!history.state || !history.state.guard) {
+                history.pushState({ guard: 'root' }, '');
+            }
+        }, { passive: true });
+
         window.addEventListener('popstate', (event) => {
             isHandlingPopState = true;
 
-            const openModals = getOpenModals();
-            if (openModals.length > 0) {
-                closeModal(openModals[0]);
-                isHandlingPopState = false;
-                return;
-            }
-
-            const sb = document.getElementById('sidebar');
-            if (sb && sb.classList.contains('open')) {
-                toggleSidebar(true);
-                isHandlingPopState = false;
-                return;
-            }
-
-            const searchRes = document.getElementById('global-search-results');
-            if (searchRes && !searchRes.classList.contains('hidden')) {
-                searchRes.classList.add('hidden');
-                isHandlingPopState = false;
-                return;
-            }
-
-            if (typeof openInlineNoteId !== 'undefined' && openInlineNoteId) {
-                const noteCont = document.getElementById(`inline-notes-container-${openInlineNoteId}`);
-                if (noteCont) noteCont.classList.add('hidden');
-                openInlineNoteId = null;
-                isHandlingPopState = false;
-                return;
-            }
-
             const currentActiveView = document.querySelector('.page-view.active');
             const currentTabId = currentActiveView ? currentActiveView.id.replace('view-', '') : 'dashboard';
-            let targetTab = (event.state && event.state.tab) ? event.state.tab : 'dashboard';
+            const hasOpenOverlays = getOpenModals().length > 0 || 
+                                    (document.getElementById('sidebar') && document.getElementById('sidebar').classList.contains('open')) ||
+                                    (document.getElementById('global-search-results') && !document.getElementById('global-search-results').classList.contains('hidden')) ||
+                                    (typeof openInlineNoteId !== 'undefined' && openInlineNoteId);
 
-            if (currentTabId !== 'dashboard') {
-                let btn = document.querySelector(`button[onclick*="switchTab('${targetTab}'"]`) || document.querySelector(`button[onclick*="switchTab('dashboard'"]`);
-                if (btn) switchTab(targetTab, btn, true);
-                history.pushState({ tab: targetTab }, '', '#' + targetTab);
+            if (hasOpenOverlays || currentTabId !== 'dashboard') {
+                window.triggerSmartBack();
+                history.pushState({ guard: 'active' }, '');
             } else {
                 const now = Date.now();
                 if (now - lastBackPressTime > 2000) {
                     lastBackPressTime = now;
-                    history.pushState({ tab: 'dashboard' }, '', '#dashboard');
+                    history.pushState({ guard: 'root' }, '');
                     if (window.showQuickAppToast) window.showQuickAppToast("اضغط زر الرجوع مرة أخرى للخروج من التطبيق");
                 }
             }
@@ -1581,8 +1626,8 @@
         });
 
         window.addEventListener('DOMContentLoaded', () => {
-            history.replaceState({ tab: 'dashboard' }, '', '#dashboard');
-            history.pushState({ tab: 'dashboard' }, '', '#dashboard');
+            history.replaceState({ guard: 'root', tab: 'dashboard' }, '', '#dashboard');
+            updateHeaderBackBtn('dashboard');
         });
 
         // === 3. الدخول والمزامنة الحية ===
