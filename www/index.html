@@ -6,6 +6,9 @@
     <title>سمان ههيا | الإدارة المركزية (CRM)</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#166534">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
@@ -134,9 +137,11 @@
             </div>
             <div class="flex items-center gap-3">
                 <span class="hidden md:flex items-center gap-1.5 text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-4 py-2 rounded-full shadow-sm"><i class="fa-solid fa-circle-dot text-[10px] animate-pulse text-emerald-500"></i> متصل لايف</span>
+                <button onclick="forceUpdateAppNow()" title="تحديث التطبيق لأحدث نسخة فوراً" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 active:scale-95"><i class="fa-solid fa-rotate"></i> <span class="hidden sm:inline">تحديث</span></button>
                 <button onclick="saveAllSettings()" id="global-save-btn" class="bg-slate-800 hover:bg-slate-900 text-white px-5 py-2 rounded-xl text-sm font-bold shadow-md transition-all flex items-center gap-2 hidden"><i class="fa-solid fa-cloud-arrow-up text-amber-400"></i> حفظ التعديلات</button>
                 <button onclick="openModal('add-order-modal')" class="bg-brand-primary hover:bg-emerald-800 text-white px-5 py-2 rounded-xl text-sm font-bold shadow-lg shadow-brand-primary/20 transition-all flex items-center gap-2 active:scale-95"><i class="fa-solid fa-plus"></i> <span class="hidden md:inline">إنشاء طلب</span></button>
             </div>
+
         </header>
 
         <div class="flex-1 overflow-y-auto custom-scroll p-4 lg:p-8 pb-24 bg-slate-50/50">
@@ -1420,81 +1425,165 @@
             return normalized;
         };
 
+        // === 2. التحكم الذكي في الواجهة وزر الرجوع للموبايل ===
+        let isHandlingPopState = false;
+        let lastBackPressTime = 0;
 
-        // === 2. التحكم في الواجهة ===
-        function toggleSidebar() {
+        function toggleSidebar(forceClose = false) {
             const sb = document.getElementById('sidebar'), ov = document.getElementById('mobile-overlay');
-            sb.classList.toggle('open');
-            if(sb.classList.contains('open')) { 
-                ov.classList.remove('hidden'); 
-                setTimeout(()=>ov.classList.add('opacity-100'), 10); 
-            } else { 
-                ov.classList.remove('opacity-100'); 
-                setTimeout(()=>ov.classList.add('hidden'), 300); 
+            const isOpen = sb.classList.contains('open');
+            
+            if (forceClose && !isOpen) return;
+
+            if (!isOpen && !forceClose) {
+                sb.classList.add('open');
+                ov.classList.remove('hidden');
+                setTimeout(() => ov.classList.add('opacity-100'), 10);
+                if (!isHandlingPopState) {
+                    history.pushState({ ui: 'sidebar' }, '');
+                }
+            } else {
+                sb.classList.remove('open');
+                ov.classList.remove('opacity-100');
+                setTimeout(() => ov.classList.add('hidden'), 300);
             }
         }
 
         function switchTab(tabId, btnElement, isFromBackButton = false) {
-            // السحر هنا: لو اليوزر داس بإيده، بنسجل الخطوة في سجل الموبايل
-            if (!isFromBackButton) {
+            closeAllOpenOverlays();
+
+            if (!isFromBackButton && !isHandlingPopState) {
                 history.pushState({ tab: tabId }, '', '#' + tabId);
             }
 
             document.querySelectorAll('.page-view').forEach(view => view.classList.remove('active'));
-            document.getElementById('view-' + tabId).classList.add('active');
+            const targetView = document.getElementById('view-' + tabId);
+            if (targetView) targetView.classList.add('active');
             
-            document.querySelectorAll('.nav-btn').forEach(btn => btn.className = "nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-800/50 hover:text-white text-emerald-100/70 transition-all");
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('active', 'bg-emerald-600/20', 'text-white', 'shadow-sm', 'mb-4', 'border', 'border-emerald-500/30', 'py-3');
+                btn.classList.add('hover:bg-emerald-800/50', 'hover:text-white', 'text-emerald-100/70', 'py-2.5');
+            });
             
-            let iconClass = btnElement.querySelector('i').className;
-            btnElement.className = `nav-btn active w-full text-right flex items-center px-4 py-3 rounded-xl text-sm font-bold bg-emerald-600/20 text-white shadow-sm mb-4 border border-emerald-500/30 transition-all`;
-            btnElement.innerHTML = `<i class="${iconClass}"></i> ${btnElement.innerText}`;
-            
-            document.getElementById('header-title').innerText = btnElement.innerText.trim();
+            if (btnElement) {
+                btnElement.classList.remove('hover:bg-emerald-800/50', 'text-emerald-100/70', 'py-2.5');
+                btnElement.classList.add('active', 'bg-emerald-600/20', 'text-white', 'shadow-sm', 'mb-4', 'border', 'border-emerald-500/30', 'py-3');
+                const titleSpan = btnElement.querySelector('span:first-child');
+                document.getElementById('header-title').innerText = titleSpan ? titleSpan.innerText.trim() : btnElement.innerText.trim();
+            }
             
             const saveBtn = document.getElementById('global-save-btn');
-            if(['inventory', 'settings', 'marketing', 'batches'].includes(tabId)) {
+            if (['inventory', 'settings', 'marketing', 'batches'].includes(tabId)) {
                 saveBtn.classList.remove('hidden'); 
             } else { 
                 saveBtn.classList.add('hidden'); 
             }
-            if(tabId === 'trash') renderTrashUI();            
-            if(tabId === 'notes') renderNotesUI();
-            if(tabId === 'reconciliation') renderReconciliationUI();
-            if(tabId === 'radar') renderDriversRadarUI();
-            if(tabId === 'blacklist') renderBlacklistUI();
-          
+            if (tabId === 'trash') renderTrashUI();            
+            if (tabId === 'notes') renderNotesUI();
+            if (tabId === 'reconciliation') renderReconciliationUI();
+            if (tabId === 'radar') renderDriversRadarUI();
+            if (tabId === 'blacklist') renderBlacklistUI();
 
-            // الموبايل: نقفل القائمة الجانبية لو داس بإيده بس (عشان متبقاش مزعجة في الرجوع)
-            if(window.innerWidth < 768 && !isFromBackButton) toggleSidebar();
+            if (window.innerWidth < 768 && document.getElementById('sidebar').classList.contains('open')) {
+                toggleSidebar(true);
+            }
         }
 
-        // ==========================================
-        // التقاط زرار "الرجوع" من الموبايل لمنع الخروج
-        // ==========================================
+        function openModal(id) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const wasHidden = el.classList.contains('hidden');
+            el.classList.remove('hidden');
+            if (wasHidden && !isHandlingPopState) {
+                history.pushState({ modal: id }, '');
+            }
+        }
+
+        function closeModal(id) {
+            const el = document.getElementById(id);
+            if (!el || el.classList.contains('hidden')) return;
+            el.classList.add('hidden');
+        }
+
+        function getOpenModals() {
+            const modalIds = [
+                'action-prompt-modal', 'note-action-modal', 'link-archive-modal',
+                'points-dashboard-modal', 'order-tracking-modal', 'batch-broadcast-modal',
+                'slaughter-modal', 'finance-report-modal', 'packing-list-modal',
+                'archive-report-modal', 'batch-settings-modal', 'freezer-modal',
+                'batch-bookings-modal', 'analysis-modal', 'edit-order-modal',
+                'add-order-modal', 'dispatch-modal', 'customer-modal'
+            ];
+            return modalIds.filter(id => {
+                const el = document.getElementById(id);
+                return el && !el.classList.contains('hidden');
+            });
+        }
+
+        function closeAllOpenOverlays() {
+            getOpenModals().forEach(id => closeModal(id));
+            const searchRes = document.getElementById('global-search-results');
+            if (searchRes) searchRes.classList.add('hidden');
+            const quickBl = document.getElementById('quick-blacklist-box');
+            if (quickBl) quickBl.classList.add('hidden');
+        }
+
         window.addEventListener('popstate', (event) => {
-            let tabId = 'dashboard'; // الافتراضي
-            if (event.state && event.state.tab) {
-                tabId = event.state.tab;
-            } else if (window.location.hash) {
-                tabId = window.location.hash.replace('#', '');
+            isHandlingPopState = true;
+
+            const openModals = getOpenModals();
+            if (openModals.length > 0) {
+                closeModal(openModals[0]);
+                isHandlingPopState = false;
+                return;
             }
 
-            // بنصطاد الزرار بتاع التبويب اللي هيرجعله
-            let btn = document.querySelector(`button[onclick*="switchTab('${tabId}'"]`);
-            if (btn) {
-                switchTab(tabId, btn, true); // true = إحنا راجعين لورا، متسجلش الخطوة دي تاني
+            const sb = document.getElementById('sidebar');
+            if (sb && sb.classList.contains('open')) {
+                toggleSidebar(true);
+                isHandlingPopState = false;
+                return;
             }
+
+            const searchRes = document.getElementById('global-search-results');
+            if (searchRes && !searchRes.classList.contains('hidden')) {
+                searchRes.classList.add('hidden');
+                isHandlingPopState = false;
+                return;
+            }
+
+            if (typeof openInlineNoteId !== 'undefined' && openInlineNoteId) {
+                const noteCont = document.getElementById(`inline-notes-container-${openInlineNoteId}`);
+                if (noteCont) noteCont.classList.add('hidden');
+                openInlineNoteId = null;
+                isHandlingPopState = false;
+                return;
+            }
+
+            const currentActiveView = document.querySelector('.page-view.active');
+            const currentTabId = currentActiveView ? currentActiveView.id.replace('view-', '') : 'dashboard';
+            let targetTab = (event.state && event.state.tab) ? event.state.tab : 'dashboard';
+
+            if (currentTabId !== 'dashboard') {
+                let btn = document.querySelector(`button[onclick*="switchTab('${targetTab}'"]`) || document.querySelector(`button[onclick*="switchTab('dashboard'"]`);
+                if (btn) switchTab(targetTab, btn, true);
+                history.pushState({ tab: targetTab }, '', '#' + targetTab);
+            } else {
+                const now = Date.now();
+                if (now - lastBackPressTime > 2000) {
+                    lastBackPressTime = now;
+                    history.pushState({ tab: 'dashboard' }, '', '#dashboard');
+                    if (window.showQuickAppToast) window.showQuickAppToast("اضغط زر الرجوع مرة أخرى للخروج من التطبيق");
+                }
+            }
+
+            isHandlingPopState = false;
         });
 
-        // تسجيل أول صفحة (لوحة القيادة) أول ما الموقع يفتح
         window.addEventListener('DOMContentLoaded', () => {
             history.replaceState({ tab: 'dashboard' }, '', '#dashboard');
+            history.pushState({ tab: 'dashboard' }, '', '#dashboard');
         });
-
-
-
-        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-        function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 
         // === 3. الدخول والمزامنة الحية ===
         auth.onAuthStateChanged(user => {
@@ -1759,14 +1848,15 @@
                 .replace(/{الخصم}/g, discountStr)
                 .replace(/{الإجمالي_النهائي}/g, order.total || 0);
 
-            // توجيه سريع وتخطي الـ Popup Blocker
+            // فتح واتساب في نافذة مستقلة دون إغلاق شاشة التطبيق
             let cleanPhone = (phone || order.customerPhone || '').toString().trim();
             let waNumber = cleanPhone.startsWith('0') ? '2' + cleanPhone : cleanPhone;
             if(waNumber) {
-                window.location.href = `https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}`;
+                window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}`, '_blank', 'noopener,noreferrer');
             } else {
                 alert("لا يوجد رقم هاتف مسجل للعميل!");
             }
+
         };
 
         window.sendFollowUpWhatsApp = (phone, name) => {
@@ -6669,19 +6759,79 @@ window.deleteProductUI = async (id) => {
         
     </script>
     <script>
-            // 🚨 كود إعدام السيرفيس وركر والكاش القديم الإجباري 🚨
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                for(let registration of registrations) {
-                    registration.unregister(); 
+        // =========================================================================
+        // 🚀 محرك التحديث التلقائي الفوري للتطبيق (PWA Auto-Update Engine) 🚀
+        // =========================================================================
+        window.showQuickAppToast = (msg) => {
+            let t = document.getElementById('app-quick-toast');
+            if (!t) {
+                t = document.createElement('div');
+                t.id = 'app-quick-toast';
+                t.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] bg-slate-900 text-white px-5 py-3 rounded-2xl text-xs font-black shadow-2xl border border-slate-700 transition-opacity duration-300 pointer-events-none';
+                document.body.appendChild(t);
+            }
+            t.innerText = msg;
+            t.style.opacity = '1';
+            clearTimeout(window._toastTimer);
+            window._toastTimer = setTimeout(() => { t.style.opacity = '0'; }, 2200);
+        };
+
+        window.forceUpdateAppNow = async (silent = false) => {
+            if (!silent) window.showQuickAppToast("🔄 جاري جلب أحدث نسخة من السيستم...");
+            try {
+                if ('serviceWorker' in navigator) {
+                    const regs = await navigator.serviceWorker.getRegistrations();
+                    for (let reg of regs) {
+                        await reg.update().catch(() => {});
+                        await reg.unregister().catch(() => {});
+                    }
+                }
+                if ('caches' in window) {
+                    const keys = await caches.keys();
+                    await Promise.all(keys.map(k => caches.delete(k)));
+                }
+            } catch (e) {}
+            const cleanUrl = window.location.origin + window.location.pathname;
+            window.location.replace(cleanUrl + '?_v=' + Date.now() + (window.location.hash || '#dashboard'));
+        };
+
+        (function initLiveVersionChecker() {
+            let initialHtmlSignature = null;
+
+            async function checkServerForNewUpdate() {
+                if (!navigator.onLine) return;
+                try {
+                    const res = await fetch(window.location.pathname + '?_check=' + Date.now(), {
+                        method: 'GET',
+                        cache: 'no-store',
+                        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+                    });
+                    if (!res.ok) return;
+                    const text = await res.text();
+                    const currentSig = text.length + '_' + text.slice(0, 300).length;
+                    if (!initialHtmlSignature) {
+                        initialHtmlSignature = currentSig;
+                    } else if (initialHtmlSignature !== currentSig) {
+                        window.showQuickAppToast("✨ تم اكتشاف تحديث جديد.. جاري الترقية تلقائياً!");
+                        setTimeout(() => window.forceUpdateAppNow(true), 800);
+                    }
+                } catch (e) {}
+            }
+
+            window.addEventListener('load', () => {
+                checkServerForNewUpdate();
+                if (window.location.search.includes('_v=')) {
+                    history.replaceState({ tab: 'dashboard' }, '', window.location.pathname + (window.location.hash || '#dashboard'));
                 }
             });
-        }
-        if ('caches' in window) {
-            caches.keys().then((keyList) => {
-                return Promise.all(keyList.map((key) => caches.delete(key)));
+
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    checkServerForNewUpdate();
+                }
             });
-        }
+        })();
+
 
         // ==========================================
         // 💬 نظام مركز الملاحظات الذكي 💬
