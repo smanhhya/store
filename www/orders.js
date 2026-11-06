@@ -1,335 +1,1102 @@
-// === www/orders.js - غرفة عمليات الطلبات V2 (Safe Overlay) ===
-// تمت البرمجة لضمان الأمان المحاسبي والسرعة المطلقة
+// =========================================================================
+// ⚡ المحرك الذكي المستقل لإدارة الطلبات الحية، التحضير، التعديل، والملاحظات (www/orders.js)
+// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM)
+// =========================================================================
 
-let compactModeV2 = false;
-
-// 1. الفلترة الذكية والملخص اللحظي
-window.renderOrdersList = () => {
-    const listCont = document.getElementById('orders-list-vertical');
-    if (!listCont) return;
-
-    let q = (document.getElementById('search-order') ? document.getElementById('search-order').value.toLowerCase().trim() : '');
-    let zoneFilter = document.getElementById('smart-filter-zone') ? document.getElementById('smart-filter-zone').value : 'all';
-    let paymentFilter = document.getElementById('smart-filter-payment') ? document.getElementById('smart-filter-payment').value : 'all';
-
-    let filtered = allOrdersRaw.filter(o => {
-        let matchTab = (currentOrderTab === 'all') || (o.status === currentOrderTab);
-        let matchSearch = q === '' || (o.name && o.name.toLowerCase().includes(q)) || (o.phone && o.phone.includes(q)) || (o.id && o.id.toLowerCase().includes(q));
-        let matchZone = (zoneFilter === 'all') || (o.zone === zoneFilter);
-        let matchPayment = (paymentFilter === 'all') || 
-                           (paymentFilter === 'online' && o.paymentMethod === 'online') || 
-                           (paymentFilter === 'cash' && (!o.paymentMethod || o.paymentMethod === 'cash'));
-        
-        return matchTab && matchSearch && matchZone && matchPayment;
-    });
-
-    // ترتيب زمني تنازلي (الأحدث أولاً)
-    filtered.sort((a, b) => new Date(b.createdAtStr || 0) - new Date(a.createdAtStr || 0));
-
-    // تحديث الملخص اللحظي
-    let totalItemsCount = 0;
-    let totalRevenue = 0;
-    filtered.forEach(o => {
-        totalRevenue += (Number(o.total) || 0);
-        if(o.items) o.items.forEach(i => totalItemsCount += (Number(i.qty) || 0));
-    });
-
-    if(document.getElementById('strip-count')) document.getElementById('strip-count').innerText = filtered.length;
-    if(document.getElementById('strip-items')) document.getElementById('strip-items').innerText = totalItemsCount;
-    if(document.getElementById('strip-total')) document.getElementById('strip-total').innerText = totalRevenue.toLocaleString();
-
-    listCont.innerHTML = '';
-
-    if (filtered.length === 0) {
-        listCont.innerHTML = `<div class="text-center text-slate-400 py-10 font-bold text-sm bg-white rounded-2xl border border-slate-100"><i class="fa-solid fa-box-open text-4xl mb-3 text-slate-200 block"></i> لا توجد طلبات تطابق الفلتر الحالي</div>`;
-        return;
-    }
-
-    filtered.forEach(order => {
-        listCont.innerHTML += buildSmartOrderCardV2(order);
-    });
-
-    if(typeof updateOrderBadges === 'function') updateOrderBadges();
-    populateSmartFiltersV2();
-};
-
-// 2. الجيل الجديد من كارت الطلب (Smart Card 2.0)
-function buildSmartOrderCardV2(order) {
-    let statusColors = { 
-        'new': 'bg-blue-100 text-blue-700 border-blue-200', 
-        'processing': 'bg-amber-100 text-amber-700 border-amber-200', 
-        'dispatched': 'bg-indigo-100 text-indigo-700 border-indigo-200',
-        'deferred': 'bg-orange-100 text-orange-700 border-orange-200', 
-        'no_answer': 'bg-purple-100 text-purple-700 border-purple-200', 
-        'completed': 'bg-emerald-100 text-emerald-700 border-emerald-200', 
-        'canceled': 'bg-slate-100 text-slate-600 border-slate-200' 
-    };
-    
-    let statusNames = {
-        'new': 'جديد', 'processing': 'تجهيز', 'dispatched': 'في الطريق', 'deferred': 'مؤجل', 'no_answer': 'لم يرد', 'completed': 'مكتمل', 'canceled': 'ملغي'
+(function () {
+    // 1. حالة الفلاتر المتقدمة والعرض في شاشة الطلبات
+    window.ordersFilterState = {
+        batch: 'all',       // 'all' | 'normal_only' | 'batches_only' | batchName
+        zone: 'all',        // 'all' | zoneName
+        payment: 'all',     // 'all' | 'cash' | 'online' | 'has_debt' | 'has_discount'
+        driver: 'all',      // 'all' | 'unassigned' | driverName
+        compactMode: false, // وضع العرض المضغوط السريع للموبايل
+        packingScope: 'processing', // 'processing' | 'new_and_proc' | 'dispatched'
+        packingBatch: 'all',
+        packingZone: 'all'
     };
 
-    let sColor = statusColors[order.status] || statusColors['new'];
-    let sName = statusNames[order.status] || order.status;
-    
-    // المساعد البيعي الذكي (Upsell AI)
-    let aiUpsellHtml = '';
-    if(order.status === 'new') {
-        let history = allOrdersRaw.filter(o => o.phone === order.phone && o.status === 'completed');
-        if(history.length > 0) {
-            history.sort((a,b) => new Date(b.createdAtStr) - new Date(a.createdAtStr));
-            let daysSince = (new Date() - new Date(history[0].createdAtStr)) / (1000*3600*24);
-            
-            if(daysSince > 30) {
-                aiUpsellHtml = `<div class="w-full bg-gradient-to-r from-amber-50 to-orange-50 text-amber-700 border border-amber-200/50 p-2.5 rounded-xl text-[10px] font-black mt-2 mb-2 flex items-center gap-2 shadow-sm"><i class="fa-solid fa-wand-magic-sparkles text-amber-500 animate-pulse text-sm"></i> <span>العميل غايب من ${Math.floor(daysSince)} يوم! اقترح عليه منتج إضافي أو هدية لضمان استمراره.</span></div>`;
+    // دالة مساعدة لتصنيف الصنف (سمان لحم / بيض / كتاكيت)
+    function classifyItemType(item) {
+        const id = String(item?.id || '').toLowerCase();
+        const name = String(item?.name || '').toLowerCase();
+        if (id === 'eggs' || name.includes('بيض')) return 'egg';
+        if (id === 'chicks' || name.includes('كتكوت') || name.includes('كتاكيت') || name.includes('أعمار') || name.includes('عمر')) return 'chick';
+        return 'meat';
+    }
+
+    // دالة استخراج اسم الدفعة الحقيقي للطلب
+    function getOrderBatchTitle(o) {
+        if (!o) return '';
+        if (typeof window.resolveOrderBatchName === 'function') {
+            return window.resolveOrderBatchName(o);
+        }
+        if (o.batchId && typeof storeBatches !== 'undefined' && storeBatches[o.batchId] && storeBatches[o.batchId].name) {
+            return storeBatches[o.batchId].name.trim();
+        }
+        if (o.batchName && o.batchName !== 'undefined') return o.batchName.trim();
+        return '';
+    }
+
+    // دالة حساب عمر الطلب منذ إنشائه
+    function getOrderAgeLabel(o) {
+        let ms = 0;
+        if (o.createdAt && typeof o.createdAt.toMillis === 'function') {
+            ms = o.createdAt.toMillis();
+        } else if (o.orderDate) {
+            const p = new Date(o.orderDate);
+            if (!isNaN(p.getTime())) ms = p.getTime();
+        }
+        if (!ms) return '';
+        const diffHours = Math.floor((Date.now() - ms) / (1000 * 60 * 60));
+        if (diffHours < 1) return 'الآن';
+        if (diffHours < 24) return `منذ ${diffHours} س`;
+        const diffDays = Math.floor(diffHours / 24);
+        if (diffDays === 1) return 'منذ يوم';
+        if (diffDays === 2) return 'منذ يومين';
+        return `منذ ${diffDays} أيام`;
+    }
+
+    // =========================================================================
+    // 🎛️ 2. بناء شريط الفلاتر الفورية والملخص اللحظي داخل شاشة الطلبات الحية
+    // =========================================================================
+
+    window.initSmartOrdersToolbar = function () {
+        const ordersView = document.getElementById('view-orders');
+        if (!ordersView || document.getElementById('smart-orders-toolbar')) return;
+
+        const stickyHeader = ordersView.querySelector('.sticky');
+        if (!stickyHeader) return;
+
+        const toolbar = document.createElement('div');
+        toolbar.id = 'smart-orders-toolbar';
+        toolbar.className = 'mt-2.5 pt-2.5 border-t border-slate-200/80 space-y-2';
+
+        toolbar.innerHTML = `
+            <!-- صف قوائم الفلترة السريعة + أزرار التحكم -->
+            <div class="flex flex-wrap items-center gap-1.5">
+                <select id="so-filter-batch" onchange="setOrdersQuickFilter('batch', this.value)" class="border border-slate-200 bg-white rounded-xl px-2.5 py-1.5 text-[11px] font-black text-teal-800 outline-none focus:border-brand-primary shadow-sm">
+                    <option value="all">🏷️ كل الدفعات والفوري</option>
+                </select>
+
+                <select id="so-filter-zone" onchange="setOrdersQuickFilter('zone', this.value)" class="border border-slate-200 bg-white rounded-xl px-2.5 py-1.5 text-[11px] font-black text-indigo-800 outline-none focus:border-brand-primary shadow-sm">
+                    <option value="all">📍 كل المناطق</option>
+                </select>
+
+                <select id="so-filter-payment" onchange="setOrdersQuickFilter('payment', this.value)" class="border border-slate-200 bg-white rounded-xl px-2.5 py-1.5 text-[11px] font-black text-slate-700 outline-none focus:border-brand-primary shadow-sm">
+                    <option value="all">💳 كل طرق الدفع</option>
+                    <option value="cash">💵 كاش عند الاستلام</option>
+                    <option value="online">💳 خالص أونلاين</option>
+                    <option value="has_debt">📕 عليه باقي حساب (آجل)</option>
+                    <option value="has_discount">🎁 طلبات بها خصم</option>
+                </select>
+
+                <select id="so-filter-driver" onchange="setOrdersQuickFilter('driver', this.value)" class="border border-slate-200 bg-white rounded-xl px-2.5 py-1.5 text-[11px] font-black text-blue-800 outline-none focus:border-brand-primary shadow-sm">
+                    <option value="all">🛵 كل المناديب</option>
+                </select>
+
+                <button onclick="resetAllOrdersFilters()" id="so-btn-reset-filters" class="hidden bg-red-50 hover:bg-red-600 text-red-600 hover:text-white border border-red-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all">
+                    مسح الفلاتر ✕
+                </button>
+
+                <div class="mr-auto flex items-center gap-1.5">
+                    <button onclick="toggleSelectAllVisibleOrders()" id="so-btn-select-all" class="bg-white hover:bg-slate-800 text-slate-700 hover:text-white border border-slate-200 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all shadow-sm flex items-center gap-1" title="تحديد أو إلغاء تحديد كل الطلبات المعروضة حالياً">
+                        <i class="fa-solid fa-check-double text-brand-primary"></i> تحديد الكل
+                    </button>
+                    <button onclick="toggleOrdersCompactMode()" id="so-btn-compact" class="bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all shadow-sm" title="تبديل وضع العرض المضغوط أو التفصيلي">
+                        <i class="fa-solid fa-compress"></i> مضغوط
+                    </button>
+                </div>
+            </div>
+
+            <!-- شريط الملخص اللحظي للطلبات المعروضة أمامك الآن -->
+            <div id="so-live-summary-strip" class="bg-slate-900 text-white px-3.5 py-2 rounded-xl flex flex-wrap items-center justify-between gap-2 text-[11px] font-black shadow-sm">
+                <div class="flex flex-wrap items-center gap-3">
+                    <span>📦 المعروض: <strong id="so-sum-count" class="text-amber-400">0</strong> طلب</span>
+                    <span class="text-slate-600">|</span>
+                    <span>🥩 سمان: <strong id="so-sum-meat" class="text-emerald-400">0</strong> طبق</span>
+                    <span id="so-sum-extras-wrap" class="hidden text-slate-300"></span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span>💰 إجمالي المعروض: <strong id="so-sum-money" class="text-amber-400 text-xs">0 ج</strong></span>
+                </div>
+            </div>
+        `;
+
+        stickyHeader.appendChild(toolbar);
+
+        // ترقية شريط التحديد الجماعي بأزرار إضافية
+        const bulkBar = document.getElementById('bulk-actions-bar');
+        if (bulkBar && !document.getElementById('bulk-extra-deferred-btn')) {
+            const btnsWrap = bulkBar.querySelector('.flex.flex-wrap');
+            if (btnsWrap) {
+                const extraBtns = document.createElement('span');
+                extraBtns.id = 'bulk-extra-deferred-btn';
+                extraBtns.className = 'inline-flex flex-wrap gap-1.5';
+                extraBtns.innerHTML = `
+                    <button onclick="bulkChangeStatus('new')" class="bg-blue-500 hover:bg-blue-600 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-colors shadow-sm">لجديد</button>
+                    <button onclick="bulkChangeStatus('deferred')" class="bg-orange-500 hover:bg-orange-600 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-colors shadow-sm">مؤجل</button>
+                    <button onclick="clearAllBulkSelections()" class="bg-slate-600 hover:bg-slate-500 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-colors shadow-sm" title="إلغاء التحديد">✕</button>
+                `;
+                btnsWrap.appendChild(extraBtns);
             }
         }
-    }
+    };
 
-    // زر الخطوة التالية السريع
-    let nextStepBtn = '';
-    if(order.status === 'new') {
-        nextStepBtn = `<button onclick="updateOrderStatusV2('${order.id}', 'processing')" class="bg-amber-50 text-amber-600 hover:bg-amber-500 hover:text-white px-3 py-2 rounded-xl text-[10px] font-black transition-colors border border-amber-200 shadow-sm flex-1"><i class="fa-solid fa-hourglass-half mr-1"></i> نقل للتجهيز</button>`;
-    } else if(order.status === 'processing') {
-        nextStepBtn = `<button onclick="updateOrderStatusV2('${order.id}', 'dispatched')" class="bg-indigo-50 text-indigo-600 hover:bg-indigo-500 hover:text-white px-3 py-2 rounded-xl text-[10px] font-black transition-colors border border-indigo-200 shadow-sm flex-1"><i class="fa-solid fa-motorcycle mr-1"></i> خروج للتوصيل</button>`;
-    } else if(order.status === 'dispatched') {
-        nextStepBtn = `<button onclick="updateOrderStatusV2('${order.id}', 'completed')" class="bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white px-3 py-2 rounded-xl text-[10px] font-black transition-colors border border-emerald-200 shadow-sm flex-1"><i class="fa-solid fa-check-double mr-1"></i> تأكيد التسليم</button>`;
-    }
+    window.setOrdersQuickFilter = function (key, val) {
+        window.ordersFilterState[key] = val;
+        const hasActiveFilter = (
+            window.ordersFilterState.batch !== 'all' ||
+            window.ordersFilterState.zone !== 'all' ||
+            window.ordersFilterState.payment !== 'all' ||
+            window.ordersFilterState.driver !== 'all' ||
+            (document.getElementById('search-order')?.value || '').trim() !== ''
+        );
+        const resetBtn = document.getElementById('so-btn-reset-filters');
+        if (resetBtn) {
+            if (hasActiveFilter) resetBtn.classList.remove('hidden');
+            else resetBtn.classList.add('hidden');
+        }
+        window.renderOrdersList();
+    };
 
-    let itemsHtml = (order.items||[]).map(i => `<div class="flex justify-between text-xs font-bold text-slate-700 mb-1.5 last:mb-0"><span class="flex items-center gap-1.5"><i class="fa-solid fa-box text-[9px] text-brand-primary"></i> ${i.qty}x ${i.name}</span><span class="text-slate-600">${i.price * i.qty} ج</span></div>`).join('');
+    window.resetAllOrdersFilters = function () {
+        window.ordersFilterState.batch = 'all';
+        window.ordersFilterState.zone = 'all';
+        window.ordersFilterState.payment = 'all';
+        window.ordersFilterState.driver = 'all';
+        if (document.getElementById('so-filter-batch')) document.getElementById('so-filter-batch').value = 'all';
+        if (document.getElementById('so-filter-zone')) document.getElementById('so-filter-zone').value = 'all';
+        if (document.getElementById('so-filter-payment')) document.getElementById('so-filter-payment').value = 'all';
+        if (document.getElementById('so-filter-driver')) document.getElementById('so-filter-driver').value = 'all';
+        if (document.getElementById('search-order')) document.getElementById('search-order').value = '';
+        document.getElementById('so-btn-reset-filters')?.classList.add('hidden');
+        window.renderOrdersList();
+    };
 
-    if(compactModeV2) {
-        return `
-        <div class="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex justify-between items-center gap-3 hover:border-brand-primary/30 transition-all cursor-pointer" ondblclick="if(typeof openEditOrderModal === 'function') openEditOrderModal('${order.id}')">
-            <input type="checkbox" value="${order.id}" class="order-checkbox w-5 h-5 accent-brand-primary shrink-0 rounded" onchange="updateBulkBarV2()">
-            <div class="flex-1 flex items-center gap-3 overflow-hidden">
-                <span class="text-xs font-black text-slate-800 truncate w-24">${order.name}</span>
-                <span class="text-[10px] font-bold text-slate-500 bg-slate-50 px-2 py-1 rounded-lg shrink-0">${order.zone || 'بدون منطقة'}</span>
-                <span class="text-xs font-black text-emerald-600 shrink-0">${order.total} ج</span>
-            </div>
-            <span class="${sColor} px-2 py-1 rounded-lg text-[10px] font-black shrink-0 border">${sName}</span>
-        </div>`;
-    }
+    window.toggleOrdersCompactMode = function () {
+        window.ordersFilterState.compactMode = !window.ordersFilterState.compactMode;
+        const btn = document.getElementById('so-btn-compact');
+        if (btn) {
+            btn.className = window.ordersFilterState.compactMode
+                ? 'bg-brand-primary text-white border border-brand-primary px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all shadow-sm'
+                : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all shadow-sm';
+            btn.innerHTML = window.ordersFilterState.compactMode
+                ? '<i class="fa-solid fa-expand"></i> تفصيلي'
+                : '<i class="fa-solid fa-compress"></i> مضغوط';
+        }
+        window.renderOrdersList();
+    };
 
-    return `
-    <div class="bg-white p-4 lg:p-5 rounded-[1.5rem] border border-slate-100 shadow-soft hover:border-brand-primary/20 transition-all relative group">
-        <div class="absolute top-4 left-4 flex gap-2 z-10">
-            ${order.paymentMethod === 'online' ? `<span class="bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg text-[9px] font-black border border-emerald-100 shadow-sm"><i class="fa-regular fa-credit-card"></i> خالص</span>` : ''}
-            <span class="${sColor} px-2.5 py-1 rounded-lg text-[10px] font-black border shadow-sm">${sName}</span>
-            <input type="checkbox" value="${order.id}" class="order-checkbox w-5 h-5 accent-brand-primary rounded shadow-sm cursor-pointer" onchange="updateBulkBarV2()">
-        </div>
-        
-        <div class="flex items-start gap-3 mb-3 relative z-0">
-            <div class="w-10 h-10 rounded-xl bg-brand-primary/10 text-brand-primary flex items-center justify-center font-black text-sm shrink-0 shadow-sm">
-                ${(order.name && order.name.length > 0) ? order.name.charAt(0) : '?'}
-            </div>
-            <div class="pr-1">
-                <h3 class="font-black text-slate-800 text-sm flex items-center gap-2 cursor-pointer hover:text-brand-primary transition-colors" onclick="if(typeof openEditOrderModal === 'function') openEditOrderModal('${order.id}')">${order.name} <i class="fa-solid fa-pen text-[10px] text-slate-300"></i></h3>
-                <p class="text-[11px] font-bold text-slate-500 mt-1 flex items-center gap-2 flex-wrap">
-                    <span class="flex items-center gap-1 bg-slate-50 px-1.5 py-0.5 rounded"><i class="fa-solid fa-phone text-slate-400"></i> <span dir="ltr">${order.phone}</span></span>
-                    <span class="flex items-center gap-1 bg-slate-50 px-1.5 py-0.5 rounded"><i class="fa-solid fa-location-dot text-slate-400"></i> ${order.zone || 'بدون منطقة'}</span>
-                </p>
-            </div>
-        </div>
-        
-        ${aiUpsellHtml}
+    window.toggleSelectAllVisibleOrders = function () {
+        const cbs = Array.from(document.querySelectorAll('.bulk-order-cb'));
+        if (cbs.length === 0) return;
+        const allChecked = cbs.every(cb => cb.checked);
+        cbs.forEach(cb => { cb.checked = !allChecked; });
+        window.toggleBulkActionBar();
+    };
 
-        <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 mb-4 shadow-inner">
-            ${itemsHtml}
-            <div class="border-t border-slate-200 mt-2 pt-2 flex justify-between items-center">
-                <span class="text-[10px] font-bold text-slate-500 bg-white px-2 py-1 rounded-lg border border-slate-100">التوصيل: ${order.deliveryFee} ج</span>
-                <span class="text-sm font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-xl border border-emerald-100 shadow-sm">الإجمالي: ${order.total} ج</span>
-            </div>
-        </div>
-        
-        <div class="flex flex-wrap gap-2 items-center">
-            ${nextStepBtn}
-            <button onclick="splitOrderV2('${order.id}')" class="bg-white text-slate-600 hover:bg-slate-800 hover:text-white px-3 py-2 rounded-xl text-[10px] font-black transition-all border border-slate-200 shadow-sm"><i class="fa-solid fa-scissors mr-1"></i> تقسيم</button>
-            <a href="https://wa.me/2${order.phone}?text=${encodeURIComponent('أهلاً بك يا فندم من سمان ههيا، بخصوص أوردر حضرتك...')}" target="_blank" class="w-9 h-9 bg-[#25D366]/10 text-[#25D366] hover:bg-[#25D366] hover:text-white rounded-xl flex items-center justify-center transition-all border border-[#25D366]/20 shadow-sm shrink-0"><i class="fa-brands fa-whatsapp text-lg"></i></a>
-        </div>
-    </div>`;
-}
+    window.clearAllBulkSelections = function () {
+        document.querySelectorAll('.bulk-order-cb').forEach(cb => { cb.checked = false; });
+        window.toggleBulkActionBar();
+    };
 
-// 3. المحاسبة وتغيير الحالة لطلب واحد (دالة آمنة تضمن نقاط العميل والتواريخ)
-window.updateOrderStatusV2 = async (orderId, newStatus) => {
-    try {
-        let orderRef = db.collection("orders").doc(orderId);
-        let orderData = allOrdersRaw.find(o => o.id === orderId);
-        if(!orderData) return;
+    // تحديث خيارات القوائم المنسدلة (الدفعات، المناطق، المناديب) تلقائياً
+    function populateOrdersToolbarDropdowns() {
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
 
-        let now = new Date().toISOString();
-        let updates = { status: newStatus, lastModified: now };
+        const activeOrders = ordersList.filter(o => o && o.status !== 'trash' && !o.isArchived);
 
-        // محاسبة النقاط للعميل عند الاكتمال
-        if(newStatus === 'completed' && orderData.status !== 'completed') {
-            updates.completedAtStr = now;
-            if(typeof storeSettings !== 'undefined' && storeSettings.pointsPer100) {
-                let pts = Math.floor(orderData.total / 100) * storeSettings.pointsPer100;
-                if(pts > 0 && orderData.phone) {
-                    let cusRef = db.collection("customers").doc(orderData.phone);
-                    await cusRef.set({ points: firebase.firestore.FieldValue.increment(pts) }, { merge: true });
+        // 1. الدفعات
+        const batchSelect = document.getElementById('so-filter-batch');
+        if (batchSelect) {
+            const curB = window.ordersFilterState.batch;
+            const batchCounts = {};
+            Object.values(batchesObj).forEach(b => {
+                if (b && b.name && b.name !== 'undefined') batchCounts[b.name.trim()] = 0;
+            });
+            let normalCount = 0;
+            activeOrders.forEach(o => {
+                const bName = getOrderBatchTitle(o);
+                if (bName) batchCounts[bName] = (batchCounts[bName] || 0) + 1;
+                else normalCount++;
+            });
+
+            let bHtml = `<option value="all">🏷️ كل الدفعات والفوري (${activeOrders.length})</option>`;
+            bHtml += `<option value="batches_only" ${curB === 'batches_only' ? 'selected' : ''}>📌 طلبات الدفعات فقط</option>`;
+            bHtml += `<option value="normal_only" ${curB === 'normal_only' ? 'selected' : ''}>❄️ فوري بدون دفعة (${normalCount})</option>`;
+            Object.keys(batchCounts).forEach(bName => {
+                bHtml += `<option value="${bName}" ${curB === bName ? 'selected' : ''}>🏷️ ${bName} (${batchCounts[bName]})</option>`;
+            });
+            batchSelect.innerHTML = bHtml;
+            batchSelect.value = curB;
+        }
+
+        // 2. المناطق
+        const zoneSelect = document.getElementById('so-filter-zone');
+        if (zoneSelect) {
+            const curZ = window.ordersFilterState.zone;
+            const zoneCounts = {};
+            activeOrders.forEach(o => {
+                const z = (o.zone || 'غير مسجل').trim();
+                zoneCounts[z] = (zoneCounts[z] || 0) + 1;
+            });
+            let zHtml = `<option value="all">📍 كل المناطق</option>`;
+            Object.keys(zoneCounts).sort((a, b) => zoneCounts[b] - zoneCounts[a]).forEach(z => {
+                zHtml += `<option value="${z}" ${curZ === z ? 'selected' : ''}>📍 ${z} (${zoneCounts[z]})</option>`;
+            });
+            zoneSelect.innerHTML = zHtml;
+            zoneSelect.value = curZ;
+        }
+
+        // 3. المناديب
+        const driverSelect = document.getElementById('so-filter-driver');
+        if (driverSelect) {
+            const curD = window.ordersFilterState.driver;
+            const driverCounts = {};
+            (storeSettings?.drivers || []).forEach(d => {
+                if (d && d.name) driverCounts[d.name.trim()] = 0;
+            });
+            activeOrders.forEach(o => {
+                if (o.driverName && o.driverName.trim() !== '') {
+                    const dName = o.driverName.trim();
+                    driverCounts[dName] = (driverCounts[dName] || 0) + 1;
                 }
+            });
+            let dHtml = `<option value="all">🛵 كل المناديب</option>`;
+            dHtml += `<option value="unassigned" ${curD === 'unassigned' ? 'selected' : ''}>⏳ بدون مندوب</option>`;
+            Object.keys(driverCounts).forEach(dName => {
+                dHtml += `<option value="${dName}" ${curD === dName ? 'selected' : ''}>🛵 ${dName} (${driverCounts[dName]})</option>`;
+            });
+            driverSelect.innerHTML = dHtml;
+            driverSelect.value = curD;
+        }
+    }
+
+    // =========================================================================
+    // 💬 3. رسائل واتساب السريعة الذكية للعميل (4 قوالب جاهزة بضغطة زر)
+    // =========================================================================
+
+    window.sendQuickWhatsAppOption = function (orderId, templateType) {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
+        if (!order) return;
+
+        if (templateType === 'invoice') {
+            return window.sendMessageToCustomer(order.customerPhone, order.id);
+        }
+
+        const cName = order.customerName || 'فندم';
+        const itemsText = (order.items && Array.isArray(order.items)) ? order.items.map(i => `${i.quantity}x ${i.name}`).join(' + ') : '';
+        const total = order.total || 0;
+        const storePhone = (typeof storeSettings !== 'undefined' && storeSettings.storePhone) ? storeSettings.storePhone : '01208027294';
+        let msg = '';
+
+        if (templateType === 'on_way') {
+            const drvInfo = order.driverName ? `مع المندوب (${order.driverName}${order.driverPhone ? ' - ' + order.driverPhone : ''})` : 'مع المندوب الآن';
+            msg = `أهلاً بحضرتك يا ${cName} 🌹\nأوردر "سمان ههيا" خرج لحضرتك وفي الطريق إليك ${drvInfo} 🛵\n\n📦 الأصناف: ${itemsText}\n💰 المطلوب عند الاستلام: ${order.paymentMethod === 'online' ? '0 ج (خالص أونلاين ✅)' : total + ' ج.م'}\n\nيرجى إبقاء الهاتف متاحاً، وتشرفنا بخدمتك!`;
+        } else if (templateType === 'no_answer') {
+            msg = `أهلاً بحضرتك يا ${cName} 🌹\nحاولنا الاتصال بحضرتك لتنسيق تسليم أوردر "سمان ههيا" (${itemsText}) ولكن الهاتف غير متاح أو لم يتم الرد 📵\n\nيرجى التواصل معنا هنا أو تأكيد الموعد المناسب للاستلام.`;
+        } else if (templateType === 'prepay') {
+            msg = `أهلاً بحضرتك يا ${cName} 🌹\nلتأكيد تجهيز وحجز أوردر "سمان ههيا" الخاص بحضرتك:\n📦 الأصناف: ${itemsText}\n💰 الإجمالي: ${total} ج.م\n\nيرجى تحويل قيمة الطلب على فودافون كاش / إنستاباي على الرقم:\n*${storePhone}*\nوإرسال صورة التحويل هنا لتأكيد التجهيز فوراً ✅`;
+        }
+
+        const cleanPhone = (order.customerPhone || '').toString().trim();
+        const waNumber = cleanPhone.startsWith('0') ? '2' + cleanPhone : cleanPhone;
+        if (waNumber) {
+            window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}`, '_blank');
+        } else {
+            alert('لا يوجد رقم هاتف مسجل للعميل!');
+        }
+    };
+
+    // =========================================================================
+    // 🚀 4. المحرك المطور لعرض وفلترة كروت الطلبات الحية (renderOrdersList)
+    // =========================================================================
+
+    window.renderOrdersList = function () {
+        window.initSmartOrdersToolbar();
+        populateOrdersToolbarDropdowns();
+
+        const container = document.getElementById('orders-list-vertical');
+        if (!container) return;
+
+        let filterText = (document.getElementById('search-order')?.value || '').toLowerCase();
+        let dynamicCounts = { new: 0, processing: 0, dispatched: 0, deferred: 0, no_answer: 0, completed: 0, canceled: 0 };
+
+        let filterWords = [];
+        let exactPhrases = [];
+        let quotesMatch = filterText.match(/"([^"]+)"/g);
+        if (quotesMatch) {
+            quotesMatch.forEach(q => {
+                exactPhrases.push(q.replace(/"/g, '').trim());
+                filterText = filterText.replace(q, '');
+            });
+        }
+        filterWords = filterWords.concat(filterText.split(' ').filter(w => w.trim() !== ''));
+
+        const fState = window.ordersFilterState;
+
+        let filteredBase = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o => {
+            if (!o || o.status === 'trash' || o.isArchived) return false;
+
+            const realBatchTitle = getOrderBatchTitle(o);
+            const bNameSearch = realBatchTitle ? realBatchTitle : (o.customTag ? `تاج مخصص: ${o.customTag}` : 'أوردرات عادية');
+
+            // 1. فلاتر الشريط الذكي السريع
+            if (fState.batch !== 'all') {
+                if (fState.batch === 'batches_only' && !realBatchTitle) return false;
+                if (fState.batch === 'normal_only' && realBatchTitle) return false;
+                if (fState.batch !== 'batches_only' && fState.batch !== 'normal_only' && realBatchTitle !== fState.batch) return false;
             }
-        }
-
-        await orderRef.update(updates);
-        orderData.status = newStatus;
-        if(updates.completedAtStr) orderData.completedAtStr = updates.completedAtStr;
-        renderOrdersList();
-        
-    } catch (e) {
-        console.error("Error updating status:", e);
-        alert('حدث خطأ أثناء تغيير الحالة');
-    }
-};
-
-// 4. إصلاح المحاسبة في التحديد الجماعي الذكي 
-window.bulkChangeStatusV2 = async (newStatus) => {
-    let checkboxes = document.querySelectorAll('.order-checkbox:checked');
-    if(checkboxes.length === 0) return alert('يرجى تحديد طلبات أولاً!');
-    
-    if(!confirm(`هل أنت متأكد من تغيير حالة ${checkboxes.length} طلب؟`)) return;
-
-    let btn = document.querySelector(`button[onclick="bulkChangeStatusV2('${newStatus}')"]`);
-    let origHtml = btn ? btn.innerHTML : '';
-    if(btn) { btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; btn.disabled = true; }
-
-    try {
-        let batchProcess = db.batch();
-        let now = new Date().toISOString();
-        
-        for(let cb of checkboxes) {
-            let oid = cb.value;
-            let orderRef = db.collection("orders").doc(oid);
-            let orderData = allOrdersRaw.find(o => o.id === oid);
-            if(!orderData) continue;
-            
-            let updates = { status: newStatus, lastModified: now };
-            
-            if(newStatus === 'completed' && orderData.status !== 'completed') {
-                updates.completedAtStr = now;
-                if(typeof storeSettings !== 'undefined' && storeSettings.pointsPer100) {
-                    let pts = Math.floor(orderData.total / 100) * storeSettings.pointsPer100;
-                    if(pts > 0 && orderData.phone) {
-                        let cusRef = db.collection("customers").doc(orderData.phone);
-                        batchProcess.set(cusRef, { points: firebase.firestore.FieldValue.increment(pts) }, { merge: true });
-                    }
-                }
+            if (fState.zone !== 'all' && (o.zone || 'غير مسجل').trim() !== fState.zone) return false;
+            if (fState.payment !== 'all') {
+                if (fState.payment === 'online' && o.paymentMethod !== 'online') return false;
+                if (fState.payment === 'cash' && o.paymentMethod === 'online') return false;
+                if (fState.payment === 'has_debt' && !(Number(o.debt) > 0)) return false;
+                if (fState.payment === 'has_discount' && !(Number(o.discount) > 0)) return false;
             }
-            batchProcess.update(orderRef, updates);
-        }
-        
-        await batchProcess.commit();
-        document.getElementById('select-all-orders').checked = false;
-        document.getElementById('bulk-actions-bar').classList.add('hidden');
-        alert('تم تنفيذ الإجراء الجماعي بنجاح! ✅');
-        
-    } catch(e) {
-        console.error(e);
-        alert('حدث خطأ في النظام الجماعي! تأكد من الاتصال بالإنترنت.');
-    }
-    
-    if(btn) { btn.innerHTML = origHtml; btn.disabled = false; }
-};
+            if (fState.driver !== 'all') {
+                if (fState.driver === 'unassigned' && o.driverName) return false;
+                if (fState.driver !== 'unassigned' && (o.driverName || '').trim() !== fState.driver) return false;
+            }
 
-// 5. تقسيم الأوردر بضغطة واحدة (مثالي لو رصيد الفريزر لا يكفي)
-window.splitOrderV2 = async (orderId) => {
-    let originalOrder = allOrdersRaw.find(o => o.id === orderId);
-    if(!originalOrder) return;
-    
-    if(!originalOrder.items || originalOrder.items.length !== 1) {
-        return alert("عذراً، يجب أن يحتوي الطلب على صنف واحد فقط لتفعيل التقسيم الآلي السريع.");
-    }
-    
-    let currentQty = parseInt(originalOrder.items[0].qty);
-    if(currentQty <= 1) {
-        return alert("الكمية 1 ولا يمكن تقسيمها أكثر من ذلك.");
-    }
+            // 2. فلتر البحث النصي
+            let itemsString = (o.items && Array.isArray(o.items)) ? o.items.map(i => i.name).join(' ') : '';
+            let normPhone1 = window.normalizePhone ? window.normalizePhone(o.customerPhone) : (o.customerPhone || '');
+            let normPhone2 = window.normalizePhone ? window.normalizePhone(o.customerPhone2) : (o.customerPhone2 || '');
 
-    let qtyToSplit = prompt(`الطلب يحتوي على ${currentQty} ${originalOrder.items[0].name}.\nأدخل الكمية التي تريد فصلها لترحيلها في طلب جديد (مؤجل):`);
-    qtyToSplit = parseInt(qtyToSplit);
-    
-    if(!qtyToSplit || isNaN(qtyToSplit) || qtyToSplit <= 0 || qtyToSplit >= currentQty) {
-        return alert("تم الإلغاء أو الكمية المدخلة غير صحيحة.");
-    }
+            let searchStr = `${o.customerName || ''} ${o.customerPhone || ''} ${normPhone1} ${o.customerPhone2 || ''} ${normPhone2} ${bNameSearch} ${o.zone || ''} ${o.customerAddress || ''} ${o.driverName || ''} ${itemsString} ${o.adminNote || ''} ${o.driverNote || ''}`.toLowerCase();
+            searchStr = searchStr.replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660).replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0);
 
-    let newOrder = JSON.parse(JSON.stringify(originalOrder)); // نسخ دقيق للبيانات
-    newOrder.id = 'ord_' + Date.now() + Math.floor(Math.random()*1000);
-    newOrder.status = 'deferred'; 
-    newOrder.createdAtStr = new Date().toISOString();
-    
-    // تعديل الكميات وتوزيعها
-    originalOrder.items[0].qty = currentQty - qtyToSplit;
-    newOrder.items[0].qty = qtyToSplit;
-    
-    // إعادة حساب الإجمالي للماليّات بدقة
-    originalOrder.total = (originalOrder.items[0].qty * originalOrder.items[0].price) + (parseInt(originalOrder.deliveryFee) || 0);
-    newOrder.total = (newOrder.items[0].qty * newOrder.items[0].price) + (parseInt(newOrder.deliveryFee) || 0);
+            let matchSearch = filterWords.length === 0 ? true : filterWords.every(word => {
+                let engWord = word.replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660).replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0);
+                let normWord = window.normalizePhone ? window.normalizePhone(word) : word;
+                return searchStr.includes(engWord) || (normWord !== '' && normWord.length > 5 && searchStr.includes(normWord));
+            });
 
-    try {
-        await Promise.all([
-            db.collection("orders").doc(originalOrder.id).set(originalOrder),
-            db.collection("orders").doc(newOrder.id).set(newOrder)
-        ]);
-        alert("تم شق الأوردر بنجاح! ✂️\nالجزء المفصول تم تحويله لحالة 'مؤجل'.");
-    } catch(e) { 
-        console.error("Error splitting order", e);
-        alert("حدث خطأ أثناء التقسيم."); 
-    }
-};
+            let matchExact = exactPhrases.length === 0 ? true : exactPhrases.every(p => {
+                let isBatch = bNameSearch.toLowerCase() === p;
+                let isZone = (o.zone || '').toLowerCase() === p;
+                let isName = (o.customerName || '').toLowerCase() === p;
+                let isItem = o.items ? o.items.some(i => i.name.toLowerCase() === p) : false;
+                return isBatch || isZone || isItem || isName || searchStr.includes(p);
+            });
 
-// 6. الترتيب الجغرافي الذكي للبوالص (Smart Waybill Routing)
-window.smartPrintWaybillsV2 = () => {
-    let checkboxes = document.querySelectorAll('.order-checkbox:checked');
-    if(checkboxes.length === 0) return alert('يرجى تحديد طلبات لطباعة بوالصها أولاً.');
-    
-    let selectedIds = Array.from(checkboxes).map(cb => cb.value);
-    let selectedOrders = allOrdersRaw.filter(o => selectedIds.includes(o.id));
-    
-    // الفرز الجغرافي لترتيب الورق للمندوب وتسهيل خط السير
-    selectedOrders.sort((a, b) => (a.zone || '').localeCompare(b.zone || ''));
-    
-    localStorage.setItem('waybill_orders', JSON.stringify(selectedOrders));
-    window.open('waybill.html', '_blank');
-};
+            let matchSmart = true;
+            if (typeof currentSmartFilter !== 'undefined' && currentSmartFilter === 'vip') {
+                let c = (typeof customersData !== 'undefined' ? customersData : []).find(x => window.normalizePhone(x.phone) === normPhone1);
+                matchSmart = c && (c.ordersCount >= 3 || c.totalSpent >= 1500);
+            } else if (typeof currentSmartFilter !== 'undefined' && currentSmartFilter === 'high_value') {
+                matchSmart = Number(o.total) >= 500;
+            }
 
-// --- دوال الواجهة المساعدة ---
-window.toggleSelectAllV2 = (isChecked) => {
-    let checkboxes = document.querySelectorAll('.order-checkbox');
-    checkboxes.forEach(cb => {
-        if(cb.closest('div').parentElement.style.display !== 'none') {
-            cb.checked = isChecked;
-        }
-    });
-    updateBulkBarV2();
-};
+            if (matchSearch && matchExact && matchSmart) {
+                if (dynamicCounts[o.status] !== undefined) dynamicCounts[o.status]++;
+                return true;
+            }
+            return false;
+        });
 
-window.updateBulkBarV2 = () => {
-    let checkedCount = document.querySelectorAll('.order-checkbox:checked').length;
-    let bar = document.getElementById('bulk-actions-bar');
-    if(bar) {
-        if(checkedCount > 0) { 
-            bar.classList.remove('hidden'); 
-            let countSpan = document.getElementById('bulk-count');
-            if(countSpan) countSpan.innerText = checkedCount; 
-        } else { 
-            bar.classList.add('hidden'); 
-        }
-    }
-};
+        ['new', 'processing', 'dispatched', 'deferred', 'no_answer', 'completed', 'canceled'].forEach(s => {
+            let b = document.getElementById(`badge-${s}`);
+            if (b) b.innerText = dynamicCounts[s] || 0;
+        });
 
-window.toggleCompactModeV2 = () => { 
-    compactModeV2 = !compactModeV2; 
-    renderOrdersList(); 
-};
+        let activeTab = (typeof currentOrderTab !== 'undefined') ? currentOrderTab : 'all';
+        let filtered = filteredBase.filter(o => (activeTab === 'all') || (o.status === activeTab));
 
-window.populateSmartFiltersV2 = () => {
-    let zSelect = document.getElementById('smart-filter-zone');
-    if(zSelect && zSelect.options.length <= 1 && typeof storeSettings !== 'undefined' && storeSettings.deliveryZones) {
-        storeSettings.deliveryZones.forEach(z => {
-            if(z.name && !Array.from(zSelect.options).some(opt => opt.value === z.name)) {
-                zSelect.innerHTML += `<option value="${z.name}">${z.name}</option>`;
+        let sortDir = (typeof ordersSortDirection !== 'undefined') ? ordersSortDirection : 'desc';
+        filtered.sort((a, b) => {
+            let timeA = a.createdAt?.toMillis() || 0;
+            let timeB = b.createdAt?.toMillis() || 0;
+            return sortDir === 'desc' ? (timeB - timeA) : (timeA - timeB);
+        });
+
+        // تحديث شريط الملخص اللحظي للطلبات المعروضة أمام المستخدم
+        let sumMeat = 0, sumEggs = 0, sumChicks = 0, sumMoney = 0;
+        filtered.forEach(o => {
+            if (o.status === 'canceled') return;
+            sumMoney += Number(o.total) || 0;
+            if (Array.isArray(o.items)) {
+                o.items.forEach(i => {
+                    const q = Number(i.quantity) || 0;
+                    const t = classifyItemType(i);
+                    if (t === 'egg') sumEggs += q;
+                    else if (t === 'chick') sumChicks += q;
+                    else sumMeat += q;
+                });
             }
         });
+
+        if (document.getElementById('so-sum-count')) document.getElementById('so-sum-count').innerText = filtered.length;
+        if (document.getElementById('so-sum-meat')) document.getElementById('so-sum-meat').innerText = Number(sumMeat.toFixed(1));
+        if (document.getElementById('so-sum-money')) document.getElementById('so-sum-money').innerText = sumMoney.toLocaleString() + ' ج';
+        const exWrap = document.getElementById('so-sum-extras-wrap');
+        if (exWrap) {
+            let exParts = [];
+            if (sumEggs > 0) exParts.push(`🥚 بيض: <strong class="text-amber-300">${sumEggs}</strong>`);
+            if (sumChicks > 0) exParts.push(`🐣 كتاكيت: <strong class="text-sky-300">${sumChicks}</strong>`);
+            if (exParts.length > 0) {
+                exWrap.innerHTML = '| ' + exParts.join(' | ');
+                exWrap.classList.remove('hidden');
+            } else {
+                exWrap.classList.add('hidden');
+            }
+        }
+
+        if (filtered.length === 0) {
+            container.innerHTML = '<div class="text-center text-slate-400 py-16 font-bold border-2 border-dashed border-slate-200 rounded-[2rem]">لا توجد طلبات مطابقة في هذا القسم.</div>';
+            return;
+        }
+
+        if (typeof window.rebuildTrustCacheIfNeeded === 'function') {
+            window.rebuildTrustCacheIfNeeded();
+        }
+
+        const isCompact = window.ordersFilterState.compactMode;
+
+        container.innerHTML = filtered.map(o => {
+            let d = o.orderDate || (o.createdAt ? new Date(o.createdAt.toMillis()).toLocaleDateString('en-US') : 'غير محدد');
+            let ageStr = getOrderAgeLabel(o);
+            let realBatchTitle = getOrderBatchTitle(o);
+
+            // زر الخطوة التالية السريع (1-Click Next Action)
+            let nextStepBtnHtml = '';
+            if (o.status === 'new') {
+                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1" title="نقل الطلب لقسم التجهيز بضغطة واحدة"><i class="fa-solid fa-fire-burner"></i> للتجهيز</button>`;
+            } else if (o.status === 'processing' || o.status === 'dispatched') {
+                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1" title="تأكيد تسليم وتحصيل الطلب"><i class="fa-solid fa-check-double"></i> تم التسليم</button>`;
+            } else if (o.status === 'no_answer' || o.status === 'deferred') {
+                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1"><i class="fa-solid fa-rotate-left"></i> للتجهيز</button>`;
+            }
+
+            let sBadge = o.status === 'new' ? '<span class="bg-blue-50 text-blue-600 border border-blue-100 px-2.5 py-1 rounded-lg text-[10px] font-black">جديد</span>' :
+                (o.status === 'processing' ? '<span class="bg-amber-50 text-amber-600 border border-amber-100 px-2.5 py-1 rounded-lg text-[10px] font-black">جاري التجهيز</span>' :
+                (o.status === 'dispatched' ? '<span class="bg-indigo-50 text-indigo-600 border border-indigo-100 px-2.5 py-1 rounded-lg text-[10px] font-black"><i class="fa-solid fa-motorcycle mr-1"></i> في الطريق</span>' :
+                (o.status === 'deferred' ? '<span class="bg-orange-50 text-orange-600 border border-orange-200 px-2.5 py-1 rounded-lg text-[10px] font-black"><i class="fa-solid fa-clock mr-1"></i> مؤجل</span>' :
+                (o.status === 'no_answer' ? '<span class="bg-purple-50 text-purple-600 border border-purple-100 px-2.5 py-1 rounded-lg text-[10px] font-black"><i class="fa-solid fa-phone-slash mr-1"></i> لم يرد</span>' :
+                (o.status === 'completed' ? '<span class="bg-emerald-50 text-emerald-600 border border-emerald-100 px-2.5 py-1 rounded-lg text-[10px] font-black">مكتمل</span>' :
+                '<span class="bg-slate-50 text-slate-500 border border-slate-200 px-2.5 py-1 rounded-lg text-[10px] font-black">ملغي</span>')))));
+
+            let trustInfo = (typeof window.fastAnalyzeOrderTrust === 'function')
+                ? window.fastAnalyzeOrderTrust(o)
+                : { cardClass: 'bg-white border-slate-100', badgeHtml: '', bannerHtml: '', stickyHtml: '' };
+
+            // 📱 وضع العرض المضغوط السريع (Compact Mode)
+            if (isCompact) {
+                const compactItems = (o.items && Array.isArray(o.items)) ? o.items.map(i => `${i.quantity}x ${i.name}`).join(' + ') : '';
+                return `
+                <div data-id="${o.id}" class="order-card ${trustInfo.cardClass} p-2.5 rounded-xl shadow-sm border hover:border-brand-primary transition-all flex flex-wrap sm:flex-nowrap items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer shrink-0">
+                        <span onclick="openCustomerCard('${o.customerPhone}')" class="font-black text-slate-800 text-xs cursor-pointer hover:text-brand-primary truncate">${o.customerName || 'بدون اسم'}</span>
+                        ${trustInfo.badgeHtml}
+                        <span class="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded shrink-0">${o.zone || ''}</span>
+                        <span class="text-[11px] font-bold text-slate-600 truncate hidden md:inline">${compactItems}</span>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0 mr-auto sm:mr-0">
+                        <span class="font-black text-brand-primary text-sm">${o.total || 0} ج</span>
+                        ${sBadge}
+                        ${nextStepBtnHtml}
+                        <button onclick="openEditOrderModal('${o.id}')" class="bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white w-7 h-7 rounded-lg text-[10px] flex items-center justify-center"><i class="fa-solid fa-pen"></i></button>
+                        <button onclick="printSingleOrderWaybill('${o.id}')" class="bg-amber-50 hover:bg-amber-500 text-amber-800 hover:text-white w-7 h-7 rounded-lg text-[10px] flex items-center justify-center"><i class="fa-solid fa-print"></i></button>
+                    </div>
+                </div>`;
+            }
+
+            // 🖥️ وضع الكارت التفصيلي المطور (Smart Order Card 2.0)
+            let completedDateHtml = '';
+            if (o.status === 'completed') {
+                let cTime = o.completedTimeDisplay || (o.completedAtStr ? o.completedAtStr : 'تم التسليم');
+                completedDateHtml = `<span class="text-[9px] text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded font-black mt-1 w-full text-center shadow-sm"><i class="fa-solid fa-check-double"></i> ${cTime}</span>`;
+            }
+
+            let itemsStr = (o.items && Array.isArray(o.items)) ? o.items.map((i, idx) =>
+                `<span class="bg-white border border-slate-200 px-2.5 py-1.5 rounded-lg text-xs shadow-sm flex items-center gap-1.5 hover:border-brand-primary transition-colors">
+                    <span class="font-black text-slate-800">${i.quantity}x ${i.name}</span>
+                    <span class="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded cursor-pointer border border-emerald-100 hover:bg-emerald-500 hover:text-white transition-colors" ondblclick="editItemPrice('${o.id}', ${idx})" title="اضغط مرتين لتعديل السعر (لعمل واجب)">(بـ ${i.price}ج)</span>
+                </span>`
+            ).join('') : '<span class="text-slate-400 text-xs font-bold">لا يوجد تفاصيل</span>';
+
+            let paymentBadge = (o.paymentMethod === 'online')
+                ? '<span class="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-check-double"></i> خالص (أونلاين)</span>'
+                : '<span class="text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-money-bill-1-wave"></i> كاش</span>';
+
+            if (o.debt && o.debt > 0) {
+                paymentBadge += ` <span class="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-triangle-exclamation"></i> آجل (${o.debt} ج)</span>`;
+            }
+
+            let batchTagHtml = realBatchTitle
+                ? `<span onclick="setOrdersQuickFilter('batch', '${realBatchTitle}')" class="text-[10px] bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-teal-600 hover:text-white transition-colors shadow-sm" title="اضغط لفلترة هذه الدفعة"><i class="fa-solid fa-layer-group"></i> ${realBatchTitle}</span>`
+                : '';
+
+            let customTagHtml = o.customTag
+                ? `<span onclick="document.getElementById('search-order').value='${o.customTag}'; renderOrdersList();" class="text-[10px] bg-purple-50 text-purple-600 border border-purple-100 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-purple-500 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-hashtag"></i> ${o.customTag}</span>`
+                : '';
+
+            // شارة المندوب المعين على الكارت
+            let driverBadgeHtml = o.driverName
+                ? `<span onclick="setOrdersQuickFilter('driver', '${o.driverName.trim()}')" class="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-blue-600 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-motorcycle"></i> مع: ${o.driverName}</span>`
+                : '';
+
+            // شارة موعد التسليم المحدد للطلب
+            let deliveryWindowBadge = '';
+            if (o.deliveryStart || o.deliveryEnd) {
+                const winTxt = (o.deliveryStart && o.deliveryEnd) ? `${o.deliveryStart} ⬅️ ${o.deliveryEnd}` : (o.deliveryStart || o.deliveryEnd);
+                deliveryWindowBadge = `<span class="text-[10px] bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-regular fa-calendar-check"></i> تسليم: ${winTxt}</span>`;
+            }
+
+            let phone2Html = o.customerPhone2 ? `
+                <span class="flex items-center gap-1.5 bg-purple-50 px-2 py-1 rounded-lg border border-purple-100 ml-1">
+                    <span class="text-[9px] font-black text-purple-500">بديل:</span>
+                    <span class="text-[11px] text-slate-600 font-bold cursor-pointer border-b border-transparent hover:border-purple-400 border-dashed" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone2')" title="تعديل الرقم البديل">${o.customerPhone2}</span>
+                    <a href="tel:${o.customerPhone2}" class="text-purple-500 hover:text-white hover:bg-purple-500 w-5 h-5 flex items-center justify-center bg-purple-100 rounded-full transition-colors"><i class="fa-solid fa-phone text-[8px]"></i></a>
+                </span>` : '';
+
+            return `
+            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} p-3.5 rounded-[1rem] shadow-sm border hover:shadow-md transition-all relative group cursor-pointer">
+                <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb absolute top-3 left-3 w-4 h-4 accent-brand-primary cursor-pointer opacity-70 group-hover:opacity-100 checked:opacity-100 transition-opacity z-10">
+
+                ${trustInfo.bannerHtml}
+                ${trustInfo.stickyHtml}
+
+                <div class="flex justify-between items-start mb-1.5 pl-6">
+                    <div>
+                        <h5 class="font-black text-slate-800 text-sm flex flex-wrap items-center gap-1.5 mb-1">
+                            <span class="cursor-pointer hover:text-brand-primary transition-colors border-b border-transparent hover:border-brand-primary border-dashed select-none" onclick="smartNameClick(this, '${o.id}', '${o.customerPhone}', 'customerName')" title="اضغط مرة لفتح ملف العميل.. مرتين للتعديل السريع">${o.customerName || 'بدون اسم'}</span>
+                            ${trustInfo.badgeHtml}
+                            <a href="tel:${o.customerPhone}" class="text-emerald-500 hover:text-white hover:bg-emerald-500 w-5 h-5 flex items-center justify-center bg-emerald-50 rounded-full transition-colors" title="اتصال مباشر"><i class="fa-solid fa-phone text-[9px]"></i></a>
+                            <span class="text-[10px] text-slate-400 font-bold cursor-pointer border-b border-transparent hover:border-slate-400 border-dashed" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone')" title="اضغط مرتين للتعديل السريع">${o.customerPhone}</span>
+                            ${phone2Html}
+                            <button onclick="event.stopPropagation(); quickBanFromOrderCard('${o.id}')" class="text-[9px] bg-red-50 text-red-500 hover:bg-red-600 hover:text-white px-1.5 py-0.5 rounded border border-red-100 font-black transition-colors" title="إدراج سريع في البلاك ليست"><i class="fa-solid fa-ban"></i></button>
+                        </h5>
+
+                        <p class="text-[10px] text-slate-500 font-bold flex items-center gap-1 flex-wrap">
+                            <i class="fa-solid fa-location-dot text-indigo-400 mr-1"></i>
+                            <span class="cursor-pointer border-b border-transparent hover:border-slate-400 border-dashed text-indigo-900 font-black" ondblclick="inlineEdit(this, '${o.id}', 'zone')">${o.zone || 'غير مسجل'}</span>
+                            ${o.customerAddress ? `<span class="mx-1">-</span><span class="cursor-pointer border-b border-transparent hover:border-slate-400 border-dashed" ondblclick="inlineEdit(this, '${o.id}', 'customerAddress')">${o.customerAddress}</span>` : ''}
+                        </p>
+                    </div>
+                    <div class="flex flex-col items-end gap-1">
+                        <div class="flex items-center gap-1">
+                            ${ageStr ? `<span class="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold">${ageStr}</span>` : ''}
+                            ${sBadge}
+                        </div>
+                        <span class="text-[9px] text-slate-400 font-bold tracking-wider">طلب: ${d}</span>
+                        ${completedDateHtml}
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap gap-1 mb-2">
+                    ${paymentBadge} ${batchTagHtml} ${driverBadgeHtml} ${deliveryWindowBadge} ${customTagHtml}
+                </div>
+
+                <div class="bg-slate-50/80 p-2.5 rounded-lg border border-slate-100/50 mb-2 flex flex-wrap gap-1.5">
+                    ${itemsStr}
+                    ${(o.adminNote || o.driverNote) ? `
+                    <div class="w-full mt-1.5 pt-1.5 border-t border-slate-200/50">
+                        <p class="text-[9px] font-black text-amber-700 bg-amber-50 px-2 py-1 rounded border border-amber-100 italic truncate">
+                            <i class="fa-solid fa-circle-exclamation mr-1"></i> ${o.adminNote ? o.adminNote.split('\n---\n').pop() : o.driverNote.split('\n---\n').pop()}
+                        </p>
+                    </div>` : ''}
+                </div>
+
+                <div class="flex flex-wrap gap-2 mb-2">
+                    <button onclick="toggleInlineNotes(event, '${o.id}', 'adminNote')" class="flex-1 bg-amber-50 border border-amber-100 hover:bg-amber-100 transition-colors px-2 py-1.5 rounded-lg flex items-center justify-between shadow-sm group">
+                        <span class="text-[9px] font-black text-amber-700"><i class="fa-solid fa-lock mr-1"></i> ملاحظات إدارية</span>
+                        ${o.adminNote ? `<span class="bg-amber-200 text-amber-800 text-[9px] font-black px-1.5 py-0.5 rounded">${o.adminNote.split('\n---\n').length}</span>` : '<span class="text-[9px] font-black text-amber-600 opacity-50 group-hover:opacity-100"><i class="fa-solid fa-plus"></i></span>'}
+                    </button>
+                    <button onclick="toggleInlineNotes(event, '${o.id}', 'driverNote')" class="flex-1 bg-blue-50 border border-blue-100 hover:bg-blue-100 transition-colors px-2 py-1.5 rounded-lg flex items-center justify-between shadow-sm group">
+                        <span class="text-[9px] font-black text-blue-700"><i class="fa-solid fa-motorcycle mr-1"></i> ملاحظات للمندوب</span>
+                        ${o.driverNote ? `<span class="bg-blue-200 text-blue-800 text-[9px] font-black px-1.5 py-0.5 rounded">${o.driverNote.split('\n---\n').length}</span>` : '<span class="text-[9px] font-black text-blue-600 opacity-50 group-hover:opacity-100"><i class="fa-solid fa-plus"></i></span>'}
+                    </button>
+                </div>
+
+                <div id="inline-notes-container-${o.id}" class="hidden w-full mb-2 transition-all duration-300 origin-top">
+                    <div id="inline-notes-content-${o.id}"></div>
+                </div>
+
+                <div class="flex flex-col sm:flex-row justify-between items-center pt-2 border-t border-slate-100 gap-3">
+                    <div class="flex flex-wrap gap-1.5 w-full sm:w-auto">
+                        ${o.status === 'completed' ?
+                        `<button onclick="sendFollowUpWhatsApp('${o.customerPhone}', '${o.customerName}')" class="flex-1 sm:flex-none text-[10px] bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg font-bold transition-all shadow-sm flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-heart-circle-check"></i> متابعة</button>
+                         <button onclick="openLinkArchiveModal('${o.id}')" class="flex-1 sm:flex-none text-[10px] bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg font-bold transition-all shadow-sm flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-link text-amber-400"></i> أرشفة</button>`
+                        :
+                        `<div class="inline-flex rounded-lg shadow-sm">
+                            <button onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="text-[10px] bg-[#25D366] hover:bg-[#1ebd57] text-white px-2.5 py-1.5 rounded-r-lg font-bold transition-all flex items-center gap-1"><i class="fa-brands fa-whatsapp"></i> واتساب</button>
+                            <select onchange="if(this.value){ sendQuickWhatsAppOption('${o.id}', this.value); this.value=''; }" class="bg-[#1ebd57] text-white text-[9px] font-black px-1 rounded-l-lg border-r border-white/20 outline-none cursor-pointer" title="رسائل واتساب سريعة جاهزة">
+                                <option value="">▼</option>
+                                <option value="invoice">🧾 إرسال الفاتورة</option>
+                                <option value="on_way">🛵 الطلب في الطريق</option>
+                                <option value="no_answer">📵 الهاتف غير متاح</option>
+                                <option value="prepay">💳 طلب دفع مسبق</option>
+                            </select>
+                        </div>`
+                        }
+                        <button onclick="openEditOrderModal('${o.id}')" class="flex-1 sm:flex-none text-[10px] bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg font-bold transition-all shadow-sm flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-pen"></i> تعديل</button>
+                        <button onclick="openOrderTracking('${o.id}')" class="flex-1 sm:flex-none text-[10px] bg-sky-50 text-sky-600 hover:bg-sky-100 px-2.5 py-1.5 rounded-lg font-bold border border-sky-200 transition-all shadow-sm flex items-center justify-center gap-1"><i class="fa-solid fa-route"></i> تتبع</button>
+                        <button onclick="event.stopPropagation(); printSingleOrderWaybill('${o.id}')" class="flex-1 sm:flex-none text-[10px] bg-amber-50 text-amber-800 hover:bg-amber-500 hover:text-white px-2.5 py-1.5 rounded-lg font-black border border-amber-200 transition-all shadow-sm flex items-center justify-center gap-1"><i class="fa-solid fa-print"></i> بوليصة</button>
+                    </div>
+
+                    <div class="flex items-center justify-between w-full sm:w-auto gap-2">
+                        ${nextStepBtnHtml}
+                        <div class="flex flex-col items-end">
+                            <span class="text-[9px] font-bold text-slate-400">منتجات ${o.subtotal || o.total || 0} + توصيل ${o.deliveryFee || 0}${o.discount > 0 ? ` - خصم ${o.discount}` : ''}</span>
+                            <span class="font-black text-brand-primary text-lg tracking-tight">${o.total || 0} <span class="text-[10px] text-slate-400">ج</span></span>
+                        </div>
+                        <select onchange="updateOrderStatus('${o.id}', this.value)" class="text-[10px] font-bold bg-white border border-slate-200 rounded-lg px-2 py-1.5 outline-none text-slate-700 cursor-pointer focus:ring-2 focus:ring-brand-primary/20 transition-all">
+                            <option value="new" ${o.status === 'new' ? 'selected' : ''}>جديد</option>
+                            <option value="processing" ${o.status === 'processing' ? 'selected' : ''}>تجهيز</option>
+                            <option value="dispatched" ${o.status === 'dispatched' ? 'selected' : ''}>بالطريق</option>
+                            <option value="deferred" ${o.status === 'deferred' ? 'selected' : ''}>مؤجل</option>
+                            <option value="no_answer" ${o.status === 'no_answer' ? 'selected' : ''}>لم يرد</option>
+                            <option value="completed" ${o.status === 'completed' ? 'selected' : ''}>مكتمل</option>
+                            <option value="canceled" ${o.status === 'canceled' ? 'selected' : ''}>إلغاء</option>
+                            <option value="trash" class="text-red-500 font-black bg-red-50">سلة</option>
+                        </select>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+
+        if (typeof openInlineNoteId !== 'undefined' && openInlineNoteId && openInlineNoteField) {
+            setTimeout(() => { window.toggleInlineNotes(null, openInlineNoteId, openInlineNoteField, true); }, 50);
+        }
+    };
+
+    // =========================================================================
+    // 🛠️ 5. تطوير نافذتي "إنشاء طلب" (مساعد العميل والنقاط) و"تعديل طلب"
+    // =========================================================================
+
+    // ترقية فحص العميل عند كتابة رقمه في نافذة إنشاء طلب لعرض نقاطه ومديونيته القديمة وتاريخه
+    const _origCheckCustomerExists = window.checkCustomerExists;
+    window.checkCustomerExists = async function () {
+        if (typeof _origCheckCustomerExists === 'function') {
+            await _origCheckCustomerExists();
+        }
+
+        const phoneInput = document.getElementById('no-phone');
+        if (!phoneInput) return;
+        const normPhone = window.normalizePhone ? window.normalizePhone(phoneInput.value) : phoneInput.value.trim();
+
+        let helperBox = document.getElementById('no-smart-customer-helper');
+        if (!helperBox) {
+            helperBox = document.createElement('div');
+            helperBox.id = 'no-smart-customer-helper';
+            helperBox.className = 'mt-3';
+            const alertBox = document.getElementById('no-blacklist-alert');
+            if (alertBox && alertBox.parentElement) {
+                alertBox.parentElement.insertBefore(helperBox, alertBox.nextSibling);
+            }
+        }
+
+        if (!normPhone || normPhone.length < 10) {
+            helperBox.innerHTML = '';
+            return;
+        }
+
+        const c = (typeof customersData !== 'undefined' ? customersData : []).find(x => window.normalizePhone(x.phone) === normPhone);
+        if (!c) {
+            helperBox.innerHTML = `<div class="bg-sky-50 border border-sky-200 text-sky-800 px-3 py-2 rounded-xl text-xs font-black">🆕 عميل جديد يسجل لأول مرة في سمان ههيا</div>`;
+            return;
+        }
+
+        const pts = Number(c.walletPoints) || 0;
+        const ptVal = Number(storeSettings?.pointValueInEGP) || 0.40;
+        const walletCash = Math.round(pts * ptVal);
+        const oldDebt = Number(c.debt) || 0;
+
+        helperBox.innerHTML = `
+            <div class="bg-emerald-50/80 border border-emerald-200 p-3 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div class="space-y-0.5">
+                    <div class="font-black text-slate-800">👤 ${c.name || 'عميل مسجل'} <span class="text-emerald-700">(${c.ordersCount || 0} طلبات سابقة • إجمالي ${(Number(c.totalSpent) || 0).toLocaleString()} ج)</span></div>
+                    ${oldDebt > 0 ? `<div class="text-red-600 font-black">📕 عليه باقي حساب سابق: ${oldDebt} ج</div>` : ''}
+                    ${pts > 0 ? `<div class="text-amber-700 font-black">🪙 رصيد محفظة الولاء: ${pts} نقطة (تساوي ${walletCash} ج خصم)</div>` : ''}
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                    ${walletCash > 0 ? `<button type="button" onclick="applyCustomerWalletDiscountInNewOrder(${walletCash}, ${pts})" class="bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black shadow-sm">🎁 خصم المحفظة (-${walletCash} ج)</button>` : ''}
+                    <button type="button" onclick="openCustomerCard('${c.phone}')" class="bg-white border border-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg text-[10px] font-black">ملف العميل</button>
+                </div>
+            </div>
+        `;
+    };
+
+    window.applyCustomerWalletDiscountInNewOrder = function (cashDiscount, ptsCount) {
+        const discInput = document.getElementById('no-discount');
+        const notesInput = document.getElementById('no-notes');
+        if (discInput) {
+            discInput.value = cashDiscount;
+            if (typeof window.calcTotal === 'function') window.calcTotal('no');
+        }
+        if (notesInput && !notesInput.value.includes('استبدل نقاطه')) {
+            const msg = `[فعّل خصم المحفظة: استبدل نقاطه (${ptsCount} نقطة) بخصم ${cashDiscount} ج]`;
+            notesInput.value = notesInput.value ? (notesInput.value + '\n' + msg) : msg;
+        }
+        if (typeof window.showToast === 'function') window.showToast(`🎁 تم تطبيق خصم المحفظة (${cashDiscount} ج)`);
+    };
+
+    // ترقية نافذة تعديل الطلب لتشمل تعديل الاسم، الموبايل، المنطقة، العنوان، والآجل
+    const _origOpenEditOrderModal = window.openEditOrderModal;
+    window.openEditOrderModal = function (id) {
+        if (typeof _origOpenEditOrderModal === 'function') {
+            _origOpenEditOrderModal(id);
+        }
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === id);
+        if (!order) return;
+
+        const modalBody = document.querySelector('#edit-order-modal .overflow-y-auto');
+        if (!modalBody) return;
+
+        let extraBox = document.getElementById('edit-order-full-customer-box');
+        if (!extraBox) {
+            extraBox = document.createElement('div');
+            extraBox.id = 'edit-order-full-customer-box';
+            extraBox.className = 'bg-white p-5 rounded-2xl shadow-soft border border-slate-100 space-y-3';
+            modalBody.insertBefore(extraBox, modalBody.firstElementChild);
+        }
+
+        let zonesOpts = `<option value="${order.zone || ''}">${order.zone || '-- اختر المنطقة --'}</option>`;
+        (storeSettings?.deliveryZones || []).forEach(z => {
+            if (z.name !== order.zone) {
+                zonesOpts += `<option value="${z.name}">${z.name} (${z.price}ج)</option>`;
+            }
+        });
+
+        extraBox.innerHTML = `
+            <h4 class="text-xs font-black text-slate-800 pb-2 border-b border-slate-100"><i class="fa-solid fa-user-pen text-brand-primary mr-1"></i> بيانات العميل والعنوان والآجل</h4>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <label class="text-[10px] font-bold text-slate-500 block mb-1">اسم العميل</label>
+                    <input type="text" id="edit-cust-name-input" value="${order.customerName || ''}" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 focus:bg-white outline-none">
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-500 block mb-1">رقم الموبايل الأساسي</label>
+                    <input type="tel" id="edit-cust-phone-input" dir="ltr" value="${order.customerPhone || ''}" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 focus:bg-white outline-none">
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-500 block mb-1">المنطقة</label>
+                    <select id="edit-cust-zone-input" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 focus:bg-white outline-none">${zonesOpts}</select>
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-500 block mb-1">العنوان التفصيلي</label>
+                    <input type="text" id="edit-cust-address-input" value="${order.customerAddress || ''}" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none">
+                </div>
+                <div class="md:col-span-2 bg-red-50/60 p-3 rounded-xl border border-red-100 flex items-center justify-between gap-3">
+                    <label class="text-[11px] font-black text-red-800"><i class="fa-solid fa-hand-holding-dollar mr-1"></i> باقي حساب لم يُدفع على هذا الطلب (آجل بالجنيه):</label>
+                    <input type="number" id="edit-order-debt-input" value="${order.debt || 0}" class="w-28 border border-red-200 rounded-xl p-2 text-center text-xs font-black text-red-700 bg-white outline-none">
+                </div>
+            </div>
+        `;
+    };
+
+    const _origSaveEditedOrder = window.saveEditedOrder;
+    window.saveEditedOrder = async function () {
+        if (!editingOrderData) return;
+        const orderId = editingOrderData.id;
+        const oldDebt = Number(editingOrderData.debt) || 0;
+
+        const newName = document.getElementById('edit-cust-name-input')?.value.trim() || editingOrderData.customerName || '';
+        const rawNewPhone = document.getElementById('edit-cust-phone-input')?.value.trim() || editingOrderData.customerPhone || '';
+        const newPhone = window.normalizePhone ? window.normalizePhone(rawNewPhone) : rawNewPhone;
+        const newZone = document.getElementById('edit-cust-zone-input')?.value || editingOrderData.zone || '';
+        const newAddress = document.getElementById('edit-cust-address-input')?.value.trim() ?? (editingOrderData.customerAddress || '');
+        const newDebt = Number(document.getElementById('edit-order-debt-input')?.value) || 0;
+        const debtDiff = newDebt - oldDebt;
+
+        await _origSaveEditedOrder();
+
+        // حفظ التعديلات الإضافية (الاسم، الرقم، المنطقة، العنوان، والآجل)
+        try {
+            await db.collection('orders').doc(orderId).update({
+                customerName: newName,
+                customerPhone: newPhone,
+                zone: newZone,
+                customerAddress: newAddress,
+                debt: newDebt
+            });
+
+            if (newPhone) {
+                const cleanPhone = newPhone.startsWith('0') ? newPhone : '0' + newPhone;
+                const custUp = { name: newName, zone: newZone, address: newAddress };
+                if (debtDiff !== 0) {
+                    custUp.debt = firebase.firestore.FieldValue.increment(debtDiff);
+                }
+                await db.collection('customers').doc(cleanPhone).set(custUp, { merge: true });
+                if (typeof window.refreshCustomersData === 'function') window.refreshCustomersData();
+            }
+        } catch (e) {
+            console.log('Extra edit fields save info:', e);
+        }
+    };
+
+    // =========================================================================
+    // ⚡ 6. الإصلاح المحاسبي الشامل للتحديد الجماعي (bulkChangeStatus)
+    // =========================================================================
+
+    window.bulkChangeStatus = async function (newStatus) {
+        let checked = Array.from(document.querySelectorAll('.bulk-order-cb:checked')).map(cb => cb.value);
+        if (checked.length === 0) return;
+
+        if (['processing', 'dispatched', 'completed'].includes(newStatus)) {
+            let blockedNames = [];
+            checked = checked.filter(id => {
+                let o = allOrdersRaw.find(x => x.id === id);
+                if (!o) return false;
+                let bl = window.findBlacklistedCustomerMatch ? window.findBlacklistedCustomerMatch(o.customerPhone, o.customerPhone2, o.customerName, o.customerAddress) : null;
+                if (bl && bl.type === 'exact' && !o.isPrepaidConfirmed && o.paymentMethod !== 'online') {
+                    blockedNames.push(o.customerName || o.customerPhone);
+                    return false;
+                }
+                return true;
+            });
+            if (blockedNames.length > 0) {
+                alert('⛔ حارس البلاك ليست أوقف نقل الطلبات التالية لأنها لم تُدفع مقدماً:\n- ' + blockedNames.join('\n- '));
+                if (checked.length === 0) return;
+            }
+        }
+
+        const statusNamesAr = {
+            'new': 'جديد',
+            'processing': 'قيد التجهيز',
+            'dispatched': 'في الطريق',
+            'deferred': 'مؤجل',
+            'no_answer': 'لم يتم الرد',
+            'completed': 'مكتمل',
+            'canceled': 'ملغي',
+            'trash': 'سلة المحذوفات'
+        };
+        const statusName = statusNamesAr[newStatus] || newStatus;
+        if (!confirm(`سيتم تحويل [ ${checked.length} ] طلبات إلى حالة (${statusName}). تأكيد؟`)) return;
+
+        const bar = document.getElementById('bulk-actions-bar');
+        const originalHtml = bar.innerHTML;
+        bar.innerHTML = '<div class="w-full text-center text-sm font-bold text-amber-400"><i class="fa-solid fa-spinner fa-spin"></i> جاري التحديث الجماعي وتطبيق الحسابات...</div>';
+
+        try {
+            let dbBatch = db.batch();
+            let fzNewValues = { ...(typeof storeFreezer !== 'undefined' ? storeFreezer : {}) };
+            let fzTouched = false;
+
+            const nowStr = new Date().toLocaleDateString('en-US');
+            const nowDisplay = new Date().toLocaleString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const ptsPer100 = Number(storeSettings?.pointsPer100) || 5;
+
+            checked.forEach(id => {
+                let o = allOrdersRaw.find(x => x.id === id);
+                if (!o) return;
+                let oldStatus = o.status;
+                let ref = db.collection('orders').doc(id);
+
+                let updateData = { status: newStatus };
+                if (newStatus === 'trash') updateData.deletedAt = firebase.firestore.FieldValue.serverTimestamp();
+                if (newStatus === 'dispatched') updateData.dispatchedAt = firebase.firestore.FieldValue.serverTimestamp();
+                if (newStatus === 'canceled') updateData.canceledAt = firebase.firestore.FieldValue.serverTimestamp();
+
+                if (newStatus === 'completed') {
+                    updateData.completedAtStr = nowStr;
+                    updateData.completedTimeDisplay = nowDisplay;
+                    updateData.completedAt = firebase.firestore.FieldValue.serverTimestamp();
+
+                    o.completedAtStr = nowStr;
+                    o.completedTimeDisplay = nowDisplay;
+
+                    // إضافة نقاط الولاء للعميل عند الإكمال الجماعي
+                    if (oldStatus !== 'completed' && o.customerPhone) {
+                        const orderSub = Number(o.subtotal) || Number(o.total) || 0;
+                        if (orderSub >= 100) {
+                            const earnedPts = Math.floor(orderSub / 100) * ptsPer100;
+                            if (earnedPts > 0) {
+                                const cleanPhone = o.customerPhone.startsWith('0') ? o.customerPhone : '0' + o.customerPhone;
+                                dbBatch.set(db.collection('customers').doc(cleanPhone), {
+                                    walletPoints: firebase.firestore.FieldValue.increment(earnedPts)
+                                }, { merge: true });
+                            }
+                        }
+                    }
+                }
+
+                dbBatch.update(ref, updateData);
+
+                // تحديث الفريزر بأمان دون نزول تحت الصفر
+                if (o.items && Array.isArray(o.items)) {
+                    let wasIn = ['processing', 'dispatched', 'completed', 'deferred'].includes(oldStatus);
+                    let isNowIn = ['processing', 'dispatched', 'completed', 'deferred'].includes(newStatus);
+
+                    if (!wasIn && isNowIn) {
+                        o.items.forEach(i => {
+                            const cur = Math.max(0, Number(fzNewValues[i.id]) || 0);
+                            fzNewValues[i.id] = Math.max(0, cur - (Number(i.quantity) || 0));
+                            storeFreezer[i.id] = fzNewValues[i.id];
+                            fzTouched = true;
+                        });
+                    } else if (wasIn && !isNowIn) {
+                        o.items.forEach(i => {
+                            const cur = Math.max(0, Number(fzNewValues[i.id]) || 0);
+                            fzNewValues[i.id] = cur + (Number(i.quantity) || 0);
+                            storeFreezer[i.id] = fzNewValues[i.id];
+                            fzTouched = true;
+                        });
+                    }
+                }
+
+                o.status = newStatus;
+                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) {
+                    globalOrdersMap[id].status = newStatus;
+                    if (newStatus === 'completed') {
+                        globalOrdersMap[id].completedAtStr = nowStr;
+                        globalOrdersMap[id].completedTimeDisplay = nowDisplay;
+                    }
+                }
+                if (typeof window.syncOrderToGoogleSheet === 'function') {
+                    window.syncOrderToGoogleSheet(o, newStatus === 'trash' ? 'delete' : 'update');
+                }
+            });
+
+            if (fzTouched) {
+                dbBatch.set(db.collection('inventory').doc('freezer'), fzNewValues, { merge: true });
+            }
+
+            await dbBatch.commit();
+
+            bar.innerHTML = originalHtml;
+            bar.classList.add('hidden');
+            document.querySelectorAll('.bulk-order-cb').forEach(cb => { cb.checked = false; });
+            window.renderOrdersList();
+            if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
+            if (typeof window.showToast === 'function') window.showToast(`✅ تم تحديث ${checked.length} طلبات إلى (${statusName})`);
+        } catch (e) {
+            console.error(e);
+            alert('حدث خطأ أثناء التحديث الجماعي!');
+            bar.innerHTML = originalHtml;
+        }
+    };
+
+    // =========================================================================
+    // 📋 7. ورقة التحضير الذكية المربوطة بمخزن الفريزر (Smart Packing List 2.0)
+    // =========================================================================
+
+    window.openPackingListModal = function () {
+        window.renderSmartPackingList();
+        if (typeof openModal === 'function') openModal('packing-list-modal');
+    };
+
+    window.updatePackingListFilter = function (key, val) {
+        window.ordersFilterState[key] = val;
+        window.renderSmartPackingList();
+    };
+
+    window.renderSmartPackingList = function () {
+        const cont = document.getElementById('packing-list-content');
+        if (!cont) return;
+
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const freezerObj = (typeof storeFreezer !== 'undefined' && storeFreezer) ? storeFreezer : {};
+        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
+
+        const scope = window.ordersFilterState.packingScope || 'processing';
+        const pBatch = window.ordersFilterState.packingBatch || 'all';
+        const pZone = window.ordersFilterState.packingZone || 'all';
+
+        // استخراج الدفعات والمناطق المتاحة للفلترة داخل ورقة التحضير
+        const batchSet = new Set();
+        const zoneSet = new Set();
+        ordersList.forEach(o => {
+            if (!o || ['completed', 'canceled', 'trash'].includes(o.status) || o.isArchived) return;
+            const bTitle = getOrderBatchTitle(o);
+            if (bTitle) batchSet.add(bTitle);
+            if (o.zone) zoneSet.add(o.zone.trim());
+        });
+
+        const targetOrders = ordersList.filter(o => {
+            if (!o || o.status === 'trash' || o.isArchived) return false;
+            if (scope === 'processing' && o.status !== 'processing') return false;
+            if (scope === 'new_and_proc' && !['new', 'processing'].includes(o.status)) return false;
+            if (scope === 'dispatched' && o.status !== 'dispatched') return false;
+
+            if (pBatch !== 'all' && getOrderBatchTitle(o) !== pBatch) return false;
+            if (pZone !== 'all' && (o.zone || '').trim() !== pZone) return false;
+            return true;
+        });
+
+        const itemTotals = {}; // { keyName: { id, name, qty } }
+        targetOrders.forEach(o => {
+            if (Array.isArray(o.items)) {
+                o.items.forEach(item => {
+                    const k = item.name || 'صنف';
+                    if (!itemTotals[k]) itemTotals[k] = { id: item.id || '', name: k, qty: 0 };
+                    itemTotals[k].qty += Number(item.quantity) || 0;
+                });
+            }
+        });
+
+        let batchOpts = `<option value="all">كل الدفعات</option>`;
+        Array.from(batchSet).forEach(b => { batchOpts += `<option value="${b}" ${pBatch === b ? 'selected' : ''}>${b}</option>`; });
+
+        let zoneOpts = `<option value="all">كل المناطق</option>`;
+        Array.from(zoneSet).forEach(z => { zoneOpts += `<option value="${z}" ${pZone === z ? 'selected' : ''}>${z}</option>`; });
+
+        let html = `
+            <div class="space-y-3 mb-4">
+                <div class="grid grid-cols-3 gap-2">
+                    <select onchange="updatePackingListFilter('packingScope', this.value)" class="border border-slate-200 rounded-xl p-2 text-[11px] font-black bg-white outline-none">
+                        <option value="processing" ${scope === 'processing' ? 'selected' : ''}>⏳ قيد التجهيز فقط</option>
+                        <option value="new_and_proc" ${scope === 'new_and_proc' ? 'selected' : ''}>🆕 جديد + تجهيز معاً</option>
+                        <option value="dispatched" ${scope === 'dispatched' ? 'selected' : ''}>🛵 في الطريق حالياً</option>
+                    </select>
+                    <select onchange="updatePackingListFilter('packingBatch', this.value)" class="border border-slate-200 rounded-xl p-2 text-[11px] font-black bg-white outline-none">${batchOpts}</select>
+                    <select onchange="updatePackingListFilter('packingZone', this.value)" class="border border-slate-200 rounded-xl p-2 text-[11px] font-black bg-white outline-none">${zoneOpts}</select>
+                </div>
+
+                <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
+                    <span class="font-black text-slate-700 text-xs"><i class="fa-solid fa-box text-amber-500 mr-1"></i> إجمالي أوردرات التحضير المفلترة:</span>
+                    <span class="font-black text-brand-primary text-xl">${targetOrders.length} طلب</span>
+                </div>
+            </div>
+        `;
+
+        const sortedKeys = Object.keys(itemTotals).sort((a, b) => itemTotals[b].qty - itemTotals[a].qty);
+        if (sortedKeys.length === 0) {
+            html += `<div class="text-center py-10 border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 font-bold text-sm">لا توجد طلبات مطابقة لتحضيرها حالياً.</div>`;
+        } else {
+            html += `<div class="space-y-2.5" id="print-packing-area">`;
+            sortedKeys.forEach((k, idx) => {
+                const info = itemTotals[k];
+                const fzAvailable = Math.max(0, Number(freezerObj[info.id]) || 0);
+                const diff = fzAvailable - info.qty;
+                const isEnough = diff >= 0;
+
+                html += `
+                <label class="bg-white p-4 rounded-2xl border ${isEnough ? 'border-slate-200' : 'border-rose-200 bg-rose-50/20'} shadow-sm flex items-center justify-between gap-3 cursor-pointer hover:border-amber-400 transition-all">
+                    <div class="flex items-center gap-3">
+                        <input type="checkbox" class="w-5 h-5 accent-emerald-600 rounded cursor-pointer">
+                        <div>
+                            <span class="text-sm font-black text-slate-800 block">${info.name}</span>
+                            <span class="text-[10px] font-black ${isEnough ? 'text-cyan-700' : 'text-rose-600'}">
+                                ❄️ بالفريزر حالياً: ${fzAvailable} ${isEnough ? '(متوفر بالكامل ✅)' : `(عجز: ${Math.abs(diff)} يحتاج تجهيز ⚠️)`}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="text-center bg-amber-50 border border-amber-200 px-3.5 py-1.5 rounded-xl shrink-0">
+                        <span class="text-2xl font-black text-amber-600 block leading-none">${Number(info.qty.toFixed(2))}</span>
+                        <span class="text-[9px] font-black text-amber-800">المطلوب</span>
+                    </div>
+                </label>`;
+            });
+            html += `</div>`;
+        }
+
+        cont.innerHTML = html;
+    };
+
+    // تهيئة شريط الطلبات عند التحميل
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', () => {
+            window.initSmartOrdersToolbar();
+            setTimeout(() => window.renderOrdersList(), 400);
+        });
+    } else {
+        window.initSmartOrdersToolbar();
+        setTimeout(() => window.renderOrdersList(), 400);
     }
-};
+})();
