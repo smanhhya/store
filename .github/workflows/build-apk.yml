@@ -39,10 +39,11 @@ jobs:
       - name: Prepare Web Files and Capacitor Config
         run: |
           mkdir -p www
-          if [ ! -f "www/index.html" ] && [ -f "index.html" ]; then
-            cp index.html www/index.html
-          fi
-          find . -maxdepth 1 -type f \( -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.webp" -o -name "*.svg" -o -name "*.ico" -o -name "manifest.json" \) -exec cp {} www/ \; || true
+          mkdir -p www/www
+          # نسخ جميع ملفات HTML و JS و CSS والصور من المجلد الرئيسي إلى www لضمان دخول أحدث التعديلات في الـ APK
+          find . -maxdepth 1 -type f \( -name "*.html" -o -name "*.js" -o -name "*.css" -o -name "*.json" -o -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.webp" -o -name "*.svg" -o -name "*.ico" \) ! -name "package.json" ! -name "package-lock.json" ! -name "capacitor.config.json" -exec cp -f {} www/ \; || true
+          # نسخ نسخة احتياطية داخل www/www لدعم أي مسار مكتوب بصيغة www/file.js أو file.js معاً
+          cp -f www/*.js www/www/ 2>/dev/null || true
           if [ ! -f "www/index.html" ]; then
             echo "ERROR: index.html not found in root or www/ folder!"
             exit 1
@@ -150,6 +151,7 @@ jobs:
                           WebView webView = this.bridge.getWebView();
                           webView.getSettings().setJavaScriptEnabled(true);
                           webView.addJavascriptInterface(new SmanPrinterBridge(this, webView), "SmanNativePrinter");
+                          webView.reload();
                       }
                   } catch (Exception e) {
                       e.printStackTrace();
