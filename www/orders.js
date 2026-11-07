@@ -1,5 +1,5 @@
 // =========================================================================
-// ⚡ المحرك الذكي المستقل لإدارة الطلبات الحية، التحضير، التعديل، والملاحظات (www/orders.js)
+// ⚡ المحرك الذكي المستقل لإدارة الطلبات الحية، التحضير، التعديل، والملاحظات (orders.js)
 // خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM)
 // =========================================================================
 
@@ -10,13 +10,12 @@
         zone: 'all',        // 'all' | zoneName
         payment: 'all',     // 'all' | 'cash' | 'online' | 'has_debt' | 'has_discount'
         driver: 'all',      // 'all' | 'unassigned' | driverName
-        compactMode: false, // وضع العرض المضغوط السريع للموبايل
+        compactMode: false, // وضع العرض المدمج السريع مع إظهار الأصناف كاملة
         packingScope: 'processing', // 'processing' | 'new_and_proc' | 'dispatched'
         packingBatch: 'all',
         packingZone: 'all'
     };
 
-    // دالة مساعدة لتصنيف الصنف (سمان لحم / بيض / كتاكيت)
     function classifyItemType(item) {
         const id = String(item?.id || '').toLowerCase();
         const name = String(item?.name || '').toLowerCase();
@@ -25,7 +24,6 @@
         return 'meat';
     }
 
-    // دالة استخراج اسم الدفعة الحقيقي للطلب
     function getOrderBatchTitle(o) {
         if (!o) return '';
         if (typeof window.resolveOrderBatchName === 'function') {
@@ -38,7 +36,6 @@
         return '';
     }
 
-    // دالة حساب عمر الطلب منذ إنشائه
     function getOrderAgeLabel(o) {
         let ms = 0;
         if (o.createdAt && typeof o.createdAt.toMillis === 'function') {
@@ -60,7 +57,6 @@
     // =========================================================================
     // 🎛️ 2. بناء شريط الفلاتر الفورية والملخص اللحظي داخل شاشة الطلبات الحية
     // =========================================================================
-
     window.initSmartOrdersToolbar = function () {
         const ordersView = document.getElementById('view-orders');
         if (!ordersView || document.getElementById('smart-orders-toolbar')) return;
@@ -73,7 +69,6 @@
         toolbar.className = 'mt-2.5 pt-2.5 border-t border-slate-200/80 space-y-2';
 
         toolbar.innerHTML = `
-            <!-- صف قوائم الفلترة السريعة + أزرار التحكم -->
             <div class="flex flex-wrap items-center gap-1.5">
                 <select id="so-filter-batch" onchange="setOrdersQuickFilter('batch', this.value)" class="border border-slate-200 bg-white rounded-xl px-2.5 py-1.5 text-[11px] font-black text-teal-800 outline-none focus:border-brand-primary shadow-sm">
                     <option value="all">🏷️ كل الدفعات والفوري</option>
@@ -100,16 +95,18 @@
                 </button>
 
                 <div class="mr-auto flex items-center gap-1.5">
+                    <button onclick="safeOpenAddOrderModal()" class="bg-brand-primary hover:bg-emerald-800 text-white px-3 py-1.5 rounded-xl text-[11px] font-black transition-all shadow-sm flex items-center gap-1">
+                        <i class="fa-solid fa-plus"></i> إنشاء طلب
+                    </button>
                     <button onclick="toggleSelectAllVisibleOrders()" id="so-btn-select-all" class="bg-white hover:bg-slate-800 text-slate-700 hover:text-white border border-slate-200 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all shadow-sm flex items-center gap-1" title="تحديد أو إلغاء تحديد كل الطلبات المعروضة حالياً">
                         <i class="fa-solid fa-check-double text-brand-primary"></i> تحديد الكل
                     </button>
-                    <button onclick="toggleOrdersCompactMode()" id="so-btn-compact" class="bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all shadow-sm" title="تبديل وضع العرض المضغوط أو التفصيلي">
-                        <i class="fa-solid fa-compress"></i> مضغوط
+                    <button onclick="toggleOrdersCompactMode()" id="so-btn-compact" class="bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all shadow-sm" title="تبديل وضع العرض المدمج أو التفصيلي">
+                        <i class="fa-solid fa-compress"></i> مدمج
                     </button>
                 </div>
             </div>
 
-            <!-- شريط الملخص اللحظي للطلبات المعروضة أمامك الآن -->
             <div id="so-live-summary-strip" class="bg-slate-900 text-white px-3.5 py-2 rounded-xl flex flex-wrap items-center justify-between gap-2 text-[11px] font-black shadow-sm">
                 <div class="flex flex-wrap items-center gap-3">
                     <span>📦 المعروض: <strong id="so-sum-count" class="text-amber-400">0</strong> طلب</span>
@@ -125,7 +122,6 @@
 
         stickyHeader.appendChild(toolbar);
 
-        // ترقية شريط التحديد الجماعي بأزرار إضافية
         const bulkBar = document.getElementById('bulk-actions-bar');
         if (bulkBar && !document.getElementById('bulk-extra-deferred-btn')) {
             const btnsWrap = bulkBar.querySelector('.flex.flex-wrap');
@@ -135,6 +131,7 @@
                 extraBtns.className = 'inline-flex flex-wrap gap-1.5';
                 extraBtns.innerHTML = `
                     <button onclick="bulkChangeStatus('new')" class="bg-blue-500 hover:bg-blue-600 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-colors shadow-sm">لجديد</button>
+                    <button onclick="openDispatchModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-colors shadow-sm"><i class="fa-solid fa-motorcycle"></i> للمندوب</button>
                     <button onclick="bulkChangeStatus('deferred')" class="bg-orange-500 hover:bg-orange-600 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-colors shadow-sm">مؤجل</button>
                     <button onclick="clearAllBulkSelections()" class="bg-slate-600 hover:bg-slate-500 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-colors shadow-sm" title="إلغاء التحديد">✕</button>
                 `;
@@ -183,7 +180,7 @@
                 : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all shadow-sm';
             btn.innerHTML = window.ordersFilterState.compactMode
                 ? '<i class="fa-solid fa-expand"></i> تفصيلي'
-                : '<i class="fa-solid fa-compress"></i> مضغوط';
+                : '<i class="fa-solid fa-compress"></i> مدمج';
         }
         window.renderOrdersList();
     };
@@ -201,14 +198,12 @@
         window.toggleBulkActionBar();
     };
 
-    // تحديث خيارات القوائم المنسدلة (الدفعات، المناطق، المناديب) تلقائياً
     function populateOrdersToolbarDropdowns() {
         const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
         const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
 
         const activeOrders = ordersList.filter(o => o && o.status !== 'trash' && !o.isArchived);
 
-        // 1. الدفعات
         const batchSelect = document.getElementById('so-filter-batch');
         if (batchSelect) {
             const curB = window.ordersFilterState.batch;
@@ -233,7 +228,6 @@
             batchSelect.value = curB;
         }
 
-        // 2. المناطق
         const zoneSelect = document.getElementById('so-filter-zone');
         if (zoneSelect) {
             const curZ = window.ordersFilterState.zone;
@@ -250,7 +244,6 @@
             zoneSelect.value = curZ;
         }
 
-        // 3. المناديب
         const driverSelect = document.getElementById('so-filter-driver');
         if (driverSelect) {
             const curD = window.ordersFilterState.driver;
@@ -275,9 +268,8 @@
     }
 
     // =========================================================================
-    // 💬 3. رسائل واتساب السريعة الذكية للعميل (4 قوالب جاهزة بضغطة زر)
+    // 💬 3. رسائل واتساب السريعة الذكية للعميل
     // =========================================================================
-
     window.sendQuickWhatsAppOption = function (orderId, templateType) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
         if (!order) return;
@@ -310,10 +302,18 @@
         }
     };
 
+    // دالة فتح التوجيه للمندوب للطلب الواحد
+    window.triggerOrderDriverStep = function (btnEl, orderId) {
+        if (typeof window.openQuickDriverDispatch === 'function') {
+            window.openQuickDriverDispatch(btnEl, orderId);
+        } else if (typeof window.openDispatchModal === 'function') {
+            window.openDispatchModal();
+        }
+    };
+
     // =========================================================================
     // 🚀 4. المحرك المطور لعرض وفلترة كروت الطلبات الحية (renderOrdersList)
     // =========================================================================
-
     window.renderOrdersList = function () {
         window.initSmartOrdersToolbar();
         populateOrdersToolbarDropdowns();
@@ -343,7 +343,6 @@
             const realBatchTitle = getOrderBatchTitle(o);
             const bNameSearch = realBatchTitle ? realBatchTitle : (o.customTag ? `تاج مخصص: ${o.customTag}` : 'أوردرات عادية');
 
-            // 1. فلاتر الشريط الذكي السريع
             if (fState.batch !== 'all') {
                 if (fState.batch === 'batches_only' && !realBatchTitle) return false;
                 if (fState.batch === 'normal_only' && realBatchTitle) return false;
@@ -361,7 +360,6 @@
                 if (fState.driver !== 'unassigned' && (o.driverName || '').trim() !== fState.driver) return false;
             }
 
-            // 2. فلتر البحث النصي
             let itemsString = (o.items && Array.isArray(o.items)) ? o.items.map(i => i.name).join(' ') : '';
             let normPhone1 = window.normalizePhone ? window.normalizePhone(o.customerPhone) : (o.customerPhone || '');
             let normPhone2 = window.normalizePhone ? window.normalizePhone(o.customerPhone2) : (o.customerPhone2 || '');
@@ -413,7 +411,6 @@
             return sortDir === 'desc' ? (timeB - timeA) : (timeA - timeB);
         });
 
-        // تحديث شريط الملخص اللحظي للطلبات المعروضة أمام المستخدم
         let sumMeat = 0, sumEggs = 0, sumChicks = 0, sumMoney = 0;
         filtered.forEach(o => {
             if (o.status === 'canceled') return;
@@ -461,14 +458,17 @@
             let ageStr = getOrderAgeLabel(o);
             let realBatchTitle = getOrderBatchTitle(o);
 
-            // زر الخطوة التالية السريع (1-Click Next Action)
+            // ✅ التسلسل الصحيح الإجباري لزر الخطوة التالية:
+            // جديد (new) ⬅️ للتجهيز (processing) ⬅️ إرسال للمندوب (dispatched) ⬅️ تم التسليم (completed)
             let nextStepBtnHtml = '';
             if (o.status === 'new') {
-                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1" title="نقل الطلب لقسم التجهيز بضغطة واحدة"><i class="fa-solid fa-fire-burner"></i> للتجهيز</button>`;
-            } else if (o.status === 'processing' || o.status === 'dispatched') {
-                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1" title="تأكيد تسليم وتحصيل الطلب"><i class="fa-solid fa-check-double"></i> تم التسليم</button>`;
+                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1 shrink-0" title="الخطوة 1: نقل الطلب لقسم التجهيز"><i class="fa-solid fa-fire-burner"></i> للتجهيز</button>`;
+            } else if (o.status === 'processing') {
+                nextStepBtnHtml = `<button data-lc-trigger="1" onclick="event.stopPropagation(); triggerOrderDriverStep(this, '${o.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1 shrink-0" title="الخطوة 2: اختيار المندوب وإرسال الطلب للطريق"><i class="fa-solid fa-motorcycle"></i> إرسال للمندوب</button>`;
+            } else if (o.status === 'dispatched') {
+                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1 shrink-0" title="الخطوة 3: تأكيد تسليم وتحصيل الطلب"><i class="fa-solid fa-check-double"></i> تم التسليم</button>`;
             } else if (o.status === 'no_answer' || o.status === 'deferred') {
-                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1"><i class="fa-solid fa-rotate-left"></i> للتجهيز</button>`;
+                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1 shrink-0"><i class="fa-solid fa-rotate-left"></i> للتجهيز</button>`;
             }
 
             let sBadge = o.status === 'new' ? '<span class="bg-blue-50 text-blue-600 border border-blue-100 px-2.5 py-1 rounded-lg text-[10px] font-black">جديد</span>' :
@@ -483,24 +483,55 @@
                 ? window.fastAnalyzeOrderTrust(o)
                 : { cardClass: 'bg-white border-slate-100', badgeHtml: '', bannerHtml: '', stickyHtml: '' };
 
-            // 📱 وضع العرض المضغوط السريع (Compact Mode)
+            // 📱 وضع العرض المدمج المطور (يعرض الأصناف والكميات كاملة بوضوح على الموبايل والكمبيوتر!)
             if (isCompact) {
-                const compactItems = (o.items && Array.isArray(o.items)) ? o.items.map(i => `${i.quantity}x ${i.name}`).join(' + ') : '';
+                const compactItemsPills = (o.items && Array.isArray(o.items) && o.items.length > 0)
+                    ? o.items.map((i, idx) => `
+                        <span data-item-idx="${idx}" class="bg-slate-100 hover:bg-emerald-50 text-slate-800 border border-slate-200 px-2 py-0.5 rounded-lg text-[11px] font-black inline-flex items-center gap-1">
+                            <strong class="text-brand-primary">${i.quantity}x</strong> ${i.name}
+                        </span>
+                    `).join('')
+                    : '<span class="text-[10px] text-slate-400 font-bold">بدون أصناف</span>';
+
+                const compactPayBadge = o.paymentMethod === 'online'
+                    ? '<span class="bg-emerald-500 text-white px-1.5 py-0.5 rounded text-[9px] font-black">خالص أونلاين</span>'
+                    : '<span class="bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded text-[9px] font-black">كاش</span>';
+
+                const compactDriverBadge = o.driverName
+                    ? `<span class="bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded text-[9px] font-black">مع: ${o.driverName}</span>`
+                    : '';
+
                 return `
-                <div data-id="${o.id}" class="order-card ${trustInfo.cardClass} p-2.5 rounded-xl shadow-sm border hover:border-brand-primary transition-all flex flex-wrap sm:flex-nowrap items-center justify-between gap-2">
-                    <div class="flex items-center gap-2 min-w-0">
-                        <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer shrink-0">
-                        <span onclick="openCustomerCard('${o.customerPhone}')" class="font-black text-slate-800 text-xs cursor-pointer hover:text-brand-primary truncate">${o.customerName || 'بدون اسم'}</span>
-                        ${trustInfo.badgeHtml}
-                        <span class="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded shrink-0">${o.zone || ''}</span>
-                        <span class="text-[11px] font-bold text-slate-600 truncate hidden md:inline">${compactItems}</span>
+                <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} p-3 rounded-2xl shadow-sm border hover:border-brand-primary transition-all space-y-2">
+                    <!-- السطر الأول: بيانات العميل + المنطقة + السعر + الحالة -->
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div class="flex flex-wrap items-center gap-1.5 min-w-0">
+                            <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer shrink-0">
+                            <span onclick="openCustomerCard('${o.customerPhone}')" class="font-black text-slate-800 text-xs sm:text-sm cursor-pointer hover:text-brand-primary">${o.customerName || 'بدون اسم'}</span>
+                            ${trustInfo.badgeHtml}
+                            <a href="tel:${o.customerPhone}" class="text-emerald-600 bg-emerald-50 hover:bg-emerald-600 hover:text-white w-5 h-5 rounded-full flex items-center justify-center text-[9px] transition-colors"><i class="fa-solid fa-phone"></i></a>
+                            <span data-zone-pill="1" class="text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-lg">${o.zone || 'بدون منطقة'}</span>
+                            ${realBatchTitle ? `<span class="text-[9px] font-black bg-teal-50 text-teal-700 border border-teal-200 px-1.5 py-0.5 rounded">${realBatchTitle}</span>` : ''}
+                            ${compactPayBadge}
+                            ${compactDriverBadge}
+                        </div>
+                        <div class="flex items-center gap-1.5 shrink-0 mr-auto sm:mr-0">
+                            <span class="font-black text-brand-primary text-sm sm:text-base">${o.total || 0} <span class="text-[10px]">ج</span></span>
+                            ${sBadge}
+                        </div>
                     </div>
-                    <div class="flex items-center gap-2 shrink-0 mr-auto sm:mr-0">
-                        <span class="font-black text-brand-primary text-sm">${o.total || 0} ج</span>
-                        ${sBadge}
-                        ${nextStepBtnHtml}
-                        <button onclick="openEditOrderModal('${o.id}')" class="bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white w-7 h-7 rounded-lg text-[10px] flex items-center justify-center"><i class="fa-solid fa-pen"></i></button>
-                        <button onclick="printSingleOrderWaybill('${o.id}')" class="bg-amber-50 hover:bg-amber-500 text-amber-800 hover:text-white w-7 h-7 rounded-lg text-[10px] flex items-center justify-center"><i class="fa-solid fa-print"></i></button>
+
+                    <!-- السطر الثاني: الأصناف المطلوبة ظاهرة بالكامل + أزرار التحكم السريع -->
+                    <div class="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-slate-100">
+                        <div class="flex flex-wrap items-center gap-1.5 flex-1 min-w-[180px]">
+                            ${compactItemsPills}
+                        </div>
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            ${nextStepBtnHtml}
+                            <button onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="bg-[#25D366] hover:bg-[#1ebd57] text-white w-7 h-7 rounded-lg text-xs flex items-center justify-center shadow-sm" title="واتساب"><i class="fa-brands fa-whatsapp"></i></button>
+                            <button onclick="openEditOrderModal('${o.id}')" class="bg-slate-800 hover:bg-slate-900 text-white w-7 h-7 rounded-lg text-[10px] flex items-center justify-center shadow-sm" title="تعديل"><i class="fa-solid fa-pen"></i></button>
+                            <button onclick="printSingleOrderWaybill('${o.id}')" class="bg-amber-50 hover:bg-amber-500 text-amber-800 hover:text-white border border-amber-200 w-7 h-7 rounded-lg text-[10px] flex items-center justify-center shadow-sm" title="بوليصة"><i class="fa-solid fa-print"></i></button>
+                        </div>
                     </div>
                 </div>`;
             }
@@ -513,7 +544,7 @@
             }
 
             let itemsStr = (o.items && Array.isArray(o.items)) ? o.items.map((i, idx) =>
-                `<span class="bg-white border border-slate-200 px-2.5 py-1.5 rounded-lg text-xs shadow-sm flex items-center gap-1.5 hover:border-brand-primary transition-colors">
+                `<span data-item-idx="${idx}" class="bg-white border border-slate-200 px-2.5 py-1.5 rounded-lg text-xs shadow-sm flex items-center gap-1.5 hover:border-brand-primary transition-colors">
                     <span class="font-black text-slate-800">${i.quantity}x ${i.name}</span>
                     <span class="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded cursor-pointer border border-emerald-100 hover:bg-emerald-500 hover:text-white transition-colors" ondblclick="editItemPrice('${o.id}', ${idx})" title="اضغط مرتين لتعديل السعر (لعمل واجب)">(بـ ${i.price}ج)</span>
                 </span>`
@@ -535,12 +566,10 @@
                 ? `<span onclick="document.getElementById('search-order').value='${o.customTag}'; renderOrdersList();" class="text-[10px] bg-purple-50 text-purple-600 border border-purple-100 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-purple-500 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-hashtag"></i> ${o.customTag}</span>`
                 : '';
 
-            // شارة المندوب المعين على الكارت
             let driverBadgeHtml = o.driverName
-                ? `<span onclick="setOrdersQuickFilter('driver', '${o.driverName.trim()}')" class="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-blue-600 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-motorcycle"></i> مع: ${o.driverName}</span>`
+                ? `<span class="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-blue-600 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-motorcycle"></i> مع: ${o.driverName}</span>`
                 : '';
 
-            // شارة موعد التسليم المحدد للطلب
             let deliveryWindowBadge = '';
             if (o.deliveryStart || o.deliveryEnd) {
                 const winTxt = (o.deliveryStart && o.deliveryEnd) ? `${o.deliveryStart} ⬅️ ${o.deliveryEnd}` : (o.deliveryStart || o.deliveryEnd);
@@ -574,7 +603,7 @@
 
                         <p class="text-[10px] text-slate-500 font-bold flex items-center gap-1 flex-wrap">
                             <i class="fa-solid fa-location-dot text-indigo-400 mr-1"></i>
-                            <span class="cursor-pointer border-b border-transparent hover:border-slate-400 border-dashed text-indigo-900 font-black" ondblclick="inlineEdit(this, '${o.id}', 'zone')">${o.zone || 'غير مسجل'}</span>
+                            <span data-zone-pill="1" class="cursor-pointer border-b border-transparent hover:border-slate-400 border-dashed text-indigo-900 font-black" ondblclick="inlineEdit(this, '${o.id}', 'zone')">${o.zone || 'غير مسجل'}</span>
                             ${o.customerAddress ? `<span class="mx-1">-</span><span class="cursor-pointer border-b border-transparent hover:border-slate-400 border-dashed" ondblclick="inlineEdit(this, '${o.id}', 'customerAddress')">${o.customerAddress}</span>` : ''}
                         </p>
                     </div>
@@ -668,8 +697,6 @@
     // =========================================================================
     // 🛠️ 5. تطوير نافذتي "إنشاء طلب" (مساعد العميل والنقاط) و"تعديل طلب"
     // =========================================================================
-
-    // ترقية فحص العميل عند كتابة رقمه في نافذة إنشاء طلب لعرض نقاطه ومديونيته القديمة وتاريخه
     const _origCheckCustomerExists = window.checkCustomerExists;
     window.checkCustomerExists = async function () {
         if (typeof _origCheckCustomerExists === 'function') {
@@ -736,7 +763,6 @@
         if (typeof window.showToast === 'function') window.showToast(`🎁 تم تطبيق خصم المحفظة (${cashDiscount} ج)`);
     };
 
-    // ترقية نافذة تعديل الطلب لتشمل تعديل الاسم، الموبايل، المنطقة، العنوان، والآجل
     const _origOpenEditOrderModal = window.openEditOrderModal;
     window.openEditOrderModal = function (id) {
         if (typeof _origOpenEditOrderModal === 'function') {
@@ -806,7 +832,6 @@
 
         await _origSaveEditedOrder();
 
-        // حفظ التعديلات الإضافية (الاسم، الرقم، المنطقة، العنوان، والآجل)
         try {
             await db.collection('orders').doc(orderId).update({
                 customerName: newName,
@@ -833,7 +858,6 @@
     // =========================================================================
     // ⚡ 6. الإصلاح المحاسبي الشامل للتحديد الجماعي (bulkChangeStatus)
     // =========================================================================
-
     window.bulkChangeStatus = async function (newStatus) {
         let checked = Array.from(document.querySelectorAll('.bulk-order-cb:checked')).map(cb => cb.value);
         if (checked.length === 0) return;
@@ -901,7 +925,6 @@
                     o.completedAtStr = nowStr;
                     o.completedTimeDisplay = nowDisplay;
 
-                    // إضافة نقاط الولاء للعميل عند الإكمال الجماعي
                     if (oldStatus !== 'completed' && o.customerPhone) {
                         const orderSub = Number(o.subtotal) || Number(o.total) || 0;
                         if (orderSub >= 100) {
@@ -918,7 +941,6 @@
 
                 dbBatch.update(ref, updateData);
 
-                // تحديث الفريزر بأمان دون نزول تحت الصفر
                 if (o.items && Array.isArray(o.items)) {
                     let wasIn = ['processing', 'dispatched', 'completed', 'deferred'].includes(oldStatus);
                     let isNowIn = ['processing', 'dispatched', 'completed', 'deferred'].includes(newStatus);
@@ -975,7 +997,6 @@
     // =========================================================================
     // 📋 7. ورقة التحضير الذكية المربوطة بمخزن الفريزر (Smart Packing List 2.0)
     // =========================================================================
-
     window.openPackingListModal = function () {
         window.renderSmartPackingList();
         if (typeof openModal === 'function') openModal('packing-list-modal');
@@ -992,111 +1013,14 @@
 
         const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
         const freezerObj = (typeof storeFreezer !== 'undefined' && storeFreezer) ? storeFreezer : {};
-        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
 
         const scope = window.ordersFilterState.packingScope || 'processing';
         const pBatch = window.ordersFilterState.packingBatch || 'all';
         const pZone = window.ordersFilterState.packingZone || 'all';
 
-        // استخراج الدفعات والمناطق المتاحة للفلترة داخل ورقة التحضير
         const batchSet = new Set();
         const zoneSet = new Set();
         ordersList.forEach(o => {
             if (!o || ['completed', 'canceled', 'trash'].includes(o.status) || o.isArchived) return;
             const bTitle = getOrderBatchTitle(o);
-            if (bTitle) batchSet.add(bTitle);
-            if (o.zone) zoneSet.add(o.zone.trim());
-        });
-
-        const targetOrders = ordersList.filter(o => {
-            if (!o || o.status === 'trash' || o.isArchived) return false;
-            if (scope === 'processing' && o.status !== 'processing') return false;
-            if (scope === 'new_and_proc' && !['new', 'processing'].includes(o.status)) return false;
-            if (scope === 'dispatched' && o.status !== 'dispatched') return false;
-
-            if (pBatch !== 'all' && getOrderBatchTitle(o) !== pBatch) return false;
-            if (pZone !== 'all' && (o.zone || '').trim() !== pZone) return false;
-            return true;
-        });
-
-        const itemTotals = {}; // { keyName: { id, name, qty } }
-        targetOrders.forEach(o => {
-            if (Array.isArray(o.items)) {
-                o.items.forEach(item => {
-                    const k = item.name || 'صنف';
-                    if (!itemTotals[k]) itemTotals[k] = { id: item.id || '', name: k, qty: 0 };
-                    itemTotals[k].qty += Number(item.quantity) || 0;
-                });
-            }
-        });
-
-        let batchOpts = `<option value="all">كل الدفعات</option>`;
-        Array.from(batchSet).forEach(b => { batchOpts += `<option value="${b}" ${pBatch === b ? 'selected' : ''}>${b}</option>`; });
-
-        let zoneOpts = `<option value="all">كل المناطق</option>`;
-        Array.from(zoneSet).forEach(z => { zoneOpts += `<option value="${z}" ${pZone === z ? 'selected' : ''}>${z}</option>`; });
-
-        let html = `
-            <div class="space-y-3 mb-4">
-                <div class="grid grid-cols-3 gap-2">
-                    <select onchange="updatePackingListFilter('packingScope', this.value)" class="border border-slate-200 rounded-xl p-2 text-[11px] font-black bg-white outline-none">
-                        <option value="processing" ${scope === 'processing' ? 'selected' : ''}>⏳ قيد التجهيز فقط</option>
-                        <option value="new_and_proc" ${scope === 'new_and_proc' ? 'selected' : ''}>🆕 جديد + تجهيز معاً</option>
-                        <option value="dispatched" ${scope === 'dispatched' ? 'selected' : ''}>🛵 في الطريق حالياً</option>
-                    </select>
-                    <select onchange="updatePackingListFilter('packingBatch', this.value)" class="border border-slate-200 rounded-xl p-2 text-[11px] font-black bg-white outline-none">${batchOpts}</select>
-                    <select onchange="updatePackingListFilter('packingZone', this.value)" class="border border-slate-200 rounded-xl p-2 text-[11px] font-black bg-white outline-none">${zoneOpts}</select>
-                </div>
-
-                <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
-                    <span class="font-black text-slate-700 text-xs"><i class="fa-solid fa-box text-amber-500 mr-1"></i> إجمالي أوردرات التحضير المفلترة:</span>
-                    <span class="font-black text-brand-primary text-xl">${targetOrders.length} طلب</span>
-                </div>
-            </div>
-        `;
-
-        const sortedKeys = Object.keys(itemTotals).sort((a, b) => itemTotals[b].qty - itemTotals[a].qty);
-        if (sortedKeys.length === 0) {
-            html += `<div class="text-center py-10 border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 font-bold text-sm">لا توجد طلبات مطابقة لتحضيرها حالياً.</div>`;
-        } else {
-            html += `<div class="space-y-2.5" id="print-packing-area">`;
-            sortedKeys.forEach((k, idx) => {
-                const info = itemTotals[k];
-                const fzAvailable = Math.max(0, Number(freezerObj[info.id]) || 0);
-                const diff = fzAvailable - info.qty;
-                const isEnough = diff >= 0;
-
-                html += `
-                <label class="bg-white p-4 rounded-2xl border ${isEnough ? 'border-slate-200' : 'border-rose-200 bg-rose-50/20'} shadow-sm flex items-center justify-between gap-3 cursor-pointer hover:border-amber-400 transition-all">
-                    <div class="flex items-center gap-3">
-                        <input type="checkbox" class="w-5 h-5 accent-emerald-600 rounded cursor-pointer">
-                        <div>
-                            <span class="text-sm font-black text-slate-800 block">${info.name}</span>
-                            <span class="text-[10px] font-black ${isEnough ? 'text-cyan-700' : 'text-rose-600'}">
-                                ❄️ بالفريزر حالياً: ${fzAvailable} ${isEnough ? '(متوفر بالكامل ✅)' : `(عجز: ${Math.abs(diff)} يحتاج تجهيز ⚠️)`}
-                            </span>
-                        </div>
-                    </div>
-                    <div class="text-center bg-amber-50 border border-amber-200 px-3.5 py-1.5 rounded-xl shrink-0">
-                        <span class="text-2xl font-black text-amber-600 block leading-none">${Number(info.qty.toFixed(2))}</span>
-                        <span class="text-[9px] font-black text-amber-800">المطلوب</span>
-                    </div>
-                </label>`;
-            });
-            html += `</div>`;
-        }
-
-        cont.innerHTML = html;
-    };
-
-    // تهيئة شريط الطلبات عند التحميل
-    if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', () => {
-            window.initSmartOrdersToolbar();
-            setTimeout(() => window.renderOrdersList(), 400);
-        });
-    } else {
-        window.initSmartOrdersToolbar();
-        setTimeout(() => window.renderOrdersList(), 400);
-    }
-})();
+            if (b
