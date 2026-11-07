@@ -39,7 +39,7 @@ jobs:
       - name: Prepare Web Files and Capacitor Config
         run: |
           mkdir -p www
-          if [ -f "index.html" ]; then
+          if [ ! -f "www/index.html" ] && [ -f "index.html" ]; then
             cp index.html www/index.html
           fi
           find . -maxdepth 1 -type f \( -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.webp" -o -name "*.svg" -o -name "*.ico" -o -name "manifest.json" \) -exec cp {} www/ \; || true
@@ -62,7 +62,7 @@ jobs:
             }, null, 2));
             fs.writeFileSync("capacitor.config.json", JSON.stringify({
               appId: "com.smanhehya.crm",
-              appName: " ههيا CRM",
+              appName: "سمان ههيا CRM",
               webDir: "www",
               server: {
                 androidScheme: "https",
@@ -81,6 +81,317 @@ jobs:
           npx cap add android
           npx cap sync android
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+
+      - name: Inject Native Deli E750W Bluetooth & USB Bridge
+        run: |
+          node -e '
+            const fs = require("fs");
+            const manifestPath = "android/app/src/main/AndroidManifest.xml";
+            let xml = fs.readFileSync(manifestPath, "utf8");
+            const perms = `
+              <uses-permission android:name="android.permission.BLUETOOTH" />
+              <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+              <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+              <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+              <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+              <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+            `;
+            if (!xml.includes("BLUETOOTH_CONNECT")) {
+              xml = xml.replace("<application", perms + "\n    <application");
+              fs.writeFileSync(manifestPath, xml, "utf8");
+            }
+          '
+
+          cat << 'EOF' > android/app/src/main/java/com/smanhehya/crm/MainActivity.java
+          package com.smanhehya.crm;
+
+          import android.Manifest;
+          import android.app.PendingIntent;
+          import android.bluetooth.BluetoothAdapter;
+          import android.bluetooth.BluetoothDevice;
+          import android.bluetooth.BluetoothSocket;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.pm.PackageManager;
+          import android.hardware.usb.UsbConstants;
+          import android.hardware.usb.UsbDevice;
+          import android.hardware.usb.UsbDeviceConnection;
+          import android.hardware.usb.UsbEndpoint;
+          import android.hardware.usb.UsbInterface;
+          import android.hardware.usb.UsbManager;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.print.PrintAttributes;
+          import android.print.PrintDocumentAdapter;
+          import android.print.PrintManager;
+          import android.util.Base64;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.WebView;
+          import androidx.core.app.ActivityCompat;
+          import androidx.core.content.ContextCompat;
+          import com.getcapacitor.BridgeActivity;
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+          import java.io.OutputStream;
+          import java.lang.reflect.Method;
+          import java.util.ArrayList;
+          import java.util.HashMap;
+          import java.util.List;
+          import java.util.Set;
+          import java.util.UUID;
+
+          public class MainActivity extends BridgeActivity {
+
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  try {
+                      if (this.bridge != null && this.bridge.getWebView() != null) {
+                          WebView webView = this.bridge.getWebView();
+                          webView.getSettings().setJavaScriptEnabled(true);
+                          webView.addJavascriptInterface(new SmanPrinterBridge(this, webView), "SmanNativePrinter");
+                      }
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                  }
+              }
+
+              public static class SmanPrinterBridge {
+                  private final MainActivity activity;
+                  private final WebView webView;
+                  private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+                  private static final String ACTION_USB_PERMISSION = "com.smanhehya.crm.USB_PERMISSION";
+
+                  public SmanPrinterBridge(MainActivity activity, WebView webView) {
+                      this.activity = activity;
+                      this.webView = webView;
+                  }
+
+                  @JavascriptInterface
+                  public boolean isNativeBridgeReady() {
+                      return true;
+                  }
+
+                  @JavascriptInterface
+                  public boolean checkAndRequestPermissions() {
+                      try {
+                          if (Build.VERSION.SDK_INT >= 31) {
+                              List<String> needed = new ArrayList<>();
+                              if (ContextCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                                  needed.add(Manifest.permission.BLUETOOTH_CONNECT);
+                              }
+                              if (ContextCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                                  needed.add(Manifest.permission.BLUETOOTH_SCAN);
+                              }
+                              if (!needed.isEmpty()) {
+                                  ActivityCompat.requestPermissions(activity, needed.toArray(new String[0]), 7501);
+                                  return false;
+                              }
+                          }
+                          return true;
+                      } catch (Exception e) {
+                          return true;
+                      }
+                  }
+
+                  @JavascriptInterface
+                  public String getPairedDevicesJson() {
+                      try {
+                          if (!checkAndRequestPermissions()) {
+                              return "PERMISSION_REQUIRED";
+                          }
+                          BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+                          if (adapter == null) {
+                              return "NO_BLUETOOTH";
+                          }
+                          if (!adapter.isEnabled()) {
+                              try {
+                                  Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+                                  activity.startActivityForResult(enableBtIntent, 7502);
+                              } catch (Exception ignored) {}
+                              return "BLUETOOTH_OFF";
+                          }
+                          Set<BluetoothDevice> paired = adapter.getBondedDevices();
+                          JSONArray arr = new JSONArray();
+                          if (paired != null) {
+                              for (BluetoothDevice dev : paired) {
+                                  JSONObject obj = new JSONObject();
+                                  obj.put("name", dev.getName() != null ? dev.getName() : "طابعة بلوتوث");
+                                  obj.put("address", dev.getAddress());
+                                  arr.put(obj);
+                              }
+                          }
+                          return arr.toString();
+                      } catch (Exception e) {
+                          return "ERROR:" + e.getMessage();
+                      }
+                  }
+
+                  private BluetoothSocket connectBluetoothSocketWithFallback(BluetoothDevice device) throws Exception {
+                      BluetoothSocket socket = null;
+                      try {
+                          socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
+                          socket.connect();
+                          return socket;
+                      } catch (Exception e1) {
+                          try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+                      }
+                      try {
+                          socket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID);
+                          socket.connect();
+                          return socket;
+                      } catch (Exception e2) {
+                          try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+                      }
+                      Method m = device.getClass().getMethod("createRfcommSocket", new Class[]{int.class});
+                      socket = (BluetoothSocket) m.invoke(device, 1);
+                      socket.connect();
+                      return socket;
+                  }
+
+                  @JavascriptInterface
+                  public String printRawBase64Bluetooth(String macAddress, String base64Data) {
+                      BluetoothSocket socket = null;
+                      try {
+                          if (!checkAndRequestPermissions()) {
+                              return "PERMISSION_REQUIRED";
+                          }
+                          BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+                          if (adapter == null || !adapter.isEnabled()) {
+                              return "BLUETOOTH_OFF";
+                          }
+                          try { adapter.cancelDiscovery(); } catch (Exception ignored) {}
+
+                          BluetoothDevice targetDevice = null;
+                          if (macAddress != null && !macAddress.trim().isEmpty() && !macAddress.equals("AUTO")) {
+                              targetDevice = adapter.getRemoteDevice(macAddress.trim());
+                          } else {
+                              Set<BluetoothDevice> paired = adapter.getBondedDevices();
+                              if (paired != null) {
+                                  for (BluetoothDevice dev : paired) {
+                                      String nm = (dev.getName() != null ? dev.getName() : "").toLowerCase();
+                                      if (nm.contains("deli") || nm.contains("750") || nm.contains("printer") || nm.contains("label") || nm.contains("pos")) {
+                                          targetDevice = dev;
+                                          break;
+                                      }
+                                  }
+                                  if (targetDevice == null && !paired.isEmpty()) {
+                                      targetDevice = paired.iterator().next();
+                                  }
+                              }
+                          }
+
+                          if (targetDevice == null) {
+                              return "NO_PAIRED_PRINTER";
+                          }
+
+                          byte[] rawBytes = Base64.decode(base64Data, Base64.DEFAULT);
+                          socket = connectBluetoothSocketWithFallback(targetDevice);
+                          OutputStream os = socket.getOutputStream();
+
+                          int chunkSize = 1024;
+                          for (int i = 0; i < rawBytes.length; i += chunkSize) {
+                              int len = Math.min(chunkSize, rawBytes.length - i);
+                              os.write(rawBytes, i, len);
+                              os.flush();
+                              Thread.sleep(6);
+                          }
+                          os.flush();
+                          Thread.sleep(350);
+                          socket.close();
+                          return "OK:" + (targetDevice.getName() != null ? targetDevice.getName() : targetDevice.getAddress());
+                      } catch (Exception e) {
+                          try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+                          return "ERROR:" + e.getMessage();
+                      }
+                  }
+
+                  @JavascriptInterface
+                  public String printRawBase64Usb(String base64Data) {
+                      try {
+                          UsbManager usbManager = (UsbManager) activity.getSystemService(Context.USB_SERVICE);
+                          if (usbManager == null) return "NO_USB_SERVICE";
+
+                          HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
+                          if (deviceList == null || deviceList.isEmpty()) {
+                              return "NO_USB_DEVICE";
+                          }
+
+                          UsbDevice printerDevice = deviceList.values().iterator().next();
+                          if (!usbManager.hasPermission(printerDevice)) {
+                              int flags = Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0;
+                              PendingIntent pi = PendingIntent.getBroadcast(activity, 0, new Intent(ACTION_USB_PERMISSION), flags);
+                              usbManager.requestPermission(printerDevice, pi);
+                              return "USB_PERMISSION_REQUESTED";
+                          }
+
+                          UsbInterface targetInterface = null;
+                          UsbEndpoint targetEndpoint = null;
+
+                          for (int i = 0; i < printerDevice.getInterfaceCount(); i++) {
+                              UsbInterface usbIf = printerDevice.getInterface(i);
+                              for (int j = 0; j < usbIf.getEndpointCount(); j++) {
+                                  UsbEndpoint ep = usbIf.getEndpoint(j);
+                                  if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK && ep.getDirection() == UsbConstants.USB_DIR_OUT) {
+                                      targetInterface = usbIf;
+                                      targetEndpoint = ep;
+                                      break;
+                                  }
+                              }
+                              if (targetEndpoint != null) break;
+                          }
+
+                          if (targetInterface == null || targetEndpoint == null) {
+                              return "NO_USB_PRINTER_ENDPOINT";
+                          }
+
+                          byte[] rawBytes = Base64.decode(base64Data, Base64.DEFAULT);
+                          UsbDeviceConnection connection = usbManager.openDevice(printerDevice);
+                          if (connection == null) return "USB_OPEN_FAILED";
+
+                          connection.claimInterface(targetInterface, true);
+                          int chunkSize = 4096;
+                          for (int i = 0; i < rawBytes.length; i += chunkSize) {
+                              int len = Math.min(chunkSize, rawBytes.length - i);
+                              byte[] chunk = new byte[len];
+                              System.arraycopy(rawBytes, i, chunk, 0, len);
+                              int transferred = connection.bulkTransfer(targetEndpoint, chunk, len, 4000);
+                              if (transferred < 0) {
+                                  connection.releaseInterface(targetInterface);
+                                  connection.close();
+                                  return "USB_TRANSFER_ERROR";
+                              }
+                          }
+
+                          connection.releaseInterface(targetInterface);
+                          connection.close();
+                          return "OK:USB";
+                      } catch (Exception e) {
+                          return "ERROR:" + e.getMessage();
+                      }
+                  }
+
+                  @JavascriptInterface
+                  public void triggerAndroidSystemPrint(final String jobName) {
+                      activity.runOnUiThread(new Runnable() {
+                          @Override
+                          public void run() {
+                              try {
+                                  PrintManager printManager = (PrintManager) activity.getSystemService(Context.PRINT_SERVICE);
+                                  if (printManager != null && webView != null) {
+                                      String name = (jobName != null && !jobName.isEmpty()) ? jobName : "Sman_Hehya_Waybill";
+                                      PrintDocumentAdapter adapter = webView.createPrintDocumentAdapter(name);
+                                      printManager.print(name, adapter, new PrintAttributes.Builder().build());
+                                  }
+                              } catch (Exception e) {
+                                  e.printStackTrace();
+                              }
+                          }
+                      });
+                  }
+              }
+          }
+          EOF
 
       - name: Build Debug APK
         run: |
