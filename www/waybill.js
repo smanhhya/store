@@ -1,7 +1,8 @@
 // =========================================================================
-// 🖨️ المحرك الشامل لطابعة البوالص الحرارية (Deli E750W - TSPL / ESC-POS / Spooler)
-// الملف: www/waybill.js | خاص بمشروع: سمان ههيا (CRM)
-// المواصفات المدعومة: 203 DPI (8 dots/mm) | Max Width: 108mm | Speed: 150mm/s
+// 🖨️ المحرك الشامل لطابعة البوالص الحرارية (Deli E750W - Android App & Print Label)
+// الملف: waybill.js | خاص بمشروع: سمان ههيا (CRM)
+// يدعم: تطبيق Print Label + RawBT TSPL + Android WebView Print + Windows Spooler
+// المواصفات: 203 DPI (8 dots/mm) | Max Width: 108mm | Speed: 150mm/s
 // =========================================================================
 
 (function () {
@@ -10,30 +11,27 @@
     // 1. الإعدادات الافتراضية المتوافقة مع Deli E750W
     const defaultDeliConfig = {
         sizePreset: '100x100',   // '100x100' | '100x150' | '80x60' | '70x50' | '50x30' | 'custom'
-        widthMm: 100,            // أقصى عرض في Deli E750W هو 108 مم
+        widthMm: 100,
         heightMm: 100,
-        sensorType: 'gap',       // 'gap' (فواصل) | 'continuous' (مستمر) | 'bmark' (علامة سوداء)
-        gapMm: 2,                // مسافة الفاصل بين الاستيكرات (عادة 2 مم أو 3 مم)
-        density: 12,             // غمقان الحرارة في TSPL من 1 إلى 15 (12 ممتاز للخط العربي والباركود)
-        speed: 4,                // سرعة الطباعة في TSPL من 2 إلى 6 (150mm/s = 6)
-        direction: 0,            // اتجاه خروج الورقة: 0 أو 1
-        offsetXMm: 0,            // إزاحة أفقية بالمليمتر (-5 إلى +5)
-        offsetYMm: 0,            // إزاحة رأسية بالمليمتر (-5 إلى +5)
+        sensorType: 'gap',       // 'gap' | 'continuous' | 'bmark'
+        gapMm: 2,
+        density: 12,             // غمقان الحرارة من 1 إلى 15
+        speed: 4,                // السرعة من 2 إلى 6
+        direction: 0,
+        offsetXMm: 0,
+        offsetYMm: 0,
         fontScale: 'normal',     // 'small' | 'normal' | 'large'
-        templateMode: 'shipping',// 'shipping' (بوليصة شحن) | 'compact' (مدمجة) | 'product_tag' (استيكر طبق)
-        printMethod: 'spooler',  // 'spooler' (مباشر متصفح/ويندوز/أندرويد) | 'bluetooth_tspl' | 'usb_tspl' | 'rawbt'
-        instantPrint: false,     // false = فتح شاشة معاينة الاستوديو أولاً | true = طباعة فورية بضغطة واحدة
-        copies: 1,               // عدد النسخ لكل بوليصة
+        templateMode: 'shipping',// 'shipping' | 'product_tag'
+        instantPrint: false,
+        copies: 1,
         showLogo: true,
         showBarcode: true,
-        showQrCode: true,
         showItemsPrice: true,
         showWeightInfo: true,
-        includeRouteSummary: false, // طباعة ملصق إجمالي للمندوب في نهاية الطباعة الجماعية
+        includeRouteSummary: false,
         footerText: 'سمان ههيا الفريش - جودة تليق ببيتك 🤍 بالهنا والشفا'
     };
 
-    // حالة الاتصال بالبلوتوث أو الـ USB
     window.deliPrinterConnection = {
         btDevice: null,
         btCharacteristic: null,
@@ -41,7 +39,6 @@
         lastOrdersQueue: []
     };
 
-    // قراءة وحفظ إعدادات الطابعة
     window.getWaybillConfig = function () {
         let saved = {};
         try {
@@ -52,7 +49,9 @@
     };
 
     function persistWaybillConfig(newCfg) {
-        localStorage.setItem('sman_waybill_cfg', JSON.stringify(newCfg));
+        try {
+            localStorage.setItem('sman_waybill_cfg', JSON.stringify(newCfg));
+        } catch (e) {}
         if (typeof storeSettings !== 'undefined') {
             storeSettings.waybillConfig = newCfg;
         }
@@ -61,7 +60,6 @@
         }
     }
 
-    // تحديد الأبعاد بالمليمتر حسب المقاس المختار
     function resolveDimensionsMm(cfg) {
         const presets = {
             '100x100': { w: 100, h: 100 },
@@ -70,9 +68,7 @@
             '70x50':   { w: 70,  h: 50 },
             '50x30':   { w: 50,  h: 30 }
         };
-        if (presets[cfg.sizePreset]) {
-            return presets[cfg.sizePreset];
-        }
+        if (presets[cfg.sizePreset]) return presets[cfg.sizePreset];
         return {
             w: Math.min(108, Math.max(30, Number(cfg.widthMm) || 100)),
             h: Math.min(250, Math.max(20, Number(cfg.heightMm) || 100))
@@ -82,20 +78,95 @@
     function notifyPrinterToast(msg) {
         if (typeof window.showToast === 'function') {
             window.showToast(msg);
+        } else if (typeof window.showQuickAppToast === 'function') {
+            window.showQuickAppToast(msg);
         } else {
             alert(msg);
         }
     }
 
+    // تحويل مصفوفة بايتات كبيرة إلى Base64 بأمان دون خطأ Call Stack
+    function uint8ArrayToBase64(bytes) {
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            const sub = bytes.subarray(i, i + chunkSize);
+            binary += String.fromCharCode.apply(null, sub);
+        }
+        return btoa(binary);
+    }
+
     // =========================================================================
-    // 🎨 2. بناء HTML البوليصة الحرارية عالية التباين (203 DPI Optimized)
+    // 📊 2. مولد باركود CODE128 داخلي مستقل (يرسم على SVG وعلى Canvas مباشرة)
     // =========================================================================
-    window.buildSingleWaybillCardHTML = function (order, cfg, indexNum = 1, totalCount = 1) {
+    const CODE128_PATTERNS = [
+        "11011001100","11001101100","11001100110","10010011000","10010001100","10001001100","10011001000","10011000100","10001100100","11001001000",
+        "11001000100","11000100100","10110011100","10011011100","10011001110","10111001100","10011101100","10011100110","11001110010","11001011100",
+        "11001001110","11011100100","11001110100","11101101110","11101001100","11100101100","11100100110","11101100100","11100110100","11100110010",
+        "11011011000","11011000110","11000110110","10100011000","10001011000","10001000110","10110001000","10001101000","10001100010","11010001000",
+        "11000101000","11000100010","10110111000","10110001110","10001101110","10111011000","10111000110","10001110110","11101110110","11010001110",
+        "11000101110","11011101000","11011100010","11011101110","11101011000","11101000110","11100010110","11101101000","11101100010","11100011010",
+        "11101111010","11001000010","11110001010","10100110000","10100001100","10010110000","10010000110","10000101100","10000100110","10110010000",
+        "10110000100","10011010000","10011000010","10000110100","10000110010","11000010010","11001010000","11110111010","11000010100","10001111010",
+        "10100111100","10010111100","10010011110","10111100100","10011110100","10011110010","11110100100","11110010100","11110010010","11011011110",
+        "11011110110","11110110110","10101111000","10100011110","10001011110","10111101000","10111100010","11110101000","11110100010","10111011110",
+        "10111101110","11101011110","11110101110","11010000100","11010010000","11010011100","1100011101011"
+    ];
+
+    function encodeCode128Bits(text) {
+        const clean = String(text || '100200').replace(/[^A-Za-z0-9\-]/g, '').toUpperCase().slice(0, 14) || '100200';
+        let codes = [104];
+        let checksum = 104;
+        for (let i = 0; i < clean.length; i++) {
+            const c = clean.charCodeAt(i) - 32;
+            const valid = (c >= 0 && c < 95) ? c : 16;
+            codes.push(valid);
+            checksum += valid * (i + 1);
+        }
+        codes.push(checksum % 103);
+        codes.push(106);
+        return codes.map(c => CODE128_PATTERNS[c]).join('');
+    }
+
+    function drawBarcodeOnCanvas(ctx, text, centerX, topY, maxWidth, barHeight) {
+        const bits = encodeCode128Bits(text);
+        const barW = Math.max(1.5, Math.floor((maxWidth / bits.length) * 10) / 10);
+        const totalW = bits.length * barW;
+        const startX = centerX - (totalW / 2);
+
+        ctx.fillStyle = '#000000';
+        for (let i = 0; i < bits.length; i++) {
+            if (bits[i] === '1') {
+                ctx.fillRect(Math.round(startX + i * barW), Math.round(topY), Math.ceil(barW), barHeight);
+            }
+        }
+    }
+
+    // =========================================================================
+    // 🖼️ 3. محرك الرسم الحراري الأصلي على Canvas بدقة 203 DPI (بدون أخطاء WebView)
+    // =========================================================================
+    window.renderWaybillToCanvas203DPI = function (order, cfg, indexNum = 1, totalCount = 1) {
         const dims = resolveDimensionsMm(cfg);
+        const W = Math.floor(dims.w * DOTS_PER_MM); // 100mm = 800px
+        const H = Math.floor(dims.h * DOTS_PER_MM); // 100mm = 800px
+
+        const canvas = document.createElement('canvas');
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext('2d');
+
+        // 1. خلفية بيضاء صريحة وإطار خارجي أسود سميك
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, W, H);
+
+        const pad = Math.round(W * 0.028);
+        ctx.strokeStyle = '#000000';
+        ctx.fillStyle = '#000000';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(pad, pad, W - pad * 2, H - pad * 2);
+
         const storeName = (typeof storeSettings !== 'undefined' && storeSettings.storeName) ? storeSettings.storeName : 'سمان ههيا';
         const storePhone = (typeof storeSettings !== 'undefined' && storeSettings.storePhone) ? storeSettings.storePhone : '01208027294';
-        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
-
         const orderShortId = (order.id || '000000').slice(-6).toUpperCase();
         const barcodeCode = orderShortId.replace(/[^A-Z0-9]/g, '1') || '100200';
         const orderDateStr = order.orderDate || new Date().toLocaleDateString('ar-EG');
@@ -103,6 +174,198 @@
             ? window.resolveOrderBatchName(order)
             : ((order.batchName && order.batchName !== 'undefined') ? order.batchName : '');
 
+        const itemsList = Array.isArray(order.items) ? order.items : [];
+        let totalUnitsCount = 0;
+        itemsList.forEach(i => { totalUnitsCount += (Number(i.quantity) || 0); });
+
+        // إذا كان الملصق صغير (استيكر طبق 50x30 أو 70x50)
+        if (cfg.templateMode === 'product_tag' || (dims.w <= 60 && dims.h <= 45)) {
+            const firstItem = itemsList[0] || { name: 'سمان ههيا فريش', quantity: 1 };
+            ctx.textAlign = 'center';
+            ctx.font = `900 ${Math.round(H * 0.14)}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(storeName + ' - ' + storePhone, W / 2, Math.round(H * 0.25));
+            ctx.font = `900 ${Math.round(H * 0.18)}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(`${firstItem.quantity}x ${firstItem.name}`, W / 2, Math.round(H * 0.56));
+            ctx.font = `800 ${Math.round(H * 0.11)}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(`${orderDateStr} | #${orderShortId}`, W / 2, Math.round(H * 0.85));
+            return canvas;
+        }
+
+        const scaleMul = cfg.fontScale === 'large' ? 1.1 : (cfg.fontScale === 'small' ? 0.9 : 1.0);
+        const fTitle = Math.round(W * 0.042 * scaleMul);
+        const fSub = Math.round(W * 0.026 * scaleMul);
+        const fBody = Math.round(W * 0.029 * scaleMul);
+        const fSmall = Math.round(W * 0.023 * scaleMul);
+
+        const innerRight = W - pad - 18;
+        const innerLeft = pad + 18;
+        const innerWidth = innerRight - innerLeft;
+        let curY = pad + 16;
+
+        // 2. رسم الترويسة العلوية (يمين: اسم المتجر والرقم والتاريخ | يسار: الباركود ورقم البوليصة)
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'top';
+        ctx.font = `900 ${fTitle}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(storeName, innerRight, curY);
+
+        ctx.font = `900 ${fSub}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`هاتف: ${storePhone}`, innerRight, curY + fTitle + 6);
+
+        ctx.font = `800 ${fSmall}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`التاريخ: ${orderDateStr}${batchTitle ? ' • ' + batchTitle : ''}`, innerRight, curY + fTitle + fSub + 14);
+
+        if (cfg.showBarcode) {
+            const bcWidth = Math.round(W * 0.36);
+            const bcCenterX = innerLeft + (bcWidth / 2) + 6;
+            drawBarcodeOnCanvas(ctx, barcodeCode, bcCenterX, curY + 4, bcWidth, Math.round(H * 0.075));
+            ctx.textAlign = 'center';
+            ctx.font = `900 ${fSmall}px monospace`;
+            ctx.fillText(`#${orderShortId} (${indexNum}/${totalCount})`, bcCenterX, curY + Math.round(H * 0.08) + 6);
+        } else {
+            ctx.textAlign = 'left';
+            ctx.font = `900 ${fTitle}px monospace`;
+            ctx.fillText(`#${orderShortId}`, innerLeft, curY + 12);
+        }
+
+        curY += Math.round(H * 0.135);
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(pad, curY);
+        ctx.lineTo(W - pad, curY);
+        ctx.stroke();
+
+        // 3. صندوق بيانات العميل والمنطقة والعنوان
+        curY += 12;
+        const custBoxH = Math.round(H * 0.195);
+        ctx.lineWidth = 3;
+        ctx.strokeRect(innerLeft, curY, innerWidth, custBoxH);
+
+        // شارة المنطقة السوداء في أقصى يسار صندوق العميل
+        const zoneText = `📍 ${order.zone || 'توصيل'}`;
+        ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
+        const zoneW = Math.min(Math.round(W * 0.34), Math.max(130, ctx.measureText(zoneText).width + 28));
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(innerLeft + 10, curY + 10, zoneW, Math.round(custBoxH * 0.42));
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(zoneText, innerLeft + 10 + (zoneW / 2), curY + 10 + Math.round(custBoxH * 0.21));
+
+        // اسم العميل ورقم هاتفه في يمين الصندوق
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'top';
+        ctx.font = `900 ${Math.round(fBody * 1.12)}px Cairo, Tahoma, sans-serif`;
+        const custNameClean = (order.customerName || 'عميل سمان ههيا').slice(0, 28);
+        ctx.fillText(`العميل: ${custNameClean}`, innerRight - 12, curY + 10);
+
+        const phonesLine = `موبايل: ${order.customerPhone || ''}${order.customerPhone2 ? ' | بديل: ' + order.customerPhone2 : ''}`;
+        ctx.font = `900 ${fSub}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(phonesLine, innerRight - 12, curY + 14 + Math.round(fBody * 1.2));
+
+        // خط فاصل للعنوان
+        const addrLineY = curY + Math.round(custBoxH * 0.62);
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(innerLeft + 8, addrLineY);
+        ctx.lineTo(innerRight - 8, addrLineY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const addrClean = `العنوان: ${order.customerAddress || 'استلام حسب المنطقة المسجلة'}${order.driverName ? ' (المندوب: ' + order.driverName + ')' : ''}`;
+        ctx.font = `800 ${fSmall}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(addrClean.slice(0, 58), innerRight - 12, addrLineY + 8);
+
+        // 4. جدول الأصناف المطلوبة
+        curY += custBoxH + 12;
+        const footerSectionH = Math.round(H * 0.22);
+        const tableMaxH = H - curY - footerSectionH - pad - 10;
+
+        // رأس الجدول الأسود
+        const thH = Math.round(H * 0.048);
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(innerLeft, curY, innerWidth, thH);
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textBaseline = 'middle';
+        ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
+        ctx.textAlign = 'right';
+        ctx.fillText(`الصنف المطلوب (إجمالي القطع: ${Number(totalUnitsCount.toFixed(1))})`, innerRight - 12, curY + thH / 2);
+
+        const qtyColW = Math.round(innerWidth * 0.18);
+        const priceColW = cfg.showItemsPrice ? Math.round(innerWidth * 0.22) : 0;
+        const qtyColCenter = innerLeft + priceColW + (qtyColW / 2);
+
+        ctx.textAlign = 'center';
+        ctx.fillText('الكمية', qtyColCenter, curY + thH / 2);
+        if (cfg.showItemsPrice) {
+            ctx.fillText('السعر', innerLeft + (priceColW / 2), curY + thH / 2);
+        }
+
+        // صفوف الجدول
+        let rowY = curY + thH;
+        const maxRows = Math.max(1, Math.min(itemsList.length, 6));
+        const notesText = [
+            order.driverNote ? order.driverNote.split('\n---\n').pop() : '',
+            (!order.driverNote && order.adminNote) ? order.adminNote.split('\n---\n').pop() : ''
+        ].filter(Boolean).join(' | ');
+
+        const noteBoxReserve = notesText ? Math.round(H * 0.055) : 0;
+        const availableRowsH = Math.max(thH, tableMaxH - thH - noteBoxReserve);
+        const rowH = Math.min(Math.round(H * 0.055), Math.floor(availableRowsH / maxRows));
+
+        ctx.fillStyle = '#000000';
+        ctx.lineWidth = 2;
+
+        for (let idx = 0; idx < maxRows; idx++) {
+            const item = itemsList[idx];
+            if (!item) break;
+            ctx.strokeRect(innerLeft, rowY, innerWidth, rowH);
+
+            // خطوط الأعمدة
+            ctx.beginPath();
+            ctx.moveTo(innerLeft + priceColW + qtyColW, rowY);
+            ctx.lineTo(innerLeft + priceColW + qtyColW, rowY + rowH);
+            if (cfg.showItemsPrice) {
+                ctx.moveTo(innerLeft + priceColW, rowY);
+                ctx.lineTo(innerLeft + priceColW, rowY + rowH);
+            }
+            ctx.stroke();
+
+            ctx.textAlign = 'right';
+            ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
+            let itemLabel = item.name || 'صنف';
+            if (idx === maxRows - 1 && itemsList.length > maxRows) {
+                itemLabel += ` (+${itemsList.length - maxRows} أصناف أخرى)`;
+            }
+            ctx.fillText(itemLabel.slice(0, 36), innerRight - 10, rowY + rowH / 2);
+
+            ctx.textAlign = 'center';
+            ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(String(item.quantity), qtyColCenter, rowY + rowH / 2);
+
+            if (cfg.showItemsPrice) {
+                const linePrice = (Number(item.quantity) || 0) * (Number(item.price) || 0);
+                ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
+                ctx.fillText(`${linePrice} ج`, innerLeft + (priceColW / 2), rowY + rowH / 2);
+            }
+            rowY += rowH;
+        }
+
+        // ملاحظة المندوب إن وجدت
+        if (notesText) {
+            rowY += 6;
+            const nH = Math.round(H * 0.048);
+            ctx.strokeRect(innerLeft, rowY, innerWidth, nH);
+            ctx.textAlign = 'right';
+            ctx.font = `900 ${Math.round(fSmall * 0.95)}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(`⚠️ ملاحظة: ${notesText.slice(0, 52)}`, innerRight - 10, rowY + nH / 2);
+        }
+
+        // 5. الصندوق المالي السفلي الحاسم (COD Box)
+        const codTopY = H - pad - footerSectionH;
+        const codBoxH = Math.round(footerSectionH * 0.76);
         const isOnline = order.paymentMethod === 'online';
         const subtotal = Number(order.subtotal) || Number(order.total) || 0;
         const delivery = Number(order.deliveryFee) || 0;
@@ -110,168 +373,65 @@
         const total = Number(order.total) || 0;
         const debt = Number(order.debt) || 0;
 
-        // حساب إجمالي عدد الأطباق/الوحدات في الطلب
-        let totalUnitsCount = 0;
-        const itemsList = Array.isArray(order.items) ? order.items : [];
-        itemsList.forEach(i => { totalUnitsCount += (Number(i.quantity) || 0); });
+        ctx.lineWidth = 4;
+        ctx.strokeRect(innerLeft, codTopY, innerWidth, codBoxH);
 
-        // رابط QR ذكي للمندوب (يفتح واتساب العميل مباشرة عند مسحه بالكاميرا)
-        const cleanPhone = String(order.customerPhone || '').trim();
-        const waPhone = cleanPhone.startsWith('0') ? '2' + cleanPhone : cleanPhone;
-        const qrDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=0&data=${encodeURIComponent('https://wa.me/' + waPhone)}`;
+        // النصف العلوي الأسود للمطلوب تحصيله
+        const codHeaderH = Math.round(codBoxH * 0.58);
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(innerLeft, codTopY, innerWidth, codHeaderH);
 
-        // 🏷️ إذا كان القالب المختار هو "استيكر طبق سمان / فريزر" (مقاس صغير 50x30 أو 70x50)
-        if (cfg.templateMode === 'product_tag' || (dims.w <= 60 && dims.h <= 45)) {
-            const firstItem = itemsList[0] || { name: 'سمان ههيا فريش', quantity: 1, id: '' };
-            const prodInfo = prodsObj[firstItem.id] || {};
-            const weightTxt = prodInfo.weight ? prodInfo.weight : 'ذبح اليوم - طازج';
-            return `
-            <div class="wb-sheet" style="width:${dims.w}mm; height:${dims.h}mm; padding:1.8mm; box-sizing:border-box; display:flex; flex-direction:column; justify-content:space-between; border:1.5px solid #000; font-family:'Cairo',sans-serif; background:#fff; color:#000; overflow:hidden; page-break-after:always;">
-                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1.5px solid #000; padding-bottom:1mm;">
-                    <span style="font-weight:900; font-size:9pt;">🐦 ${storeName}</span>
-                    <span style="font-weight:900; font-size:7.5pt;" dir="ltr">${storePhone}</span>
-                </div>
-                <div style="text-align:center; margin:auto 0;">
-                    <div style="font-weight:900; font-size:11pt; line-height:1.2;">${firstItem.quantity}x ${firstItem.name}</div>
-                    ${cfg.showWeightInfo ? `<div style="font-weight:800; font-size:8pt; margin-top:0.5mm;">⚖️ ${weightTxt}</div>` : ''}
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px dashed #000; padding-top:1mm; font-size:7pt; font-weight:800;">
-                    <span>إنتاج: ${orderDateStr}</span>
-                    <span>#${orderShortId}</span>
-                </div>
-            </div>`;
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'right';
+        ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(isOnline ? '💳 حالة الفاتورة:' : '💰 المطلوب تحصيله من العميل:', innerRight - 14, codTopY + codHeaderH / 2);
+
+        ctx.textAlign = 'left';
+        ctx.font = `900 ${Math.round(fTitle * 1.08)}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(isOnline ? 'خالص أونلاين (0 ج)' : `${total} ج.م`, innerLeft + 14, codTopY + codHeaderH / 2);
+
+        // النصف السفلي لتفاصيل الحساب
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'center';
+        ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
+        let breakdownStr = `المنتجات: ${subtotal} ج   •   التوصيل: ${delivery} ج`;
+        if (discount > 0) breakdownStr += `   •   خصم: ${discount} ج`;
+        if (debt > 0) breakdownStr += `   •   آجل: ${debt} ج`;
+        ctx.fillText(breakdownStr, W / 2, codTopY + codHeaderH + (codBoxH - codHeaderH) / 2);
+
+        // سطر التذييل
+        if (cfg.footerText) {
+            ctx.font = `800 ${Math.round(fSmall * 0.9)}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(cfg.footerText, W / 2, H - pad - Math.round(footerSectionH * 0.1));
         }
 
-        // 📦 القالب القياسي والملكي لبوليصة الشحن (100x100 / 100x150 / 80x60)
-        const baseFontPt = cfg.fontScale === 'large' ? 10.5 : (cfg.fontScale === 'small' ? 8.5 : 9.5);
-        const isTall = dims.h >= 135;
-
-        const itemsRowsHtml = itemsList.map(i => {
-            const pInfo = prodsObj[i.id] || {};
-            const wBadge = (cfg.showWeightInfo && pInfo.weight) ? ` <span style="font-size:${baseFontPt - 2}pt; font-weight:700;">(${pInfo.weight})</span>` : '';
-            const priceCell = cfg.showItemsPrice
-                ? `<td style="border:1.5px solid #000; padding:1mm 1.5mm; text-align:center; font-weight:900;">${(Number(i.quantity) || 0) * (Number(i.price) || 0)} ج</td>`
-                : '';
-            return `
-                <tr>
-                    <td style="border:1.5px solid #000; padding:1mm 1.5mm; font-weight:900;">${i.name}${wBadge}</td>
-                    <td style="border:1.5px solid #000; padding:1mm 1.5mm; text-align:center; font-weight:900; font-size:${baseFontPt + 1}pt;">${i.quantity}</td>
-                    ${priceCell}
-                </tr>
-            `;
-        }).join('');
-
-        const notesText = [
-            order.driverNote ? order.driverNote.split('\n---\n').pop() : '',
-            (!order.driverNote && order.adminNote) ? order.adminNote.split('\n---\n').pop() : ''
-        ].filter(Boolean).join(' | ');
-
-        return `
-        <div class="wb-sheet" style="width:${dims.w}mm; height:${dims.h}mm; padding:2.5mm; box-sizing:border-box; display:flex; flex-direction:column; justify-content:space-between; background:#fff; color:#000; font-family:'Cairo',sans-serif; font-size:${baseFontPt}pt; border:2px solid #000; overflow:hidden; page-break-after:always; position:relative; transform:translate(${cfg.offsetXMm || 0}mm, ${cfg.offsetYMm || 0}mm);">
-            
-            <!-- 1. ترويسة البوليصة (اللوجو + الباركود + رقم البوليصة) -->
-            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #000; padding-bottom:1.5mm; gap:2mm;">
-                <div>
-                    ${cfg.showLogo ? `<div style="font-size:${baseFontPt + 4}pt; font-weight:900; line-height:1;">🐦 ${storeName}</div>` : ''}
-                    <div style="font-size:${baseFontPt - 1.5}pt; font-weight:900; margin-top:0.8mm;" dir="ltr">📞 ${storePhone}</div>
-                    <div style="font-size:${baseFontPt - 2}pt; font-weight:800;">📅 ${orderDateStr} ${batchTitle ? `• ${batchTitle}` : ''}</div>
-                </div>
-
-                ${cfg.showBarcode ? `
-                <div style="text-align:center; flex-shrink:0;">
-                    <svg class="wb-barcode-svg" data-code="${barcodeCode}" style="height:${isTall ? '12mm' : '9.5mm'}; max-width:38mm;"></svg>
-                    <div style="font-size:7.5pt; font-weight:900; letter-spacing:1px; line-height:1;">#${orderShortId} (${indexNum}/${totalCount})</div>
-                </div>` : `<div style="font-size:11pt; font-weight:900; border:2px solid #000; padding:1mm 2mm; border-radius:1.5mm;">#${orderShortId}</div>`}
-            </div>
-
-            <!-- 2. بيانات العميل والمنطقة والعنوان -->
-            <div style="border:2px solid #000; border-radius:2mm; padding:1.8mm 2.2mm; margin-top:1.5mm; background:#fff;">
-                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:2mm;">
-                    <div style="flex:1; min-width:0;">
-                        <div style="font-size:${baseFontPt + 2}pt; font-weight:900; line-height:1.2;">👤 ${order.customerName || 'عميل سمان ههيا'}</div>
-                        <div style="font-size:${baseFontPt + 1}pt; font-weight:900; margin-top:0.8mm;" dir="ltr">
-                            📱 ${order.customerPhone || ''}
-                            ${order.customerPhone2 ? ` | 📞 ${order.customerPhone2}` : ''}
-                        </div>
-                    </div>
-                    <div style="background:#000; color:#fff; padding:1mm 2.5mm; border-radius:1.5mm; font-size:${baseFontPt + 1}pt; font-weight:900; text-align:center; flex-shrink:0;">
-                        📍 ${order.zone || 'غير محدد'}
-                    </div>
-                </div>
-                <div style="font-size:${baseFontPt - 0.5}pt; font-weight:800; margin-top:1mm; padding-top:1mm; border-top:1px dashed #000; line-height:1.25;">
-                    🏠 العنوان: ${order.customerAddress || 'استلام حسب المنطقة المسجلة'}
-                    ${order.driverName ? ` <span style="float:left; font-weight:900;">(🛵 المندوب: ${order.driverName})</span>` : ''}
-                </div>
-            </div>
-
-            <!-- 3. جدول الأصناف المطلوبة -->
-            <div style="margin-top:1.5mm; flex:1; display:flex; flex-direction:column; justify-content:flex-start; overflow:hidden;">
-                <table style="width:100%; border-collapse:collapse; font-size:${baseFontPt - 0.5}pt;">
-                    <thead>
-                        <tr style="background:#000; color:#fff;">
-                            <th style="border:1.5px solid #000; padding:0.8mm 1.5mm; text-align:right; font-weight:900;">الصنف المطلوب (إجمالي: ${Number(totalUnitsCount.toFixed(1))})</th>
-                            <th style="border:1.5px solid #000; padding:0.8mm 1.5mm; text-align:center; width:14mm; font-weight:900;">العدد</th>
-                            ${cfg.showItemsPrice ? `<th style="border:1.5px solid #000; padding:0.8mm 1.5mm; text-align:center; width:18mm; font-weight:900;">الإجمالي</th>` : ''}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${itemsRowsHtml || `<tr><td colspan="3" style="border:1.5px solid #000; padding:2mm; text-align:center; font-weight:900;">طلب سمان طازج</td></tr>`}
-                    </tbody>
-                </table>
-
-                ${notesText ? `
-                <div style="margin-top:1.2mm; border:1.5px dashed #000; border-radius:1.5mm; padding:1mm 1.8mm; font-size:${baseFontPt - 1}pt; font-weight:900; line-height:1.2;">
-                    ⚠️ ملاحظة التسليم: ${notesText}
-                </div>` : ''}
-            </div>
-
-            <!-- 4. الصندوق المالي الحاسم + QR Code المندوب -->
-            <div style="margin-top:1.5mm;">
-                <div style="display:flex; align-items:stretch; gap:2mm;">
-                    <div style="flex:1; border:2.5px solid #000; border-radius:2mm; overflow:hidden; display:flex; flex-direction:column; justify-content:space-between;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; background:#000; color:#fff; padding:1.5mm 2.5mm;">
-                            <span style="font-size:${baseFontPt}pt; font-weight:900;">${isOnline ? '💳 حالة الدفع:' : '💰 المطلوب تحصيله:'}</span>
-                            <span style="font-size:${baseFontPt + 3.5}pt; font-weight:900;">${isOnline ? 'خالص أونلاين (0 ج)' : `${total} ج.م`}</span>
-                        </div>
-                        <div style="display:flex; justify-content:space-around; align-items:center; padding:1mm 1.5mm; font-size:${baseFontPt - 1.5}pt; font-weight:900; background:#fff;">
-                            <span>المنتجات: ${subtotal} ج</span>
-                            <span>•</span>
-                            <span>التوصيل: ${delivery} ج</span>
-                            ${discount > 0 ? `<span>• خصم: ${discount} ج</span>` : ''}
-                            ${debt > 0 ? `<span>• آجل: ${debt} ج</span>` : ''}
-                        </div>
-                    </div>
-
-                    ${(cfg.showQrCode && waPhone) ? `
-                    <div style="width:${isTall ? '18mm' : '15mm'}; border:1.5px solid #000; border-radius:2mm; padding:0.8mm; display:flex; flex-direction:column; align-items:center; justify-content:center; flex-shrink:0;">
-                        <img src="${qrDataUrl}" crossorigin="anonymous" style="width:${isTall ? '13.5mm' : '11mm'}; height:${isTall ? '13.5mm' : '11mm'}; display:block;" alt="QR">
-                        <span style="font-size:6pt; font-weight:900; margin-top:0.4mm;">امسح للتواصل</span>
-                    </div>` : ''}
-                </div>
-
-                ${cfg.footerText ? `
-                <div style="text-align:center; font-size:${baseFontPt - 2}pt; font-weight:900; margin-top:1mm; pt:0.5mm;">
-                    ${cfg.footerText}
-                </div>` : ''}
-            </div>
-        </div>`;
+        return canvas;
     };
 
-    // بناء ملصق تجميعي لخط سير المندوب (يخرج في نهاية الطباعة الجماعية عند تفعيله)
-    function buildDriverRouteSummaryStickerHTML(ordersList, cfg) {
+    // بناء بطاقة ملخص خط سير المندوب على Canvas
+    function renderDriverSummaryToCanvas203DPI(ordersList, cfg) {
         const dims = resolveDimensionsMm(cfg);
+        const W = Math.floor(dims.w * DOTS_PER_MM);
+        const H = Math.floor(dims.h * DOTS_PER_MM);
+        const canvas = document.createElement('canvas');
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, W, H);
+        const pad = 22;
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(pad, pad, W - pad * 2, H - pad * 2);
+
         let totalCash = 0;
         let onlineCount = 0;
         const itemsSum = {};
-        const zonesSum = {};
-
         ordersList.forEach(o => {
             if (o.paymentMethod === 'online') onlineCount++;
             else totalCash += (Number(o.total) || 0);
-
-            const z = o.zone || 'غير محدد';
-            zonesSum[z] = (zonesSum[z] || 0) + 1;
-
             if (Array.isArray(o.items)) {
                 o.items.forEach(i => {
                     itemsSum[i.name] = (itemsSum[i.name] || 0) + (Number(i.quantity) || 0);
@@ -279,150 +439,174 @@
             }
         });
 
-        const itemsLines = Object.keys(itemsSum).map(k => `<span style="border:1px solid #000; padding:0.5mm 1.5mm; border-radius:1mm; display:inline-block; margin:0.5mm;">${itemsSum[k]}x ${k}</span>`).join(' ');
-        const zonesLines = Object.keys(zonesSum).map(z => `${z} (${zonesSum[z]})`).join(' ، ');
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'center';
+        ctx.font = '900 30px Cairo, Tahoma, sans-serif';
+        ctx.fillText('🛵 ملخص استلام خط سير المندوب', W / 2, pad + 42);
 
-        return `
-        <div class="wb-sheet" style="width:${dims.w}mm; height:${dims.h}mm; padding:3mm; box-sizing:border-box; display:flex; flex-direction:column; justify-content:space-between; background:#fff; color:#000; font-family:'Cairo',sans-serif; font-size:9.5pt; border:2.5px solid #000; page-break-after:always;">
-            <div style="text-align:center; border-bottom:2px solid #000; padding-bottom:1.5mm;">
-                <div style="font-size:13pt; font-weight:900;">🛵 ملخص استلام خط سير المندوب</div>
-                <div style="font-size:8pt; font-weight:800;">تاريخ الطباعة: ${new Date().toLocaleString('ar-EG')}</div>
-            </div>
-            <div style="margin:2mm 0; font-weight:900;">
-                <div style="margin-bottom:1.5mm;">📦 إجمالي البوالص: ${ordersList.length} طلب (${ordersList.length - onlineCount} كاش / ${onlineCount} أونلاين)</div>
-                <div style="margin-bottom:1.5mm; font-size:8.5pt;">📍 المناطق: ${zonesLines}</div>
-                <div style="border-top:1.5px dashed #000; padding-top:1.5mm; font-size:8.5pt;">
-                    <div>🥩 إجمالي الأصناف المحملة مع المندوب:</div>
-                    <div style="margin-top:1mm;">${itemsLines}</div>
-                </div>
-            </div>
-            <div style="background:#000; color:#fff; padding:2mm; border-radius:2mm; text-align:center; font-size:12pt; font-weight:900;">
-                💰 إجمالي الكاش المطلوب توريده: ${totalCash.toLocaleString()} ج.م
-            </div>
-        </div>`;
+        ctx.textAlign = 'right';
+        ctx.font = '900 22px Cairo, Tahoma, sans-serif';
+        ctx.fillText(`إجمالي الطلبات: ${ordersList.length} طلب (${ordersList.length - onlineCount} كاش / ${onlineCount} أونلاين)`, W - pad - 20, pad + 95);
+
+        let y = pad + 140;
+        Object.keys(itemsSum).slice(0, 10).forEach(k => {
+            ctx.fillText(`• ${itemsSum[k]}x ${k}`, W - pad - 25, y);
+            y += 34;
+        });
+
+        ctx.fillRect(pad + 16, H - pad - 85, W - (pad + 16) * 2, 68);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textAlign = 'center';
+        ctx.font = '900 28px Cairo, Tahoma, sans-serif';
+        ctx.fillText(`إجمالي الكاش المطلوب توريده: ${totalCash.toLocaleString()} ج.م`, W / 2, H - pad - 44);
+        return canvas;
     }
 
-    // تفعيل رسم الباركود (JsBarcode) داخل أية حاوية
-    function renderBarcodesInsideContainer(containerEl) {
-        if (typeof JsBarcode !== 'function' || !containerEl) return;
-        containerEl.querySelectorAll('.wb-barcode-svg').forEach(svg => {
-            const code = svg.getAttribute('data-code') || '100200';
-            try {
-                JsBarcode(svg, code, {
-                    format: 'CODE128',
-                    displayValue: false,
-                    height: 36,
-                    width: 1.7,
-                    margin: 0,
-                    lineColor: '#000000'
-                });
-            } catch (e) {}
+    // توليد مصفوفة لوحات Canvas لجميع الطلبات المطلوبة
+    function buildAllCanvasesForQueue(ordersToPrint, cfg) {
+        const copies = Math.max(1, parseInt(cfg.copies) || 1);
+        const canvases = [];
+        ordersToPrint.forEach((o, idx) => {
+            for (let c = 0; c < copies; c++) {
+                canvases.push(window.renderWaybillToCanvas203DPI(o, cfg, idx + 1, ordersToPrint.length));
+            }
         });
+        if (cfg.includeRouteSummary && ordersToPrint.length > 1) {
+            canvases.push(renderDriverSummaryToCanvas203DPI(ordersToPrint, cfg));
+        }
+        return canvases;
     }
 
     // =========================================================================
-    // ⚡ 3. محرك الطباعة المدمج بدون نوافذ منبثقة (In-Page Thermal Spooler)
+    // 📲 4. الإرسال المباشر لتطبيق "Print Label" على الأندرويد (Share / Intent / Image)
+    // =========================================================================
+    window.sendWaybillToPrintLabelApp = async function (ordersQueue = null, customCfg = null) {
+        const cfg = customCfg || window.getWaybillConfig();
+        const queue = (ordersQueue && ordersQueue.length > 0)
+            ? ordersQueue
+            : ((window.deliPrinterConnection.lastOrdersQueue && window.deliPrinterConnection.lastOrdersQueue.length > 0)
+                ? window.deliPrinterConnection.lastOrdersQueue
+                : [getSampleOrderForPreview()]);
+
+        const canvases = buildAllCanvasesForQueue(queue, cfg);
+        if (canvases.length === 0) return;
+
+        // دمج اللوحات في صورة طولية واحدة أو ملفات جاهزة لتطبيق Print Label
+        const filesArray = [];
+        for (let i = 0; i < canvases.length; i++) {
+            const blob = await new Promise(res => canvases[i].toBlob(res, 'image/png', 1.0));
+            if (blob) {
+                const shortId = (queue[Math.min(i, queue.length - 1)]?.id || (i + 1)).toString().slice(-5);
+                filesArray.push(new File([blob], `waybill_${shortId}_${i + 1}.png`, { type: 'image/png' }));
+            }
+        }
+
+        // 1. إذا كان تطبيق الأندرويد يدعم مشاركة الملفات المباشرة (يظهر تطبيق Print Label فوراً في القائمة)
+        if (navigator.canShare && filesArray.length > 0 && navigator.canShare({ files: filesArray })) {
+            try {
+                await navigator.share({
+                    files: filesArray,
+                    title: 'بوليصة شحن سمان ههيا',
+                    text: 'اختر تطبيق Print Label للطباعة المباشرة على Deli E750W'
+                });
+                return;
+            } catch (err) {
+                if (err && err.name === 'AbortError') return;
+            }
+        }
+
+        // 2. خطة بديلة لكل تطبيقات WebView: تنزيل الصورة الحرارية الجاهزة وفتح نافذة توجيه سريعة
+        canvases.forEach((cnv, idx) => {
+            const dataUrl = cnv.toDataURL('image/png');
+            const a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = `Sman_Waybill_${idx + 1}.png`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        });
+
+        notifyPrinterToast('📲 تم تجهيز وحفظ البوليصة بأعلى دقة حرارية! افتحها الآن في تطبيق Print Label للطباعة.');
+    };
+
+    // =========================================================================
+    // ⚡ 5. إصلاح السبولر المباشر ليعمل داخل تطبيق الأندرويد والكمبيوتر بدون Iframe مخفي
     // =========================================================================
     window.printViaInPageThermalFrame = function (ordersToPrint, customCfg = null) {
         if (!ordersToPrint || ordersToPrint.length === 0) return alert('لا توجد طلبات للطباعة!');
         const cfg = customCfg || window.getWaybillConfig();
         const dims = resolveDimensionsMm(cfg);
-        const copies = Math.max(1, parseInt(cfg.copies) || 1);
+        const canvases = buildAllCanvasesForQueue(ordersToPrint, cfg);
 
-        let allSheetsHtml = '';
-        ordersToPrint.forEach((o, idx) => {
-            for (let c = 0; c < copies; c++) {
-                allSheetsHtml += window.buildSingleWaybillCardHTML(o, cfg, idx + 1, ordersToPrint.length);
+        // إنشاء حاوية طباعة مباشرة في الصفحة الرئيسية بدلاً من الـ iframe المخفي الذي يتجاهله الأندرويد
+        let printMount = document.getElementById('deli-direct-print-mount');
+        if (printMount) printMount.remove();
+
+        printMount = document.createElement('div');
+        printMount.id = 'deli-direct-print-mount';
+
+        let printStyle = document.getElementById('deli-direct-print-style');
+        if (printStyle) printStyle.remove();
+
+        printStyle = document.createElement('style');
+        printStyle.id = 'deli-direct-print-style';
+        printStyle.innerHTML = `
+            #deli-direct-print-mount {
+                display: none;
             }
+            @media print {
+                @page {
+                    size: ${dims.w}mm ${dims.h}mm;
+                    margin: 0mm !important;
+                }
+                html, body {
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    background: #ffffff !important;
+                    overflow: visible !important;
+                    height: auto !important;
+                }
+                body > *:not(#deli-direct-print-mount) {
+                    display: none !important;
+                }
+                #deli-direct-print-mount {
+                    display: block !important;
+                    width: ${dims.w}mm !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                }
+                .deli-print-page-img {
+                    width: ${dims.w}mm !important;
+                    height: ${dims.h}mm !important;
+                    display: block !important;
+                    page-break-after: always !important;
+                    break-after: page !important;
+                }
+                .deli-print-page-img:last-child {
+                    page-break-after: auto !important;
+                    break-after: auto !important;
+                }
+            }
+        `;
+        document.head.appendChild(printStyle);
+
+        canvases.forEach(cnv => {
+            const img = document.createElement('img');
+            img.src = cnv.toDataURL('image/png');
+            img.className = 'deli-print-page-img';
+            printMount.appendChild(img);
         });
 
-        if (cfg.includeRouteSummary && ordersToPrint.length > 1) {
-            allSheetsHtml += buildDriverRouteSummaryStickerHTML(ordersToPrint, cfg);
-        }
+        document.body.appendChild(printMount);
 
-        // إزالة أي إطار طباعة سابق وإنشاء إطار حراري مخفي داخل نفس الصفحة (لا يحظره الأندرويد ولا المتصفح)
-        let printFrame = document.getElementById('deli-750w-thermal-iframe');
-        if (printFrame) printFrame.remove();
-
-        printFrame = document.createElement('iframe');
-        printFrame.id = 'deli-750w-thermal-iframe';
-        printFrame.style.cssText = 'position:fixed; right:0; bottom:0; width:0; height:0; border:0; visibility:hidden;';
-        document.body.appendChild(printFrame);
-
-        // محاكاة غمقان الحبر الحراري في وضع الـ Spooler عبر فلتر التباين والسمك
-        const contrastBoost = cfg.density >= 12 ? 'contrast(160%)' : 'contrast(120%)';
-
-        const frameDoc = printFrame.contentWindow || printFrame.contentDocument;
-        const doc = frameDoc.document || frameDoc;
-
-        doc.open();
-        doc.write(`
-            <!DOCTYPE html>
-            <html lang="ar" dir="rtl">
-            <head>
-                <meta charset="UTF-8">
-                <title>Deli E750W Thermal Waybill</title>
-                <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&display=swap" rel="stylesheet">
-                <style>
-                    @page {
-                        size: ${dims.w}mm ${dims.h}mm;
-                        margin: 0mm !important;
-                    }
-                    * {
-                        box-sizing: border-box;
-                        -webkit-print-color-adjust: exact !important;
-                        print-color-adjust: exact !important;
-                    }
-                    html, body {
-                        margin: 0 !important;
-                        padding: 0 !important;
-                        width: ${dims.w}mm;
-                        background: #ffffff;
-                        color: #000000;
-                        font-family: 'Cairo', sans-serif;
-                        filter: ${contrastBoost};
-                    }
-                    .wb-sheet {
-                        page-break-inside: avoid;
-                        page-break-after: always;
-                    }
-                    .wb-sheet:last-child {
-                        page-break-after: auto;
-                    }
-                </style>
-            </head>
-            <body>
-                <div id="thermal-root">${allSheetsHtml}</div>
-            </body>
-            </html>
-        `);
-        doc.close();
-
-        // رسم الباركود داخل الإطار ثم إطلاق أمر الطباعة
         setTimeout(() => {
-            try {
-                const rootEl = doc.getElementById('thermal-root');
-                renderBarcodesInsideContainer(rootEl);
-            } catch (e) {}
-
-            setTimeout(() => {
-                try {
-                    printFrame.contentWindow.focus();
-                    printFrame.contentWindow.print();
-                    notifyPrinterToast(`🖨️ تم إرسال (${ordersToPrint.length}) بوليصة إلى طابعة Deli E750W`);
-                } catch (err) {
-                    console.error('Print frame error:', err);
-                    alert('حدث خطأ أثناء استدعاء نافذة الطباعة.');
-                }
-            }, 450);
+            window.print();
         }, 250);
     };
 
     // =========================================================================
-    // 📡 4. مولد أوامر TSPL الأصلي لطابعة Deli E750W (USB / Bluetooth / RawBT)
+    // 📡 6. مولد أوامر TSPL الخام من لوحة الـ Canvas (RawBT / BluetoothSerial / BLE)
     // =========================================================================
-
-    // بناء ترويسة أوامر الهاردوير TSPL لطابعة Deli E750W
     window.generateDeliTSPLHeader = function (cfg) {
         const dims = resolveDimensionsMm(cfg);
         const density = Math.min(15, Math.max(1, parseInt(cfg.density) || 12));
@@ -431,11 +615,8 @@
         const gap = Math.max(0, parseFloat(cfg.gapMm) || 2);
 
         let sensorCmd = `GAP ${gap} mm,0 mm`;
-        if (cfg.sensorType === 'continuous') {
-            sensorCmd = `GAP 0 mm,0 mm`;
-        } else if (cfg.sensorType === 'bmark') {
-            sensorCmd = `BLINE ${gap} mm,0 mm`;
-        }
+        if (cfg.sensorType === 'continuous') sensorCmd = `GAP 0 mm,0 mm`;
+        else if (cfg.sensorType === 'bmark') sensorCmd = `BLINE ${gap} mm,0 mm`;
 
         return [
             `SIZE ${dims.w} mm,${dims.h} mm`,
@@ -449,72 +630,25 @@
         ].join('\r\n') + '\r\n';
     };
 
-    // تحويل عنصر البوليصة المرئي إلى أوامر TSPL BITMAP (بدقة 203 DPI = 8 نقاط/مم)
-    async function convertWaybillElementToTSPLBytes(sheetEl, cfg) {
-        const dims = resolveDimensionsMm(cfg);
-        const widthDots = Math.floor(dims.w * DOTS_PER_MM);   // مثلاً 100mm * 8 = 800 نقطة
-        const heightDots = Math.floor(dims.h * DOTS_PER_MM);  // مثلاً 100mm * 8 = 800 نقطة
-        const widthBytes = Math.ceil(widthDots / 8);          // 100 بايت لكل سطر أفقي
-
-        const canvas = document.createElement('canvas');
-        canvas.width = widthDots;
-        canvas.height = heightDots;
+    function convertCanvasToTSPLPacket(canvas, cfg) {
+        const widthDots = canvas.width;
+        const heightDots = canvas.height;
+        const widthBytes = Math.ceil(widthDots / 8);
         const ctx = canvas.getContext('2d');
-
-        // خلفية بيضاء صريحة
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, widthDots, heightDots);
-
-        // تحويل الـ HTML إلى صورة SVG ForeignObject لرسم الخط العربي Cairo بدقة تامة على الـ Canvas
-        const clone = sheetEl.cloneNode(true);
-        clone.style.transform = 'none';
-        clone.style.margin = '0';
-
-        // استبدال صور الـ QR الخارجية لو تعذر تحميلها أثناء الرسم الخام
-        clone.querySelectorAll('img').forEach(img => img.remove());
-
-        const serializedHtml = new XMLSerializer().serializeToString(clone);
-        const svgStr = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="${widthDots}" height="${heightDots}">
-                <foreignObject width="100%" height="100%">
-                    <div xmlns="http://www.w3.org/1999/xhtml" dir="rtl" style="width:${widthDots}px; height:${heightDots}px; font-family:'Cairo',sans-serif; background:#fff;">
-                        ${serializedHtml}
-                    </div>
-                </foreignObject>
-            </svg>
-        `;
-
-        await new Promise((resolve) => {
-            const img = new Image();
-            img.onload = () => {
-                ctx.drawImage(img, 0, 0, widthDots, heightDots);
-                resolve();
-            };
-            img.onerror = () => resolve();
-            img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
-        });
-
-        // تحويل البكسلات إلى مصفوفة 1-Bit Monochrome بصيغة TSPL BITMAP
-        // في لغة TSPL: البت 0 = نقطة سوداء مطبوعة، البت 1 = نقطة بيضاء فارغة
         const imgData = ctx.getImageData(0, 0, widthDots, heightDots).data;
+
         const bitmapBytes = new Uint8Array(widthBytes * heightDots);
-        bitmapBytes.fill(0xFF); // 11111111 (أبيض افتراضياً)
+        bitmapBytes.fill(0xFF); // أبيض افتراضياً في TSPL
 
-        const threshold = cfg.density >= 12 ? 175 : 145;
-
+        const threshold = cfg.density >= 12 ? 185 : 155;
         for (let y = 0; y < heightDots; y++) {
             for (let x = 0; x < widthDots; x++) {
-                const pixelIdx = (y * widthDots + x) * 4;
-                const r = imgData[pixelIdx];
-                const g = imgData[pixelIdx + 1];
-                const b = imgData[pixelIdx + 2];
-                const a = imgData[pixelIdx + 3];
-                const luminance = a < 128 ? 255 : (0.299 * r + 0.587 * g + 0.114 * b);
-
-                if (luminance < threshold) {
+                const idx = (y * widthDots + x) * 4;
+                const lum = 0.299 * imgData[idx] + 0.587 * imgData[idx + 1] + 0.114 * imgData[idx + 2];
+                if (lum < threshold) {
                     const byteIdx = y * widthBytes + Math.floor(x / 8);
                     const bitPos = 7 - (x % 8);
-                    bitmapBytes[byteIdx] &= ~(1 << bitPos); // وضع 0 للطباعة بالأسود
+                    bitmapBytes[byteIdx] &= ~(1 << bitPos);
                 }
             }
         }
@@ -524,79 +658,24 @@
             window.generateDeliTSPLHeader(cfg) +
             `BITMAP 0,0,${widthBytes},${heightDots},0,`
         );
-        const footerBytes = encoder.encode(`\r\nPRINT ${Math.max(1, parseInt(cfg.copies) || 1)},1\r\n`);
+        const footerBytes = encoder.encode(`\r\nPRINT 1,1\r\n`);
 
-        const totalPacket = new Uint8Array(headerBytes.length + bitmapBytes.length + footerBytes.length);
-        totalPacket.set(headerBytes, 0);
-        totalPacket.set(bitmapBytes, headerBytes.length);
-        totalPacket.set(footerBytes, headerBytes.length + bitmapBytes.length);
-
-        return totalPacket;
+        const packet = new Uint8Array(headerBytes.length + bitmapBytes.length + footerBytes.length);
+        packet.set(headerBytes, 0);
+        packet.set(bitmapBytes, headerBytes.length);
+        packet.set(footerBytes, headerBytes.length + bitmapBytes.length);
+        return packet;
     }
 
-    // الاتصال المباشر بطابعة Deli E750W عبر البلوتوث (WebBluetooth BLE)
-    window.connectDeliBluetoothPrinter = async function () {
-        if (!navigator.bluetooth) {
-            return alert('⚠️ متصفحك الحالي لا يدعم WebBluetooth المباشر. استخدم متصفح Google Chrome على الأندرويد أو الكمبيوتر، أو اطبع بالوضع المباشر (Spooler).');
-        }
-        try {
-            const device = await navigator.bluetooth.requestDevice({
-                acceptAllDevices: true,
-                optionalServices: [
-                    '000018f0-0000-1000-8000-00805f9b34fb',
-                    '0000ff00-0000-1000-8000-00805f9b34fb',
-                    '49535343-fe7d-4ae5-8fa9-9fafd205e455',
-                    'e7810a71-73ae-499d-8c15-faa9aef0c3f2'
-                ]
-            });
-
-            const server = await device.gatt.connect();
-            const services = await server.getPrimaryServices();
-            let writeChar = null;
-
-            for (const srv of services) {
-                const chars = await srv.getCharacteristics();
-                for (const ch of chars) {
-                    if (ch.properties.write || ch.properties.writeWithoutResponse) {
-                        writeChar = ch;
-                        break;
-                    }
-                }
-                if (writeChar) break;
-            }
-
-            if (!writeChar) {
-                return alert('تم الاتصال بالطابعة ولكن لم يتم العثور على قناة كتابة البلوتوث (GATT Write). استخدم وضع الطباعة المباشر (Spooler).');
-            }
-
-            window.deliPrinterConnection.btDevice = device;
-            window.deliPrinterConnection.btCharacteristic = writeChar;
-            updateConnectionBadgesUI();
-            notifyPrinterToast(`🔵 تم ربط بلوتوث الطابعة (${device.name || 'Deli E750W'}) بنجاح!`);
-        } catch (e) {
-            console.log('Bluetooth connect info:', e);
-        }
-    };
-
-    // الاتصال المباشر بطابعة Deli E750W عبر كابل USB (WebSerial Virtual COM Port)
-    window.connectDeliUsbSerialPrinter = async function () {
-        if (!navigator.serial) {
-            return alert('⚠️ للطباعة عبر USB على الكمبيوتر، يمكنك الطباعة فوراً بوضع (Spooler الافتراضي) دون الحاجة لإعداد منفذ تسلسلي.');
-        }
-        try {
-            const port = await navigator.serial.requestPort();
-            await port.open({ baudRate: 115200 });
-            window.deliPrinterConnection.usbPort = port;
-            updateConnectionBadgesUI();
-            notifyPrinterToast('🔌 تم فتح منفذ USB المباشر لطابعة Deli E750W بنجاح!');
-        } catch (e) {
-            console.log('USB Serial info:', e);
-        }
-    };
-
-    // إرسال مصفوفة بايتات TSPL إلى الطابعة المتصلة (بلوتوث أو USB)
     async function sendRawTSPLBytesToDeli(bytesArray) {
-        // 1. إذا كان متصلاً بـ USB Serial
+        // 1. دعم تطبيقات الأندرويد المبنية بـ Cordova BluetoothSerial إن وجدت
+        if (window.bluetoothSerial && typeof window.bluetoothSerial.write === 'function') {
+            return await new Promise(resolve => {
+                window.bluetoothSerial.write(bytesArray.buffer, () => resolve(true), () => resolve(false));
+            });
+        }
+
+        // 2. دعم USB WebSerial
         if (window.deliPrinterConnection.usbPort && window.deliPrinterConnection.usbPort.writable) {
             const writer = window.deliPrinterConnection.usbPort.writable.getWriter();
             await writer.write(bytesArray);
@@ -604,10 +683,10 @@
             return true;
         }
 
-        // 2. إذا كان متصلاً بـ Bluetooth BLE
+        // 3. دعم WebBluetooth في متصفح Chrome
         const ch = window.deliPrinterConnection.btCharacteristic;
         if (ch) {
-            const chunkSize = 180; // تقسيم البيانات لحزم صغيرة لضمان عدم امتلاء ذاكرة البلوتوث
+            const chunkSize = 180;
             for (let i = 0; i < bytesArray.length; i += chunkSize) {
                 const chunk = bytesArray.slice(i, i + chunkSize);
                 if (ch.properties.writeWithoutResponse) {
@@ -622,51 +701,75 @@
         return false;
     }
 
-    // أوامر صيانة ومعايرة طابعة Deli E750W الفورية (Calibration & Feed)
+    // الاتصال بالبلوتوث مع رسالة ذكية لو كان داخل WebView أندرويد
+    window.connectDeliBluetoothPrinter = async function () {
+        if (!navigator.bluetooth) {
+            return alert('📲 أنت تستخدم تطبيق الأندرويد الداخلي (WebView).\n\nلطباعة البوليصة على Deli E750W من داخل التطبيق مباشره:\nاضغط على الزر الأخضر "📲 إرسال لتطبيق Print Label" بالأسفل، وسيفتح لك البوليصة داخل تطبيق Print Label جاهزة للطباعة في ثانية واحدة!');
+        }
+        try {
+            const device = await navigator.bluetooth.requestDevice({
+                acceptAllDevices: true,
+                optionalServices: [
+                    '000018f0-0000-1000-8000-00805f9b34fb',
+                    '0000ff00-0000-1000-8000-00805f9b34fb',
+                    '49535343-fe7d-4ae5-8fa9-9fafd205e455',
+                    'e7810a71-73ae-499d-8c15-faa9aef0c3f2'
+                ]
+            });
+            const server = await device.gatt.connect();
+            const services = await server.getPrimaryServices();
+            let writeChar = null;
+            for (const srv of services) {
+                const chars = await srv.getCharacteristics();
+                for (const ch of chars) {
+                    if (ch.properties.write || ch.properties.writeWithoutResponse) {
+                        writeChar = ch;
+                        break;
+                    }
+                }
+                if (writeChar) break;
+            }
+            if (!writeChar) return alert('تم الاتصال ولكن لم يتم العثور على قناة الكتابة. استخدم زر الإرسال إلى Print Label.');
+            window.deliPrinterConnection.btDevice = device;
+            window.deliPrinterConnection.btCharacteristic = writeChar;
+            updateConnectionBadgesUI();
+            notifyPrinterToast(`🔵 تم ربط بلوتوث الطابعة (${device.name || 'Deli E750W'}) بنجاح!`);
+        } catch (e) {}
+    };
+
     window.sendDeliHardwareCommand = async function (cmdType) {
         const cfg = window.getWaybillConfig();
         const dims = resolveDimensionsMm(cfg);
         let tsplCmd = '';
-
         if (cmdType === 'calibrate') {
             tsplCmd = `SIZE ${dims.w} mm,${dims.h} mm\r\nGAP ${cfg.gapMm || 2} mm,0 mm\r\nHOME\r\nSOUND 2,100\r\n`;
         } else if (cmdType === 'feed') {
             tsplCmd = `SIZE ${dims.w} mm,${dims.h} mm\r\nFORMFEED\r\n`;
-        } else if (cmdType === 'selftest') {
-            tsplCmd = `SELFTEST\r\n`;
         }
-
         const bytes = new TextEncoder().encode(tsplCmd);
         const sent = await sendRawTSPLBytesToDeli(bytes);
         if (sent) {
-            notifyPrinterToast('⚡ تم إرسال أمر الهاردوير إلى طابعة Deli E750W');
+            notifyPrinterToast('⚡ تم إرسال أمر المعايرة إلى طابعة Deli E750W');
         } else {
-            // إذا لم يكن متصلاً بـ WebBluetooth/WebSerial، نعرض خيار إرساله عبر RawBT للأندرويد
-            const base64Cmd = btoa(tsplCmd);
-            window.location.href = `rawbt:base64,${base64Cmd}`;
-            notifyPrinterToast('📡 تم إرسال أمر المعايرة إلى جسر الطابعة');
+            window.location.href = `rawbt:base64,${uint8ArrayToBase64(bytes)}`;
         }
     };
 
     function updateConnectionBadgesUI() {
         const btStatus = document.getElementById('deli-bt-status-badge');
-        if (btStatus) {
-            if (window.deliPrinterConnection.btCharacteristic) {
-                const devName = window.deliPrinterConnection.btDevice?.name || 'Deli E750W';
-                btStatus.className = 'bg-emerald-500 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black';
-                btStatus.innerText = `🔵 بلوتوث متصل (${devName})`;
-            } else if (window.deliPrinterConnection.usbPort) {
-                btStatus.className = 'bg-cyan-500 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black';
-                btStatus.innerText = '🔌 كابل USB مباشر متصل';
-            } else {
-                btStatus.className = 'bg-slate-700 text-slate-300 px-2.5 py-1 rounded-lg text-[10px] font-bold';
-                btStatus.innerText = '⚪ وضع النظام المباشر (Spooler جاهز)';
-            }
+        if (!btStatus) return;
+        if (window.deliPrinterConnection.btCharacteristic) {
+            const devName = window.deliPrinterConnection.btDevice?.name || 'Deli E750W';
+            btStatus.className = 'bg-emerald-500 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black';
+            btStatus.innerText = `🔵 بلوتوث متصل (${devName})`;
+        } else {
+            btStatus.className = 'bg-amber-400 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black';
+            btStatus.innerText = '📲 جاهز للإرسال إلى Print Label / السبولر';
         }
     }
 
     // =========================================================================
-    // 🎛️ 5. نافذة استوديو البوليصة والتحكم الكامل في طابعة Deli E750W
+    // 🎛️ 7. نافذة استوديو البوليصة والتحكم الكامل في طابعة Deli E750W
     // =========================================================================
     function ensureDeliStudioModalExists() {
         let modal = document.getElementById('deli-waybill-studio-modal');
@@ -677,25 +780,25 @@
         modal.className = 'fixed inset-0 bg-slate-900/75 backdrop-blur-sm z-[210] hidden flex items-center justify-center p-2 sm:p-4';
 
         modal.innerHTML = `
-            <div class="bg-white rounded-[2rem] shadow-2xl w-full max-w-6xl max-h-[94vh] flex flex-col overflow-hidden border border-slate-200 animate-scale-up">
+            <div class="bg-white rounded-[2rem] shadow-2xl w-full max-w-6xl max-h-[94vh] flex flex-col overflow-hidden border border-slate-200">
                 <!-- الهيدر -->
                 <div class="bg-gradient-to-l from-slate-900 via-slate-800 to-emerald-950 text-white p-4 sm:p-5 flex flex-wrap justify-between items-center gap-3 shrink-0">
                     <div class="flex items-center gap-3">
-                        <div class="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center text-amber-300 text-xl">
+                        <div class="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center text-amber-300 text-lg">
                             <i class="fa-solid fa-print"></i>
                         </div>
                         <div>
                             <div class="flex flex-wrap items-center gap-2">
-                                <h3 class="font-black text-sm sm:text-base text-white">استوديو بوليصة الشحن والتحكم في طابعة (Deli E750W)</h3>
-                                <span id="deli-bt-status-badge" class="bg-slate-700 text-slate-300 px-2.5 py-0.5 rounded-lg text-[10px] font-bold">⚪ وضع النظام المباشر (Spooler)</span>
+                                <h3 class="font-black text-sm sm:text-base text-white">استوديو بوليصة الشحن الحرارية (Deli E750W)</h3>
+                                <span id="deli-bt-status-badge" class="bg-amber-400 text-slate-950 px-2.5 py-0.5 rounded-lg text-[10px] font-black">📲 جاهز لتطبيق Print Label</span>
                             </div>
-                            <p class="text-[11px] text-slate-300 font-bold mt-0.5">دقة 203 DPI (8 نقاط/مم) • دعم TSPL & ESC/POS • معاينة حية ومطابقة للمقاس بالمليمتر</p>
+                            <p class="text-[11px] text-slate-300 font-bold mt-0.5">رسم حراري 203 DPI • متوافق 100% مع تطبيق الأندرويد وبرنامج Print Label</p>
                         </div>
                     </div>
 
                     <div class="flex items-center gap-2">
-                        <button type="button" onclick="connectDeliBluetoothPrinter()" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-sm" title="ربط مباشر عبر البلوتوث">
-                            <i class="fa-brands fa-bluetooth-b"></i> ربط بلوتوث
+                        <button type="button" onclick="sendWaybillToPrintLabelApp()" class="bg-[#25D366] hover:bg-[#1ebd57] text-slate-950 px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-md">
+                            <i class="fa-solid fa-share-nodes"></i> إرسال لـ Print Label
                         </button>
                         <button type="button" onclick="closeDeliStudioModal()" class="w-9 h-9 rounded-xl bg-white/10 hover:bg-red-500 text-white flex items-center justify-center transition-all">
                             <i class="fa-solid fa-xmark text-base"></i>
@@ -703,37 +806,66 @@
                     </div>
                 </div>
 
-                <!-- جسم الاستوديو: إعدادات اليمين + معاينة البوليصة اليسار -->
-                <div class="flex-1 overflow-y-auto custom-scroll p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-50">
-                    
-                    <!-- العمود الأيمن: إعدادات الهاردوير والقالب (7 أعمدة) -->
-                    <div class="lg:col-span-7 space-y-4">
-                        
-                        <!-- 1. مقاس الاستيكر ونوع القالب -->
+                <!-- جسم الاستوديو -->
+                <div class="flex-1 overflow-y-auto custom-scroll p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5 bg-slate-50">
+                    <!-- العمود الأيسر (على الموبايل يظهر أولاً لسهولة الطباعة الفورية): المعاينة وأزرار الطباعة -->
+                    <div class="lg:col-span-5 lg:order-2 flex flex-col justify-between bg-slate-200/80 rounded-2xl p-4 border border-slate-300">
+                        <div>
+                            <div class="flex justify-between items-center mb-2.5">
+                                <span class="text-xs font-black text-slate-800"><i class="fa-solid fa-eye text-brand-primary ml-1"></i> المعاينة الحرارية (<span id="dw-queue-count-badge">1</span> بوليصة)</span>
+                                <span id="dw-dims-badge" class="bg-slate-900 text-white px-2.5 py-0.5 rounded-full text-[10px] font-black">100×100 مم (800×800px)</span>
+                            </div>
+
+                            <div id="dw-live-preview-stage" class="bg-white rounded-2xl shadow-inner border border-slate-300 p-2.5 flex items-center justify-center overflow-auto min-h-[290px] max-h-[380px]"></div>
+                        </div>
+
+                        <!-- أزرار الطباعة الثلاثة المضمونة -->
+                        <div class="space-y-2 mt-4 pt-3 border-t border-slate-300">
+                            <button type="button" onclick="triggerStudioPrintLabelApp()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3.5 rounded-2xl text-sm shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 active:scale-95">
+                                <i class="fa-solid fa-mobile-screen-button text-amber-300 text-base"></i>
+                                <span>📲 طباعة عبر تطبيق (Print Label) - للأندرويد</span>
+                            </button>
+
+                            <div class="grid grid-cols-2 gap-2">
+                                <button type="button" onclick="triggerStudioMainPrint()" class="bg-slate-900 hover:bg-slate-800 text-white font-black py-2.5 px-3 rounded-xl text-xs shadow-sm transition-all flex items-center justify-center gap-1.5">
+                                    <i class="fa-solid fa-print text-amber-400"></i> طباعة النظام (Spooler)
+                                </button>
+                                <button type="button" onclick="triggerStudioDirectTSPLPrint()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-2.5 px-3 rounded-xl text-xs shadow-sm transition-all flex items-center justify-center gap-1.5">
+                                    <i class="fa-solid fa-bolt text-amber-300"></i> أوامر TSPL (RawBT)
+                                </button>
+                            </div>
+
+                            <button type="button" onclick="saveWaybillSettings()" class="w-full bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-black py-2 rounded-xl text-xs transition-all flex items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-floppy-disk text-brand-primary"></i> حفظ الإعدادات الحالية كافتراضي
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- العمود الأيمن: إعدادات المقاس والخط والهاردوير -->
+                    <div class="lg:col-span-7 lg:order-1 space-y-4">
                         <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
-                            <h4 class="text-xs font-black text-slate-800 border-b border-slate-100 pb-2"><i class="fa-solid fa-ruler-combined text-brand-primary ml-1"></i> 1. مقاس الملصق الحراري ونوع القالب</h4>
+                            <h4 class="text-xs font-black text-slate-800 border-b border-slate-100 pb-2"><i class="fa-solid fa-ruler-combined text-brand-primary ml-1"></i> 1. مقاس رول الاستيكر وتصميم البوليصة</h4>
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
-                                    <label class="text-[10px] font-black text-slate-500 block mb-1">مقاس رول الاستيكر (Deli E750W)</label>
-                                    <select id="dw-size-preset" onchange="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 outline-none focus:border-brand-primary">
+                                    <label class="text-[10px] font-black text-slate-500 block mb-1">مقاس الاستيكر في الطابعة</label>
+                                    <select id="dw-size-preset" onchange="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 outline-none">
                                         <option value="100x100">📏 10×10 سم (100×100 مم - القياسي)</option>
                                         <option value="100x150">📏 10×15 سم (100×150 مم - بوليصة كبيرة)</option>
                                         <option value="80x60">📏 8×6 سم (80×60 مم - متوسط)</option>
                                         <option value="70x50">📏 7×5 سم (70×50 مم - مدمج)</option>
-                                        <option value="50x30">🏷️ 5×3 سم (50×30 مم - استيكر طبق سمان)</option>
-                                        <option value="custom">⚙️ مقاس حر مخصص بالمليمتر...</option>
+                                        <option value="50x30">🏷️ 5×3 سم (50×30 مم - استيكر طبق)</option>
+                                        <option value="custom">⚙️ مقاس مخصص بالمليمتر...</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <label class="text-[10px] font-black text-slate-500 block mb-1">تصميم القالب</label>
-                                    <select id="dw-template-mode" onchange="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 outline-none focus:border-brand-primary">
-                                        <option value="shipping">📦 بوليصة شحن وتحصيل كاملة (VIP)</option>
-                                        <option value="product_tag">🏷️ استيكر منتج / طبق سمان للفريزر</option>
+                                    <label class="text-[10px] font-black text-slate-500 block mb-1">نوع القالب</label>
+                                    <select id="dw-template-mode" onchange="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 outline-none">
+                                        <option value="shipping">📦 بوليصة شحن وتحصيل كاملة</option>
+                                        <option value="product_tag">🏷️ استيكر طبق سمان للفريزر</option>
                                     </select>
                                 </div>
                             </div>
 
-                            <!-- خانات المقاس الحر -->
                             <div id="dw-custom-dims-row" class="hidden grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
                                 <div>
                                     <label class="text-[10px] font-bold text-slate-500 block mb-1">العرض بالمليمتر (أقصى 108 مم)</label>
@@ -746,131 +878,54 @@
                             </div>
                         </div>
 
-                        <!-- 2. إعدادات هاردوير طابعة Deli E750W (TSPL Hardware Control) -->
                         <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
-                            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                                <h4 class="text-xs font-black text-slate-800"><i class="fa-solid fa-microchip text-indigo-600 ml-1"></i> 2. تحكم الهاردوير وحساس الورق (Deli E750W TSPL)</h4>
-                                <div class="flex gap-1.5">
-                                    <button type="button" onclick="sendDeliHardwareCommand('calibrate')" class="bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all" title="ضبط حساس الفواصل أوتوماتيكياً">🎯 معايرة الحساس</button>
-                                    <button type="button" onclick="sendDeliHardwareCommand('feed')" class="bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white px-2.5 py-1 rounded-lg text-[10px] font-black transition-all" title="إخراج استيكر واحد للتجربة">⏬ سحب ورقة</button>
-                                </div>
-                            </div>
-
+                            <h4 class="text-xs font-black text-slate-800 border-b border-slate-100 pb-2"><i class="fa-solid fa-sliders text-indigo-600 ml-1"></i> 2. ضبط الخط والغمقان والنسخ</h4>
                             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                 <div>
+                                    <label class="text-[10px] font-black text-slate-500 block mb-1">حجم الخط</label>
+                                    <select id="dw-font-scale" onchange="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
+                                        <option value="small">صغير</option>
+                                        <option value="normal" selected>متوسط قياسي</option>
+                                        <option value="large">كبير وواضح</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-black text-slate-500 block mb-1">عدد النسخ</label>
+                                    <input type="number" id="dw-copies" min="1" max="10" value="1" oninput="onDeliStudioInputChange()" class="w-full border border-emerald-200 rounded-xl p-2 text-center text-xs font-black text-brand-primary bg-emerald-50">
+                                </div>
+                                <div>
                                     <label class="text-[10px] font-black text-slate-500 block mb-1">غمقان الحبر (1-15)</label>
-                                    <input type="number" id="dw-density" min="1" max="15" value="12" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-center text-xs font-black text-slate-800 bg-slate-50">
+                                    <input type="number" id="dw-density" min="1" max="15" value="12" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-center text-xs font-black bg-slate-50">
                                 </div>
                                 <div>
-                                    <label class="text-[10px] font-black text-slate-500 block mb-1">سرعة الطباعة (2-6)</label>
-                                    <select id="dw-speed" onchange="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
-                                        <option value="3">3 (جودة فائقة)</option>
-                                        <option value="4" selected>4 (متوازن 100mm/s)</option>
-                                        <option value="6">6 (أقصى سرعة 150mm/s)</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="text-[10px] font-black text-slate-500 block mb-1">نوع حساس الورق</label>
-                                    <select id="dw-sensor-type" onchange="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
-                                        <option value="gap">ملصقات بفواصل (Gap)</option>
-                                        <option value="continuous">حراري مستمر (Continuous)</option>
-                                        <option value="bmark">علامة سوداء (Black Mark)</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="text-[10px] font-black text-slate-500 block mb-1">مسافة الفاصل (مم)</label>
+                                    <label class="text-[10px] font-black text-slate-500 block mb-1">الفاصل (Gap مم)</label>
                                     <input type="number" id="dw-gap-mm" min="0" max="10" step="0.5" value="2" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-center text-xs font-black bg-slate-50">
                                 </div>
                             </div>
 
-                            <div class="grid grid-cols-3 gap-3 pt-1">
-                                <div>
-                                    <label class="text-[10px] font-bold text-slate-500 block mb-1">حجم الخط بالبوليصة</label>
-                                    <select id="dw-font-scale" onchange="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
-                                        <option value="small">صغير (أصناف كثيرة)</option>
-                                        <option value="normal" selected>متوسط قياسي</option>
-                                        <option value="large">كبير وواضح جداً</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="text-[10px] font-bold text-slate-500 block mb-1">إزاحة أفقية X (مم)</label>
-                                    <input type="number" id="dw-offset-x" min="-8" max="8" step="0.5" value="0" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-center text-xs font-black bg-slate-50">
-                                </div>
-                                <div>
-                                    <label class="text-[10px] font-bold text-slate-500 block mb-1">عدد النسخ للبوليصة</label>
-                                    <input type="number" id="dw-copies" min="1" max="10" value="1" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-center text-xs font-black text-brand-primary bg-emerald-50 border-emerald-200">
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 3. عناصر العرض وطريقة الإرسال -->
-                        <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
-                            <h4 class="text-xs font-black text-slate-800 border-b border-slate-100 pb-2"><i class="fa-solid fa-Sliders text-amber-500 ml-1"></i> 3. محتويات البوليصة وطريقة التشغيل</h4>
-                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs font-black text-slate-700">
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-black text-slate-700 pt-1">
                                 <label class="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200/60 cursor-pointer">
-                                    <input type="checkbox" id="dw-show-logo" checked onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-brand-primary rounded"> لوجو سمان ههيا
+                                    <input type="checkbox" id="dw-show-barcode" checked onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-brand-primary rounded"> الباركود
                                 </label>
                                 <label class="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200/60 cursor-pointer">
-                                    <input type="checkbox" id="dw-show-barcode" checked onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-brand-primary rounded"> باركود CODE128
+                                    <input type="checkbox" id="dw-show-prices" checked onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-brand-primary rounded"> أسعار الجدول
                                 </label>
-                                <label class="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200/60 cursor-pointer">
-                                    <input type="checkbox" id="dw-show-qr" checked onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-brand-primary rounded"> QR واتساب للمندوب
-                                </label>
-                                <label class="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200/60 cursor-pointer">
-                                    <input type="checkbox" id="dw-show-prices" checked onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-brand-primary rounded"> أسعار الأصناف بالجدول
-                                </label>
-                                <label class="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200/60 cursor-pointer">
-                                    <input type="checkbox" id="dw-show-weight" checked onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-brand-primary rounded"> أوزان الأصناف
-                                </label>
-                                <label class="flex items-center gap-2 bg-amber-50 p-2 rounded-xl border border-amber-200 cursor-pointer text-amber-900">
-                                    <input type="checkbox" id="dw-route-summary" onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-amber-600 rounded"> ملصق إجمالي للمندوب
+                                <label class="flex items-center gap-2 bg-amber-50 p-2 rounded-xl border border-amber-200 cursor-pointer text-amber-900 col-span-2">
+                                    <input type="checkbox" id="dw-route-summary" onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-amber-600 rounded"> طباعة ملصق إجمالي للمندوب
                                 </label>
                             </div>
 
-                            <div class="pt-2">
+                            <div>
                                 <label class="text-[10px] font-bold text-slate-500 block mb-1">رسالة التذييل أسفل البوليصة</label>
                                 <input type="text" id="dw-footer-text" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-slate-50">
                             </div>
 
-                            <div class="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-                                <label class="flex items-center gap-2 text-xs font-black text-emerald-800 bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200 cursor-pointer">
-                                    <input type="checkbox" id="dw-instant-print" onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-emerald-600 rounded">
-                                    ⚡ طباعة فورية بضغطة واحدة من الكارت (بدون فتح نافذة المعاينة في كل مرة)
-                                </label>
-                            </div>
+                            <label class="flex items-center gap-2 text-xs font-black text-emerald-800 bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200 cursor-pointer">
+                                <input type="checkbox" id="dw-instant-print" onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-emerald-600 rounded">
+                                ⚡ إرسال فوري إلى تطبيق (Print Label) بمجرد الضغط على زر بوليصة في الكارت
+                            </label>
                         </div>
                     </div>
-
-                    <!-- العمود الأيسر: شاشة المعاينة الحية وأزرار الطباعة المباشرة (5 أعمدة) -->
-                    <div class="lg:col-span-5 flex flex-col justify-between bg-slate-200/70 rounded-2xl p-4 border border-slate-300/80">
-                        <div>
-                            <div class="flex justify-between items-center mb-3">
-                                <span class="text-xs font-black text-slate-700"><i class="fa-solid fa-eye text-brand-primary ml-1"></i> معاينة حية للبوليصة (<span id="dw-queue-count-badge">1</span> بوليصة جاهزة)</span>
-                                <span id="dw-dims-badge" class="bg-slate-800 text-white px-2.5 py-0.5 rounded-full text-[10px] font-black">100×100 مم (800×800 نقطة)</span>
-                            </div>
-
-                            <!-- صندوق عرض البوليصة المصغر المتجاوب -->
-                            <div id="dw-live-preview-stage" class="bg-white rounded-2xl shadow-inner border border-slate-300 p-3 flex items-center justify-center overflow-auto min-h-[340px] max-h-[420px]"></div>
-                        </div>
-
-                        <!-- أزرار التنفيذ والطباعة -->
-                        <div class="space-y-2 mt-4 pt-3 border-t border-slate-300">
-                            <button type="button" onclick="triggerStudioMainPrint()" class="w-full bg-brand-primary hover:bg-emerald-800 text-white font-black py-3.5 rounded-2xl text-sm shadow-lg shadow-brand-primary/25 transition-all flex items-center justify-center gap-2 active:scale-95">
-                                <i class="fa-solid fa-print text-amber-300 text-base"></i>
-                                <span>اطبع البوليصة الآن (Spooler مباشر)</span>
-                            </button>
-
-                            <div class="grid grid-cols-2 gap-2">
-                                <button type="button" onclick="triggerStudioDirectTSPLPrint()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-2.5 px-3 rounded-xl text-xs shadow-sm transition-all flex items-center justify-center gap-1.5">
-                                    <i class="fa-brands fa-bluetooth-b"></i> إرسال TSPL (بلوتوث/RawBT)
-                                </button>
-                                <button type="button" onclick="saveWaybillSettings()" class="bg-slate-800 hover:bg-slate-900 text-white font-black py-2.5 px-3 rounded-xl text-xs shadow-sm transition-all flex items-center justify-center gap-1.5">
-                                    <i class="fa-solid fa-floppy-disk text-emerald-400"></i> حفظ الإعدادات
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
                 </div>
             </div>
         `;
@@ -888,19 +943,13 @@
         setVal('dw-width-mm', cfg.widthMm || 100);
         setVal('dw-height-mm', cfg.heightMm || 100);
         setVal('dw-density', cfg.density || 12);
-        setVal('dw-speed', cfg.speed || 4);
-        setVal('dw-sensor-type', cfg.sensorType || 'gap');
         setVal('dw-gap-mm', cfg.gapMm !== undefined ? cfg.gapMm : 2);
         setVal('dw-font-scale', cfg.fontScale || 'normal');
-        setVal('dw-offset-x', cfg.offsetXMm || 0);
         setVal('dw-copies', cfg.copies || 1);
         setVal('dw-footer-text', cfg.footerText || '');
 
-        setChk('dw-show-logo', cfg.showLogo !== false);
         setChk('dw-show-barcode', cfg.showBarcode !== false);
-        setChk('dw-show-qr', cfg.showQrCode !== false);
         setChk('dw-show-prices', cfg.showItemsPrice !== false);
-        setChk('dw-show-weight', cfg.showWeightInfo !== false);
         setChk('dw-route-summary', cfg.includeRouteSummary === true);
         setChk('dw-instant-print', cfg.instantPrint === true);
 
@@ -930,18 +979,12 @@
             widthMm: Number(getVal('dw-width-mm', 100)) || 100,
             heightMm: Number(getVal('dw-height-mm', 100)) || 100,
             density: Number(getVal('dw-density', 12)) || 12,
-            speed: Number(getVal('dw-speed', 4)) || 4,
-            sensorType: getVal('dw-sensor-type', 'gap'),
             gapMm: Number(getVal('dw-gap-mm', 2)) || 0,
             fontScale: getVal('dw-font-scale', 'normal'),
-            offsetXMm: Number(getVal('dw-offset-x', 0)) || 0,
             copies: Math.max(1, parseInt(getVal('dw-copies', 1)) || 1),
             footerText: getVal('dw-footer-text', ''),
-            showLogo: getChk('dw-show-logo', true),
             showBarcode: getChk('dw-show-barcode', true),
-            showQrCode: getChk('dw-show-qr', true),
             showItemsPrice: getChk('dw-show-prices', true),
-            showWeightInfo: getChk('dw-show-weight', true),
             includeRouteSummary: getChk('dw-route-summary', false),
             instantPrint: getChk('dw-instant-print', false)
         };
@@ -959,10 +1002,10 @@
         if (liveOrders.length > 0) return liveOrders[0];
         return {
             id: 'SMAN2026',
-            customerName: 'د. محمد ماضي (نموذج معاينة)',
+            customerName: 'د. أحمد ماضي (نموذج معاينة)',
             customerPhone: '01208027294',
             zone: 'ههيا',
-            customerAddress: 'شارع الجمهورية - بجوار الصيدلية',
+            customerAddress: 'شارع الجمهورية - بجوار مجمع الأصدقاء الطبي',
             orderDate: new Date().toLocaleDateString('ar-EG'),
             batchName: 'دفعة السمان الملكي',
             paymentMethod: 'cash',
@@ -991,17 +1034,17 @@
 
         const dimsBadge = document.getElementById('dw-dims-badge');
         if (dimsBadge) {
-            dimsBadge.innerText = `${dims.w}×${dims.h} مم (${dims.w * DOTS_PER_MM}×${dims.h * DOTS_PER_MM} نقطة)`;
+            dimsBadge.innerText = `${dims.w}×${dims.h} مم (${dims.w * DOTS_PER_MM}×${dims.h * DOTS_PER_MM}px)`;
         }
 
-        // تصغير المعاينة بصرياً لتناسب الشاشة مع الحفاظ على النسبة الحقيقية
-        const scaleRatio = dims.h > 120 ? 0.68 : 0.82;
-        stage.innerHTML = `
-            <div id="dw-preview-card-holder" style="transform:scale(${scaleRatio}); transform-origin:top center;">
-                ${window.buildSingleWaybillCardHTML(sampleOrd, cfg, 1, queueLen)}
-            </div>
-        `;
-        renderBarcodesInsideContainer(stage);
+        const cnv = window.renderWaybillToCanvas203DPI(sampleOrd, cfg, 1, queueLen);
+        cnv.style.maxWidth = '100%';
+        cnv.style.maxHeight = '340px';
+        cnv.style.height = 'auto';
+        cnv.style.borderRadius = '10px';
+        cnv.style.boxShadow = '0 6px 20px rgba(0,0,0,0.12)';
+        stage.innerHTML = '';
+        stage.appendChild(cnv);
     }
 
     window.closeDeliStudioModal = function () {
@@ -1009,17 +1052,14 @@
     };
 
     // =========================================================================
-    // 🔗 6. ربط واستبدال دوال البوليصة في الموقع بالكامل
+    // 🔗 8. ربط كافة أزرار الطباعة في النظام (الفردي + الجماعي + الإعدادات)
     // =========================================================================
-
-    // فتح إعدادات واستوديو البوليصة
     window.openWaybillSettingsModal = function (ordersQueue = null) {
-        if (typeof closeModal === 'function') closeModal('waybill-settings-modal');
         const modal = ensureDeliStudioModalExists();
         if (Array.isArray(ordersQueue) && ordersQueue.length > 0) {
             window.deliPrinterConnection.lastOrdersQueue = ordersQueue;
         } else {
-            const firstLive = (typeof allOrdersRaw !== 'undefined' && allOrdersRaw.length > 0) ? [allOrdersRaw[0]] : [];
+            const firstLive = (typeof allOrdersRaw !== 'undefined' && allOrdersRaw.length > 0) ? [allOrdersRaw[0]] : [getSampleOrderForPreview()];
             window.deliPrinterConnection.lastOrdersQueue = firstLive;
         }
 
@@ -1030,14 +1070,23 @@
         modal.classList.remove('hidden');
     };
 
-    // حفظ إعدادات البوليصة
     window.saveWaybillSettings = function () {
         const newCfg = readStudioInputsToConfig();
         persistWaybillConfig(newCfg);
-        notifyPrinterToast('✅ تم حفظ إعدادات طابعة البوالص (Deli E750W) بنجاح!');
+        notifyPrinterToast('✅ تم حفظ إعدادات طابعة Deli E750W بنجاح!');
     };
 
-    // الطباعة من زر الاستوديو الرئيسي (Spooler مباشر بدون نوافذ منبثقة)
+    // 1. الزر الأول (الأخضر الأساسي للأندرويد): إرسال مباشر لتطبيق Print Label
+    window.triggerStudioPrintLabelApp = function () {
+        const newCfg = readStudioInputsToConfig();
+        persistWaybillConfig(newCfg);
+        const queue = (window.deliPrinterConnection.lastOrdersQueue && window.deliPrinterConnection.lastOrdersQueue.length > 0)
+            ? window.deliPrinterConnection.lastOrdersQueue
+            : [getSampleOrderForPreview()];
+        window.sendWaybillToPrintLabelApp(queue, newCfg);
+    };
+
+    // 2. الزر الثاني: طباعة النظام المباشرة (Spooler)
     window.triggerStudioMainPrint = function () {
         const newCfg = readStudioInputsToConfig();
         persistWaybillConfig(newCfg);
@@ -1047,32 +1096,46 @@
         window.printViaInPageThermalFrame(queue, newCfg);
     };
 
-    // الطباعة المباشرة بأوامر TSPL عبر البلوتوث أو USB أو RawBT
+    // 3. الزر الثالث: إرسال أوامر TSPL الخام عبر RawBT أو البلوتوث
     window.triggerStudioDirectTSPLPrint = async function () {
         const newCfg = readStudioInputsToConfig();
         persistWaybillConfig(newCfg);
-        const holder = document.querySelector('#dw-preview-card-holder .wb-sheet');
-        if (!holder) return;
+        const queue = (window.deliPrinterConnection.lastOrdersQueue && window.deliPrinterConnection.lastOrdersQueue.length > 0)
+            ? window.deliPrinterConnection.lastOrdersQueue
+            : [getSampleOrderForPreview()];
+
+        const canvases = buildAllCanvasesForQueue(queue, newCfg);
+        if (canvases.length === 0) return;
 
         try {
-            notifyPrinterToast('⏳ جاري تجهيز مصفوفة TSPL بدقة 203 DPI...');
-            const tsplPacket = await convertWaybillElementToTSPLBytes(holder, newCfg);
-            const sent = await sendRawTSPLBytesToDeli(tsplPacket);
-            if (sent) {
-                notifyPrinterToast('✅ تمت الطباعة المباشرة بأوامر TSPL على Deli E750W!');
-            } else {
-                // إذا لم يكن البلوتوث مربوطاً من المتصفح، نرسل إلى جسر RawBT على الأندرويد أو نطبع بالـ Spooler
-                window.triggerStudioMainPrint();
-            }
-        } catch (e) {
-            console.error(e);
-            window.triggerStudioMainPrint();
-        }
-    };
+            // تجميع حزم TSPL لكل البوالص المطلوبة
+            let totalLen = 0;
+            const packets = canvases.map(cnv => {
+                const p = convertCanvasToTSPLPacket(cnv, newCfg);
+                totalLen += p.length;
+                return p;
+            });
 
-    // معاينة البوليصة القياسية
-    window.previewWaybillSample = function () {
-        window.openWaybillSettingsModal();
+            const combinedPacket = new Uint8Array(totalLen);
+            let offset = 0;
+            packets.forEach(p => {
+                combinedPacket.set(p, offset);
+                offset += p.length;
+            });
+
+            const sentDirect = await sendRawTSPLBytesToDeli(combinedPacket);
+            if (sentDirect) {
+                notifyPrinterToast('✅ تمت الطباعة المباشرة بأوامر TSPL على Deli E750W!');
+                return;
+            }
+
+            // إرسال فعلي إلى جسر RawBT على الأندرويد بدلاً من العودة للسبولر
+            const base64Payload = uint8ArrayToBase64(combinedPacket);
+            window.location.href = `rawbt:base64,${base64Payload}`;
+        } catch (e) {
+            console.error('TSPL Print error:', e);
+            window.sendWaybillToPrintLabelApp(queue, newCfg);
+        }
     };
 
     // طباعة أوردر فردي من كارت الطلب
@@ -1084,13 +1147,13 @@
         window.deliPrinterConnection.lastOrdersQueue = [order];
 
         if (cfg.instantPrint) {
-            window.printViaInPageThermalFrame([order], cfg);
+            window.sendWaybillToPrintLabelApp([order], cfg);
         } else {
             window.openWaybillSettingsModal([order]);
         }
     };
 
-    // طباعة جماعية للطلبات المحددة في شريط التحديد الجماعي
+    // طباعة جماعية للطلبات المحددة (متوافق مع الاسم في index.html والاسم في orders.js)
     window.bulkPrintWaybills = function () {
         const checkedIds = Array.from(document.querySelectorAll('.bulk-order-cb:checked')).map(cb => cb.value);
         if (checkedIds.length === 0) return alert('يرجى تحديد طلب واحد على الأقل لطباعة البوليصة!');
@@ -1102,21 +1165,20 @@
         window.deliPrinterConnection.lastOrdersQueue = ordersToPrint;
 
         if (cfg.instantPrint) {
-            window.printViaInPageThermalFrame(ordersToPrint, cfg);
+            window.sendWaybillToPrintLabelApp(ordersToPrint, cfg);
         } else {
             window.openWaybillSettingsModal(ordersToPrint);
         }
     };
+    window.printSelectedOrdersWaybills = window.bulkPrintWaybills;
 
-    // استبدال الدالة القديمة executeThermalWaybillsPrint لضمان عمل أي استدعاء قديم
-    window.executeThermalWaybillsPrint = function (ordersToPrint) {
-        if (!ordersToPrint || ordersToPrint.length === 0) return;
-        const cfg = window.getWaybillConfig();
-        window.deliPrinterConnection.lastOrdersQueue = ordersToPrint;
-        window.printViaInPageThermalFrame(ordersToPrint, cfg);
+    // معاينة البوليصة من صفحة الإعدادات
+    window.previewWaybillSample = function () {
+        window.openWaybillSettingsModal();
     };
+    window.previewSampleWaybill = window.previewWaybillSample;
 
-    // إضافة أيقونة سريعة لاستوديو الطابعة في الشريط العلوي بجوار الفريزر والمناديب
+    // إضافة زر سريع لاستوديو الطابعة في الشريط العلوي
     function injectHeaderPrinterQuickBtn() {
         const pulseBar = document.getElementById('lc-header-pulse-bar');
         if (pulseBar && !document.getElementById('lc-hdr-printer-btn')) {
