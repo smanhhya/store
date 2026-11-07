@@ -1,0 +1,9 @@
+{
+  "name": "سمان ههيا | الإدارة المركزية",
+  "short_name": "سمان ههيا",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#064e3b",
+  "theme_color": "#166534",
+  "orientation": "portrait"
+}
