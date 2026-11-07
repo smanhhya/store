@@ -1,11 +1,11 @@
 // =========================================================================
-// ⚡ محرك الترابط الحي، الكبسولات التفاعلية، ونبض النظام (www/live-connect.js)
-// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM)
-// يعمل بتكامل تام مع index.html + www/orders.js + www/dashboard.js
+// ⚡ محرك الترابط الحي، الكبسولات التفاعلية، ونبض النظام (live-connect.js)
+// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM) - النسخة الكاملة المطورة
+// يعمل بتكامل تام مع index.html + orders.js + dashboard.js
 // =========================================================================
 
 (function () {
-    // 1. حالة نظام الترابط الحي والطي الذكي
+    // 1. حالة نظام الترابط الحي
     window.liveConnectState = {
         toolbarCollapsed: false,
         autoCollapseOnScroll: true,
@@ -14,7 +14,7 @@
     };
 
     // =========================================================================
-    // 🎨 2. حقن تنسيقات الكبسولات الحية والقوائم الطائرة والطي الناعم
+    // 🎨 2. حقن تنسيقات الكبسولات الحية والقوائم الطائرة والهيدر المتجاوب
     // =========================================================================
     function injectLiveConnectStyles() {
         if (document.getElementById('live-connect-styles')) return;
@@ -31,7 +31,7 @@
                 box-shadow: 0 4px 12px -2px rgba(6, 78, 59, 0.18) !important;
             }
             .lc-capsule:active {
-                transform: scale(0.96);
+                transform: scale(0.95);
             }
             #lc-floating-popover {
                 animation: lcPopIn 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -40,19 +40,15 @@
                 from { opacity: 0; transform: translateY(6px) scale(0.96); }
                 to { opacity: 1; transform: translateY(0) scale(1); }
             }
-            #smart-orders-toolbar {
-                transition: max-height 0.28s ease, opacity 0.22s ease, margin 0.22s ease, padding 0.22s ease;
-                overflow: hidden;
-                max-height: 500px;
-                opacity: 1;
-            }
-            #smart-orders-toolbar.lc-collapsed {
-                max-height: 0 !important;
-                opacity: 0 !important;
-                margin-top: 0 !important;
-                padding-top: 0 !important;
-                border-top-width: 0 !important;
-                pointer-events: none;
+            @media (max-width: 640px) {
+                header {
+                    padding-left: 0.5rem !important;
+                    padding-right: 0.5rem !important;
+                }
+                header #header-title {
+                    font-size: 0.95rem !important;
+                    white-space: nowrap;
+                }
             }
         `;
         document.head.appendChild(style);
@@ -136,7 +132,7 @@
     }
 
     // =========================================================================
-    // 💊 4. تفعيل الكبسولات الحية على كروت الطلبات (Interactive Micro-Capsules)
+    // 💊 4. تفعيل الكبسولات الحية على كروت الطلبات (في الوضع التفصيلي والمدمج)
     // =========================================================================
     window.enhanceOrderCardsLive = function () {
         const container = document.getElementById('orders-list-vertical');
@@ -148,11 +144,12 @@
             const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
             if (!order) return;
 
-            // 1. كبسولة طريقة الدفع (💵 كاش ⇄ 💳 خالص أونلاين)
+            // 1. كبسولة طريقة الدفع + المديونية + نبض المندوب
             const paySpans = card.querySelectorAll('span');
             paySpans.forEach(sp => {
                 const txt = sp.innerText.trim();
-                if ((txt === 'كاش' || txt === 'خالص (أونلاين)') && !sp.hasAttribute('data-lc-pay')) {
+
+                if ((txt === 'كاش' || txt === 'خالص (أونلاين)' || txt === 'خالص أونلاين') && !sp.hasAttribute('data-lc-pay')) {
                     sp.setAttribute('data-lc-pay', '1');
                     sp.setAttribute('data-lc-trigger', '1');
                     sp.classList.add('lc-capsule');
@@ -163,7 +160,6 @@
                     };
                 }
 
-                // 2. كبسولة تسوية المديونية السريعة (آجل X ج)
                 if (txt.startsWith('آجل (') && !sp.hasAttribute('data-lc-debt')) {
                     sp.setAttribute('data-lc-debt', '1');
                     sp.setAttribute('data-lc-trigger', '1');
@@ -175,7 +171,6 @@
                     };
                 }
 
-                // 3. كبسولة نبض المندوب (🛵 مع: ...)
                 if (txt.startsWith('مع:') && !sp.hasAttribute('data-lc-driver')) {
                     sp.setAttribute('data-lc-driver', '1');
                     sp.setAttribute('data-lc-trigger', '1');
@@ -188,12 +183,12 @@
                 }
             });
 
-            // 4. كبسولة المنطقة الذكية (📍 المنطقة)
-            const zoneSpan = card.querySelector('span[ondblclick*="\'zone\'"]');
+            // 2. كبسولة المنطقة الذكية (تعمل في التفصيلي والمدمج)
+            const zoneSpan = card.querySelector('[data-zone-pill="1"]') || card.querySelector('span[ondblclick*="\'zone\'"]');
             if (zoneSpan && !zoneSpan.hasAttribute('data-lc-zone')) {
                 zoneSpan.setAttribute('data-lc-zone', '1');
                 zoneSpan.setAttribute('data-lc-trigger', '1');
-                zoneSpan.classList.add('lc-capsule', 'bg-indigo-50/70', 'px-2', 'py-0.5', 'rounded-md');
+                zoneSpan.classList.add('lc-capsule');
                 zoneSpan.title = 'اضغط لخيارات المنطقة السريعة (أو مرتين للتعديل)';
                 zoneSpan.onclick = (e) => {
                     e.stopPropagation();
@@ -209,17 +204,20 @@
                 };
             }
 
-            // 5. كبسولة تعديل كمية الصنف السريع (+ / - من خارج الكارت)
+            // 3. كبسولة تعديل كمية الصنف السريع (+ / -) في الوضعين التفصيلي والمدمج
             if (!['completed', 'canceled', 'trash'].includes(order.status)) {
-                const itemBoxes = card.querySelectorAll('.bg-slate-50\\/80 > span.bg-white');
-                itemBoxes.forEach((box, idx) => {
-                    const nameSpan = box.querySelector('span.font-black.text-slate-800');
-                    if (nameSpan && !nameSpan.hasAttribute('data-lc-item')) {
-                        nameSpan.setAttribute('data-lc-item', '1');
-                        nameSpan.setAttribute('data-lc-trigger', '1');
-                        nameSpan.classList.add('lc-capsule', 'hover:text-brand-primary');
-                        nameSpan.title = 'اضغط لتعديل الكمية (+ / -) فوراً';
-                        nameSpan.onclick = (e) => {
+                const itemBoxes = card.querySelectorAll('[data-item-idx]');
+                itemBoxes.forEach(box => {
+                    const idx = parseInt(box.getAttribute('data-item-idx'));
+                    if (isNaN(idx)) return;
+                    const nameTarget = box.querySelector('span.font-black.text-slate-800') || box;
+                    if (nameTarget && !nameTarget.hasAttribute('data-lc-item')) {
+                        nameTarget.setAttribute('data-lc-item', '1');
+                        nameTarget.setAttribute('data-lc-trigger', '1');
+                        nameTarget.classList.add('lc-capsule');
+                        nameTarget.title = 'اضغط لتعديل كمية الصنف (+ / -) فوراً';
+                        nameTarget.onclick = (e) => {
+                            if (e.target && e.target.getAttribute('ondblclick')) return;
                             e.stopPropagation();
                             window.openItemQtyCapsulePopover(box, orderId, idx);
                         };
@@ -229,7 +227,63 @@
         });
     };
 
-    // --- 4.1: منطق كبسولة طريقة الدفع ---
+    // --- 4.1: منطق التوجيه الفوري للمندوب من زر الكارت (تجهيز ⬅️ إرسال للمندوب) ---
+    window.openQuickDriverDispatch = function (anchorEl, orderId) {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
+        if (!order) return;
+
+        const drivers = (typeof storeSettings !== 'undefined' && Array.isArray(storeSettings.drivers)) ? storeSettings.drivers : [];
+        if (drivers.length === 0) {
+            if (typeof window.openDispatchModal === 'function') return window.openDispatchModal();
+            return alert('يرجى إضافة مندوب أولاً من قسم إعدادات المتجر!');
+        }
+
+        const drvRows = drivers.map(d => {
+            const safeName = (d.name || '').replace(/'/g, "\\'");
+            const safePhone = (d.phone || '').replace(/'/g, "\\'");
+            return `
+                <div class="flex items-center gap-1.5">
+                    <button onclick="assignSingleOrderToDriver('${orderId}', '${safeName}', '${safePhone}', false)" class="flex-1 bg-indigo-50 hover:bg-indigo-600 text-indigo-900 hover:text-white py-2 px-3 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between border border-indigo-100">
+                        <span>🛵 ${d.name}</span>
+                        <span class="text-[10px] opacity-75">تحويل للطريق</span>
+                    </button>
+                    <button onclick="assignSingleOrderToDriver('${orderId}', '${safeName}', '${safePhone}', true)" class="bg-[#25D366] hover:bg-[#1ebd57] text-white w-9 h-9 rounded-xl text-sm font-black flex items-center justify-center shadow-sm shrink-0" title="تحويل للطريق + إرسال تفاصيل الطلب واتساب للمندوب">
+                        <i class="fa-brands fa-whatsapp"></i>
+                    </button>
+                </div>
+            `;
+        }).join('');
+
+        const html = `
+            <div class="space-y-2.5">
+                <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                    <span class="text-xs font-black text-indigo-800"><i class="fa-solid fa-motorcycle ml-1"></i> إرسال الطلب مع مندوب</span>
+                    <button onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="bg-slate-50 p-2 rounded-xl border border-slate-100 text-[11px] font-bold text-slate-600">
+                    👤 <strong class="text-slate-800">${order.customerName || ''}</strong> (${order.zone || ''}) - <strong class="text-brand-primary">${order.total || 0} ج</strong>
+                </div>
+                <div class="space-y-1.5 max-h-52 overflow-y-auto custom-scroll pr-0.5">${drvRows}</div>
+                <button onclick="closeLivePopover(); openDispatchModalForOrder('${orderId}')" class="w-full bg-slate-800 hover:bg-slate-900 text-white py-2 rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-list-check text-amber-400"></i> فتح شاشة التوجيه الجماعي وخطوط السير
+                </button>
+            </div>
+        `;
+        window.openLivePopover(anchorEl, html);
+    };
+
+    window.openDispatchModalForOrder = function (orderId) {
+        if (typeof window.openDispatchModal === 'function') {
+            window.openDispatchModal();
+            setTimeout(() => {
+                document.querySelectorAll('.disp-cb').forEach(cb => {
+                    cb.checked = (cb.value === orderId);
+                });
+            }, 150);
+        }
+    };
+
+    // --- 4.2: منطق كبسولة طريقة الدفع ---
     window.openPaymentCapsulePopover = function (anchorEl, orderId) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
         if (!order) return;
@@ -285,7 +339,7 @@
         }
     };
 
-    // --- 4.2: منطق كبسولة تعديل كمية الصنف (+ / -) الفوري ---
+    // --- 4.3: منطق كبسولة تعديل كمية الصنف (+ / -) الفوري ---
     window.openItemQtyCapsulePopover = function (anchorEl, orderId, itemIdx) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
         if (!order || !Array.isArray(order.items) || !order.items[itemIdx]) return;
@@ -360,7 +414,6 @@
                 total: newTotal
             });
 
-            // تحديث مخزون الحجز وحصة الدفعة والفريزر
             if (targetItem.id) {
                 batch.set(db.collection('inventory').doc('stock'), {
                     [targetItem.id]: firebase.firestore.FieldValue.increment(-diffQty)
@@ -407,7 +460,7 @@
         }
     };
 
-    // --- 4.3: منطق كبسولة تسوية المديونية اللحظية (في الطلبات والعملاء) ---
+    // --- 4.4: منطق كبسولة تسوية المديونية اللحظية ---
     window.openDebtCapsulePopover = function (anchorEl, customerPhone, orderId = null) {
         const normP = window.normalizePhone ? window.normalizePhone(customerPhone) : customerPhone;
         const cust = (typeof customersData !== 'undefined' ? customersData : []).find(c => window.normalizePhone(c.phone) === normP);
@@ -464,7 +517,7 @@
             const batch = db.batch();
             const custRef = db.collection('customers').doc(cleanPhone);
 
-            const noteText = `[${new Date().toLocaleDateString('ar-EG')}] ✅ تم تحصيل ${payAmount} ج من المديونية السابقه.`;
+            const noteText = `[${new Date().toLocaleDateString('ar-EG')}] ✅ تم تحصيل ${payAmount} ج من المديونية السابقة.`;
             batch.set(custRef, {
                 debt: firebase.firestore.FieldValue.increment(-payAmount),
                 timelineNotes: firebase.firestore.FieldValue.arrayUnion({
@@ -508,7 +561,7 @@
         if (waNumber) window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}`, '_blank');
     };
 
-    // --- 4.4: منطق كبسولة نبض المندوب على كارت الطلب ---
+    // --- 4.5: منطق كبسولة نبض المندوب على كارت الطلب ---
     window.openDriverCapsulePopover = function (anchorEl, orderId, driverName) {
         const dName = (driverName || '').trim();
         const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
@@ -527,7 +580,7 @@
                 otherDriversOpts += `<option value="${d.name.trim()}|${d.phone || ''}">🛵 ${d.name}</option>`;
             }
         });
-        otherDriversOpts += `<option value="REMOVE|">❌ إلغاء تعيين المندوب</option>`;
+        otherDriversOpts += `<option value="REMOVE|">❌ إلغاء تعيين المندوب (إرجاع للتجهيز)</option>`;
 
         const html = `
             <div class="space-y-2.5">
@@ -612,7 +665,7 @@
         }, 120);
     };
 
-    // --- 4.5: منطق كبسولة المنطقة السريعة ---
+    // --- 4.6: منطق كبسولة المنطقة السريعة ---
     window.openZoneCapsulePopover = function (anchorEl, orderId, zoneName) {
         const z = (zoneName || 'غير مسجل').trim();
         const procInZone = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(
@@ -652,36 +705,61 @@
     };
 
     // =========================================================================
-    // 💓 5. إحياء الشريط العلوي (Header Pulse) وعدادات القائمة الجانبية الحية
+    // 💓 5. إحياء الشريط العلوي المتجاوب (بدون إخفاء زر إنشاء طلب أبداً)
     // =========================================================================
     window.initLiveHeaderAndSidebarUI = function () {
-        // 1. حقن كبسولات النبض في الهيدر العلوي مكان شارة "متصل لايف" الصامتة
-        const headerRight = document.querySelector('header .flex.items-center.gap-3');
-        if (headerRight && !document.getElementById('lc-header-pulse-bar')) {
-            const staticLiveSpan = headerRight.querySelector('span.text-emerald-600');
-            if (staticLiveSpan) staticLiveSpan.classList.add('hidden');
+        const headerRight = document.querySelector('header .flex.items-center.gap-3') || document.querySelector('header > div:last-child');
+        if (headerRight) {
+            // تقليل المسافات البينية على الموبايل ليتسع الهيدر لكل الأزرار
+            headerRight.className = 'flex items-center gap-1.5 sm:gap-2.5 shrink-0';
 
-            const pulseBar = document.createElement('div');
-            pulseBar.id = 'lc-header-pulse-bar';
-            pulseBar.className = 'flex items-center gap-1.5';
-            pulseBar.innerHTML = `
-                <button onclick="openFreezerModal()" id="lc-hdr-freezer-btn" title="رصيد الفريزر الفعلي الآن (اضغط للفتح)" class="lc-capsule bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 shadow-sm">
-                    <i class="fa-solid fa-snowflake text-cyan-600"></i>
-                    <span class="hidden sm:inline">الفريزر:</span>
-                    <strong id="lc-hdr-freezer-count">0</strong>
-                </button>
+            // تأمين زر إنشاء طلب الأصلي في الهيدر ليعمل دائماً ولا يختفي
+            const origAddBtn = headerRight.querySelector('button[onclick*="add-order-modal"]');
+            if (origAddBtn) {
+                origAddBtn.className = 'bg-brand-primary hover:bg-emerald-800 text-white px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-black shadow-md shadow-brand-primary/20 transition-all flex items-center gap-1.5 active:scale-95 shrink-0';
+                origAddBtn.setAttribute('onclick', 'safeOpenAddOrderModal()');
+                origAddBtn.innerHTML = '<i class="fa-solid fa-plus"></i> <span>طلب جديد</span>';
+            }
 
-                <button onclick="jumpToRadarOrRecon()" id="lc-hdr-drivers-btn" title="حركة المناديب وعهدة الكاش بالشارع" class="lc-capsule bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 shadow-sm">
-                    <i class="fa-solid fa-motorcycle text-indigo-600"></i>
-                    <strong id="lc-hdr-drivers-count">0</strong>
-                </button>
+            if (!document.getElementById('lc-header-pulse-bar')) {
+                const staticLiveSpan = headerRight.querySelector('span.text-emerald-600');
+                if (staticLiveSpan) staticLiveSpan.classList.add('hidden');
 
-                <button onclick="openSmartBellNotifications(this)" data-lc-trigger="1" id="lc-hdr-bell-btn" title="جرس التنبيهات الذكي" class="lc-capsule relative bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm">
-                    <i class="fa-solid fa-bell text-sm"></i>
-                    <span id="lc-hdr-bell-badge" class="hidden absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-black min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center shadow-sm">0</span>
-                </button>
-            `;
-            headerRight.insertBefore(pulseBar, headerRight.firstChild);
+                const pulseBar = document.createElement('div');
+                pulseBar.id = 'lc-header-pulse-bar';
+                pulseBar.className = 'flex items-center gap-1 sm:gap-1.5 shrink-0';
+                pulseBar.innerHTML = `
+                    <button onclick="openFreezerModal()" id="lc-hdr-freezer-btn" title="رصيد الفريزر الفعلي الآن (اضغط للفتح)" class="lc-capsule bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-200 px-2 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0">
+                        <i class="fa-solid fa-snowflake text-cyan-600"></i>
+                        <strong id="lc-hdr-freezer-count">0</strong>
+                    </button>
+
+                    <button onclick="jumpToRadarOrRecon()" id="lc-hdr-drivers-btn" title="حركة المناديب وعهدة الكاش بالشارع" class="lc-capsule bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-2 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0">
+                        <i class="fa-solid fa-motorcycle text-indigo-600"></i>
+                        <strong id="lc-hdr-drivers-count">0</strong>
+                    </button>
+
+                    <button onclick="openSmartBellNotifications(this)" data-lc-trigger="1" id="lc-hdr-bell-btn" title="جرس التنبيهات الذكي" class="lc-capsule relative bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center shadow-sm shrink-0">
+                        <i class="fa-solid fa-bell text-xs sm:text-sm"></i>
+                        <span id="lc-hdr-bell-badge" class="hidden absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-black min-w-[16px] h-[16px] px-1 rounded-full flex items-center justify-center shadow-sm">0</span>
+                    </button>
+                `;
+                headerRight.insertBefore(pulseBar, headerRight.firstChild);
+            }
+        }
+
+        // زر عائم إضافي للموبايل لضمان الوصول لإنشاء طلب جديد في أي وقت
+        if (!document.getElementById('lc-mobile-fab-add-order')) {
+            const fab = document.createElement('button');
+            fab.id = 'lc-mobile-fab-add-order';
+            fab.onclick = () => {
+                if (typeof window.safeOpenAddOrderModal === 'function') window.safeOpenAddOrderModal();
+                else if (typeof window.openModal === 'function') window.openModal('add-order-modal');
+            };
+            fab.className = 'md:hidden fixed bottom-5 left-5 z-[65] w-13 h-13 px-4 py-3.5 rounded-2xl bg-brand-primary text-white shadow-2xl shadow-brand-primary/40 border-2 border-white flex items-center justify-center gap-1.5 font-black text-xs active:scale-90 transition-transform';
+            fab.title = 'إنشاء طلب جديد سريع';
+            fab.innerHTML = '<i class="fa-solid fa-plus text-amber-300 text-sm"></i> <span>طلب</span>';
+            document.body.appendChild(fab);
         }
 
         // 2. حقن شارات العدادات الحية داخل أزرار القائمة الجانبية (#sidebar)
@@ -739,16 +817,16 @@
             }
         });
 
-        // تحديث كبسولة المناديب بالهيدر
+        // تحديث كبسولة المناديب بالهيدر بشكل مدمج لا يزحم الموبايل
         const drvBtn = document.getElementById('lc-hdr-drivers-btn');
         const drvCnt = document.getElementById('lc-hdr-drivers-count');
         if (drvCnt) {
             if (unsettledDriverCash > 0) {
-                drvCnt.innerText = `${dispCount} بالطريق | ${unsettledDriverCash}ج عهدة`;
-                if (drvBtn) drvBtn.className = 'lc-capsule bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 shadow-sm';
+                drvCnt.innerHTML = `<span>${dispCount}</span><span class="hidden md:inline"> بالطريق | ${unsettledDriverCash}ج</span>`;
+                if (drvBtn) drvBtn.className = 'lc-capsule bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 px-2 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0';
             } else {
-                drvCnt.innerText = `${dispCount} بالطريق`;
-                if (drvBtn) drvBtn.className = 'lc-capsule bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 shadow-sm';
+                drvCnt.innerHTML = `<span>${dispCount}</span><span class="hidden lg:inline"> بالطريق</span>`;
+                if (drvBtn) drvBtn.className = 'lc-capsule bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-2 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0';
             }
         }
 
@@ -845,50 +923,24 @@
     };
 
     // =========================================================================
-    // 🌪️ 6. نظام الطي الذكي ومنع التراكم في شاشة الطلبات (Zero-Clutter Collapse)
+    // 🌪️ 6. نظام الطي الذكي لدرج الفلاتر عند التمرير (دون إخفاء شريط الملخص)
     // =========================================================================
     window.initZeroClutterOrdersScroll = function () {
-        const sortBtn = document.getElementById('btn-sort-orders');
-        if (sortBtn && !document.getElementById('lc-btn-toggle-toolbar')) {
-            const toggleBtn = document.createElement('button');
-            toggleBtn.id = 'lc-btn-toggle-toolbar';
-            toggleBtn.onclick = () => window.toggleSmartOrdersToolbarCollapse();
-            toggleBtn.className = 'px-3 shrink-0 bg-white border border-slate-200 rounded-xl text-slate-700 hover:text-brand-primary hover:border-brand-primary hover:bg-emerald-50 transition-colors flex items-center justify-center gap-1.5 shadow-sm text-xs font-black';
-            toggleBtn.title = 'إظهار / طي شريط الفلاتر والملخص لمنع الزحام';
-            toggleBtn.innerHTML = '<i class="fa-solid fa-sliders text-brand-primary"></i> <span class="hidden sm:inline">الفلاتر</span>';
-            sortBtn.parentElement.insertBefore(toggleBtn, sortBtn);
-        }
-
         const mainScroll = document.querySelector('main > div.flex-1.overflow-y-auto.custom-scroll');
         if (mainScroll && !mainScroll.hasAttribute('data-lc-scroll-bound')) {
             mainScroll.setAttribute('data-lc-scroll-bound', '1');
             mainScroll.addEventListener('scroll', () => {
                 const ordersView = document.getElementById('view-orders');
                 if (!ordersView || !ordersView.classList.contains('active')) return;
-                const toolbar = document.getElementById('smart-orders-toolbar');
-                if (!toolbar) return;
 
                 const st = mainScroll.scrollTop;
-                if (st > 140 && st > window.liveConnectState.lastScrollTop + 25 && !window.liveConnectState.toolbarCollapsed) {
-                    toolbar.classList.add('lc-collapsed');
-                    window.liveConnectState.toolbarCollapsed = true;
-                } else if (st < 40 && window.liveConnectState.toolbarCollapsed) {
-                    toolbar.classList.remove('lc-collapsed');
-                    window.liveConnectState.toolbarCollapsed = false;
+                const drawer = document.getElementById('so-advanced-filters-drawer');
+                if (drawer && !drawer.classList.contains('hidden') && st > window.liveConnectState.lastScrollTop + 35) {
+                    drawer.classList.add('hidden');
+                    if (window.ordersFilterState) window.ordersFilterState.filtersOpen = false;
                 }
                 window.liveConnectState.lastScrollTop = st;
             }, { passive: true });
-        }
-    };
-
-    window.toggleSmartOrdersToolbarCollapse = function () {
-        const toolbar = document.getElementById('smart-orders-toolbar');
-        if (!toolbar) return;
-        window.liveConnectState.toolbarCollapsed = !window.liveConnectState.toolbarCollapsed;
-        if (window.liveConnectState.toolbarCollapsed) {
-            toolbar.classList.add('lc-collapsed');
-        } else {
-            toolbar.classList.remove('lc-collapsed');
         }
     };
 
@@ -1056,7 +1108,6 @@
     // 🔗 8. الربط التلقائي مع دوال النظام الأساسية (Auto-Hooking)
     // =========================================================================
     function hookIntoSystemFunctions() {
-        // ربط مع renderOrdersList في www/orders.js
         if (typeof window.renderOrdersList === 'function' && !window.renderOrdersList._lcHooked) {
             const _origRenderOrders = window.renderOrdersList;
             const wrappedRenderOrders = function () {
@@ -1070,7 +1121,6 @@
             window.renderOrdersList = wrappedRenderOrders;
         }
 
-        // ربط مع refreshCustomersData لتفعيل كبسولة المديونية في جدول العملاء أيضاً
         if (typeof window.refreshCustomersData === 'function' && !window.refreshCustomersData._lcHooked) {
             const _origRefreshCust = window.refreshCustomersData;
             const wrappedRefreshCust = function () {
