@@ -2,7 +2,7 @@
 // 🖨️ محرك بوالص الشحن الحرارية والباركود الذكي (waybill.js)
 // مصمم خصيصاً لطابعات Deli 750W الحرارية (100x100mm / 100x150mm / 80mm)
 // خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM)
-// تم الضبط بالكامل ليتوافق مع V2
+// تم الضبط الشامل والكامل للتوافق المطلق مع نظام V2
 // =========================================================================
 
 (function () {
@@ -15,7 +15,7 @@
         showBarcode: true,
         showBreakdown: true,
         showDriverNote: true,
-        directPrintMode: false
+        directPrintMode: false // لو مفعلة يطبع فوراً بضغطة واحدة بدون نافذة المعاينة
     };
 
     window.waybillStudioState = {
@@ -24,7 +24,7 @@
         hidePrices: false
     };
 
-    // جلب إعدادات البوليصة الحالية من Firebase
+    // جلب إعدادات البوليصة الحالية من storeSettings أو حقول الإعدادات
     window.getWaybillConfig = function () {
         const saved = (typeof storeSettings !== 'undefined' && storeSettings.waybillConfig) ? storeSettings.waybillConfig : {};
         return {
@@ -39,7 +39,7 @@
         };
     };
 
-    // مزامنة حقول إعدادات البوليصة
+    // مزامنة حقول إعدادات البوليصة في شاشة الإعدادات مع Firebase
     window.syncWaybillSettingsUI = function () {
         const cfg = (typeof storeSettings !== 'undefined' && storeSettings.waybillConfig) ? storeSettings.waybillConfig : DEFAULT_WB_CONFIG;
         if (document.getElementById('wb-slogan')) document.getElementById('wb-slogan').value = cfg.slogan || DEFAULT_WB_CONFIG.slogan;
@@ -52,7 +52,7 @@
     };
 
     // =========================================================================
-    // 📊 2. مولد باركود قياسي مدمج (Pure SVG Code-128B) حاد جداً
+    // 📊 2. مولد باركود قياسي مدمج (Pure SVG Code-128B) حاد جداً للطابعات الحرارية
     // =========================================================================
     const CODE128_PATTERNS = [
         "11011001100","11001101100","11001100110","10010011000","10010001100","10001001100","10011001000","10011000100","10001100100","11001001000",
@@ -70,7 +70,7 @@
 
     function generateBarcodeSVG(text, height = 34) {
         const clean = String(text || 'SMAN001').replace(/[^A-Za-z0-9\-]/g, '').toUpperCase().slice(0, 16) || 'SMAN001';
-        let codes = [104];
+        let codes = [104]; // Start Code B
         let checksum = 104;
 
         for (let i = 0; i < clean.length; i++) {
@@ -80,7 +80,7 @@
             checksum += validCode * (i + 1);
         }
         codes.push(checksum % 103);
-        codes.push(106);
+        codes.push(106); // Stop
 
         const bits = codes.map(c => CODE128_PATTERNS[c]).join('');
         let rects = '';
@@ -105,6 +105,7 @@
         `;
     }
 
+    // استخراج كود مختصر واضح للطلب (تم تحديث المتغيرات لتتوافق مع V2)
     function getShortOrderCode(order) {
         if (!order || !order.id) return 'SH-1001';
         const phoneTail = String(order.phone || order.customerPhone || '').replace(/\D/g, '').slice(-4) || '0000';
@@ -113,40 +114,48 @@
     }
 
     // =========================================================================
-    // 🧾 3. بناء هيكل البوليصة الواحدة
+    // 🧾 3. بناء هيكل البوليصة الواحدة باحترافية عالية لطابعة Deli 750W
     // =========================================================================
     function buildSingleWaybillHTML(order, cfg, bagIndex = 1, totalBags = 1, hidePrices = false) {
         const storeName = (typeof storeSettings !== 'undefined' && storeSettings.storeName) ? storeSettings.storeName : 'سمان ههيا';
         const storePhone = (typeof storeSettings !== 'undefined' && storeSettings.storePhone) ? storeSettings.storePhone : '01208027294';
         const orderCode = getShortOrderCode(order);
-        const orderDate = order.createdAtStr ? new Date(order.createdAtStr).toLocaleDateString('ar-EG') : new Date().toLocaleDateString('ar-EG');
+        // التوافق مع تاريخ V2
+        const orderDate = order.createdAtStr ? new Date(order.createdAtStr).toLocaleDateString('ar-EG') : (order.orderDate || new Date().toLocaleDateString('ar-EG'));
 
         const items = Array.isArray(order.items) ? order.items : [];
+        // التوافق مع qty بدلاً من quantity
         const totalQty = items.reduce((s, i) => s + (Number(i.qty || i.quantity) || 0), 0);
         const isCompactItems = items.length > 4;
         const is150mm = cfg.paperSize === '100x150';
 
+        // حساب حالة التحصيل
         const isOnline = order.paymentMethod === 'online' || order.isPrepaidConfirmed === true;
-        const subtotal = Number(order.subtotal) || items.reduce((s, i) => s + ((Number(i.qty || i.quantity)||0) * (Number(i.price)||0)), 0) || 0;
+        // حساب subtotal بدقة إذا لم يكن موجوداً
+        const subtotal = Number(order.subtotal) || items.reduce((s, i) => s + ((Number(i.qty || i.quantity) || 0) * (Number(i.price) || 0)), 0) || 0;
         const deliveryFee = Number(order.deliveryFee) || 0;
         const discount = Number(order.discount) || 0;
         const finalTotal = Number(order.total) || 0;
         const debtVal = Number(order.debt) || 0;
 
+        // استخراج آخر ملاحظة للمندوب
         let driverNoteClean = '';
         if (cfg.showDriverNote && order.driverNote && order.driverNote.trim() !== '') {
             driverNoteClean = order.driverNote.split('\n---\n').pop().replace(/^\[.*?\]\s*/, '').trim();
         } else if (cfg.showDriverNote && order.notes && order.notes.trim() !== '') {
-            driverNoteClean = order.notes;
+            driverNoteClean = order.notes; // دعم الملاحظات العادية
         }
 
+        // اسم الدفعة أو المندوب
         const batchTitle = (order.batchName && order.batchName !== 'undefined') ? order.batchName : '';
         const driverTitle = order.driverName ? `🛵 ${order.driverName}` : '';
 
+        // اللوجو
         const logoHtml = cfg.logoUrl
             ? `<img src="${cfg.logoUrl}" alt="logo" style="width:36px; height:36px; object-fit:contain; border:1.5px solid #000; border-radius:6px; background:#fff;" onerror="this.style.display='none'">`
             : `<div style="width:34px; height:34px; border:2px solid #000; border-radius:8px; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:16px; background:#000; color:#fff; flex-shrink:0;">س</div>`;
 
+        // صفوف الأصناف (التوافق مع qty)
         const itemsRowsHtml = items.map(item => {
             const qty = Number(item.qty || item.quantity) || 0;
             const price = Number(item.price) || 0;
@@ -163,7 +172,7 @@
         return `
         <div class="wb-page">
             <div class="wb-frame">
-                <!-- 1. Header -->
+                <!-- 1. رأس البوليصة (Header) -->
                 <div class="wb-header">
                     <div style="display:flex; align-items:center; gap:6px;">
                         ${logoHtml}
@@ -173,6 +182,7 @@
                             <div style="font-size:9.5px; font-weight:900; direction:ltr; text-align:right;">📞 ${storePhone}</div>
                         </div>
                     </div>
+
                     <div style="text-align:left; display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
                         <div style="background:#000; color:#fff; font-weight:900; font-size:12px; padding:2px 7px; border-radius:5px; letter-spacing:0.5px;">
                             📍 ${order.zone || 'توصيل'}
@@ -182,7 +192,7 @@
                     </div>
                 </div>
 
-                <!-- 2. Customer Box -->
+                <!-- 2. بيانات العميل والعنوان (Customer Box) -->
                 <div class="wb-customer-box">
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:4px; border-bottom:1.5px dashed #000; padding-bottom:3px; margin-bottom:3px;">
                         <div style="font-size:13.5px; font-weight:900; color:#000; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
@@ -192,16 +202,18 @@
                             📱 ${order.phone || order.customerPhone || ''}
                         </div>
                     </div>
+
                     ${(order.phone2 || order.customerPhone2) ? `
                     <div style="font-size:10.5px; font-weight:900; margin-bottom:2px;">
                         📞 رقم بديل: <span style="direction:ltr; display:inline-block;">${order.phone2 || order.customerPhone2}</span>
                     </div>` : ''}
+
                     <div style="font-size:11px; font-weight:800; line-height:1.3; color:#000;">
                         🏠 <strong>العنوان:</strong> ${order.zone ? order.zone + ' - ' : ''}${order.address || order.customerAddress || 'يتصل المندوب لتحديد الموقع'}
                     </div>
                 </div>
 
-                <!-- 3. Items Table -->
+                <!-- 3. جدول الأصناف المطلوبة (Items Table) -->
                 <div class="wb-items-wrap">
                     <table style="width:100%; border-collapse:collapse; text-align:right;">
                         <thead>
@@ -217,13 +229,13 @@
                     </table>
                 </div>
 
-                <!-- 4. Driver Note -->
+                <!-- 4. ملاحظات المندوب (إن وجدت) -->
                 ${driverNoteClean ? `
                 <div style="border:1.5px solid #000; border-radius:5px; padding:3px 6px; font-size:10px; font-weight:900; background:#fff;">
                     ⚠️ <strong>ملاحظة للمندوب:</strong> ${driverNoteClean}
                 </div>` : ''}
 
-                <!-- 5. COD / Financial Box -->
+                <!-- 5. مربع التحصيل المالي البارز (COD / Financial Box) -->
                 ${!hidePrices ? `
                 <div class="wb-cod-box ${isOnline ? 'wb-cod-online' : ''}">
                     ${cfg.showBreakdown ? `
@@ -232,6 +244,7 @@
                         <span>التوصيل: ${deliveryFee} ج</span>
                         ${discount > 0 ? `<span>خصم: -${discount} ج</span>` : ''}
                     </div>` : ''}
+
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <span style="font-size:12px; font-weight:900;">
                             ${isOnline ? '✅ حالة الفاتورة:' : '💰 المطلوب تحصيله (كاش):'}
@@ -246,7 +259,7 @@
                     🎁 طلب مُهدى من سمان ههيا (خالص الحساب)
                 </div>`}
 
-                <!-- 6. Footer & Barcode -->
+                <!-- 6. الباركود والرسالة الختامية (Footer & Barcode) -->
                 <div class="wb-footer">
                     ${cfg.showBarcode ? generateBarcodeSVG(orderCode, is150mm ? 36 : 26) : `<div style="font-weight:900; font-size:10px; text-align:center;">كود الطلب: ${orderCode}</div>`}
                     <div style="display:flex; justify-content:space-between; align-items:center; width:100%; font-size:9px; font-weight:900; margin-top:2px; border-top:1px solid #000; padding-top:2px;">
@@ -259,7 +272,7 @@
         `;
     }
 
-    // بناء وثيقة الطباعة الكاملة
+    // بناء وثيقة الطباعة الكاملة مع أبعاد `@page` الدقيقة لطابعة Deli 750W
     function buildFullPrintDocument(ordersList, cfg, bagsCount = 1, hidePrices = false) {
         let pageW = '100mm';
         let pageH = '100mm';
@@ -290,18 +303,88 @@
     <title>بوليصة شحن سمان ههيا</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&display=swap" rel="stylesheet">
     <style>
-        @page { size: ${pageW} ${pageH}; margin: 0mm !important; }
-        * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-        html, body { margin: 0 !important; padding: 0 !important; width: ${pageW}; background: #ffffff; color: #000000; font-family: 'Cairo', 'Tahoma', sans-serif; -webkit-font-smoothing: none; }
-        .wb-page { width: ${pageW}; height: ${pageH}; padding: 2mm; page-break-after: always; break-after: page; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
-        .wb-page:last-child { page-break-after: auto; break-after: auto; }
-        .wb-frame { width: 100%; height: ${frameHeight}; border: 2.2px solid #000000; border-radius: 6px; padding: 2.2mm; display: flex; flex-direction: column; justify-content: space-between; gap: 1.5mm; background: #ffffff; }
-        .wb-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #000000; padding-bottom: 1.5mm; }
-        .wb-customer-box { border: 1.8px solid #000000; border-radius: 5px; padding: 1.8mm 2.2mm; background: #ffffff; }
-        .wb-items-wrap { border: 1.8px solid #000000; border-radius: 5px; overflow: hidden; flex: 1; display: flex; flex-direction: column; justify-content: flex-start; }
-        .wb-cod-box { border: 2.2px solid #000000; border-radius: 6px; padding: 1.8mm 2.5mm; background: #f8fafc; color: #000000; }
-        .wb-cod-online { background: #000000 !important; color: #ffffff !important; }
-        .wb-footer { padding-top: 1mm; }
+        @page {
+            size: ${pageW} ${pageH};
+            margin: 0mm !important;
+        }
+        * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
+        }
+        html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: ${pageW};
+            background: #ffffff;
+            color: #000000;
+            font-family: 'Cairo', 'Tahoma', sans-serif;
+            -webkit-font-smoothing: none;
+        }
+        .wb-page {
+            width: ${pageW};
+            height: ${pageH};
+            padding: 2mm;
+            page-break-after: always;
+            break-after: page;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            overflow: hidden;
+        }
+        .wb-page:last-child {
+            page-break-after: auto;
+            break-after: auto;
+        }
+        .wb-frame {
+            width: 100%;
+            height: ${frameHeight};
+            border: 2.2px solid #000000;
+            border-radius: 6px;
+            padding: 2.2mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 1.5mm;
+            background: #ffffff;
+        }
+        .wb-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 2px solid #000000;
+            padding-bottom: 1.5mm;
+        }
+        .wb-customer-box {
+            border: 1.8px solid #000000;
+            border-radius: 5px;
+            padding: 1.8mm 2.2mm;
+            background: #ffffff;
+        }
+        .wb-items-wrap {
+            border: 1.8px solid #000000;
+            border-radius: 5px;
+            overflow: hidden;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+        }
+        .wb-cod-box {
+            border: 2.2px solid #000000;
+            border-radius: 6px;
+            padding: 1.8mm 2.5mm;
+            background: #f8fafc;
+            color: #000000;
+        }
+        .wb-cod-online {
+            background: #000000 !important;
+            color: #ffffff !important;
+        }
+        .wb-footer {
+            padding-top: 1mm;
+        }
     </style>
 </head>
 <body>
@@ -311,7 +394,7 @@
     }
 
     // =========================================================================
-    // 🚀 4. محرك الطباعة المباشر عبر Iframe مخفي
+    // 🚀 4. محرك الطباعة المباشر عبر Iframe مخفي (بدون مشاكل النوافذ المنبثقة)
     // =========================================================================
     window.executeThermalPrint = function (ordersArray, bagsCount = 1, hidePrices = false) {
         if (!ordersArray || ordersArray.length === 0) return alert('لا توجد طلبات للطباعة!');
@@ -337,11 +420,13 @@
         doc.write(docHtml);
         doc.close();
 
+        // انتظار تحميل الخط والصور ثم إطلاق أمر الطباعة تلقائياً
         setTimeout(() => {
             try {
                 printFrame.contentWindow.focus();
                 printFrame.contentWindow.print();
             } catch (e) {
+                // خطة بديلة إذا كان المتصفح على هاتف قديم
                 const win = window.open('', '_blank');
                 if (win) {
                     win.document.write(docHtml + '<script>window.onload=function(){window.print();}<\/script>');
@@ -352,7 +437,7 @@
     };
 
     // =========================================================================
-    // 🖥️ 5. استوديو معاينة وتجهيز البوليصة
+    // 🖥️ 5. استوديو معاينة وتجهيز البوليصة قبل الطباعة (Waybill Studio Modal)
     // =========================================================================
     function ensureWaybillStudioModalExists() {
         if (document.getElementById('waybill-studio-modal')) return;
@@ -361,6 +446,7 @@
         modal.className = 'fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[200] hidden flex items-center justify-center p-3 md:p-4 transition-opacity';
         modal.innerHTML = `
             <div class="bg-white rounded-[2rem] shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[95vh] border border-slate-200">
+                <!-- Header -->
                 <div class="p-4 md:p-5 border-b border-slate-100 flex justify-between items-center bg-slate-900 text-white shrink-0">
                     <div class="flex items-center gap-2.5">
                         <div class="w-9 h-9 rounded-xl bg-amber-400 text-slate-900 flex items-center justify-center font-black">
@@ -376,6 +462,7 @@
                     </button>
                 </div>
 
+                <!-- Quick Controls Bar -->
                 <div class="p-3.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
                     <div class="flex flex-wrap items-center gap-2">
                         <div class="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1.5 rounded-xl">
@@ -388,37 +475,40 @@
                         </div>
 
                         <div class="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1.5 rounded-xl">
-                            <span class="text-[11px] font-black text-slate-600">📦 الأكياس:</span>
+                            <span class="text-[11px] font-black text-slate-600">📦 عدد الأكياس للطلب:</span>
                             <select id="wbs-bags-count" onchange="updateStudioPreview()" class="text-xs font-black text-indigo-700 bg-transparent outline-none cursor-pointer">
-                                <option value="1">1 كيس</option>
-                                <option value="2">2 كيس</option>
+                                <option value="1">1 كيس (استيكر واحد)</option>
+                                <option value="2">2 كيس (استيكرين مرقمين)</option>
                                 <option value="3">3 أكياس</option>
                                 <option value="4">4 أكياس</option>
+                                <option value="5">5 أكياس</option>
                             </select>
                         </div>
 
                         <label class="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black text-slate-700 cursor-pointer">
                             <input type="checkbox" id="wbs-hide-prices" onchange="updateStudioPreview()" class="w-3.5 h-3.5 accent-brand-primary rounded">
-                            🎁 إخفاء الأسعار
+                            🎁 إخفاء الأسعار (هدية)
                         </label>
                     </div>
 
-                    <label class="flex items-center gap-1.5 text-[11px] font-black text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-xl cursor-pointer">
+                    <label class="flex items-center gap-1.5 text-[11px] font-black text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-xl cursor-pointer" title="تفعيل هذا الخيار يجعل الضغط على زر بوليصة يطبع فوراً بدون فتح هذه المعاينة">
                         <input type="checkbox" id="wbs-direct-mode" onchange="toggleDirectPrintModeSetting(this.checked)" class="w-3.5 h-3.5 accent-amber-600 rounded">
                         ⚡ طباعة فورية دائماً
                     </label>
                 </div>
 
+                <!-- Live Preview Container -->
                 <div class="p-4 md:p-6 overflow-y-auto custom-scroll flex-1 bg-slate-200/70 flex flex-col items-center justify-start gap-4" id="wbs-preview-area">
                 </div>
 
+                <!-- Footer Action Buttons -->
                 <div class="p-4 bg-white border-t border-slate-200 flex flex-wrap gap-2.5 shrink-0">
-                    <button onclick="triggerStudioThermalPrint()" class="flex-[2] bg-brand-primary hover:bg-emerald-800 text-white font-black py-3.5 px-6 rounded-xl shadow-lg shadow-brand-primary/25 transition-all flex items-center justify-center gap-2 text-sm md:text-base">
+                    <button onclick="triggerStudioThermalPrint()" class="flex-[2] bg-brand-primary hover:bg-emerald-800 text-white font-black py-3.5 px-6 rounded-xl shadow-lg shadow-brand-primary/25 transition-all active:scale-95 flex items-center justify-center gap-2 text-sm md:text-base">
                         <i class="fa-solid fa-print text-amber-300 text-lg"></i>
                         <span>طباعة البوليصة الآن على Deli 750W</span>
                     </button>
-                    <button onclick="openWaybillInNewTab()" class="bg-slate-800 hover:bg-slate-900 text-white font-black py-3.5 px-4 rounded-xl transition-all flex items-center justify-center gap-1.5 text-xs">
-                        <i class="fa-solid fa-up-right-from-square text-amber-400"></i> فتح في تبويب
+                    <button onclick="openWaybillInNewTab()" class="bg-slate-800 hover:bg-slate-900 text-white font-black py-3.5 px-4 rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1.5 text-xs" title="فتح في صفحة مستقلة للطباعة أو الحفظ كـ PDF">
+                        <i class="fa-solid fa-up-right-from-square text-amber-400"></i> فتح في تبويب / PDF
                     </button>
                 </div>
             </div>
@@ -439,9 +529,10 @@
         document.getElementById('wbs-bags-count').value = '1';
         document.getElementById('wbs-hide-prices').checked = false;
         document.getElementById('wbs-direct-mode').checked = cfg.directPrintMode === true;
-        document.getElementById('wbs-subtitle').innerText = `الطلبات المحددة: ${ordersArray.length} طلب`;
+        document.getElementById('wbs-subtitle').innerText = `عدد الطلبات المحددة للطباعة: ${ordersArray.length} طلب`;
 
         window.updateStudioPreview();
+        // إظهار النافذة مباشرة
         document.getElementById('waybill-studio-modal').classList.remove('hidden');
     };
 
@@ -452,7 +543,9 @@
         const hidePrices = document.getElementById('wbs-hide-prices')?.checked || false;
 
         cfg.paperSize = chosenSize;
-        if (document.getElementById('wb-paper-size')) document.getElementById('wb-paper-size').value = chosenSize;
+        if (document.getElementById('wb-paper-size')) {
+            document.getElementById('wb-paper-size').value = chosenSize;
+        }
 
         const previewArea = document.getElementById('wbs-preview-area');
         if (!previewArea) return;
@@ -463,7 +556,7 @@
 
         previewArea.innerHTML = `
             <div class="text-[11px] font-black text-slate-600 bg-white px-3 py-1 rounded-full shadow-sm border border-slate-200">
-                معاينة حية (${chosenSize})
+                معاينة حية مطابقة لمقاس الاستيكر الفعلي (${chosenSize})
             </div>
             <iframe id="wbs-live-iframe" style="width:${previewWidth}; max-width:100%; height:${previewHeight}; background:#fff; border-radius:14px; box-shadow:0 12px 30px rgba(0,0,0,0.18); border:1px solid #cbd5e1;"></iframe>
         `;
@@ -483,7 +576,9 @@
         const bagsCount = parseInt(document.getElementById('wbs-bags-count')?.value) || 1;
         const hidePrices = document.getElementById('wbs-hide-prices')?.checked || false;
 
-        if (document.getElementById('wb-paper-size')) document.getElementById('wb-paper-size').value = chosenSize;
+        if (document.getElementById('wb-paper-size')) {
+            document.getElementById('wb-paper-size').value = chosenSize;
+        }
         if (typeof storeSettings !== 'undefined') {
             if (!storeSettings.waybillConfig) storeSettings.waybillConfig = {};
             storeSettings.waybillConfig.paperSize = chosenSize;
@@ -500,7 +595,7 @@
 
         const docHtml = buildFullPrintDocument(window.waybillStudioState.orders, cfg, bagsCount, hidePrices);
         const win = window.open('', '_blank');
-        if (!win) return alert('يرجى السماح بالنوافذ المنبثقة!');
+        if (!win) return alert('يرجى السماح بالنوافذ المنبثقة أو استخدام زر الطباعة المباشر الأخضر!');
         win.document.open();
         win.document.write(docHtml + `<script>window.onload=function(){setTimeout(function(){window.print();},300);}<\/script>`);
         win.document.close();
@@ -510,53 +605,97 @@
         if (typeof storeSettings !== 'undefined') {
             if (!storeSettings.waybillConfig) storeSettings.waybillConfig = {};
             storeSettings.waybillConfig.directPrintMode = isChecked;
-            try { await db.collection('inventory').doc('settings').set({ waybillConfig: storeSettings.waybillConfig }, { merge: true }); } catch (e) {}
+            try {
+                await db.collection('inventory').doc('settings').set({
+                    waybillConfig: storeSettings.waybillConfig
+                }, { merge: true });
+            } catch (e) {}
         }
     };
 
     // =========================================================================
-    // 🎯 6. الدوال الرئيسية المربوطة بأزرار النظام
+    // 🎯 6. الدوال الرئيسية المربوطة بأزرار النظام (تم التعديل لتتوافق مع V2)
     // =========================================================================
 
-    // تم التعديل هنا ليعمل بنجاح مع الفلاتر ونظام V2 الخاص بالأوردرات
+    // أ. طباعة بوليصة طلب واحد (مباشر أو استوديو)
+    window.printSingleOrderWaybill = function (orderId, forceDirect = false) {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
+        if (!order) return alert('لم يتم العثور على بيانات هذا الطلب!');
+
+        const cfg = window.getWaybillConfig();
+        if (forceDirect || cfg.directPrintMode) {
+            window.executeThermalPrint([order], 1, false);
+        } else {
+            window.openWaybillStudioModal([order]);
+        }
+    };
+
+    // ب. الطباعة الجماعية الذكية (الترتيب الجغرافي لـ V2)
     window.smartPrintWaybillsV2 = function () {
+        // تم تصحيح اسم الكلاس ليكون متوافقاً مع ملف الطلبات الجديد
         const checkboxes = document.querySelectorAll('.order-checkbox:checked');
-        if (checkboxes.length === 0) return alert('يرجى تحديد طلبات لطباعة بوالصها أولاً.');
-        
+        if (checkboxes.length === 0) return alert('يرجى تحديد طلب واحد على الأقل من القائمة لطباعة بوليصته!');
+
         const selectedIds = Array.from(checkboxes).map(cb => cb.value);
-        const selectedOrders = allOrdersRaw.filter(o => selectedIds.includes(o.id));
+        const selectedOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o => selectedIds.includes(o.id));
         
-        // الترتيب الجغرافي الذكي
+        if (selectedOrders.length === 0) return alert('لم يتم العثور على بيانات الطلبات المحددة!');
+
+        // السحر هنا: الفرز الجغرافي لترتيب الورق للمندوب!
         selectedOrders.sort((a, b) => (a.zone || '').localeCompare(b.zone || ''));
+        
+        // فتح الاستوديو بالطلبات المحددة
         window.openWaybillStudioModal(selectedOrders);
     };
 
+    // للحفاظ على التوافقية مع أي أزرار قديمة
+    window.printSelectedOrdersWaybills = window.smartPrintWaybillsV2;
+
+    // ج. معاينة وتجربة البوليصة من شاشة إعدادات المتجر
     window.previewSampleWaybill = function () {
         const sampleOrder = (typeof allOrdersRaw !== 'undefined' && allOrdersRaw.length > 0)
             ? allOrdersRaw[0]
             : {
-                id: 'SAMPLE99', name: 'د. أحمد ماضي (بوليصة تجريبية)', phone: '01012345678', zone: 'ههيا', address: 'شارع الجمهورية - بجوار مجمع الأصدقاء الطبي',
-                orderDate: new Date().toLocaleDateString('ar-EG'), paymentMethod: 'cash', subtotal: 340, deliveryFee: 20, discount: 10, total: 350,
-                driverName: 'كابتن محمد', driverNote: 'الاتصال قبل الوصول بـ 10 دقائق',
-                items: [{ name: 'طبق سمان جامبو', qty: 2, price: 110 }, { name: 'طبق سمان سبشيال', qty: 1, price: 120 }]
+                id: 'SAMPLE99',
+                name: 'د. أحمد ماضي (بوليصة تجريبية)', // استخدام name
+                phone: '01012345678', // استخدام phone
+                phone2: '01208027294',
+                zone: 'ههيا',
+                address: 'شارع الجمهورية - بجوار مجمع الأصدقاء الطبي',
+                orderDate: new Date().toLocaleDateString('ar-EG'),
+                paymentMethod: 'cash',
+                subtotal: 340,
+                deliveryFee: 20,
+                discount: 10,
+                total: 350,
+                driverName: 'كابتن محمد',
+                driverNote: 'الاتصال قبل الوصول بـ 10 دقائق',
+                items: [
+                    { id: 'jumbo', name: 'طبق سمان جامبو', qty: 2, price: 110 }, // استخدام qty
+                    { id: 'special', name: 'طبق سمان سبشيال', qty: 1, price: 120 }
+                ]
             };
+
         window.openWaybillStudioModal([sampleOrder]);
     };
 
     // =========================================================================
-    // 🔗 7. ربط تلقائي لحفظ واسترجاع إعدادات البوليصة
+    // 🔗 7. ربط تلقائي لحفظ واسترجاع إعدادات البوليصة مع saveAllSettings
     // =========================================================================
     function hookWaybillIntoSettings() {
         if (typeof window.saveAllSettings === 'function' && !window.saveAllSettings._wbHooked) {
             const _origSaveSettings = window.saveAllSettings;
             const wrappedSave = async function () {
-                if (typeof storeSettings !== 'undefined') storeSettings.waybillConfig = window.getWaybillConfig();
+                if (typeof storeSettings !== 'undefined') {
+                    storeSettings.waybillConfig = window.getWaybillConfig();
+                }
                 return await _origSaveSettings.apply(this, arguments);
             };
             wrappedSave._wbHooked = true;
             window.saveAllSettings = wrappedSave;
         }
 
+        // مراقبة تغير الحقول في شاشة الإعدادات لحفظها اللحظي في الذاكرة
         ['wb-slogan', 'wb-footer-msg', 'wb-logo-url', 'wb-paper-size', 'wb-show-barcode', 'wb-show-breakdown', 'wb-show-driver-note'].forEach(id => {
             const el = document.getElementById(id);
             if (el && !el.hasAttribute('data-wb-bound')) {
@@ -564,13 +703,26 @@
                 el.addEventListener('change', () => {
                     if (typeof storeSettings !== 'undefined') {
                         storeSettings.waybillConfig = window.getWaybillConfig();
-                        db.collection('inventory').doc('settings').set({ waybillConfig: storeSettings.waybillConfig }, { merge: true }).catch(() => {});
+                        db.collection('inventory').doc('settings').set({
+                            waybillConfig: storeSettings.waybillConfig
+                        }, { merge: true }).catch(() => {});
                     }
                 });
             }
         });
     }
 
-    window.addEventListener('DOMContentLoaded', () => { setTimeout(() => { window.syncWaybillSettingsUI(); hookWaybillIntoSettings(); }, 600); });
-    setTimeout(() => { window.syncWaybillSettingsUI(); hookWaybillIntoSettings(); }, 600);
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                window.syncWaybillSettingsUI();
+                hookWaybillIntoSettings();
+            }, 600);
+        });
+    } else {
+        setTimeout(() => {
+            window.syncWaybillSettingsUI();
+            hookWaybillIntoSettings();
+        }, 600);
+    }
 })();
