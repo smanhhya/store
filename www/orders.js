@@ -1,6 +1,6 @@
 // =========================================================================
 // ⚡ المحرك الذكي المستقل لإدارة الطلبات الحية، التحضير، التعديل، والملاحظات (orders.js)
-// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM)
+// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM) - النسخة الكاملة غير المقطوعة
 // =========================================================================
 
 (function () {
@@ -11,6 +11,7 @@
         payment: 'all',     // 'all' | 'cash' | 'online' | 'has_debt' | 'has_discount'
         driver: 'all',      // 'all' | 'unassigned' | driverName
         compactMode: false, // وضع العرض المدمج السريع مع إظهار الأصناف كاملة
+        filtersOpen: false, // طي قوائم الفلترة افتراضياً لمنع الزحام البصري
         packingScope: 'processing', // 'processing' | 'new_and_proc' | 'dispatched'
         packingBatch: 'all',
         packingZone: 'all'
@@ -55,7 +56,31 @@
     }
 
     // =========================================================================
-    // 🎛️ 2. بناء شريط الفلاتر الفورية والملخص اللحظي داخل شاشة الطلبات الحية
+    // ➕ 2. فتح نافذة إنشاء طلب جديد بأمان تام من أي مكان (safeOpenAddOrderModal)
+    // =========================================================================
+    window.safeOpenAddOrderModal = function () {
+        if (typeof window.generateDynamicOrderInputs === 'function') {
+            window.generateDynamicOrderInputs();
+        }
+        const helperBox = document.getElementById('no-smart-customer-helper');
+        if (helperBox) helperBox.innerHTML = '';
+        const blAlert = document.getElementById('no-blacklist-alert');
+        if (blAlert) blAlert.classList.add('hidden');
+
+        if (typeof window.openModal === 'function') {
+            window.openModal('add-order-modal');
+        } else {
+            const modal = document.getElementById('add-order-modal');
+            if (modal) modal.classList.remove('hidden');
+        }
+        setTimeout(() => {
+            const phoneInp = document.getElementById('no-phone');
+            if (phoneInp) phoneInp.focus();
+        }, 120);
+    };
+
+    // =========================================================================
+    // 🎛️ 3. شريط التحكم المدمج والملخص اللحظي (بدون زحام بصري)
     // =========================================================================
     window.initSmartOrdersToolbar = function () {
         const ordersView = document.getElementById('view-orders');
@@ -66,62 +91,66 @@
 
         const toolbar = document.createElement('div');
         toolbar.id = 'smart-orders-toolbar';
-        toolbar.className = 'mt-2.5 pt-2.5 border-t border-slate-200/80 space-y-2';
+        toolbar.className = 'mt-2 pt-2 border-t border-slate-200/80 space-y-2';
 
         toolbar.innerHTML = `
-            <div class="flex flex-wrap items-center gap-1.5">
-                <select id="so-filter-batch" onchange="setOrdersQuickFilter('batch', this.value)" class="border border-slate-200 bg-white rounded-xl px-2.5 py-1.5 text-[11px] font-black text-teal-800 outline-none focus:border-brand-primary shadow-sm">
-                    <option value="all">🏷️ كل الدفعات والفوري</option>
-                </select>
+            <!-- السطر الأساسي المدمج: الملخص اللحظي + أزرار التحكم السريعة -->
+            <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-900 text-white px-3 py-2 rounded-xl shadow-sm">
+                <div class="flex flex-wrap items-center gap-2.5 text-[11px] font-black">
+                    <span>📦 المعروض: <strong id="so-sum-count" class="text-amber-400">0</strong></span>
+                    <span class="text-slate-600">|</span>
+                    <span>🥩 سمان: <strong id="so-sum-meat" class="text-emerald-400">0</strong> طبق</span>
+                    <span id="so-sum-extras-wrap" class="hidden text-slate-300"></span>
+                    <span class="text-slate-600">|</span>
+                    <span>💰 الإجمالي: <strong id="so-sum-money" class="text-amber-400">0 ج</strong></span>
+                </div>
 
-                <select id="so-filter-zone" onchange="setOrdersQuickFilter('zone', this.value)" class="border border-slate-200 bg-white rounded-xl px-2.5 py-1.5 text-[11px] font-black text-indigo-800 outline-none focus:border-brand-primary shadow-sm">
-                    <option value="all">📍 كل المناطق</option>
-                </select>
-
-                <select id="so-filter-payment" onchange="setOrdersQuickFilter('payment', this.value)" class="border border-slate-200 bg-white rounded-xl px-2.5 py-1.5 text-[11px] font-black text-slate-700 outline-none focus:border-brand-primary shadow-sm">
-                    <option value="all">💳 كل طرق الدفع</option>
-                    <option value="cash">💵 كاش عند الاستلام</option>
-                    <option value="online">💳 خالص أونلاين</option>
-                    <option value="has_debt">📕 عليه باقي حساب (آجل)</option>
-                    <option value="has_discount">🎁 طلبات بها خصم</option>
-                </select>
-
-                <select id="so-filter-driver" onchange="setOrdersQuickFilter('driver', this.value)" class="border border-slate-200 bg-white rounded-xl px-2.5 py-1.5 text-[11px] font-black text-blue-800 outline-none focus:border-brand-primary shadow-sm">
-                    <option value="all">🛵 كل المناديب</option>
-                </select>
-
-                <button onclick="resetAllOrdersFilters()" id="so-btn-reset-filters" class="hidden bg-red-50 hover:bg-red-600 text-red-600 hover:text-white border border-red-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all">
-                    مسح الفلاتر ✕
-                </button>
-
-                <div class="mr-auto flex items-center gap-1.5">
-                    <button onclick="safeOpenAddOrderModal()" class="bg-brand-primary hover:bg-emerald-800 text-white px-3 py-1.5 rounded-xl text-[11px] font-black transition-all shadow-sm flex items-center gap-1">
-                        <i class="fa-solid fa-plus"></i> إنشاء طلب
+                <div class="flex flex-wrap items-center gap-1.5 mr-auto sm:mr-0">
+                    <button onclick="safeOpenAddOrderModal()" class="bg-emerald-500 hover:bg-emerald-600 text-slate-950 px-3 py-1 rounded-lg text-[11px] font-black transition-all shadow-sm flex items-center gap-1 active:scale-95">
+                        <i class="fa-solid fa-plus"></i> طلب جديد
                     </button>
-                    <button onclick="toggleSelectAllVisibleOrders()" id="so-btn-select-all" class="bg-white hover:bg-slate-800 text-slate-700 hover:text-white border border-slate-200 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all shadow-sm flex items-center gap-1" title="تحديد أو إلغاء تحديد كل الطلبات المعروضة حالياً">
-                        <i class="fa-solid fa-check-double text-brand-primary"></i> تحديد الكل
+                    <button onclick="toggleAdvancedFiltersDrawer()" id="so-btn-toggle-filters" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-lg text-[11px] font-black transition-all flex items-center gap-1">
+                        <i class="fa-solid fa-filter text-amber-400 text-[10px]"></i> فلتر <span id="so-active-filters-dot" class="hidden w-2 h-2 rounded-full bg-amber-400"></span>
                     </button>
-                    <button onclick="toggleOrdersCompactMode()" id="so-btn-compact" class="bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all shadow-sm" title="تبديل وضع العرض المدمج أو التفصيلي">
-                        <i class="fa-solid fa-compress"></i> مدمج
+                    <button onclick="toggleSelectAllVisibleOrders()" id="so-btn-select-all" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-lg text-[11px] font-black transition-all flex items-center gap-1" title="تحديد الكل">
+                        <i class="fa-solid fa-check-double text-emerald-400 text-[10px]"></i> الكل
+                    </button>
+                    <button onclick="toggleOrdersCompactMode()" id="so-btn-compact" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-lg text-[11px] font-black transition-all flex items-center gap-1" title="تبديل العرض المدمج والتفصيلي">
+                        <i class="fa-solid fa-compress text-sky-400 text-[10px]"></i> مدمج
                     </button>
                 </div>
             </div>
 
-            <div id="so-live-summary-strip" class="bg-slate-900 text-white px-3.5 py-2 rounded-xl flex flex-wrap items-center justify-between gap-2 text-[11px] font-black shadow-sm">
-                <div class="flex flex-wrap items-center gap-3">
-                    <span>📦 المعروض: <strong id="so-sum-count" class="text-amber-400">0</strong> طلب</span>
-                    <span class="text-slate-600">|</span>
-                    <span>🥩 سمان: <strong id="so-sum-meat" class="text-emerald-400">0</strong> طبق</span>
-                    <span id="so-sum-extras-wrap" class="hidden text-slate-300"></span>
-                </div>
-                <div class="flex items-center gap-3">
-                    <span>💰 إجمالي المعروض: <strong id="so-sum-money" class="text-amber-400 text-xs">0 ج</strong></span>
+            <!-- درج الفلاتر المتقدمة (يفتح عند الحاجة فقط لمنع الزحام) -->
+            <div id="so-advanced-filters-drawer" class="hidden grid grid-cols-2 sm:grid-cols-4 gap-2 bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm">
+                <select id="so-filter-batch" onchange="setOrdersQuickFilter('batch', this.value)" class="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-[11px] font-black text-teal-800 outline-none focus:bg-white focus:border-brand-primary">
+                    <option value="all">🏷️ كل الدفعات والفوري</option>
+                </select>
+
+                <select id="so-filter-zone" onchange="setOrdersQuickFilter('zone', this.value)" class="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-[11px] font-black text-indigo-800 outline-none focus:bg-white focus:border-brand-primary">
+                    <option value="all">📍 كل المناطق</option>
+                </select>
+
+                <select id="so-filter-payment" onchange="setOrdersQuickFilter('payment', this.value)" class="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-[11px] font-black text-slate-700 outline-none focus:bg-white focus:border-brand-primary">
+                    <option value="all">💳 كل طرق الدفع</option>
+                    <option value="cash">💵 كاش عند الاستلام</option>
+                    <option value="online">💳 خالص أونلاين</option>
+                    <option value="has_debt">📕 عليه آجل</option>
+                    <option value="has_discount">🎁 طلبات بخصم</option>
+                </select>
+
+                <div class="flex gap-1">
+                    <select id="so-filter-driver" onchange="setOrdersQuickFilter('driver', this.value)" class="flex-1 border border-slate-200 bg-slate-50 rounded-lg px-2 py-1.5 text-[11px] font-black text-blue-800 outline-none focus:bg-white focus:border-brand-primary">
+                        <option value="all">🛵 كل المناديب</option>
+                    </select>
+                    <button onclick="resetAllOrdersFilters()" id="so-btn-reset-filters" class="hidden bg-red-100 hover:bg-red-600 text-red-600 hover:text-white px-2.5 rounded-lg text-[10px] font-black transition-all" title="مسح الفلاتر">✕</button>
                 </div>
             </div>
         `;
 
         stickyHeader.appendChild(toolbar);
 
+        // ترقية شريط التحديد الجماعي
         const bulkBar = document.getElementById('bulk-actions-bar');
         if (bulkBar && !document.getElementById('bulk-extra-deferred-btn')) {
             const btnsWrap = bulkBar.querySelector('.flex.flex-wrap');
@@ -140,6 +169,17 @@
         }
     };
 
+    window.toggleAdvancedFiltersDrawer = function () {
+        const drawer = document.getElementById('so-advanced-filters-drawer');
+        if (!drawer) return;
+        window.ordersFilterState.filtersOpen = !window.ordersFilterState.filtersOpen;
+        if (window.ordersFilterState.filtersOpen) {
+            drawer.classList.remove('hidden');
+        } else {
+            drawer.classList.add('hidden');
+        }
+    };
+
     window.setOrdersQuickFilter = function (key, val) {
         window.ordersFilterState[key] = val;
         const hasActiveFilter = (
@@ -150,9 +190,14 @@
             (document.getElementById('search-order')?.value || '').trim() !== ''
         );
         const resetBtn = document.getElementById('so-btn-reset-filters');
+        const dot = document.getElementById('so-active-filters-dot');
         if (resetBtn) {
             if (hasActiveFilter) resetBtn.classList.remove('hidden');
             else resetBtn.classList.add('hidden');
+        }
+        if (dot) {
+            if (hasActiveFilter) dot.classList.remove('hidden');
+            else dot.classList.add('hidden');
         }
         window.renderOrdersList();
     };
@@ -168,6 +213,7 @@
         if (document.getElementById('so-filter-driver')) document.getElementById('so-filter-driver').value = 'all';
         if (document.getElementById('search-order')) document.getElementById('search-order').value = '';
         document.getElementById('so-btn-reset-filters')?.classList.add('hidden');
+        document.getElementById('so-active-filters-dot')?.classList.add('hidden');
         window.renderOrdersList();
     };
 
@@ -176,11 +222,11 @@
         const btn = document.getElementById('so-btn-compact');
         if (btn) {
             btn.className = window.ordersFilterState.compactMode
-                ? 'bg-brand-primary text-white border border-brand-primary px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all shadow-sm'
-                : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all shadow-sm';
+                ? 'bg-sky-500 text-slate-950 px-2.5 py-1 rounded-lg text-[11px] font-black transition-all flex items-center gap-1 shadow-sm'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-lg text-[11px] font-black transition-all flex items-center gap-1';
             btn.innerHTML = window.ordersFilterState.compactMode
-                ? '<i class="fa-solid fa-expand"></i> تفصيلي'
-                : '<i class="fa-solid fa-compress"></i> مدمج';
+                ? '<i class="fa-solid fa-expand text-[10px]"></i> تفصيلي'
+                : '<i class="fa-solid fa-compress text-sky-400 text-[10px]"></i> مدمج';
         }
         window.renderOrdersList();
     };
@@ -268,7 +314,102 @@
     }
 
     // =========================================================================
-    // 💬 3. رسائل واتساب السريعة الذكية للعميل
+    // 🛵 4. نافذة وتوجيه الطلب للمندوب بخطوة واحدة (تجهيز ⬅️ إرسال للمندوب)
+    // =========================================================================
+    window.triggerOrderDriverStep = function (btnEl, orderId) {
+        if (typeof window.openQuickDriverDispatch === 'function') {
+            return window.openQuickDriverDispatch(btnEl, orderId);
+        }
+
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
+        if (!order) return;
+
+        const drivers = (typeof storeSettings !== 'undefined' && Array.isArray(storeSettings.drivers)) ? storeSettings.drivers : [];
+        if (drivers.length === 0) {
+            if (typeof window.openDispatchModal === 'function') {
+                return window.openDispatchModal();
+            }
+            return alert('يرجى إضافة مندوب واحد على الأقل من إعدادات المتجر أولاً!');
+        }
+
+        // إذا كان لدينا نافذة البوب أوفر الحية من live-connect نستخدمها لسرعة الاختيار
+        if (typeof window.openLivePopover === 'function') {
+            const drvButtons = drivers.map(d => `
+                <div class="flex gap-1.5">
+                    <button onclick="assignSingleOrderToDriver('${orderId}', '${d.name}', '${d.phone || ''}', false)" class="flex-1 bg-indigo-50 hover:bg-indigo-600 text-indigo-900 hover:text-white py-2 px-3 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between">
+                        <span>🛵 ${d.name}</span>
+                        <span class="text-[10px] opacity-75">تحويل للطريق</span>
+                    </button>
+                    <button onclick="assignSingleOrderToDriver('${orderId}', '${d.name}', '${d.phone || ''}', true)" class="bg-[#25D366] hover:bg-[#1ebd57] text-white px-3 rounded-xl text-xs font-black flex items-center justify-center" title="تحويل للطريق وإرسال واتساب للمندوب">
+                        <i class="fa-brands fa-whatsapp"></i>
+                    </button>
+                </div>
+            `).join('');
+
+            const html = `
+                <div class="space-y-2.5">
+                    <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                        <span class="text-xs font-black text-indigo-800"><i class="fa-solid fa-motorcycle ml-1"></i> إرسال الطلب للمندوب</span>
+                        <button onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <p class="text-[11px] font-bold text-slate-600">العميل: <strong class="text-slate-800">${order.customerName || ''}</strong> (${order.zone || ''})</p>
+                    <div class="space-y-1.5 max-h-52 overflow-y-auto custom-scroll">${drvButtons}</div>
+                    <button onclick="closeLivePopover(); openDispatchModal();" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 rounded-xl text-[10px] font-black mt-1">
+                        📋 فتح شاشة التوجيه الجماعي للمناديب
+                    </button>
+                </div>
+            `;
+            return window.openLivePopover(btnEl, html);
+        }
+
+        // خطة بديلة إذا لم يكن البوب أوفر مفتوحاً
+        if (typeof window.openDispatchModal === 'function') {
+            window.openDispatchModal();
+        }
+    };
+
+    window.assignSingleOrderToDriver = async function (orderId, driverName, driverPhone, sendWa = false) {
+        if (typeof window.closeLivePopover === 'function') window.closeLivePopover();
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
+        if (!order) return;
+
+        try {
+            await db.collection('orders').doc(orderId).update({
+                driverName: driverName,
+                driverPhone: driverPhone || '',
+                status: 'dispatched',
+                dispatchedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            order.driverName = driverName;
+            order.driverPhone = driverPhone || '';
+            order.status = 'dispatched';
+            if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
+                globalOrdersMap[orderId].driverName = driverName;
+                globalOrdersMap[orderId].driverPhone = driverPhone || '';
+                globalOrdersMap[orderId].status = 'dispatched';
+            }
+
+            if (sendWa && driverPhone) {
+                const itemsStr = Array.isArray(order.items) ? order.items.map(i => `${i.quantity}x ${i.name}`).join(' + ') : '';
+                const isOnline = order.paymentMethod === 'online';
+                const totalToCollect = isOnline ? '0 ج.م (الحساب خالص أونلاين ✅)' : `${order.total || 0} ج.م`;
+                const msg = `*🛵 طلب توصيل - سمان ههيا*\n👤 العميل: ${order.customerName || ''}\n📞 موبايل: ${order.customerPhone || ''}${order.customerPhone2 ? '\n📱 بديل: ' + order.customerPhone2 : ''}\n📍 العنوان: ${order.zone || ''} - ${order.customerAddress || ''}\n📦 الأصناف: ${itemsStr}\n💰 المطلوب تحصيله: *${totalToCollect}*${order.driverNote ? '\n⚠️ ملاحظة: ' + order.driverNote.split('\n---\n').pop() : ''}`;
+                const cleanP = driverPhone.toString().trim();
+                const waNum = cleanP.startsWith('0') ? '2' + cleanP : cleanP;
+                window.open(`https://wa.me/${waNum}?text=${encodeURIComponent(msg)}`, '_blank');
+            }
+
+            window.renderOrdersList();
+            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
+            if (typeof window.showToast === 'function') window.showToast(`🛵 خرج الطلب مع المندوب: ${driverName}`);
+        } catch (e) {
+            alert('حدث خطأ أثناء توجيه الطلب للمندوب!');
+        }
+    };
+
+    // =========================================================================
+    // 💬 5. رسائل واتساب السريعة الذكية للعميل
     // =========================================================================
     window.sendQuickWhatsAppOption = function (orderId, templateType) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
@@ -302,17 +443,8 @@
         }
     };
 
-    // دالة فتح التوجيه للمندوب للطلب الواحد
-    window.triggerOrderDriverStep = function (btnEl, orderId) {
-        if (typeof window.openQuickDriverDispatch === 'function') {
-            window.openQuickDriverDispatch(btnEl, orderId);
-        } else if (typeof window.openDispatchModal === 'function') {
-            window.openDispatchModal();
-        }
-    };
-
     // =========================================================================
-    // 🚀 4. المحرك المطور لعرض وفلترة كروت الطلبات الحية (renderOrdersList)
+    // 🚀 6. المحرك المطور لعرض وفلترة كروت الطلبات الحية (renderOrdersList)
     // =========================================================================
     window.renderOrdersList = function () {
         window.initSmartOrdersToolbar();
@@ -458,8 +590,10 @@
             let ageStr = getOrderAgeLabel(o);
             let realBatchTitle = getOrderBatchTitle(o);
 
-            // ✅ التسلسل الصحيح الإجباري لزر الخطوة التالية:
-            // جديد (new) ⬅️ للتجهيز (processing) ⬅️ إرسال للمندوب (dispatched) ⬅️ تم التسليم (completed)
+            // ✅ السيكول الصحيح خطوة بخطوة:
+            // 1. جديد (new) ⬅️ للتجهيز (processing)
+            // 2. تجهيز (processing) ⬅️ إرسال للمندوب (dispatched)
+            // 3. في الطريق (dispatched) ⬅️ تم التسليم (completed)
             let nextStepBtnHtml = '';
             if (o.status === 'new') {
                 nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1 shrink-0" title="الخطوة 1: نقل الطلب لقسم التجهيز"><i class="fa-solid fa-fire-burner"></i> للتجهيز</button>`;
@@ -471,19 +605,19 @@
                 nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1 shrink-0"><i class="fa-solid fa-rotate-left"></i> للتجهيز</button>`;
             }
 
-            let sBadge = o.status === 'new' ? '<span class="bg-blue-50 text-blue-600 border border-blue-100 px-2.5 py-1 rounded-lg text-[10px] font-black">جديد</span>' :
-                (o.status === 'processing' ? '<span class="bg-amber-50 text-amber-600 border border-amber-100 px-2.5 py-1 rounded-lg text-[10px] font-black">جاري التجهيز</span>' :
-                (o.status === 'dispatched' ? '<span class="bg-indigo-50 text-indigo-600 border border-indigo-100 px-2.5 py-1 rounded-lg text-[10px] font-black"><i class="fa-solid fa-motorcycle mr-1"></i> في الطريق</span>' :
-                (o.status === 'deferred' ? '<span class="bg-orange-50 text-orange-600 border border-orange-200 px-2.5 py-1 rounded-lg text-[10px] font-black"><i class="fa-solid fa-clock mr-1"></i> مؤجل</span>' :
-                (o.status === 'no_answer' ? '<span class="bg-purple-50 text-purple-600 border border-purple-100 px-2.5 py-1 rounded-lg text-[10px] font-black"><i class="fa-solid fa-phone-slash mr-1"></i> لم يرد</span>' :
-                (o.status === 'completed' ? '<span class="bg-emerald-50 text-emerald-600 border border-emerald-100 px-2.5 py-1 rounded-lg text-[10px] font-black">مكتمل</span>' :
-                '<span class="bg-slate-50 text-slate-500 border border-slate-200 px-2.5 py-1 rounded-lg text-[10px] font-black">ملغي</span>')))));
+            let sBadge = o.status === 'new' ? '<span class="bg-blue-50 text-blue-600 border border-blue-100 px-2 py-0.5 rounded-lg text-[10px] font-black">جديد</span>' :
+                (o.status === 'processing' ? '<span class="bg-amber-50 text-amber-600 border border-amber-100 px-2 py-0.5 rounded-lg text-[10px] font-black">تجهيز</span>' :
+                (o.status === 'dispatched' ? '<span class="bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-0.5 rounded-lg text-[10px] font-black"><i class="fa-solid fa-motorcycle mr-1"></i> في الطريق</span>' :
+                (o.status === 'deferred' ? '<span class="bg-orange-50 text-orange-600 border border-orange-200 px-2 py-0.5 rounded-lg text-[10px] font-black">مؤجل</span>' :
+                (o.status === 'no_answer' ? '<span class="bg-purple-50 text-purple-600 border border-purple-100 px-2 py-0.5 rounded-lg text-[10px] font-black">لم يرد</span>' :
+                (o.status === 'completed' ? '<span class="bg-emerald-50 text-emerald-600 border border-emerald-100 px-2 py-0.5 rounded-lg text-[10px] font-black">مكتمل</span>' :
+                '<span class="bg-slate-50 text-slate-500 border border-slate-200 px-2 py-0.5 rounded-lg text-[10px] font-black">ملغي</span>')))));
 
             let trustInfo = (typeof window.fastAnalyzeOrderTrust === 'function')
                 ? window.fastAnalyzeOrderTrust(o)
                 : { cardClass: 'bg-white border-slate-100', badgeHtml: '', bannerHtml: '', stickyHtml: '' };
 
-            // 📱 وضع العرض المدمج المطور (يعرض الأصناف والكميات كاملة بوضوح على الموبايل والكمبيوتر!)
+            // 📱 1. وضع العرض المدمج السريع (Compact Mode) - يظهر الأصناف والسعر والخطوة التالية بوضوح تام
             if (isCompact) {
                 const compactItemsPills = (o.items && Array.isArray(o.items) && o.items.length > 0)
                     ? o.items.map((i, idx) => `
@@ -494,7 +628,7 @@
                     : '<span class="text-[10px] text-slate-400 font-bold">بدون أصناف</span>';
 
                 const compactPayBadge = o.paymentMethod === 'online'
-                    ? '<span class="bg-emerald-500 text-white px-1.5 py-0.5 rounded text-[9px] font-black">خالص أونلاين</span>'
+                    ? '<span class="bg-emerald-500 text-white px-1.5 py-0.5 rounded text-[9px] font-black">خالص (أونلاين)</span>'
                     : '<span class="bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded text-[9px] font-black">كاش</span>';
 
                 const compactDriverBadge = o.driverName
@@ -503,14 +637,13 @@
 
                 return `
                 <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} p-3 rounded-2xl shadow-sm border hover:border-brand-primary transition-all space-y-2">
-                    <!-- السطر الأول: بيانات العميل + المنطقة + السعر + الحالة -->
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div class="flex flex-wrap items-center gap-1.5 min-w-0">
                             <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer shrink-0">
                             <span onclick="openCustomerCard('${o.customerPhone}')" class="font-black text-slate-800 text-xs sm:text-sm cursor-pointer hover:text-brand-primary">${o.customerName || 'بدون اسم'}</span>
                             ${trustInfo.badgeHtml}
                             <a href="tel:${o.customerPhone}" class="text-emerald-600 bg-emerald-50 hover:bg-emerald-600 hover:text-white w-5 h-5 rounded-full flex items-center justify-center text-[9px] transition-colors"><i class="fa-solid fa-phone"></i></a>
-                            <span data-zone-pill="1" class="text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-lg">${o.zone || 'بدون منطقة'}</span>
+                            <span data-zone-pill="1" ondblclick="inlineEdit(this, '${o.id}', 'zone')" class="text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-lg">${o.zone || 'بدون منطقة'}</span>
                             ${realBatchTitle ? `<span class="text-[9px] font-black bg-teal-50 text-teal-700 border border-teal-200 px-1.5 py-0.5 rounded">${realBatchTitle}</span>` : ''}
                             ${compactPayBadge}
                             ${compactDriverBadge}
@@ -521,7 +654,6 @@
                         </div>
                     </div>
 
-                    <!-- السطر الثاني: الأصناف المطلوبة ظاهرة بالكامل + أزرار التحكم السريع -->
                     <div class="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-slate-100">
                         <div class="flex flex-wrap items-center gap-1.5 flex-1 min-w-[180px]">
                             ${compactItemsPills}
@@ -536,17 +668,17 @@
                 </div>`;
             }
 
-            // 🖥️ وضع الكارت التفصيلي المطور (Smart Order Card 2.0)
+            // 🖥️ 2. وضع الكارت التفصيلي المنظم (3 مناطق واضحة بدون زحام)
             let completedDateHtml = '';
             if (o.status === 'completed') {
                 let cTime = o.completedTimeDisplay || (o.completedAtStr ? o.completedAtStr : 'تم التسليم');
-                completedDateHtml = `<span class="text-[9px] text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded font-black mt-1 w-full text-center shadow-sm"><i class="fa-solid fa-check-double"></i> ${cTime}</span>`;
+                completedDateHtml = `<span class="text-[9px] text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded font-black"><i class="fa-solid fa-check-double"></i> ${cTime}</span>`;
             }
 
             let itemsStr = (o.items && Array.isArray(o.items)) ? o.items.map((i, idx) =>
-                `<span data-item-idx="${idx}" class="bg-white border border-slate-200 px-2.5 py-1.5 rounded-lg text-xs shadow-sm flex items-center gap-1.5 hover:border-brand-primary transition-colors">
+                `<span data-item-idx="${idx}" class="bg-white border border-slate-200 px-2.5 py-1 rounded-lg text-xs shadow-sm inline-flex items-center gap-1.5 hover:border-brand-primary transition-colors">
                     <span class="font-black text-slate-800">${i.quantity}x ${i.name}</span>
-                    <span class="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded cursor-pointer border border-emerald-100 hover:bg-emerald-500 hover:text-white transition-colors" ondblclick="editItemPrice('${o.id}', ${idx})" title="اضغط مرتين لتعديل السعر (لعمل واجب)">(بـ ${i.price}ج)</span>
+                    <span class="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded cursor-pointer border border-emerald-100 hover:bg-emerald-500 hover:text-white transition-colors" ondblclick="editItemPrice('${o.id}', ${idx})" title="اضغط مرتين لتعديل السعر">${i.price}ج</span>
                 </span>`
             ).join('') : '<span class="text-slate-400 text-xs font-bold">لا يوجد تفاصيل</span>';
 
@@ -559,11 +691,7 @@
             }
 
             let batchTagHtml = realBatchTitle
-                ? `<span onclick="setOrdersQuickFilter('batch', '${realBatchTitle}')" class="text-[10px] bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-teal-600 hover:text-white transition-colors shadow-sm" title="اضغط لفلترة هذه الدفعة"><i class="fa-solid fa-layer-group"></i> ${realBatchTitle}</span>`
-                : '';
-
-            let customTagHtml = o.customTag
-                ? `<span onclick="document.getElementById('search-order').value='${o.customTag}'; renderOrdersList();" class="text-[10px] bg-purple-50 text-purple-600 border border-purple-100 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-purple-500 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-hashtag"></i> ${o.customTag}</span>`
+                ? `<span onclick="setOrdersQuickFilter('batch', '${realBatchTitle}')" class="text-[10px] bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-teal-600 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-layer-group"></i> ${realBatchTitle}</span>`
                 : '';
 
             let driverBadgeHtml = o.driverName
@@ -576,105 +704,124 @@
                 deliveryWindowBadge = `<span class="text-[10px] bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-regular fa-calendar-check"></i> تسليم: ${winTxt}</span>`;
             }
 
+            let customTagHtml = o.customTag
+                ? `<span onclick="document.getElementById('search-order').value='${o.customTag}'; renderOrdersList();" class="text-[10px] bg-purple-50 text-purple-600 border border-purple-100 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-purple-500 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-hashtag"></i> ${o.customTag}</span>`
+                : '';
+
             let phone2Html = o.customerPhone2 ? `
-                <span class="flex items-center gap-1.5 bg-purple-50 px-2 py-1 rounded-lg border border-purple-100 ml-1">
-                    <span class="text-[9px] font-black text-purple-500">بديل:</span>
-                    <span class="text-[11px] text-slate-600 font-bold cursor-pointer border-b border-transparent hover:border-purple-400 border-dashed" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone2')" title="تعديل الرقم البديل">${o.customerPhone2}</span>
-                    <a href="tel:${o.customerPhone2}" class="text-purple-500 hover:text-white hover:bg-purple-500 w-5 h-5 flex items-center justify-center bg-purple-100 rounded-full transition-colors"><i class="fa-solid fa-phone text-[8px]"></i></a>
+                <span class="inline-flex items-center gap-1 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100">
+                    <span class="text-[9px] font-black text-purple-600">بديل:</span>
+                    <span class="text-[10px] text-slate-700 font-bold" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone2')">${o.customerPhone2}</span>
+                    <a href="tel:${o.customerPhone2}" class="text-purple-600 hover:text-purple-800 text-[9px]"><i class="fa-solid fa-phone"></i></a>
                 </span>` : '';
 
+            const adminNotesCount = o.adminNote ? o.adminNote.split('\n---\n').filter(Boolean).length : 0;
+            const driverNotesCount = o.driverNote ? o.driverNote.split('\n---\n').filter(Boolean).length : 0;
+
             return `
-            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} p-3.5 rounded-[1rem] shadow-sm border hover:shadow-md transition-all relative group cursor-pointer">
-                <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb absolute top-3 left-3 w-4 h-4 accent-brand-primary cursor-pointer opacity-70 group-hover:opacity-100 checked:opacity-100 transition-opacity z-10">
+            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} p-3.5 rounded-2xl shadow-sm border hover:shadow-md transition-all relative group cursor-pointer space-y-2.5">
+                <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb absolute top-3.5 left-3.5 w-4 h-4 accent-brand-primary cursor-pointer opacity-80 group-hover:opacity-100 checked:opacity-100 transition-opacity z-10">
 
                 ${trustInfo.bannerHtml}
                 ${trustInfo.stickyHtml}
 
-                <div class="flex justify-between items-start mb-1.5 pl-6">
-                    <div>
-                        <h5 class="font-black text-slate-800 text-sm flex flex-wrap items-center gap-1.5 mb-1">
-                            <span class="cursor-pointer hover:text-brand-primary transition-colors border-b border-transparent hover:border-brand-primary border-dashed select-none" onclick="smartNameClick(this, '${o.id}', '${o.customerPhone}', 'customerName')" title="اضغط مرة لفتح ملف العميل.. مرتين للتعديل السريع">${o.customerName || 'بدون اسم'}</span>
+                <!-- المنطقة 1: رأس الكارت (العميل + الموقع + شارة الحالة) -->
+                <div class="flex justify-between items-start gap-2 pl-6">
+                    <div class="space-y-1">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <span class="font-black text-slate-800 text-sm cursor-pointer hover:text-brand-primary border-b border-transparent hover:border-brand-primary border-dashed" onclick="smartNameClick(this, '${o.id}', '${o.customerPhone}', 'customerName')">${o.customerName || 'بدون اسم'}</span>
                             ${trustInfo.badgeHtml}
-                            <a href="tel:${o.customerPhone}" class="text-emerald-500 hover:text-white hover:bg-emerald-500 w-5 h-5 flex items-center justify-center bg-emerald-50 rounded-full transition-colors" title="اتصال مباشر"><i class="fa-solid fa-phone text-[9px]"></i></a>
-                            <span class="text-[10px] text-slate-400 font-bold cursor-pointer border-b border-transparent hover:border-slate-400 border-dashed" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone')" title="اضغط مرتين للتعديل السريع">${o.customerPhone}</span>
+                            <a href="tel:${o.customerPhone}" class="text-emerald-600 hover:text-white hover:bg-emerald-600 w-5 h-5 flex items-center justify-center bg-emerald-50 rounded-full transition-colors" title="اتصال"><i class="fa-solid fa-phone text-[9px]"></i></a>
+                            <span class="text-[11px] text-slate-500 font-bold cursor-pointer" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone')">${o.customerPhone}</span>
                             ${phone2Html}
-                            <button onclick="event.stopPropagation(); quickBanFromOrderCard('${o.id}')" class="text-[9px] bg-red-50 text-red-500 hover:bg-red-600 hover:text-white px-1.5 py-0.5 rounded border border-red-100 font-black transition-colors" title="إدراج سريع في البلاك ليست"><i class="fa-solid fa-ban"></i></button>
-                        </h5>
+                        </div>
 
-                        <p class="text-[10px] text-slate-500 font-bold flex items-center gap-1 flex-wrap">
-                            <i class="fa-solid fa-location-dot text-indigo-400 mr-1"></i>
-                            <span data-zone-pill="1" class="cursor-pointer border-b border-transparent hover:border-slate-400 border-dashed text-indigo-900 font-black" ondblclick="inlineEdit(this, '${o.id}', 'zone')">${o.zone || 'غير مسجل'}</span>
-                            ${o.customerAddress ? `<span class="mx-1">-</span><span class="cursor-pointer border-b border-transparent hover:border-slate-400 border-dashed" ondblclick="inlineEdit(this, '${o.id}', 'customerAddress')">${o.customerAddress}</span>` : ''}
-                        </p>
+                        <div class="text-[11px] text-slate-600 font-bold flex items-center gap-1.5 flex-wrap">
+                            <span data-zone-pill="1" class="cursor-pointer text-indigo-800 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-md font-black" ondblclick="inlineEdit(this, '${o.id}', 'zone')"><i class="fa-solid fa-location-dot text-indigo-500 ml-1"></i>${o.zone || 'غير مسجل'}</span>
+                            ${o.customerAddress ? `<span class="cursor-pointer text-slate-600" ondblclick="inlineEdit(this, '${o.id}', 'customerAddress')">${o.customerAddress}</span>` : ''}
+                        </div>
                     </div>
-                    <div class="flex flex-col items-end gap-1">
+
+                    <div class="flex flex-col items-end gap-1 shrink-0">
                         <div class="flex items-center gap-1">
                             ${ageStr ? `<span class="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold">${ageStr}</span>` : ''}
                             ${sBadge}
                         </div>
-                        <span class="text-[9px] text-slate-400 font-bold tracking-wider">طلب: ${d}</span>
+                        <span class="text-[9px] text-slate-400 font-bold">${d}</span>
                         ${completedDateHtml}
                     </div>
                 </div>
 
-                <div class="flex flex-wrap gap-1 mb-2">
-                    ${paymentBadge} ${batchTagHtml} ${driverBadgeHtml} ${deliveryWindowBadge} ${customTagHtml}
-                </div>
+                <!-- المنطقة 2: قلب الكارت (الأصناف والدفعة يميناً + الحساب والدفع يساراً) -->
+                <div class="bg-slate-50/90 p-2.5 rounded-xl border border-slate-100 space-y-2">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div class="flex flex-wrap gap-1.5 flex-1">
+                            ${itemsStr}
+                        </div>
+                        <div class="flex flex-col items-end shrink-0">
+                            <div class="flex items-center gap-1 mb-0.5">
+                                ${paymentBadge}
+                            </div>
+                            <div class="flex items-baseline gap-1">
+                                <span class="text-[9px] font-bold text-slate-400">(${o.subtotal || o.total || 0} + شحن ${o.deliveryFee || 0}${o.discount > 0 ? ` - خصم ${o.discount}` : ''})</span>
+                                <span class="font-black text-brand-primary text-lg leading-none">${o.total || 0} <span class="text-[10px]">ج</span></span>
+                            </div>
+                        </div>
+                    </div>
 
-                <div class="bg-slate-50/80 p-2.5 rounded-lg border border-slate-100/50 mb-2 flex flex-wrap gap-1.5">
-                    ${itemsStr}
+                    ${(batchTagHtml || driverBadgeHtml || deliveryWindowBadge || customTagHtml) ? `
+                    <div class="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-slate-200/60">
+                        ${batchTagHtml} ${driverBadgeHtml} ${deliveryWindowBadge} ${customTagHtml}
+                    </div>` : ''}
+
                     ${(o.adminNote || o.driverNote) ? `
-                    <div class="w-full mt-1.5 pt-1.5 border-t border-slate-200/50">
-                        <p class="text-[9px] font-black text-amber-700 bg-amber-50 px-2 py-1 rounded border border-amber-100 italic truncate">
-                            <i class="fa-solid fa-circle-exclamation mr-1"></i> ${o.adminNote ? o.adminNote.split('\n---\n').pop() : o.driverNote.split('\n---\n').pop()}
+                    <div class="pt-1.5 border-t border-slate-200/60">
+                        <p class="text-[10px] font-black text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200/80 truncate">
+                            <i class="fa-solid fa-comment-dots ml-1 text-amber-600"></i> ${o.adminNote ? o.adminNote.split('\n---\n').pop() : o.driverNote.split('\n---\n').pop()}
                         </p>
                     </div>` : ''}
                 </div>
 
-                <div class="flex flex-wrap gap-2 mb-2">
-                    <button onclick="toggleInlineNotes(event, '${o.id}', 'adminNote')" class="flex-1 bg-amber-50 border border-amber-100 hover:bg-amber-100 transition-colors px-2 py-1.5 rounded-lg flex items-center justify-between shadow-sm group">
-                        <span class="text-[9px] font-black text-amber-700"><i class="fa-solid fa-lock mr-1"></i> ملاحظات إدارية</span>
-                        ${o.adminNote ? `<span class="bg-amber-200 text-amber-800 text-[9px] font-black px-1.5 py-0.5 rounded">${o.adminNote.split('\n---\n').length}</span>` : '<span class="text-[9px] font-black text-amber-600 opacity-50 group-hover:opacity-100"><i class="fa-solid fa-plus"></i></span>'}
-                    </button>
-                    <button onclick="toggleInlineNotes(event, '${o.id}', 'driverNote')" class="flex-1 bg-blue-50 border border-blue-100 hover:bg-blue-100 transition-colors px-2 py-1.5 rounded-lg flex items-center justify-between shadow-sm group">
-                        <span class="text-[9px] font-black text-blue-700"><i class="fa-solid fa-motorcycle mr-1"></i> ملاحظات للمندوب</span>
-                        ${o.driverNote ? `<span class="bg-blue-200 text-blue-800 text-[9px] font-black px-1.5 py-0.5 rounded">${o.driverNote.split('\n---\n').length}</span>` : '<span class="text-[9px] font-black text-blue-600 opacity-50 group-hover:opacity-100"><i class="fa-solid fa-plus"></i></span>'}
-                    </button>
-                </div>
-
-                <div id="inline-notes-container-${o.id}" class="hidden w-full mb-2 transition-all duration-300 origin-top">
+                <div id="inline-notes-container-${o.id}" class="hidden w-full transition-all duration-300 origin-top">
                     <div id="inline-notes-content-${o.id}"></div>
                 </div>
 
-                <div class="flex flex-col sm:flex-row justify-between items-center pt-2 border-t border-slate-100 gap-3">
-                    <div class="flex flex-wrap gap-1.5 w-full sm:w-auto">
-                        ${o.status === 'completed' ?
-                        `<button onclick="sendFollowUpWhatsApp('${o.customerPhone}', '${o.customerName}')" class="flex-1 sm:flex-none text-[10px] bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg font-bold transition-all shadow-sm flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-heart-circle-check"></i> متابعة</button>
-                         <button onclick="openLinkArchiveModal('${o.id}')" class="flex-1 sm:flex-none text-[10px] bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg font-bold transition-all shadow-sm flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-link text-amber-400"></i> أرشفة</button>`
-                        :
-                        `<div class="inline-flex rounded-lg shadow-sm">
-                            <button onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="text-[10px] bg-[#25D366] hover:bg-[#1ebd57] text-white px-2.5 py-1.5 rounded-r-lg font-bold transition-all flex items-center gap-1"><i class="fa-brands fa-whatsapp"></i> واتساب</button>
-                            <select onchange="if(this.value){ sendQuickWhatsAppOption('${o.id}', this.value); this.value=''; }" class="bg-[#1ebd57] text-white text-[9px] font-black px-1 rounded-l-lg border-r border-white/20 outline-none cursor-pointer" title="رسائل واتساب سريعة جاهزة">
-                                <option value="">▼</option>
-                                <option value="invoice">🧾 إرسال الفاتورة</option>
-                                <option value="on_way">🛵 الطلب في الطريق</option>
-                                <option value="no_answer">📵 الهاتف غير متاح</option>
-                                <option value="prepay">💳 طلب دفع مسبق</option>
-                            </select>
-                        </div>`
-                        }
-                        <button onclick="openEditOrderModal('${o.id}')" class="flex-1 sm:flex-none text-[10px] bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg font-bold transition-all shadow-sm flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-pen"></i> تعديل</button>
-                        <button onclick="openOrderTracking('${o.id}')" class="flex-1 sm:flex-none text-[10px] bg-sky-50 text-sky-600 hover:bg-sky-100 px-2.5 py-1.5 rounded-lg font-bold border border-sky-200 transition-all shadow-sm flex items-center justify-center gap-1"><i class="fa-solid fa-route"></i> تتبع</button>
-                        <button onclick="event.stopPropagation(); printSingleOrderWaybill('${o.id}')" class="flex-1 sm:flex-none text-[10px] bg-amber-50 text-amber-800 hover:bg-amber-500 hover:text-white px-2.5 py-1.5 rounded-lg font-black border border-amber-200 transition-all shadow-sm flex items-center justify-center gap-1"><i class="fa-solid fa-print"></i> بوليصة</button>
+                <!-- المنطقة 3: شريط الإجراءات السفلي الموحد + زر الخطوة التالية الإجباري -->
+                <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                        ${o.status === 'completed' ? `
+                            <button onclick="sendFollowUpWhatsApp('${o.customerPhone}', '${o.customerName}')" class="text-[10px] bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg font-black shadow-sm flex items-center gap-1"><i class="fa-solid fa-heart-circle-check"></i> متابعة</button>
+                            <button onclick="openLinkArchiveModal('${o.id}')" class="text-[10px] bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1.5 rounded-lg font-black shadow-sm flex items-center gap-1"><i class="fa-solid fa-link text-amber-400"></i> أرشفة</button>
+                        ` : `
+                            <div class="inline-flex rounded-lg shadow-sm">
+                                <button onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="text-[10px] bg-[#25D366] hover:bg-[#1ebd57] text-white px-2.5 py-1.5 rounded-r-lg font-black flex items-center gap-1"><i class="fa-brands fa-whatsapp"></i> واتساب</button>
+                                <select onchange="if(this.value){ sendQuickWhatsAppOption('${o.id}', this.value); this.value=''; }" class="bg-[#1ebd57] text-white text-[9px] font-black px-1 rounded-l-lg border-r border-white/20 outline-none cursor-pointer" title="رسائل واتساب جاهزة">
+                                    <option value="">▼</option>
+                                    <option value="invoice">🧾 إرسال الفاتورة</option>
+                                    <option value="on_way">🛵 الطلب في الطريق</option>
+                                    <option value="no_answer">📵 الهاتف غير متاح</option>
+                                    <option value="prepay">💳 طلب دفع مسبق</option>
+                                </select>
+                            </div>
+                        `}
+
+                        <button onclick="event.stopPropagation(); printSingleOrderWaybill('${o.id}')" class="text-[10px] bg-amber-50 text-amber-900 hover:bg-amber-500 hover:text-white px-2.5 py-1.5 rounded-lg font-black border border-amber-200 transition-all flex items-center gap-1"><i class="fa-solid fa-print"></i> بوليصة</button>
+                        <button onclick="openEditOrderModal('${o.id}')" class="text-[10px] bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white px-2.5 py-1.5 rounded-lg font-black transition-all flex items-center gap-1"><i class="fa-solid fa-pen"></i> تعديل</button>
+
+                        <button onclick="toggleInlineNotes(event, '${o.id}', 'adminNote')" class="text-[10px] bg-amber-50/80 hover:bg-amber-100 text-amber-800 border border-amber-200 px-2 py-1.5 rounded-lg font-black flex items-center gap-1" title="ملاحظات إدارية">
+                            <i class="fa-solid fa-lock"></i> ${adminNotesCount > 0 ? `<span>(${adminNotesCount})</span>` : 'إداري'}
+                        </button>
+                        <button onclick="toggleInlineNotes(event, '${o.id}', 'driverNote')" class="text-[10px] bg-blue-50/80 hover:bg-blue-100 text-blue-800 border border-blue-200 px-2 py-1.5 rounded-lg font-black flex items-center gap-1" title="ملاحظات للمندوب">
+                            <i class="fa-solid fa-motorcycle"></i> ${driverNotesCount > 0 ? `<span>(${driverNotesCount})</span>` : 'للمندوب'}
+                        </button>
+
+                        <button onclick="openOrderTracking('${o.id}')" class="text-[10px] bg-sky-50 text-sky-700 hover:bg-sky-100 px-2 py-1.5 rounded-lg font-bold border border-sky-200" title="تتبع الطلب"><i class="fa-solid fa-route"></i></button>
+                        <button onclick="event.stopPropagation(); quickBanFromOrderCard('${o.id}')" class="text-[10px] bg-red-50 text-red-500 hover:bg-red-600 hover:text-white px-2 py-1.5 rounded-lg border border-red-100 font-black transition-colors" title="إدراج في البلاك ليست"><i class="fa-solid fa-ban"></i></button>
                     </div>
 
-                    <div class="flex items-center justify-between w-full sm:w-auto gap-2">
+                    <div class="flex items-center gap-1.5 mr-auto sm:mr-0">
                         ${nextStepBtnHtml}
-                        <div class="flex flex-col items-end">
-                            <span class="text-[9px] font-bold text-slate-400">منتجات ${o.subtotal || o.total || 0} + توصيل ${o.deliveryFee || 0}${o.discount > 0 ? ` - خصم ${o.discount}` : ''}</span>
-                            <span class="font-black text-brand-primary text-lg tracking-tight">${o.total || 0} <span class="text-[10px] text-slate-400">ج</span></span>
-                        </div>
-                        <select onchange="updateOrderStatus('${o.id}', this.value)" class="text-[10px] font-bold bg-white border border-slate-200 rounded-lg px-2 py-1.5 outline-none text-slate-700 cursor-pointer focus:ring-2 focus:ring-brand-primary/20 transition-all">
+                        <select onchange="updateOrderStatus('${o.id}', this.value)" class="text-[10px] font-black bg-white border border-slate-200 rounded-lg px-2 py-1.5 outline-none text-slate-700 cursor-pointer focus:ring-2 focus:ring-brand-primary/20">
                             <option value="new" ${o.status === 'new' ? 'selected' : ''}>جديد</option>
                             <option value="processing" ${o.status === 'processing' ? 'selected' : ''}>تجهيز</option>
                             <option value="dispatched" ${o.status === 'dispatched' ? 'selected' : ''}>بالطريق</option>
@@ -695,7 +842,7 @@
     };
 
     // =========================================================================
-    // 🛠️ 5. تطوير نافذتي "إنشاء طلب" (مساعد العميل والنقاط) و"تعديل طلب"
+    // 🛠️ 7. تطوير نافذتي "إنشاء طلب" (مساعد العميل والنقاط) و"تعديل طلب"
     // =========================================================================
     const _origCheckCustomerExists = window.checkCustomerExists;
     window.checkCustomerExists = async function () {
@@ -830,7 +977,9 @@
         const newDebt = Number(document.getElementById('edit-order-debt-input')?.value) || 0;
         const debtDiff = newDebt - oldDebt;
 
-        await _origSaveEditedOrder();
+        if (typeof _origSaveEditedOrder === 'function') {
+            await _origSaveEditedOrder();
+        }
 
         try {
             await db.collection('orders').doc(orderId).update({
@@ -856,7 +1005,7 @@
     };
 
     // =========================================================================
-    // ⚡ 6. الإصلاح المحاسبي الشامل للتحديد الجماعي (bulkChangeStatus)
+    // ⚡ 8. الإصلاح المحاسبي الشامل للتحديد الجماعي (bulkChangeStatus)
     // =========================================================================
     window.bulkChangeStatus = async function (newStatus) {
         let checked = Array.from(document.querySelectorAll('.bulk-order-cb:checked')).map(cb => cb.value);
@@ -995,7 +1144,7 @@
     };
 
     // =========================================================================
-    // 📋 7. ورقة التحضير الذكية المربوطة بمخزن الفريزر (Smart Packing List 2.0)
+    // 📋 9. ورقة التحضير الذكية المربوطة بمخزن الفريزر (Smart Packing List 2.0)
     // =========================================================================
     window.openPackingListModal = function () {
         window.renderSmartPackingList();
@@ -1023,4 +1172,98 @@
         ordersList.forEach(o => {
             if (!o || ['completed', 'canceled', 'trash'].includes(o.status) || o.isArchived) return;
             const bTitle = getOrderBatchTitle(o);
-            if (b
+            if (bTitle) batchSet.add(bTitle);
+            if (o.zone) zoneSet.add(o.zone.trim());
+        });
+
+        const targetOrders = ordersList.filter(o => {
+            if (!o || o.status === 'trash' || o.isArchived) return false;
+            if (scope === 'processing' && o.status !== 'processing') return false;
+            if (scope === 'new_and_proc' && !['new', 'processing'].includes(o.status)) return false;
+            if (scope === 'dispatched' && o.status !== 'dispatched') return false;
+
+            if (pBatch !== 'all' && getOrderBatchTitle(o) !== pBatch) return false;
+            if (pZone !== 'all' && (o.zone || '').trim() !== pZone) return false;
+            return true;
+        });
+
+        const itemTotals = {};
+        targetOrders.forEach(o => {
+            if (Array.isArray(o.items)) {
+                o.items.forEach(item => {
+                    const k = item.name || 'صنف';
+                    if (!itemTotals[k]) itemTotals[k] = { id: item.id || '', name: k, qty: 0 };
+                    itemTotals[k].qty += Number(item.quantity) || 0;
+                });
+            }
+        });
+
+        let batchOpts = `<option value="all">كل الدفعات</option>`;
+        Array.from(batchSet).forEach(b => { batchOpts += `<option value="${b}" ${pBatch === b ? 'selected' : ''}>${b}</option>`; });
+
+        let zoneOpts = `<option value="all">كل المناطق</option>`;
+        Array.from(zoneSet).forEach(z => { zoneOpts += `<option value="${z}" ${pZone === z ? 'selected' : ''}>${z}</option>`; });
+
+        let html = `
+            <div class="space-y-3 mb-4">
+                <div class="grid grid-cols-3 gap-2">
+                    <select onchange="updatePackingListFilter('packingScope', this.value)" class="border border-slate-200 rounded-xl p-2 text-[11px] font-black bg-white outline-none">
+                        <option value="processing" ${scope === 'processing' ? 'selected' : ''}>⏳ قيد التجهيز فقط</option>
+                        <option value="new_and_proc" ${scope === 'new_and_proc' ? 'selected' : ''}>🆕 جديد + تجهيز معاً</option>
+                        <option value="dispatched" ${scope === 'dispatched' ? 'selected' : ''}>🛵 في الطريق حالياً</option>
+                    </select>
+                    <select onchange="updatePackingListFilter('packingBatch', this.value)" class="border border-slate-200 rounded-xl p-2 text-[11px] font-black bg-white outline-none">${batchOpts}</select>
+                    <select onchange="updatePackingListFilter('packingZone', this.value)" class="border border-slate-200 rounded-xl p-2 text-[11px] font-black bg-white outline-none">${zoneOpts}</select>
+                </div>
+
+                <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
+                    <span class="font-black text-slate-700 text-xs"><i class="fa-solid fa-box text-amber-500 mr-1"></i> إجمالي أوردرات التحضير المفلترة:</span>
+                    <span class="font-black text-brand-primary text-xl">${targetOrders.length} طلب</span>
+                </div>
+            </div>
+        `;
+
+        const sortedKeys = Object.keys(itemTotals).sort((a, b) => itemTotals[b].qty - itemTotals[a].qty);
+        if (sortedKeys.length === 0) {
+            html += `<div class="text-center py-10 border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 font-bold text-sm">لا توجد طلبات مطابقة لتحضيرها حالياً.</div>`;
+        } else {
+            html += `<div class="space-y-2.5" id="print-packing-area">`;
+            sortedKeys.forEach(k => {
+                const info = itemTotals[k];
+                const fzAvailable = Math.max(0, Number(freezerObj[info.id]) || 0);
+                const diff = fzAvailable - info.qty;
+                const isEnough = diff >= 0;
+
+                html += `
+                <label class="bg-white p-4 rounded-2xl border ${isEnough ? 'border-slate-200' : 'border-rose-200 bg-rose-50/20'} shadow-sm flex items-center justify-between gap-3 cursor-pointer hover:border-amber-400 transition-all">
+                    <div class="flex items-center gap-3">
+                        <input type="checkbox" class="w-5 h-5 accent-emerald-600 rounded cursor-pointer">
+                        <div>
+                            <span class="text-sm font-black text-slate-800 block">${info.name}</span>
+                            <span class="text-[10px] font-black ${isEnough ? 'text-cyan-700' : 'text-rose-600'}">
+                                ❄️ بالفريزر حالياً: ${fzAvailable} ${isEnough ? '(متوفر بالكامل ✅)' : `(عجز: ${Math.abs(diff)} يحتاج تجهيز ⚠️)`}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="text-center bg-amber-50 border border-amber-200 px-3.5 py-1.5 rounded-xl shrink-0">
+                        <span class="text-2xl font-black text-amber-600 block leading-none">${Number(info.qty.toFixed(2))}</span>
+                        <span class="text-[9px] font-black text-amber-800">المطلوب</span>
+                    </div>
+                </label>`;
+            });
+            html += `</div>`;
+        }
+
+        cont.innerHTML = html;
+    };
+
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', () => {
+            window.initSmartOrdersToolbar();
+            setTimeout(() => window.renderOrdersList(), 400);
+        });
+    } else {
+        window.initSmartOrdersToolbar();
+        setTimeout(() => window.renderOrdersList(), 400);
+    }
+})();
