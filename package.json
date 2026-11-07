@@ -3,14 +3,15 @@
   "version": "1.0.0",
   "description": "سمان ههيا CRM",
   "scripts": {
-    "build": "echo 'No web build required'"
+    "postinstall": "node -e \"const fs=require('fs');const perms='<uses-permission android:name=\\\"android.permission.BLUETOOTH\\\"/><uses-permission android:name=\\\"android.permission.BLUETOOTH_ADMIN\\\"/><uses-permission android:name=\\\"android.permission.BLUETOOTH_CONNECT\\\" android:usesPermissionFlags=\\\"neverForLocation\\\"/><uses-permission android:name=\\\"android.permission.BLUETOOTH_SCAN\\\" android:usesPermissionFlags=\\\"neverForLocation\\\"/><uses-permission android:name=\\\"android.permission.ACCESS_FINE_LOCATION\\\"/><uses-permission android:name=\\\"android.permission.ACCESS_COARSE_LOCATION\\\"/>';['node_modules/@capacitor/android/capacitor/src/main/AndroidManifest.xml','android/app/src/main/AndroidManifest.xml'].forEach(p=>{if(fs.existsSync(p)){let c=fs.readFileSync(p,'utf8');if(!c.includes('BLUETOOTH_CONNECT')){c=c.replace('</manifest>',perms+'</manifest>');fs.writeFileSync(p,c);}}});const javaPath='node_modules/cordova-plugin-bluetooth-serial/src/android/com/megster/cordova/BluetoothSerial.java';if(fs.existsSync(javaPath)){let j=fs.readFileSync(javaPath,'utf8');const target='public boolean execute(String action, CordovaArgs args, CallbackContext callbackContext) throws JSONException {';const patch=target+' if(android.os.Build.VERSION.SDK_INT>=31){String bc=\\\"android.permission.BLUETOOTH_CONNECT\\\";String bs=\\\"android.permission.BLUETOOTH_SCAN\\\";if(!cordova.hasPermission(bc)||!cordova.hasPermission(bs)){cordova.requestPermissions(this,99,new String[]{bc,bs});callbackContext.error(\\\"PLEASE_RETRY_AFTER_PERMISSION\\\");return true;}}';if(j.includes(target)&&!j.includes('BLUETOOTH_CONNECT')){j=j.replace(target,patch);fs.writeFileSync(javaPath,j);}}\"",
+    "build": "npm run postinstall"
   },
   "dependencies": {
     "@capacitor/core": "^6.0.0",
-    "@capacitor/android": "^6.0.0"
+    "@capacitor/android": "^6.0.0",
+    "cordova-plugin-bluetooth-serial": "^0.4.7"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.0.0"
   }
 }
-
