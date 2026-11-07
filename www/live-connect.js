@@ -1,63 +1,20 @@
 // =========================================================================
-// ⚡ محرك الترابط الحي، الكبسولات التفاعلية، ونبض النظام المطور (www/live-connect.js)
+// ⚡ محرك الترابط الحي، الكبسولات التفاعلية، ونبض النظام (www/live-connect.js)
 // خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM)
-// يعمل بتكامل تام مع index.html + orders.js + dashboard.js + batches.js + drivers.js + customers.js
+// يعمل بتكامل تام مع index.html + www/orders.js + www/dashboard.js
 // =========================================================================
 
 (function () {
-    // 1. حالة نظام الترابط الحي والطي الذكي والصوت
+    // 1. حالة نظام الترابط الحي والطي الذكي
     window.liveConnectState = {
         toolbarCollapsed: false,
         autoCollapseOnScroll: true,
         lastScrollTop: 0,
-        activePopoverOrderId: null,
-        soundEnabled: localStorage.getItem('sman_lc_sound') !== 'off',
-        initialOrdersLoaded: false,
-        knownOrderIds: new Set()
+        activePopoverOrderId: null
     };
 
     // =========================================================================
-    // 🔊 1.5 نظام التنبيه الصوتي الذكي عند وصول طلب جديد (Web Audio API)
-    // =========================================================================
-    window.playLiveConnectChime = function () {
-        if (!window.liveConnectState.soundEnabled) return;
-        try {
-            const AudioCtx = window.AudioContext || window.webkitAudioContext;
-            if (!AudioCtx) return;
-            const ctx = new AudioCtx();
-            const playNote = (freq, start, dur, vol = 0.14) => {
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
-                gain.gain.setValueAtTime(0.001, ctx.currentTime + start);
-                gain.gain.exponentialRampToValueAtTime(vol, ctx.currentTime + start + 0.03);
-                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.start(ctx.currentTime + start);
-                osc.stop(ctx.currentTime + start + dur);
-            };
-            playNote(587.33, 0.0, 0.16, 0.14);
-            playNote(880.00, 0.14, 0.32, 0.16);
-        } catch (e) {}
-    };
-
-    window.toggleLiveConnectSound = function () {
-        window.liveConnectState.soundEnabled = !window.liveConnectState.soundEnabled;
-        localStorage.setItem('sman_lc_sound', window.liveConnectState.soundEnabled ? 'on' : 'off');
-        if (window.liveConnectState.soundEnabled) {
-            window.playLiveConnectChime();
-            notifyQuickToast('🔊 تم تفعيل الجرس الصوتي للطلبات الجديدة');
-        } else {
-            notifyQuickToast('🔇 تم كتم الجرس الصوتي');
-        }
-        const bellBtn = document.getElementById('lc-hdr-bell-btn');
-        if (bellBtn) window.openSmartBellNotifications(bellBtn);
-    };
-
-    // =========================================================================
-    // 🎨 2. حقن تنسيقات الكبسولات الحية، الهيدر المتجاوب، والطي الناعم
+    // 🎨 2. حقن تنسيقات الكبسولات الحية والقوائم الطائرة والطي الناعم
     // =========================================================================
     function injectLiveConnectStyles() {
         if (document.getElementById('live-connect-styles')) return;
@@ -70,7 +27,7 @@
                 user-select: none;
             }
             .lc-capsule:hover {
-                transform: translateY(-1px) scale(1.02);
+                transform: translateY(-1px) scale(1.03);
                 box-shadow: 0 4px 12px -2px rgba(6, 78, 59, 0.18) !important;
             }
             .lc-capsule:active {
@@ -86,7 +43,7 @@
             #smart-orders-toolbar {
                 transition: max-height 0.28s ease, opacity 0.22s ease, margin 0.22s ease, padding 0.22s ease;
                 overflow: hidden;
-                max-height: 550px;
+                max-height: 500px;
                 opacity: 1;
             }
             #smart-orders-toolbar.lc-collapsed {
@@ -96,24 +53,6 @@
                 padding-top: 0 !important;
                 border-top-width: 0 !important;
                 pointer-events: none;
-            }
-            @media (max-width: 640px) {
-                header {
-                    padding-left: 0.4rem !important;
-                    padding-right: 0.4rem !important;
-                    gap: 0.25rem !important;
-                }
-                header > div:first-child {
-                    gap: 0.35rem !important;
-                    min-width: 0;
-                }
-                #header-title {
-                    font-size: 0.85rem !important;
-                    max-width: 95px;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                }
             }
         `;
         document.head.appendChild(style);
@@ -188,7 +127,6 @@
         }
         t.innerText = msg;
         t.style.opacity = '1';
-        t.style. pointerEvents = 'none';
         t.classList.remove('hidden');
         clearTimeout(window._lcToastTimer);
         window._lcToastTimer = setTimeout(() => {
@@ -197,187 +135,8 @@
         }, 2400);
     }
 
-    // دالة مضمونة لفتح نافذة إنشاء طلب جديد مع التأكد من رسم خانات الأصناف والمناطق
-    window.safeOpenAddOrderModal = function () {
-        if (typeof window.generateDynamicOrderInputs === 'function') {
-            const itemsCont = document.getElementById('dynamic-order-items');
-            if (!itemsCont || itemsCont.children.length === 0) {
-                window.generateDynamicOrderInputs();
-            }
-        }
-        if (typeof window.openModal === 'function') {
-            window.openModal('add-order-modal');
-        } else {
-            document.getElementById('add-order-modal')?.classList.remove('hidden');
-        }
-    };
-
     // =========================================================================
-    // 🛵 4. نافذة التوجيه السريع للمندوب من كارت الطلب مباشرة (1-Click Dispatch)
-    // =========================================================================
-    window.openQuickDriverDispatch = function (anchorEl, orderId) {
-        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
-        if (!order) return;
-
-        if (typeof window.findBlacklistedCustomerMatch === 'function') {
-            const bl = window.findBlacklistedCustomerMatch(order.customerPhone, order.customerPhone2, order.customerName, order.customerAddress);
-            if (bl && bl.type === 'exact' && !order.isPrepaidConfirmed && order.paymentMethod !== 'online') {
-                return alert('⛔ حارس البلاك ليست: لا يمكن توجيه هذا الطلب للمندوب إلا بعد تأكيد الدفع المسبق (خالص أونلاين)!');
-            }
-        }
-
-        const drivers = (typeof storeSettings !== 'undefined' && Array.isArray(storeSettings.drivers))
-            ? storeSettings.drivers.filter(d => d && d.name)
-            : [];
-
-        let driversListHtml = '';
-        if (drivers.length === 0) {
-            driversListHtml = `
-                <div class="bg-amber-50 border border-amber-200 p-2.5 rounded-xl text-[11px] font-bold text-amber-800 text-center">
-                    لا يوجد مناديب مسجلين في الإعدادات حالياً.
-                </div>
-            `;
-        } else {
-            driversListHtml = drivers.map((d) => {
-                const safeName = (d.name || '').replace(/'/g, "\\'");
-                const safePhone = (d.phone || '').replace(/'/g, "\\'");
-                return `
-                    <div class="flex items-center justify-between gap-1.5 bg-slate-50 hover:bg-indigo-50/60 p-2 rounded-xl border border-slate-200 transition-all">
-                        <div class="min-w-0 flex-1">
-                            <div class="text-xs font-black text-slate-800 truncate">🛵 ${d.name}</div>
-                            <div class="text-[9px] font-bold text-slate-400" dir="ltr">${d.phone || 'بدون رقم'}</div>
-                        </div>
-                        <div class="flex items-center gap-1 shrink-0">
-                            <button type="button" onclick="executeQuickSingleDispatch('${orderId}', '${safeName}', '${safePhone}', false)" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all" title="تحويل الحالة إلى (بالطريق) باسم المندوب">
-                                توجيه فقط
-                            </button>
-                            <button type="button" onclick="executeQuickSingleDispatch('${orderId}', '${safeName}', '${safePhone}', true)" class="bg-[#25D366] hover:bg-[#1ebd57] text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all flex items-center gap-1" title="توجيه الطلب وإرسال تفاصيله للمندوب عبر واتساب">
-                                <i class="fa-brands fa-whatsapp"></i> واتساب
-                            </button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        const html = `
-            <div class="space-y-2.5">
-                <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                    <span class="text-xs font-black text-indigo-800"><i class="fa-solid fa-motorcycle ml-1"></i> إرسال الطلب للمندوب</span>
-                    <button onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <div class="text-[11px] font-bold text-slate-600 bg-slate-100 px-2.5 py-1.5 rounded-lg flex justify-between items-center">
-                    <span class="truncate">${order.customerName || 'عميل'} (${order.zone || ''})</span>
-                    <strong class="text-brand-primary shrink-0">${order.paymentMethod === 'online' ? 'خالص أونلاين' : (order.total || 0) + ' ج'}</strong>
-                </div>
-                <div class="space-y-1.5 max-h-52 overflow-y-auto custom-scroll pr-0.5">
-                    ${driversListHtml}
-                </div>
-                <div class="pt-1.5 border-t border-slate-100 flex gap-1.5">
-                    <button type="button" onclick="closeLivePopover(); openDispatchModal();" class="w-full bg-slate-800 hover:bg-slate-900 text-white py-2 rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5 shadow-sm">
-                        <i class="fa-solid fa-map-location-dot text-amber-400"></i> فتح شاشة التوجيه الجماعي (خط سير)
-                    </button>
-                </div>
-            </div>
-        `;
-        window.openLivePopover(anchorEl, html);
-    };
-
-    window.executeQuickSingleDispatch = async function (orderId, driverName, driverPhone, sendWhatsApp = false) {
-        window.closeLivePopover();
-        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
-        if (!order) return;
-
-        try {
-            const oldStatus = order.status;
-            const updateData = {
-                status: 'dispatched',
-                driverName: driverName,
-                driverPhone: driverPhone || '',
-                dispatchedAt: firebase.firestore.FieldValue.serverTimestamp()
-            };
-
-            const batch = db.batch();
-            batch.update(db.collection('orders').doc(orderId), updateData);
-
-            // إذا كان الطلب في قسم (جديد) وتحول مباشرة للمندوب، نخصم من الفريزر بأمان دون نزول تحت الصفر
-            if (oldStatus === 'new' && Array.isArray(order.items) && typeof storeFreezer !== 'undefined') {
-                const fzUpdates = {};
-                order.items.forEach(i => {
-                    if (i.id) {
-                        const curFz = Math.max(0, Number(storeFreezer[i.id]) || 0);
-                        const nextFz = Math.max(0, curFz - (Number(i.quantity) || 0));
-                        storeFreezer[i.id] = nextFz;
-                        fzUpdates[i.id] = nextFz;
-                    }
-                });
-                if (Object.keys(fzUpdates).length > 0) {
-                    batch.set(db.collection('inventory').doc('freezer'), fzUpdates, { merge: true });
-                }
-            }
-
-            await batch.commit();
-
-            order.status = 'dispatched';
-            order.driverName = driverName;
-            order.driverPhone = driverPhone || '';
-            if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
-                globalOrdersMap[orderId].status = 'dispatched';
-                globalOrdersMap[orderId].driverName = driverName;
-                globalOrdersMap[orderId].driverPhone = driverPhone || '';
-            }
-
-            if (typeof window.syncOrderToGoogleSheet === 'function') {
-                window.syncOrderToGoogleSheet(order, 'update');
-            }
-
-            if (sendWhatsApp) {
-                const itemsStr = Array.isArray(order.items) ? order.items.map(i => `${i.quantity}x ${i.name}`).join(' + ') : 'بدون تفاصيل';
-                const isOnline = order.paymentMethod === 'online';
-                const subtotalVal = Number(order.subtotal) || Number(order.total) || 0;
-                const deliveryVal = Number(order.deliveryFee) || 0;
-                const discountVal = Number(order.discount) || 0;
-                const totalVal = Number(order.total) || 0;
-                const altPhoneLine = order.customerPhone2 ? `\n📱 بديل: ${order.customerPhone2}` : '';
-                const addressText = order.customerAddress ? `${order.zone || ''} - ${order.customerAddress}` : (order.zone || 'بدون عنوان تفصيلي');
-
-                let msg = `*🛵 أوردر توصيل - المندوب: ${driverName}*\n════════════════════\n`;
-                msg += `*👤 العميل: ${order.customerName || 'عميل'}*\n`;
-                msg += `📞 أساسي: ${order.customerPhone || ''}${altPhoneLine}\n`;
-                msg += `🏠 العنوان: ${addressText}\n`;
-                msg += `🛒 الأصناف: ${itemsStr}\n`;
-                if (isOnline) {
-                    msg += `💳 *المطلوب تحصيله: 0 ج.م (الحساب خالص أونلاين ✅)*\n`;
-                } else {
-                    msg += `📦 الحساب: ${subtotalVal} ج طلبات + ${deliveryVal} ج توصيل${discountVal > 0 ? ` - ${discountVal} ج خصم` : ''}\n`;
-                    msg += `💰 *الصافي المطلوب تحصيله: ${totalVal} ج.م*\n`;
-                }
-                if (order.driverNote) {
-                    const cleanDriverNote = order.driverNote.split('\n---\n').pop();
-                    msg += `⚠️ ملاحظة: ${cleanDriverNote}\n`;
-                }
-
-                const cleanDrvPhone = String(driverPhone || '').trim();
-                const waNum = cleanDrvPhone.startsWith('0') ? '2' + cleanDrvPhone : cleanDrvPhone;
-                if (waNum) {
-                    window.open(`https://wa.me/${waNum}?text=${encodeURIComponent(msg)}`, '_blank');
-                } else {
-                    alert('تم توجيه الطلب للمندوب، ولكن لا يوجد رقم واتساب مسجل لهذا المندوب في الإعدادات!');
-                }
-            }
-
-            window.renderOrdersList();
-            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
-            if (typeof window.calculateDriverReconciliation === 'function') window.calculateDriverReconciliation();
-            notifyQuickToast(`🛵 تم توجيه الطلب للمندوب (${driverName}) وأصبح في الطريق`);
-        } catch (e) {
-            console.error(e);
-            alert('حدث خطأ أثناء توجيه الطلب للمندوب!');
-        }
-    };
-
-    // =========================================================================
-    // 💊 5. تفعيل الكبسولات الحية على كروت الطلبات (Interactive Micro-Capsules)
+    // 💊 4. تفعيل الكبسولات الحية على كروت الطلبات (Interactive Micro-Capsules)
     // =========================================================================
     window.enhanceOrderCardsLive = function () {
         const container = document.getElementById('orders-list-vertical');
@@ -389,13 +148,11 @@
             const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
             if (!order) return;
 
-            // 1. كبسولة طريقة الدفع + الآجل + المندوب + شارة الحالة + شارة الدفعة
+            // 1. كبسولة طريقة الدفع (💵 كاش ⇄ 💳 خالص أونلاين)
             const paySpans = card.querySelectorAll('span');
             paySpans.forEach(sp => {
                 const txt = sp.innerText.trim();
-
-                // كبسولة الدفع (كاش / أونلاين)
-                if ((txt === 'كاش' || txt === 'خالص (أونلاين)' || txt === 'أونلاين') && !sp.hasAttribute('data-lc-pay')) {
+                if ((txt === 'كاش' || txt === 'خالص (أونلاين)') && !sp.hasAttribute('data-lc-pay')) {
                     sp.setAttribute('data-lc-pay', '1');
                     sp.setAttribute('data-lc-trigger', '1');
                     sp.classList.add('lc-capsule');
@@ -406,7 +163,7 @@
                     };
                 }
 
-                // كبسولة الآجل (المديونية)
+                // 2. كبسولة تسوية المديونية السريعة (آجل X ج)
                 if (txt.startsWith('آجل (') && !sp.hasAttribute('data-lc-debt')) {
                     sp.setAttribute('data-lc-debt', '1');
                     sp.setAttribute('data-lc-trigger', '1');
@@ -418,7 +175,7 @@
                     };
                 }
 
-                // كبسولة المندوب الحالي
+                // 3. كبسولة نبض المندوب (🛵 مع: ...)
                 if (txt.startsWith('مع:') && !sp.hasAttribute('data-lc-driver')) {
                     sp.setAttribute('data-lc-driver', '1');
                     sp.setAttribute('data-lc-trigger', '1');
@@ -429,43 +186,15 @@
                         window.openDriverCapsulePopover(sp, orderId, order.driverName);
                     };
                 }
-
-                // كبسولة شارة الحالة (جديد / جاري التجهيز / في الطريق) لفتح التوجيه السريع للمندوب بضغطة واحدة!
-                if ((txt === 'جديد' || txt === 'جاري التجهيز' || txt === 'في الطريق') && !sp.hasAttribute('data-lc-status-dispatch')) {
-                    sp.setAttribute('data-lc-status-dispatch', '1');
-                    sp.setAttribute('data-lc-trigger', '1');
-                    sp.classList.add('lc-capsule');
-                    sp.title = 'اضغط لتوجيه هذا الطلب لمندوب فوراً (أو إرساله واتساب)';
-                    sp.onclick = (e) => {
-                        e.stopPropagation();
-                        if (order.driverName && txt === 'في الطريق') {
-                            window.openDriverCapsulePopover(sp, orderId, order.driverName);
-                        } else {
-                            window.openQuickDriverDispatch(sp, orderId);
-                        }
-                    };
-                }
-
-                // كبسولة شارة الدفعة الذكية
-                if ((sp.querySelector('.fa-layer-group') || txt.startsWith('الدفعة:')) && !sp.hasAttribute('data-lc-batch')) {
-                    sp.setAttribute('data-lc-batch', '1');
-                    sp.setAttribute('data-lc-trigger', '1');
-                    sp.classList.add('lc-capsule');
-                    sp.title = 'اضغط لخيارات الدفعة السريعة';
-                    sp.onclick = (e) => {
-                        e.stopPropagation();
-                        window.openBatchCapsulePopover(sp, order.batchId, order.batchName || txt.replace('الدفعة:', '').trim());
-                    };
-                }
             });
 
-            // 2. كبسولة المنطقة الذكية
-            const zoneSpan = card.querySelector('span[ondblclick*="\'zone\'"], span[data-zone-pill]');
+            // 4. كبسولة المنطقة الذكية (📍 المنطقة)
+            const zoneSpan = card.querySelector('span[ondblclick*="\'zone\'"]');
             if (zoneSpan && !zoneSpan.hasAttribute('data-lc-zone')) {
                 zoneSpan.setAttribute('data-lc-zone', '1');
                 zoneSpan.setAttribute('data-lc-trigger', '1');
-                zoneSpan.classList.add('lc-capsule');
-                zoneSpan.title = 'اضغط لخيارات المنطقة السريعة';
+                zoneSpan.classList.add('lc-capsule', 'bg-indigo-50/70', 'px-2', 'py-0.5', 'rounded-md');
+                zoneSpan.title = 'اضغط لخيارات المنطقة السريعة (أو مرتين للتعديل)';
                 zoneSpan.onclick = (e) => {
                     e.stopPropagation();
                     if (window._lcZoneClickTimer) {
@@ -480,43 +209,27 @@
                 };
             }
 
-            // 3. كبسولة تعديل كمية الصنف السريع (+ / -) في الوضع التفصيلي والمضغوط
+            // 5. كبسولة تعديل كمية الصنف السريع (+ / - من خارج الكارت)
             if (!['completed', 'canceled', 'trash'].includes(order.status)) {
-                const itemBoxes = card.querySelectorAll('[data-item-idx]');
-                if (itemBoxes.length > 0) {
-                    itemBoxes.forEach(box => {
-                        const idx = parseInt(box.getAttribute('data-item-idx'));
-                        if (!box.hasAttribute('data-lc-item')) {
-                            box.setAttribute('data-lc-item', '1');
-                            box.setAttribute('data-lc-trigger', '1');
-                            box.classList.add('lc-capsule');
-                            box.onclick = (e) => {
-                                if (e.target.hasAttribute('ondblclick')) return;
-                                e.stopPropagation();
-                                window.openItemQtyCapsulePopover(box, orderId, idx);
-                            };
-                        }
-                    });
-                } else {
-                    const legacyBoxes = card.querySelectorAll('.bg-slate-50\\/80 > span.bg-white');
-                    legacyBoxes.forEach((box, idx) => {
-                        const nameSpan = box.querySelector('span.font-black.text-slate-800');
-                        if (nameSpan && !nameSpan.hasAttribute('data-lc-item')) {
-                            nameSpan.setAttribute('data-lc-item', '1');
-                            nameSpan.setAttribute('data-lc-trigger', '1');
-                            nameSpan.classList.add('lc-capsule', 'hover:text-brand-primary');
-                            nameSpan.onclick = (e) => {
-                                e.stopPropagation();
-                                window.openItemQtyCapsulePopover(box, orderId, idx);
-                            };
-                        }
-                    });
-                }
+                const itemBoxes = card.querySelectorAll('.bg-slate-50\\/80 > span.bg-white');
+                itemBoxes.forEach((box, idx) => {
+                    const nameSpan = box.querySelector('span.font-black.text-slate-800');
+                    if (nameSpan && !nameSpan.hasAttribute('data-lc-item')) {
+                        nameSpan.setAttribute('data-lc-item', '1');
+                        nameSpan.setAttribute('data-lc-trigger', '1');
+                        nameSpan.classList.add('lc-capsule', 'hover:text-brand-primary');
+                        nameSpan.title = 'اضغط لتعديل الكمية (+ / -) فوراً';
+                        nameSpan.onclick = (e) => {
+                            e.stopPropagation();
+                            window.openItemQtyCapsulePopover(box, orderId, idx);
+                        };
+                    }
+                });
             }
         });
     };
 
-    // --- 5.1: منطق كبسولة طريقة الدفع ---
+    // --- 4.1: منطق كبسولة طريقة الدفع ---
     window.openPaymentCapsulePopover = function (anchorEl, orderId) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
         if (!order) return;
@@ -566,14 +279,13 @@
             window.renderOrdersList();
             if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
             if (typeof window.calculateDriverReconciliation === 'function') window.calculateDriverReconciliation();
-            if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
             notifyQuickToast(newMethod === 'online' ? '💳 تم تحويل الطلب إلى: خالص أونلاين' : '💵 تم تحويل الطلب إلى: الدفع كاش');
         } catch (e) {
             alert('حدث خطأ أثناء تحديث طريقة الدفع!');
         }
     };
 
-    // --- 5.2: منطق كبسولة تعديل كمية وسعر الصنف (+ / -) الفوري ---
+    // --- 4.2: منطق كبسولة تعديل كمية الصنف (+ / -) الفوري ---
     window.openItemQtyCapsulePopover = function (anchorEl, orderId, itemIdx) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
         if (!order || !Array.isArray(order.items) || !order.items[itemIdx]) return;
@@ -589,10 +301,6 @@
                     <button type="button" onclick="stepLiveItemQty(-1)" class="w-9 h-9 rounded-lg bg-white border border-slate-200 text-red-600 font-black hover:bg-red-50 text-base shadow-sm">-</button>
                     <input type="number" id="lc-item-qty-input" value="${item.quantity}" min="0" step="0.5" class="w-20 bg-transparent text-center font-black text-lg text-brand-primary outline-none">
                     <button type="button" onclick="stepLiveItemQty(1)" class="w-9 h-9 rounded-lg bg-white border border-slate-200 text-emerald-600 font-black hover:bg-emerald-50 text-base shadow-sm">+</button>
-                </div>
-                <div class="flex items-center justify-between bg-amber-50/70 border border-amber-200 rounded-xl px-2.5 py-1.5">
-                    <span class="text-[10px] font-black text-amber-800">🎁 سعر الوحدة (للواجب):</span>
-                    <input type="number" id="lc-item-price-input" value="${item.price}" min="0" class="w-20 bg-white border border-amber-300 rounded-lg p-1 text-center font-black text-xs text-amber-900 outline-none">
                 </div>
                 <div class="flex gap-2">
                     <button onclick="saveLiveItemQtyChange('${orderId}', ${itemIdx})" class="flex-1 bg-brand-primary hover:bg-emerald-800 text-white py-2 rounded-xl text-xs font-black shadow-sm transition-all">
@@ -615,7 +323,6 @@
 
     window.saveLiveItemQtyChange = async function (orderId, itemIdx) {
         const inp = document.getElementById('lc-item-qty-input');
-        const priceInp = document.getElementById('lc-item-price-input');
         if (!inp) return;
         const newQty = Math.max(0, parseFloat(inp.value) || 0);
         window.closeLivePopover();
@@ -625,11 +332,8 @@
 
         const targetItem = order.items[itemIdx];
         const oldQty = Number(targetItem.quantity) || 0;
-        const oldPrice = Number(targetItem.price) || 0;
-        const newPrice = priceInp ? Math.max(0, parseFloat(priceInp.value) || 0) : oldPrice;
-
         const diffQty = newQty - oldQty;
-        if (diffQty === 0 && newPrice === oldPrice) return;
+        if (diffQty === 0) return;
 
         const newItems = [...order.items];
         if (newQty === 0) {
@@ -638,7 +342,7 @@
             }
             newItems.splice(itemIdx, 1);
         } else {
-            newItems[itemIdx] = { ...targetItem, quantity: newQty, price: newPrice };
+            newItems[itemIdx] = { ...targetItem, quantity: newQty };
         }
 
         const newSubtotal = newItems.reduce((sum, i) => sum + ((Number(i.quantity) || 0) * (Number(i.price) || 0)), 0);
@@ -656,7 +360,8 @@
                 total: newTotal
             });
 
-            if (targetItem.id && diffQty !== 0) {
+            // تحديث مخزون الحجز وحصة الدفعة والفريزر
+            if (targetItem.id) {
                 batch.set(db.collection('inventory').doc('stock'), {
                     [targetItem.id]: firebase.firestore.FieldValue.increment(-diffQty)
                 }, { merge: true });
@@ -695,15 +400,14 @@
                 window.syncOrderToGoogleSheet(order, 'update');
             }
             window.renderOrdersList();
-            if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
-            notifyQuickToast(`✅ تم تحديث الصنف والإجمالي (${newTotal} ج)`);
+            notifyQuickToast(`✅ تم تحديث الكمية والإجمالي (${newTotal} ج)`);
         } catch (e) {
             console.error(e);
             alert('حدث خطأ أثناء حفظ الكمية الجديدة!');
         }
     };
 
-    // --- 5.3: منطق كبسولة تسوية المديونية اللحظية ---
+    // --- 4.3: منطق كبسولة تسوية المديونية اللحظية (في الطلبات والعملاء) ---
     window.openDebtCapsulePopover = function (anchorEl, customerPhone, orderId = null) {
         const normP = window.normalizePhone ? window.normalizePhone(customerPhone) : customerPhone;
         const cust = (typeof customersData !== 'undefined' ? customersData : []).find(c => window.normalizePhone(c.phone) === normP);
@@ -760,7 +464,7 @@
             const batch = db.batch();
             const custRef = db.collection('customers').doc(cleanPhone);
 
-            const noteText = `[${new Date().toLocaleDateString('ar-EG')}] ✅ تم تحصيل ${payAmount} ج من المديونية السابقة.`;
+            const noteText = `[${new Date().toLocaleDateString('ar-EG')}] ✅ تم تحصيل ${payAmount} ج من المديونية السابقه.`;
             batch.set(custRef, {
                 debt: firebase.firestore.FieldValue.increment(-payAmount),
                 timelineNotes: firebase.firestore.FieldValue.arrayUnion({
@@ -804,7 +508,7 @@
         if (waNumber) window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}`, '_blank');
     };
 
-    // --- 5.4: منطق كبسولة نبض المندوب على كارت الطلب ---
+    // --- 4.4: منطق كبسولة نبض المندوب على كارت الطلب ---
     window.openDriverCapsulePopover = function (anchorEl, orderId, driverName) {
         const dName = (driverName || '').trim();
         const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
@@ -908,7 +612,7 @@
         }, 120);
     };
 
-    // --- 5.5: منطق كبسولة المنطقة السريعة ---
+    // --- 4.5: منطق كبسولة المنطقة السريعة ---
     window.openZoneCapsulePopover = function (anchorEl, orderId, zoneName) {
         const z = (zoneName || 'غير مسجل').trim();
         const procInZone = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(
@@ -947,118 +651,40 @@
         }
     };
 
-    // --- 5.6: منطق كبسولة الدفعة السريعة ---
-    window.openBatchCapsulePopover = function (anchorEl, batchId, batchName) {
-        const cleanName = (batchName || '').trim();
-        let targetId = batchId;
-        if (!targetId && typeof storeBatches !== 'undefined') {
-            targetId = Object.keys(storeBatches).find(id => storeBatches[id]?.name?.trim() === cleanName) || '';
-        }
-
-        const html = `
-            <div class="space-y-2">
-                <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                    <span class="text-xs font-black text-teal-800 truncate"><i class="fa-solid fa-layer-group ml-1"></i> ${cleanName || 'الدفعة'}</span>
-                    <button onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <button onclick="closeLivePopover(); if(window.setOrdersQuickFilter){setOrdersQuickFilter('batch', '${cleanName}');} else {document.getElementById('search-order').value='${cleanName}'; renderOrdersList();}" class="w-full bg-teal-50 hover:bg-teal-600 text-teal-800 hover:text-white py-2 px-3 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between">
-                    <span>🔍 فلترة طلبات هذه الدفعة</span>
-                    <i class="fa-solid fa-filter text-[10px]"></i>
-                </button>
-                ${targetId ? `
-                <button onclick="closeLivePopover(); viewBatchBookings('${targetId}');" class="w-full bg-blue-50 hover:bg-blue-600 text-blue-800 hover:text-white py-2 px-3 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between">
-                    <span>📋 فتح كشف تسليمات الدفعة</span>
-                    <i class="fa-solid fa-list-check text-[10px]"></i>
-                </button>
-                <div class="grid grid-cols-2 gap-1.5 pt-1">
-                    <button onclick="closeLivePopover(); openSlaughterModal('${targetId}');" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white py-1.5 rounded-xl text-[10px] font-black">🔪 تم الذبح</button>
-                    <button onclick="closeLivePopover(); openBatchSettings('${targetId}');" class="bg-purple-50 hover:bg-purple-600 text-purple-700 hover:text-white py-1.5 rounded-xl text-[10px] font-black">⚙️ الإعدادات</button>
-                </div>
-                ` : ''}
-            </div>
-        `;
-        window.openLivePopover(anchorEl, html);
-    };
-
     // =========================================================================
-    // 💓 6. إحياء الشريط العلوي المتجاوب، تأمين القائمة الجانبية، وتثبيت زر (+ طلب جديد)
+    // 💓 5. إحياء الشريط العلوي (Header Pulse) وعدادات القائمة الجانبية الحية
     // =========================================================================
-
-    // حماية أزرار القائمة الجانبية من تشويه النصوص عند التنقل بين التبويبات
-    function protectSidebarLabels() {
-        document.querySelectorAll('#sidebar .nav-btn').forEach(btn => {
-            if (!btn.hasAttribute('data-lc-orig-title')) {
-                const clone = btn.cloneNode(true);
-                clone.querySelectorAll('span[id^="lc-sb-"], #sidebar-blacklist-badge').forEach(el => el.remove());
-                btn.setAttribute('data-lc-orig-title', clone.innerText.trim());
-                const iconEl = btn.querySelector('i');
-                if (iconEl) btn.setAttribute('data-lc-orig-icon', iconEl.className);
-            }
-        });
-    }
-
     window.initLiveHeaderAndSidebarUI = function () {
-        protectSidebarLabels();
+        // 1. حقن كبسولات النبض في الهيدر العلوي مكان شارة "متصل لايف" الصامتة
+        const headerRight = document.querySelector('header .flex.items-center.gap-3');
+        if (headerRight && !document.getElementById('lc-header-pulse-bar')) {
+            const staticLiveSpan = headerRight.querySelector('span.text-emerald-600');
+            if (staticLiveSpan) staticLiveSpan.classList.add('hidden');
 
-        const headerRight = document.querySelector('header .flex.items-center.gap-3, header > div:last-child');
-        if (headerRight) {
-            headerRight.className = 'flex items-center gap-1 sm:gap-2 shrink-0';
+            const pulseBar = document.createElement('div');
+            pulseBar.id = 'lc-header-pulse-bar';
+            pulseBar.className = 'flex items-center gap-1.5';
+            pulseBar.innerHTML = `
+                <button onclick="openFreezerModal()" id="lc-hdr-freezer-btn" title="رصيد الفريزر الفعلي الآن (اضغط للفتح)" class="lc-capsule bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 shadow-sm">
+                    <i class="fa-solid fa-snowflake text-cyan-600"></i>
+                    <span class="hidden sm:inline">الفريزر:</span>
+                    <strong id="lc-hdr-freezer-count">0</strong>
+                </button>
 
-            const refreshBtn = headerRight.querySelector('button[onclick*="forceUpdateAppNow"]');
-            if (refreshBtn) {
-                refreshBtn.className = 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 w-8 h-8 sm:w-auto sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1 active:scale-95 shrink-0';
-            }
+                <button onclick="jumpToRadarOrRecon()" id="lc-hdr-drivers-btn" title="حركة المناديب وعهدة الكاش بالشارع" class="lc-capsule bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 shadow-sm">
+                    <i class="fa-solid fa-motorcycle text-indigo-600"></i>
+                    <strong id="lc-hdr-drivers-count">0</strong>
+                </button>
 
-            if (!document.getElementById('lc-header-pulse-bar')) {
-                const staticLiveSpan = headerRight.querySelector('span.text-emerald-600');
-                if (staticLiveSpan) staticLiveSpan.classList.add('hidden');
-
-                const pulseBar = document.createElement('div');
-                pulseBar.id = 'lc-header-pulse-bar';
-                pulseBar.className = 'flex items-center gap-1 sm:gap-1.5 shrink-0';
-                pulseBar.innerHTML = `
-                    <button onclick="openFreezerModal()" id="lc-hdr-freezer-btn" title="رصيد الفريزر الفعلي الآن" class="lc-capsule bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-200 px-1.5 sm:px-2.5 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0">
-                        <i class="fa-solid fa-snowflake text-cyan-600"></i>
-                        <span class="hidden lg:inline">الفريزر:</span>
-                        <strong id="lc-hdr-freezer-count">0</strong>
-                    </button>
-
-                    <button onclick="jumpToRadarOrRecon()" id="lc-hdr-drivers-btn" title="حركة المناديب وعهدة الكاش بالشارع" class="lc-capsule bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-1.5 sm:px-2.5 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0">
-                        <i class="fa-solid fa-motorcycle text-indigo-600"></i>
-                        <strong id="lc-hdr-drivers-count">0</strong>
-                    </button>
-
-                    <button onclick="openSmartBellNotifications(this)" data-lc-trigger="1" id="lc-hdr-bell-btn" title="جرس التنبيهات الذكي" class="lc-capsule relative bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center shadow-sm shrink-0">
-                        <i class="fa-solid fa-bell text-xs sm:text-sm"></i>
-                        <span id="lc-hdr-bell-badge" class="hidden absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-black min-w-[16px] h-[16px] px-1 rounded-full flex items-center justify-center shadow-sm">0</span>
-                    </button>
-                `;
-                headerRight.insertBefore(pulseBar, headerRight.firstChild);
-            }
-
-            // تثبيت وتأمين زر "إنشاء طلب" في الهيدر ووضعه في أولوية الظهور
-            const addOrderBtn = headerRight.querySelector('button[onclick*="add-order-modal"], button[onclick*="safeOpenAddOrderModal"]');
-            if (addOrderBtn && !addOrderBtn.hasAttribute('data-lc-secured')) {
-                addOrderBtn.setAttribute('data-lc-secured', '1');
-                addOrderBtn.setAttribute('onclick', 'safeOpenAddOrderModal()');
-                addOrderBtn.className = 'bg-brand-primary hover:bg-emerald-800 text-white px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-black shadow-md shadow-brand-primary/25 transition-all flex items-center gap-1 active:scale-95 shrink-0';
-                addOrderBtn.innerHTML = '<i class="fa-solid fa-plus"></i> <span>طلب</span>';
-                headerRight.insertBefore(addOrderBtn, headerRight.firstChild);
-            }
+                <button onclick="openSmartBellNotifications(this)" data-lc-trigger="1" id="lc-hdr-bell-btn" title="جرس التنبيهات الذكي" class="lc-capsule relative bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm">
+                    <i class="fa-solid fa-bell text-sm"></i>
+                    <span id="lc-hdr-bell-badge" class="hidden absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-black min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center shadow-sm">0</span>
+                </button>
+            `;
+            headerRight.insertBefore(pulseBar, headerRight.firstChild);
         }
 
-        // إضافة زر عائم مضمون (+ طلب جديد) في أسفل يسار الشاشة للوصول السريع دائماً
-        if (!document.getElementById('lc-floating-add-order-btn')) {
-            const fab = document.createElement('button');
-            fab.id = 'lc-floating-add-order-btn';
-            fab.onclick = () => window.safeOpenAddOrderModal();
-            fab.title = 'إنشاء طلب جديد سريع';
-            fab.className = 'fixed bottom-5 left-5 z-[65] bg-brand-primary hover:bg-emerald-800 text-white px-4 py-3 rounded-2xl shadow-2xl shadow-brand-primary/40 border-2 border-white/80 flex items-center gap-2 font-black text-xs sm:text-sm transition-all active:scale-90 hover:scale-105';
-            fab.innerHTML = '<i class="fa-solid fa-cart-plus text-amber-300 text-base"></i> <span>+ طلب جديد</span>';
-            document.body.appendChild(fab);
-        }
-
-        // حقن شارات العدادات الحية داخل أزرار القائمة الجانبية (#sidebar) بدون تكرار
+        // 2. حقن شارات العدادات الحية داخل أزرار القائمة الجانبية (#sidebar)
         const sidebarMap = [
             { tab: 'orders', id: 'lc-sb-orders', cls: 'bg-amber-500 text-slate-950' },
             { tab: 'notes', id: 'lc-sb-notes', cls: 'bg-rose-500 text-white' },
@@ -1071,10 +697,9 @@
         sidebarMap.forEach(item => {
             const btn = document.querySelector(`#sidebar button[onclick*="switchTab('${item.tab}'"]`);
             if (btn && !document.getElementById(item.id)) {
-                const origTitle = btn.getAttribute('data-lc-orig-title') || btn.innerText.trim();
-                const origIcon = btn.getAttribute('data-lc-orig-icon') || (btn.querySelector('i')?.className || '');
                 btn.classList.add('justify-between');
-                btn.innerHTML = `<span class="flex items-center"><i class="${origIcon}"></i> ${origTitle}</span><span id="${item.id}" class="hidden ${item.cls} text-[10px] font-black px-2 py-0.5 rounded-full shadow-sm">0</span>`;
+                const labelText = btn.innerHTML;
+                btn.innerHTML = `<span class="flex items-center">${labelText}</span><span id="${item.id}" class="hidden ${item.cls} text-[10px] font-black px-2 py-0.5 rounded-full shadow-sm">0</span>`;
             }
         });
     };
@@ -1087,30 +712,12 @@
         const freezerObj = (typeof storeFreezer !== 'undefined' && storeFreezer) ? storeFreezer : {};
         const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
 
-        // الكشف عن وصول طلب جديد لتشغيل الجرس الصوتي
-        if (ordersList.length > 0) {
-            if (!window.liveConnectState.initialOrdersLoaded) {
-                ordersList.forEach(o => { if (o && o.id) window.liveConnectState.knownOrderIds.add(o.id); });
-                window.liveConnectState.initialOrdersLoaded = true;
-            } else {
-                let newlyArrived = null;
-                ordersList.forEach(o => {
-                    if (o && o.id && !window.liveConnectState.knownOrderIds.has(o.id)) {
-                        window.liveConnectState.knownOrderIds.add(o.id);
-                        if (o.status === 'new') newlyArrived = o;
-                    }
-                });
-                if (newlyArrived) {
-                    window.playLiveConnectChime();
-                    notifyQuickToast(`🔔 طلب جديد وصل الآن: ${newlyArrived.customerName || 'عميل'} (${newlyArrived.total || 0} ج)`);
-                }
-            }
-        }
-
+        // 1. حساب إجمالي أطباق الفريزر
         const totalFreezer = Object.values(freezerObj).reduce((s, v) => s + Math.max(0, Number(v) || 0), 0);
         const fzEl = document.getElementById('lc-hdr-freezer-count');
         if (fzEl) fzEl.innerText = totalFreezer;
 
+        // 2. حساب الطلبات الحية والملاحظات والرادار وعهدة المناديب
         let newCount = 0, procCount = 0, dispCount = 0, notesCount = 0, unsettledDriverCash = 0;
         const todayIso = new Date().toISOString().split('T')[0];
         let dueTodayOrders = [];
@@ -1132,18 +739,20 @@
             }
         });
 
+        // تحديث كبسولة المناديب بالهيدر
         const drvBtn = document.getElementById('lc-hdr-drivers-btn');
         const drvCnt = document.getElementById('lc-hdr-drivers-count');
         if (drvCnt) {
             if (unsettledDriverCash > 0) {
-                drvCnt.innerHTML = `<span>${dispCount}</span><span class="hidden xl:inline"> بالطريق | ${unsettledDriverCash}ج</span>`;
-                if (drvBtn) drvBtn.className = 'lc-capsule bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 px-1.5 sm:px-2.5 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0';
+                drvCnt.innerText = `${dispCount} بالطريق | ${unsettledDriverCash}ج عهدة`;
+                if (drvBtn) drvBtn.className = 'lc-capsule bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 shadow-sm';
             } else {
-                drvCnt.innerHTML = `<span>${dispCount}</span><span class="hidden lg:inline"> بالطريق</span>`;
-                if (drvBtn) drvBtn.className = 'lc-capsule bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-1.5 sm:px-2.5 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0';
+                drvCnt.innerText = `${dispCount} بالطريق`;
+                if (drvBtn) drvBtn.className = 'lc-capsule bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 shadow-sm';
             }
         }
 
+        // تحديث جرس التنبيهات الذكي
         const totalAlerts = newCount + dueTodayOrders.length + (unsettledDriverCash > 0 ? 1 : 0);
         const bellBadge = document.getElementById('lc-hdr-bell-badge');
         if (bellBadge) {
@@ -1155,6 +764,7 @@
             }
         }
 
+        // 3. تحديث عدادات القائمة الجانبية
         const setSbBadge = (id, val, suffix = '') => {
             const el = document.getElementById(id);
             if (!el) return;
@@ -1187,18 +797,13 @@
 
     window.openSmartBellNotifications = function (anchorEl) {
         const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
-        const freezerObj = (typeof storeFreezer !== 'undefined' && storeFreezer) ? storeFreezer : {};
-        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
         const todayIso = new Date().toISOString().split('T')[0];
 
         const newOrders = ordersList.filter(o => o && o.status === 'new' && !o.isArchived);
-        const noAnswerOrders = ordersList.filter(o => o && o.status === 'no_answer' && !o.isArchived);
         const dueToday = ordersList.filter(o => o && ['new', 'processing', 'deferred'].includes(o.status) && !o.isArchived && (o.deliveryStart === todayIso || o.deliveryEnd === todayIso));
         const unsettledCash = ordersList
             .filter(o => o && o.status === 'completed' && o.driverName && !o.isReconciled && !o.isSupplied && o.paymentMethod !== 'online')
             .reduce((s, o) => s + (Number(o.total) || 0), 0);
-
-        const emptyFreezerProds = Object.keys(prodsObj).filter(pId => !prodsObj[pId].isHidden && !prodsObj[pId].isExtra && (Number(freezerObj[pId]) || 0) <= 0);
 
         let itemsHtml = '';
         if (newOrders.length > 0) {
@@ -1222,34 +827,16 @@
                     <span class="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">${unsettledCash} ج</span>
                 </div>`;
         }
-        if (noAnswerOrders.length > 0) {
-            itemsHtml += `
-                <div onclick="closeLivePopover(); switchTab('orders', document.querySelector('#sidebar button[onclick*=\\'orders\\']')); setOrderTab('no_answer');" class="p-2.5 rounded-xl bg-purple-50 hover:bg-purple-100 border border-purple-200 cursor-pointer flex justify-between items-center">
-                    <span class="text-xs font-black text-purple-900">📵 عملاء لم يردوا على الاتصال</span>
-                    <span class="bg-purple-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">${noAnswerOrders.length}</span>
-                </div>`;
-        }
-        if (emptyFreezerProds.length > 0) {
-            itemsHtml += `
-                <div onclick="closeLivePopover(); openFreezerModal();" class="p-2.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 cursor-pointer flex justify-between items-center">
-                    <span class="text-xs font-black text-cyan-900">❄️ أصناف رصيدها (0) في الفريزر</span>
-                    <span class="bg-cyan-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">${emptyFreezerProds.length}</span>
-                </div>`;
-        }
 
         if (!itemsHtml) {
             itemsHtml = `<div class="text-center py-6 text-xs font-bold text-slate-400">لا توجد تنبيهات عاجلة حالياً، كل شيء منتظم ✅</div>`;
         }
 
-        const sndActive = window.liveConnectState.soundEnabled;
         const html = `
             <div class="space-y-2.5">
                 <div class="flex justify-between items-center border-b border-slate-100 pb-2">
                     <span class="text-xs font-black text-slate-800"><i class="fa-solid fa-bell text-amber-500 ml-1"></i> مركز التنبيهات الفوري</span>
-                    <div class="flex items-center gap-2">
-                        <button onclick="toggleLiveConnectSound()" class="text-[10px] font-black px-2 py-0.5 rounded-lg border ${sndActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'}">${sndActive ? '🔊 الصوت مفعل' : '🔇 صامت'}</button>
-                        <button onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
-                    </div>
+                    <button onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="space-y-2">${itemsHtml}</div>
             </div>
@@ -1258,7 +845,7 @@
     };
 
     // =========================================================================
-    // 🌪️ 7. نظام الطي الذكي ومنع التراكم في شاشة الطلبات (Zero-Clutter Collapse)
+    // 🌪️ 6. نظام الطي الذكي ومنع التراكم في شاشة الطلبات (Zero-Clutter Collapse)
     // =========================================================================
     window.initZeroClutterOrdersScroll = function () {
         const sortBtn = document.getElementById('btn-sort-orders');
@@ -1306,7 +893,7 @@
     };
 
     // =========================================================================
-    // 🤝 8. توحيد مثلث المناديب المطور (الرادار ⇄ تقفيل العهدة ⇄ الخزنة)
+    // 🤝 7. توحيد مثلث المناديب (الرادار ⇄ تقفيل العهدة ⇄ الخزنة)
     // =========================================================================
     window.renderReconciliationUI = function () {
         const sel = document.getElementById('recon-driver-select');
@@ -1345,13 +932,12 @@
 
         const inWayOrders = drvOrders.filter(o => o.status === 'dispatched');
         const unsettledCompleted = drvOrders.filter(o => o.status === 'completed' && !o.isReconciled && !o.isSupplied);
-        const allOpenCustodyOrders = [...unsettledCompleted, ...inWayOrders];
 
         let totalCashRequired = 0;
         let totalDeliveryFees = 0;
         let onlineCount = 0;
 
-        allOpenCustodyOrders.forEach(o => {
+        unsettledCompleted.forEach(o => {
             if (o.paymentMethod === 'online') {
                 onlineCount++;
             } else {
@@ -1362,15 +948,11 @@
 
         const netStoreMoney = Math.max(0, totalCashRequired - totalDeliveryFees);
 
-        let listHtml = allOpenCustodyOrders.map(o => `
-            <div class="bg-white p-3.5 rounded-xl border ${o.status === 'dispatched' ? 'border-indigo-200 bg-indigo-50/20' : 'border-slate-200'} flex justify-between items-center">
+        let listHtml = unsettledCompleted.map(o => `
+            <div class="bg-white p-3.5 rounded-xl border border-slate-200 flex justify-between items-center">
                 <div>
-                    <div class="font-black text-slate-800 text-xs flex items-center gap-1.5">
-                        <span>${o.customerName || 'عميل'}</span>
-                        <span class="text-indigo-600">(${o.zone || ''})</span>
-                        ${o.status === 'dispatched' ? '<span class="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded text-[9px]">🛵 بالطريق</span>' : '<span class="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded text-[9px]">✅ مسلم</span>'}
-                    </div>
-                    <div class="text-[10px] font-bold text-slate-400 mt-0.5">${(o.items || []).map(i => `${i.quantity}x ${i.name}`).join(' + ')}</div>
+                    <div class="font-black text-slate-800 text-xs">${o.customerName || 'عميل'} <span class="text-indigo-600">(${o.zone || ''})</span></div>
+                    <div class="text-[10px] font-bold text-slate-400">${(o.items || []).map(i => `${i.quantity}x ${i.name}`).join(' + ')}</div>
                 </div>
                 <div class="text-left">
                     ${o.paymentMethod === 'online'
@@ -1381,21 +963,21 @@
         `).join('');
 
         if (!listHtml) {
-            listHtml = `<div class="text-center py-8 text-slate-400 font-bold bg-white rounded-xl border border-dashed border-slate-200">لا توجد طلبات معلقة أو عهدة غير مقفلة لهذا المندوب حالياً ✅</div>`;
+            listHtml = `<div class="text-center py-8 text-slate-400 font-bold bg-white rounded-xl border border-dashed border-slate-200">لا توجد طلبات مسلمة غير مقفلة لهذا المندوب حالياً ✅</div>`;
         }
 
         cont.innerHTML = `
             <div class="space-y-4">
                 ${inWayOrders.length > 0 ? `
-                <div class="bg-amber-50 border border-amber-200 p-3 rounded-xl flex flex-wrap justify-between items-center gap-2 text-xs font-black text-amber-800">
-                    <span>⚠️ المندوب معه (${inWayOrders.length}) طلبات في الطريق مضمومة لحساب العهدة بالأسفل</span>
+                <div class="bg-amber-50 border border-amber-200 p-3 rounded-xl flex justify-between items-center text-xs font-black text-amber-800">
+                    <span>⚠️ تنبيه: المندوب ما زال معه (${inWayOrders.length}) طلبات في الطريق لم تُسلم بعد</span>
                     <button onclick="switchTab('radar', document.querySelector('#sidebar button[onclick*=\\'radar\\']'))" class="bg-amber-600 text-white px-2.5 py-1 rounded-lg text-[10px]">فتح الرادار</button>
                 </div>` : ''}
 
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
                     <div class="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
-                        <span class="text-[10px] font-bold text-slate-400 block mb-1">إجمالي أوردرات العهدة</span>
-                        <span class="text-xl font-black text-slate-800">${allOpenCustodyOrders.length} <span class="text-[10px] text-emerald-600">(${onlineCount} أونلاين)</span></span>
+                        <span class="text-[10px] font-bold text-slate-400 block mb-1">طلبات مسلمة بالعهدة</span>
+                        <span class="text-xl font-black text-slate-800">${unsettledCompleted.length} <span class="text-[10px] text-emerald-600">(${onlineCount} أونلاين)</span></span>
                     </div>
                     <div class="bg-amber-50 p-3.5 rounded-2xl border border-amber-200 shadow-sm">
                         <span class="text-[10px] font-black text-amber-700 block mb-1">إجمالي الكاش مع المندوب</span>
@@ -1415,9 +997,9 @@
             </div>
         `;
 
-        if (allOpenCustodyOrders.length > 0) {
+        if (unsettledCompleted.length > 0) {
             settleBtn.classList.remove('hidden');
-            settleBtn.onclick = () => window.settleDriverCustodyUnified(dName, allOpenCustodyOrders, totalCashRequired);
+            settleBtn.onclick = () => window.settleDriverCustodyUnified(dName, unsettledCompleted, totalCashRequired);
         } else {
             settleBtn.classList.add('hidden');
         }
@@ -1436,30 +1018,19 @@
         try {
             const batch = db.batch();
             const nowStr = new Date().toLocaleDateString('en-US');
-            const timeDisp = new Date().toLocaleString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
             ordersToSettle.forEach(o => {
                 const ref = db.collection('orders').doc(o.id);
                 batch.update(ref, {
-                    status: 'completed',
-                    completedAtStr: o.completedAtStr || nowStr,
-                    completedTimeDisplay: o.completedTimeDisplay || timeDisp,
-                    completedAt: o.completedAt || firebase.firestore.FieldValue.serverTimestamp(),
                     isReconciled: true,
                     isSupplied: true,
                     reconciledAtStr: nowStr,
                     reconciledAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
-                o.status = 'completed';
-                o.completedAtStr = o.completedAtStr || nowStr;
-                o.completedTimeDisplay = o.completedTimeDisplay || timeDisp;
                 o.isReconciled = true;
                 o.isSupplied = true;
                 o.reconciledAtStr = nowStr;
                 if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[o.id]) {
-                    globalOrdersMap[o.id].status = 'completed';
-                    globalOrdersMap[o.id].completedAtStr = o.completedAtStr;
-                    globalOrdersMap[o.id].completedTimeDisplay = o.completedTimeDisplay;
                     globalOrdersMap[o.id].isReconciled = true;
                     globalOrdersMap[o.id].isSupplied = true;
                 }
@@ -1468,7 +1039,6 @@
             await batch.commit();
             window.calculateDriverReconciliation();
             if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
-            if (typeof window.renderOrdersList === 'function') window.renderOrdersList();
             if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
             window.updateLiveHeaderAndSidebar();
             notifyQuickToast(`✅ تم تقفيل عهدة المندوب (${driverName}) وتصفير الرادار بنجاح`);
@@ -1483,33 +1053,10 @@
     };
 
     // =========================================================================
-    // 🔗 9. الربط التلقائي مع دوال النظام الأساسية (Auto-Hooking)
+    // 🔗 8. الربط التلقائي مع دوال النظام الأساسية (Auto-Hooking)
     // =========================================================================
     function hookIntoSystemFunctions() {
-        // تأمين switchTab لمنع مسح شارات القائمة الجانبية أو ظهور الأرقام في عنوان الهيدر
-        if (typeof window.switchTab === 'function' && !window.switchTab._lcHooked) {
-            const _origSwitchTab = window.switchTab;
-            const wrappedSwitchTab = function (tabId, btnElement, isFromBackButton = false) {
-                protectSidebarLabels();
-                const res = _origSwitchTab.apply(this, arguments);
-                if (btnElement && btnElement.hasAttribute('data-lc-orig-title')) {
-                    const cleanTitle = btnElement.getAttribute('data-lc-orig-title');
-                    const hdrTitle = document.getElementById('header-title');
-                    if (hdrTitle) hdrTitle.innerText = cleanTitle;
-                }
-                window.closeLivePopover();
-                // إعادة تثبيت شارات القائمة الجانبية بعد تغيير الكلاس النشط
-                document.querySelectorAll('#sidebar .nav-btn').forEach(b => {
-                    const exSpan = b.querySelector('span[id^="lc-sb-"]');
-                    if (exSpan) exSpan.remove();
-                });
-                window.updateLiveHeaderAndSidebar();
-                return res;
-            };
-            wrappedSwitchTab._lcHooked = true;
-            window.switchTab = wrappedSwitchTab;
-        }
-
+        // ربط مع renderOrdersList في www/orders.js
         if (typeof window.renderOrdersList === 'function' && !window.renderOrdersList._lcHooked) {
             const _origRenderOrders = window.renderOrdersList;
             const wrappedRenderOrders = function () {
@@ -1523,12 +1070,13 @@
             window.renderOrdersList = wrappedRenderOrders;
         }
 
+        // ربط مع refreshCustomersData لتفعيل كبسولة المديونية في جدول العملاء أيضاً
         if (typeof window.refreshCustomersData === 'function' && !window.refreshCustomersData._lcHooked) {
             const _origRefreshCust = window.refreshCustomersData;
             const wrappedRefreshCust = function () {
                 const res = _origRefreshCust.apply(this, arguments);
                 setTimeout(() => {
-                    document.querySelectorAll('#customers-tbody span[title*="عليه فلوس"], #customers-tbody span[title*="لتسديد"]').forEach(sp => {
+                    document.querySelectorAll('#customers-tbody span[title*="عليه فلوس"]').forEach(sp => {
                         if (!sp.hasAttribute('data-lc-cust-debt')) {
                             sp.setAttribute('data-lc-cust-debt', '1');
                             sp.setAttribute('data-lc-trigger', '1');
