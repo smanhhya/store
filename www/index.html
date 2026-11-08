@@ -1425,50 +1425,155 @@
             return normalized;
         };
 
-        // === 2. التحكم الذكي في الواجهة وزر الرجوع للموبايل ===
+        // === 2. التحكم الذكي في الواجهة وسجل الرجوع للصفحة السابقة وحفظ الحالة ===
         let isHandlingPopState = false;
         let lastBackPressTime = 0;
+        window.smanTabHistoryStack = [];
+        window.smanCurrentActiveTab = 'dashboard';
 
-        // دالة موحدة للرجوع (تشتغل مع زرار الموبايل ومع السهم العلوي)
-        window. triggerSmartBack = () => {
-            // 1. لو فيه نافذة منبثقة (Modal) مفتوحة، اقفلها فوراً
+        // دوال مساعدة لحفظ واسترجاع البيانات الدائمة على الموبايل (تعمل مع جسر الـ APK ومع المتصفح)
+        function setPermanentOwnerData(key, val) {
+            try { localStorage.setItem(key, val); } catch (e) {}
+            try {
+                if (window.SmanNativePrinter && typeof window.SmanNativePrinter.savePermanentPref === 'function') {
+                    window.SmanNativePrinter.savePermanentPref(key, String(val));
+                }
+            } catch (e) {}
+        }
+
+        function getPermanentOwnerData(key) {
+            let val = '';
+            try {
+                if (window.SmanNativePrinter && typeof window.SmanNativePrinter.getPermanentPref === 'function') {
+                    val = window.SmanNativePrinter.getPermanentPref(key) || '';
+                }
+            } catch (e) {}
+            if (!val) {
+                try { val = localStorage.getItem(key) || ''; } catch (e) {}
+            }
+            return val;
+        }
+
+        function removePermanentOwnerData(key) {
+            try { localStorage.removeItem(key); } catch (e) {}
+            try {
+                if (window.SmanNativePrinter && typeof window.SmanNativePrinter.savePermanentPref === 'function') {
+                    window.SmanNativePrinter.savePermanentPref(key, '');
+                }
+            } catch (e) {}
+        }
+
+        // جلب جميع النوافذ المنبثقة المفتوحة حالياً (بما فيها استوديو الطابعة وأي نافذة جديدة)
+        function getOpenModals() {
+            const explicitIds = [
+                'deli-waybill-studio-modal',
+                'action-prompt-modal', 'note-action-modal', 'link-archive-modal',
+                'points-dashboard-modal', 'order-tracking-modal', 'batch-broadcast-modal',
+                'slaughter-modal', 'finance-report-modal', 'packing-list-modal',
+                'archive-report-modal', 'batch-settings-modal', 'freezer-modal',
+                'batch-bookings-modal', 'analysis-modal', 'edit-order-modal',
+                'add-order-modal', 'dispatch-modal', 'customer-modal'
+            ];
+            const found = explicitIds.filter(id => {
+                const el = document.getElementById(id);
+                return el && !el.classList.contains('hidden');
+            });
+            // التقاط أي نافذة منبثقة إضافية تنتهي بـ -modal
+            document.querySelectorAll('[id$="-modal"]:not(.hidden)').forEach(el => {
+                if (el.id && !found.includes(el.id)) found.unshift(el.id);
+            });
+            return found;
+        }
+
+        // الدالة المركزية للرجوع خطوة للخلف (تُستدعى من زر رجوع الموبايل ومن السهم العلوي)
+        window.handleAndroidBackButton = function () {
+            // 1. لو كبسولة الهيدر الطائرة أو قائمة التنبيهات مفتوحة، اقفلها أولاً
+            const floatingPop = document.getElementById('lc-floating-popover');
+            if (floatingPop && !floatingPop.classList.contains('hidden')) {
+                if (typeof window.closeLivePopover === 'function') window.closeLivePopover();
+                else floatingPop.classList.add('hidden');
+                return 'HANDLED';
+            }
+            const alertsDrop = document.getElementById('lc-alerts-dropdown');
+            if (alertsDrop && !alertsDrop.classList.contains('hidden')) {
+                alertsDrop.classList.add('hidden');
+                return 'HANDLED';
+            }
+
+            // 2. لو فيه أي نافذة منبثقة (Modal) أو استوديو الطابعة مفتوح، اقفله فوراً وابقَ في نفس الصفحة
             const openModals = getOpenModals();
             if (openModals.length > 0) {
                 closeModal(openModals[0]);
-                return;
+                return 'HANDLED';
             }
 
-            // 2. لو القائمة الجانبية في الموبايل مفتوحة، اقفلها
+            // 3. لو القائمة الجانبية في الموبايل مفتوحة، اقفلها
             const sb = document.getElementById('sidebar');
             if (sb && sb.classList.contains('open')) {
                 toggleSidebar(true);
-                return;
+                return 'HANDLED';
             }
 
-            // 3. لو نتائج كشاف الطوارئ مفتوحة، اقفلها
+            // 4. لو نتائج كشاف الطوارئ أو مربع البلاك ليست السريع مفتوح، اقفله
             const searchRes = document.getElementById('global-search-results');
             if (searchRes && !searchRes.classList.contains('hidden')) {
                 searchRes.classList.add('hidden');
-                return;
+                return 'HANDLED';
+            }
+            const quickBl = document.getElementById('quick-blacklist-box');
+            if (quickBl && !quickBl.classList.contains('hidden')) {
+                quickBl.classList.add('hidden');
+                return 'HANDLED';
             }
 
-            // 4. لو الملاحظات المنسدلة مفتوحة، اقفلها
+            // 5. لو الملاحظات المنزلقة داخل كارت الطلب مفتوحة، اقفلها
             if (typeof openInlineNoteId !== 'undefined' && openInlineNoteId) {
                 const noteCont = document.getElementById(`inline-notes-container-${openInlineNoteId}`);
                 if (noteCont) noteCont.classList.add('hidden');
                 openInlineNoteId = null;
-                return;
+                return 'HANDLED';
             }
 
-            // 5. لو في أي قسم غير لوحة القيادة، ارجع فوراً للوحة القيادة
+            // 6. لو المستخدم داخل صفحة "الطلبات الحية" ومفعل فلتر فرعي (مثل: تجهيز / في الطريق) أو بحث نصي، يرجع لعرض "الكل" أولاً
             const currentActiveView = document.querySelector('.page-view.active');
-            const currentTabId = currentActiveView ? currentActiveView.id.replace('view-', '') : 'dashboard';
+            const currentTabId = currentActiveView ? currentActiveView.id.replace('view-', '') : window.smanCurrentActiveTab;
 
-            if (currentTabId !== 'dashboard') {
-                let dashBtn = document.querySelector(`button[onclick*="switchTab('dashboard'"]`);
-                if (dashBtn) switchTab('dashboard', dashBtn, true);
-                return;
+            if (currentTabId === 'orders') {
+                const searchOrderInput = document.getElementById('search-order');
+                if (searchOrderInput && searchOrderInput.value.trim() !== '') {
+                    searchOrderInput.value = '';
+                    if (typeof window.renderOrdersList === 'function') window.renderOrdersList();
+                    return 'HANDLED';
+                }
+                if (typeof currentOrderTab !== 'undefined' && currentOrderTab !== 'all') {
+                    if (typeof window.setOrderTab === 'function') window.setOrderTab('all');
+                    return 'HANDLED';
+                }
             }
+
+            // 7. الرجوع للصفحة السابقة الفعلية من سجل التنقل (مثلاً كنت في الدفعات ترجع للطلبات الحية)
+            while (window.smanTabHistoryStack.length > 0) {
+                const prevTabId = window.smanTabHistoryStack.pop();
+                if (prevTabId && prevTabId !== currentTabId && document.getElementById('view-' + prevTabId)) {
+                    const prevBtn = document.querySelector(`button[onclick*="switchTab('${prevTabId}'"]`);
+                    switchTab(prevTabId, prevBtn, true);
+                    return 'HANDLED';
+                }
+            }
+
+            // 8. إذا لم يكن هناك سجل سابق وكنا في صفحة غير لوحة القيادة، نرجع للوحة القيادة
+            if (currentTabId !== 'dashboard') {
+                const dashBtn = document.querySelector(`button[onclick*="switchTab('dashboard'"]`);
+                if (dashBtn) switchTab('dashboard', dashBtn, true);
+                return 'HANDLED';
+            }
+
+            // وصلنا للصفحة الرئيسية الأولى ولا يوجد شيء مفتوح
+            return 'AT_ROOT';
+        };
+
+        window.triggerSmartBack = () => {
+            return window.handleAndroidBackButton();
         };
 
         function updateHeaderBackBtn(tabId) {
@@ -1479,12 +1584,12 @@
                 backBtn.id = 'crm-top-back-btn';
                 backBtn.onclick = () => window.triggerSmartBack();
                 backBtn.className = 'hidden w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 text-brand-primary flex items-center justify-center hover:bg-emerald-100 transition-all active:scale-90 shadow-sm';
-                backBtn.title = 'رجوع للوحة القيادة';
+                backBtn.title = 'رجوع للصفحة السابقة';
                 backBtn.innerHTML = '<i class="fa-solid fa-arrow-right"></i>';
                 headerTitle.parentElement.insertBefore(backBtn, headerTitle);
             }
             if (backBtn) {
-                if (tabId && tabId !== 'dashboard') {
+                if ((tabId && tabId !== 'dashboard') || window.smanTabHistoryStack.length > 0) {
                     backBtn.classList.remove('hidden');
                 } else {
                     backBtn.classList.add('hidden');
@@ -1494,6 +1599,7 @@
 
         function toggleSidebar(forceClose = false) {
             const sb = document.getElementById('sidebar'), ov = document.getElementById('mobile-overlay');
+            if (!sb || !ov) return;
             const isOpen = sb.classList.contains('open');
             
             if (forceClose && !isOpen) return;
@@ -1503,7 +1609,7 @@
                 ov.classList.remove('hidden');
                 setTimeout(() => ov.classList.add('opacity-100'), 10);
                 if (!isHandlingPopState) {
-                    history.pushState({ guard: 'sidebar' }, '');
+                    try { history.pushState({ guard: 'sidebar' }, ''); } catch (e) {}
                 }
             } else {
                 sb.classList.remove('open');
@@ -1515,8 +1621,24 @@
         function switchTab(tabId, btnElement, isFromBackButton = false) {
             closeAllOpenOverlays();
 
+            const currentActiveView = document.querySelector('.page-view.active');
+            const prevTabId = currentActiveView ? currentActiveView.id.replace('view-', '') : window.smanCurrentActiveTab;
+
+            // حفظ الصفحة السابقة في سجل الرجوع إذا كان الانتقال طبيعياً وليس ضغطة زر رجوع
+            if (!isFromBackButton && prevTabId && prevTabId !== tabId) {
+                if (window.smanTabHistoryStack[window.smanTabHistoryStack.length - 1] !== prevTabId) {
+                    window.smanTabHistoryStack.push(prevTabId);
+                    if (window.smanTabHistoryStack.length > 25) {
+                        window.smanTabHistoryStack.shift();
+                    }
+                }
+            }
+
+            window.smanCurrentActiveTab = tabId;
+            setPermanentOwnerData('sman_last_open_tab', tabId);
+
             if (!isFromBackButton && !isHandlingPopState) {
-                history.pushState({ guard: 'tab', tab: tabId }, '', '#' + tabId);
+                try { history.pushState({ guard: 'tab', tab: tabId }, '', '#' + tabId); } catch (e) {}
             }
 
             document.querySelectorAll('.page-view').forEach(view => view.classList.remove('active'));
@@ -1527,29 +1649,36 @@
                 btn.classList.remove('active', 'bg-emerald-600/20', 'text-white', 'shadow-sm', 'mb-4', 'border', 'border-emerald-500/30', 'py-3');
                 btn.classList.add('hover:bg-emerald-800/50', 'hover:text-white', 'text-emerald-100/70', 'py-2.5');
             });
+
+            if (!btnElement) {
+                btnElement = document.querySelector(`#sidebar button[onclick*="switchTab('${tabId}'"]`);
+            }
             
             if (btnElement) {
                 btnElement.classList.remove('hover:bg-emerald-800/50', 'text-emerald-100/70', 'py-2.5');
                 btnElement.classList.add('active', 'bg-emerald-600/20', 'text-white', 'shadow-sm', 'mb-4', 'border', 'border-emerald-500/30', 'py-3');
                 const titleSpan = btnElement.querySelector('span:first-child');
-                document.getElementById('header-title').innerText = titleSpan ? titleSpan.innerText.trim() : btnElement.innerText.trim();
+                const hdrTitle = document.getElementById('header-title');
+                if (hdrTitle) hdrTitle.innerText = titleSpan ? titleSpan.innerText.trim() : btnElement.innerText.trim();
             }
 
             updateHeaderBackBtn(tabId);
             
             const saveBtn = document.getElementById('global-save-btn');
-            if (['inventory', 'settings', 'marketing', 'batches'].includes(tabId)) {
-                saveBtn.classList.remove('hidden'); 
-            } else { 
-                saveBtn.classList.add('hidden'); 
+            if (saveBtn) {
+                if (['inventory', 'settings', 'marketing', 'batches'].includes(tabId)) {
+                    saveBtn.classList.remove('hidden'); 
+                } else { 
+                    saveBtn.classList.add('hidden'); 
+                }
             }
-            if (tabId === 'trash') renderTrashUI();            
-            if (tabId === 'notes') renderNotesUI();
-            if (tabId === 'reconciliation') renderReconciliationUI();
-            if (tabId === 'radar') renderDriversRadarUI();
-            if (tabId === 'blacklist') renderBlacklistUI();
+            if (tabId === 'trash' && typeof renderTrashUI === 'function') renderTrashUI();            
+            if (tabId === 'notes' && typeof renderNotesUI === 'function') renderNotesUI();
+            if (tabId === 'reconciliation' && typeof renderReconciliationUI === 'function') renderReconciliationUI();
+            if (tabId === 'radar' && typeof renderDriversRadarUI === 'function') renderDriversRadarUI();
+            if (tabId === 'blacklist' && typeof renderBlacklistUI === 'function') renderBlacklistUI();
 
-            if (window.innerWidth < 768 && document.getElementById('sidebar').classList.contains('open')) {
+            if (window.innerWidth < 768 && document.getElementById('sidebar')?.classList.contains('open')) {
                 toggleSidebar(true);
             }
         }
@@ -1560,7 +1689,7 @@
             const wasHidden = el.classList.contains('hidden');
             el.classList.remove('hidden');
             if (wasHidden && !isHandlingPopState) {
-                history.pushState({ guard: 'modal', modal: id }, '');
+                try { history.pushState({ guard: 'modal', modal: id }, ''); } catch (e) {}
             }
         }
 
@@ -1568,21 +1697,6 @@
             const el = document.getElementById(id);
             if (!el || el.classList.contains('hidden')) return;
             el.classList.add('hidden');
-        }
-
-        function getOpenModals() {
-            const modalIds = [
-                'action-prompt-modal', 'note-action-modal', 'link-archive-modal',
-                'points-dashboard-modal', 'order-tracking-modal', 'batch-broadcast-modal',
-                'slaughter-modal', 'finance-report-modal', 'packing-list-modal',
-                'archive-report-modal', 'batch-settings-modal', 'freezer-modal',
-                'batch-bookings-modal', 'analysis-modal', 'edit-order-modal',
-                'add-order-modal', 'dispatch-modal', 'customer-modal'
-            ];
-            return modalIds.filter(id => {
-                const el = document.getElementById(id);
-                return el && !el.classList.contains('hidden');
-            });
         }
 
         function closeAllOpenOverlays() {
@@ -1593,69 +1707,139 @@
             if (quickBl) quickBl.classList.add('hidden');
         }
 
-        // تأمين سجل المتصفح عند أول لمسة للشاشة عشان أندرويد كروم ميخرجش من التطبيق
+        // تأمين سجل المتصفح عند اللمس لمنع الخروج المفاجئ
         document.addEventListener('click', () => {
             if (!history.state || !history.state.guard) {
-                history.pushState({ guard: 'root' }, '');
+                try { history.pushState({ guard: 'root' }, ''); } catch (e) {}
             }
         }, { passive: true });
 
-        window.addEventListener('popstate', (event) => {
+        window.addEventListener('popstate', () => {
             isHandlingPopState = true;
-
-            const currentActiveView = document.querySelector('.page-view.active');
-            const currentTabId = currentActiveView ? currentActiveView.id.replace('view-', '') : 'dashboard';
-            const hasOpenOverlays = getOpenModals().length > 0 || 
-                                    (document.getElementById('sidebar') && document.getElementById('sidebar').classList.contains('open')) ||
-                                    (document.getElementById('global-search-results') && !document.getElementById('global-search-results').classList.contains('hidden')) ||
-                                    (typeof openInlineNoteId !== 'undefined' && openInlineNoteId);
-
-            if (hasOpenOverlays || currentTabId !== 'dashboard') {
-                window.triggerSmartBack();
-                history.pushState({ guard: 'active' }, '');
+            const res = window.handleAndroidBackButton();
+            if (res === 'HANDLED') {
+                try { history.pushState({ guard: 'active' }, ''); } catch (e) {}
             } else {
                 const now = Date.now();
                 if (now - lastBackPressTime > 2000) {
                     lastBackPressTime = now;
-                    history.pushState({ guard: 'root' }, '');
-                    if (window.showQuickAppToast) window.showQuickAppToast("اضغط زر الرجوع مرة أخرى للخروج من التطبيق");
+                    try { history.pushState({ guard: 'root' }, ''); } catch (e) {}
+                    if (window.showQuickAppToast) window.showQuickAppToast("اضغط زر الرجوع مرة أخرى لتصغير التطبيق");
                 }
             }
-
             isHandlingPopState = false;
         });
 
+        // استرجاع آخر صفحة مفتوحة تلقائياً عند فتح التطبيق بدلاً من البدء من الصفر
+        function restoreLastSessionTab() {
+            const hashTab = (window.location.hash || '').replace('#', '').trim();
+            const savedTab = getPermanentOwnerData('sman_last_open_tab');
+            const targetTab = (hashTab && document.getElementById('view-' + hashTab)) ? hashTab : (savedTab && document.getElementById('view-' + savedTab) ? savedTab : 'dashboard');
+
+            if (targetTab && targetTab !== 'dashboard') {
+                const btn = document.querySelector(`#sidebar button[onclick*="switchTab('${targetTab}'"]`);
+                switchTab(targetTab, btn, true);
+            } else {
+                updateHeaderBackBtn('dashboard');
+            }
+        }
+
         window.addEventListener('DOMContentLoaded', () => {
-            history.replaceState({ guard: 'root', tab: 'dashboard' }, '', '#dashboard');
-            updateHeaderBackBtn('dashboard');
+            try { history.replaceState({ guard: 'root', tab: 'dashboard' }, '', window.location.hash || '#dashboard'); } catch (e) {}
+            restoreLastSessionTab();
         });
 
-        // === 3. الدخول والمزامنة الحية ===
+        // === 3. التعرف التلقائي على موبايل المالك والدخول الفوري بدون باسورد ===
+        window._crmBootedOnce = false;
+
+        function hideLoginScreenImmediately() {
+            const ls = document.getElementById('login-screen');
+            if (ls) {
+                ls.style.opacity = '0';
+                ls.classList.add('hidden');
+            }
+        }
+
+        function bootCrmOnceSafely() {
+            hideLoginScreenImmediately();
+            if (window._crmBootedOnce) return;
+            window._crmBootedOnce = true;
+            startCRM();
+            setTimeout(restoreLastSessionTab, 150);
+        }
+
+        // تفعيل بقاء الجلسة دائمة في Firebase
+        try {
+            auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
+        } catch (e) {}
+
+        // فحص فوري قبل انتظار الشبكة: إذا كان الموبايل موثوقاً ومسجلاً مسبقاً، افتح السيستم في 0 ثانية!
+        (function instantTrustedDeviceCheck() {
+            const isTrusted = getPermanentOwnerData('sman_trusted_owner_device') === '1';
+            const savedEmail = getPermanentOwnerData('sman_owner_email');
+            const savedPass = getPermanentOwnerData('sman_owner_pass');
+            if (isTrusted && savedEmail && savedPass) {
+                setTimeout(bootCrmOnceSafely, 10);
+            }
+        })();
+
         auth.onAuthStateChanged(user => {
-            if (user) { 
-                document.getElementById('login-screen').style.opacity = '0'; 
-                setTimeout(()=>document.getElementById('login-screen').classList.add('hidden'), 500); 
-                startCRM(); 
-            } else { 
-                document.getElementById('login-screen').classList.remove('hidden'); 
-                setTimeout(()=>document.getElementById('login-screen').style.opacity = '1', 10); 
+            if (user) {
+                setPermanentOwnerData('sman_trusted_owner_device', '1');
+                if (user.email) setPermanentOwnerData('sman_owner_email', user.email);
+                bootCrmOnceSafely();
+            } else {
+                // إذا فقد الـ WebView الجلسة، نقوم بتسجيل الدخول الصامت في الخلفية تلقائياً بدون إظهار شاشة الباسورد
+                const savedEmail = getPermanentOwnerData('sman_owner_email');
+                const savedPass = getPermanentOwnerData('sman_owner_pass');
+                if (savedEmail && savedPass) {
+                    hideLoginScreenImmediately();
+                    auth.signInWithEmailAndPassword(savedEmail, savedPass).then(() => {
+                        bootCrmOnceSafely();
+                    }).catch(() => {
+                        // في حال عدم وجود إنترنت مؤقتاً والموبايل موثوق، يظل السيستم مفتوحاً
+                        if (getPermanentOwnerData('sman_trusted_owner_device') === '1') {
+                            bootCrmOnceSafely();
+                        } else {
+                            document.getElementById('login-screen').classList.remove('hidden');
+                            setTimeout(() => document.getElementById('login-screen').style.opacity = '1', 10);
+                        }
+                    });
+                } else {
+                    document.getElementById('login-screen').classList.remove('hidden');
+                    setTimeout(() => document.getElementById('login-screen').style.opacity = '1', 10);
+                }
             }
         });
 
         window.loginApp = () => {
-            const e = document.getElementById('login-email').value;
+            const e = document.getElementById('login-email').value.trim();
             const p = document.getElementById('login-password').value;
-            if(!e || !p) return;
-            const btn = document.getElementById('login-btn'); 
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-            auth.signInWithEmailAndPassword(e, p).catch(() => { 
-                btn.innerHTML = 'تسجيل الدخول'; 
-                document.getElementById('login-error').innerText = "بيانات الدخول خاطئة!"; 
-                document.getElementById('login-error').classList.remove('hidden'); 
+            if (!e || !p) return;
+            const btn = document.getElementById('login-btn');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الدخول وتوثيق الموبايل...';
+            auth.signInWithEmailAndPassword(e, p).then(() => {
+                // حفظ بيانات الدخول في ذاكرة الأندرويد الدائمة لعدم طلب الباسورد مرة أخرى أبداً
+                setPermanentOwnerData('sman_owner_email', e);
+                setPermanentOwnerData('sman_owner_pass', p);
+                setPermanentOwnerData('sman_trusted_owner_device', '1');
+                bootCrmOnceSafely();
+            }).catch(() => {
+                btn.innerHTML = 'تسجيل الدخول';
+                document.getElementById('login-error').innerText = "بيانات الدخول خاطئة!";
+                document.getElementById('login-error').classList.remove('hidden');
             });
         };
-        
-        window.logoutApp = () => { if(confirm("الخروج من النظام؟")) auth.signOut(); };
+
+        window.logoutApp = () => {
+            if (confirm("هل أنت متأكد من الخروج الآمن وإلغاء الدخول التلقائي على هذا الجهاز؟")) {
+                removePermanentOwnerData('sman_owner_email');
+                removePermanentOwnerData('sman_owner_pass');
+                removePermanentOwnerData('sman_trusted_owner_device');
+                window._crmBootedOnce = false;
+                auth.signOut();
+            }
+        };
         // دالة مركزية لإنعاش جداول العملاء والديون فوراً
         window.refreshCustomersData = () => {
             db.collection('customers').get().then(snap => {
