@@ -672,17 +672,40 @@
                     <button onclick="unlockAndResetPreview()" class="bg-amber-400 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black hover:bg-amber-300">إعادة ضبط</button>
                 </div>
 
-                <div class="grid grid-cols-12 gap-2">
-                    <button onclick="executeDirectPrint()" class="col-span-6 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3 rounded-xl text-xs sm:text-sm shadow-md flex items-center justify-center gap-1.5 transition-all active:scale-95">
-                        <i class="fa-solid fa-print text-base"></i> طباعة مباشرة
+                <!-- شريط جسر البلوتوث الأصلي داخل الـ APK وأوامر الهاردوير -->
+                <div class="bg-slate-800/90 p-2.5 rounded-xl border border-slate-700 space-y-2">
+                    <div class="flex items-center justify-between gap-1.5">
+                        <span id="p-bt-bridge-badge" class="bg-emerald-400 text-slate-950 px-2 py-0.5 rounded-md text-[10px] font-black">🟢 فحص البلوتوث...</span>
+                        <div class="flex items-center gap-1">
+                            <button type="button" onclick="sendStudioHardwareCmd('calibrate')" class="bg-indigo-600/80 hover:bg-indigo-500 text-white px-2 py-1 rounded-lg text-[10px] font-black" title="معايرة حساس الفواصل">🎯 معايرة</button>
+                            <button type="button" onclick="sendStudioHardwareCmd('feed')" class="bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded-lg text-[10px] font-black" title="سحب استيكر">⏬ ورقة</button>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <select id="p-native-bt-select" onchange="localStorage.setItem('sman_studio_bt_mac', this.value)" class="flex-1 bg-slate-900 border border-slate-700 text-white rounded-lg p-1.5 text-[11px] font-black outline-none">
+                            <option value="AUTO">🤖 اختيار تلقائي ذكي (Deli E750W)</option>
+                        </select>
+                        <button type="button" onclick="scanStudioPairedPrinters(true)" class="bg-blue-600 hover:bg-blue-500 text-white px-2.5 py-1.5 rounded-lg text-xs font-black" title="تحديث قائمة الطابعات المقترنة">
+                            <i class="fa-solid fa-rotate"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-12 gap-1.5">
+                    <button onclick="executeDirectPrint()" id="btn-main-bt-print" class="col-span-12 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3 rounded-xl text-xs sm:text-sm shadow-md flex items-center justify-center gap-1.5 transition-all active:scale-95">
+                        <i class="fa-solid fa-bolt text-base"></i> <span>طباعة بلوتوث مباشرة (Deli 750W)</span>
                     </button>
-                    <button onclick="downloadStickerAsImage()" id="btn-dl-img" class="col-span-3 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 font-black py-3 px-2 rounded-xl text-[11px] flex items-center justify-center gap-1 transition-all" title="تحميل الملصق كصورة PNG لفتحه مباشرة في تطبيق Deli Print على الهاتف">
-                        <i class="fa-solid fa-image"></i> صورة Deli
+                    <button onclick="executeDirectUsbTSPLPrint()" class="col-span-4 bg-cyan-800 hover:bg-cyan-700 text-white font-black py-2.5 px-2 rounded-xl text-[11px] flex items-center justify-center gap-1 transition-all">
+                        <i class="fa-brands fa-usb"></i> طباعة USB
                     </button>
-                    <button onclick="exportForMobile()" class="col-span-3 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-black py-3 px-2 rounded-xl text-[11px] flex items-center justify-center gap-1 transition-all" title="احفظ الملصقات PDF ثم اطبعها عبر تطبيق Deli Print">
-                        <i class="fa-solid fa-file-pdf"></i> PDF
+                    <button onclick="executeSystemSpoolerPrint()" class="col-span-4 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-black py-2.5 px-2 rounded-xl text-[11px] flex items-center justify-center gap-1 transition-all">
+                        <i class="fa-solid fa-print"></i> Spooler / PDF
+                    </button>
+                    <button onclick="downloadStickerAsImage()" id="btn-dl-img" class="col-span-4 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 font-black py-2.5 px-2 rounded-xl text-[11px] flex items-center justify-center gap-1 transition-all">
+                        <i class="fa-solid fa-image"></i> صورة PNG
                     </button>
                 </div>
+
             </div>
 
             <!-- منطقة عرض الملصقات الحقيقية التي ستُطبع -->
@@ -1917,6 +1940,171 @@
             return results.filter(r => !r.ok);
         }
 
+        // ================================================================
+        // Native APK Bluetooth & USB TSPL 203-DPI Engine for printer.html
+        // ================================================================
+        function isStudioNativeApkAvailable() {
+            return Boolean(window.SmanNativePrinter && typeof window.SmanNativePrinter.isNativeBridgeReady === 'function');
+        }
+
+        function studioUint8ToBase64(bytes) {
+            let binary = '';
+            const chunkSize = 0x8000;
+            for (let i = 0; i < bytes.length; i += chunkSize) {
+                binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+            }
+            return btoa(binary);
+        }
+
+        window.scanStudioPairedPrinters = function (showFeedback = false) {
+            const badge = document.getElementById('p-bt-bridge-badge');
+            const sel = document.getElementById('p-native-bt-select');
+            if (!isStudioNativeApkAvailable()) {
+                if (badge) {
+                    badge.className = 'bg-sky-400 text-slate-950 px-2 py-0.5 rounded-md text-[10px] font-black';
+                    badge.textContent = '💻 وضع المتصفح / Spooler';
+                }
+                if (showFeedback) showToast('أنت تعمل من المتصفح، سيتم استخدام طباعة النظام Spooler', 'warn');
+                return;
+            }
+            try {
+                const rawRes = window.SmanNativePrinter.getPairedDevicesJson();
+                if (rawRes === 'PERMISSION_REQUIRED') {
+                    if (showFeedback) showToast('يرجى السماح بصلاحية البلوتوث ثم الضغط على تحديث', 'warn');
+                    return;
+                }
+                if (rawRes === 'BLUETOOTH_OFF') {
+                    if (showFeedback) showToast('يرجى تشغيل البلوتوث في الهاتف أولاً', 'warn');
+                    return;
+                }
+                const list = JSON.parse(rawRes || '[]');
+                const savedMac = localStorage.getItem('sman_studio_bt_mac') || 'AUTO';
+                let html = '<option value="AUTO">🤖 اختيار تلقائي ذكي (Deli E750W)</option>';
+                let autoMac = null;
+                list.forEach(d => {
+                    const nm = (d.name || 'طابعة بلوتوث').trim();
+                    const addr = (d.address || '').trim();
+                    const low = nm.toLowerCase();
+                    if (!autoMac && (low.includes('deli') || low.includes('750') || low.includes('printer') || low.includes('label'))) {
+                        autoMac = addr;
+                    }
+                    const selected = (savedMac === addr) || (savedMac === 'AUTO' && autoMac === addr);
+                    html += `<option value="${escapeHtml(addr)}" ${selected ? 'selected' : ''}>🖨️ ${escapeHtml(nm)} (${escapeHtml(addr)})</option>`;
+                });
+                if (sel) {
+                    sel.innerHTML = html;
+                    if (autoMac && savedMac === 'AUTO') sel.value = autoMac;
+                }
+                if (badge) {
+                    badge.className = 'bg-emerald-400 text-slate-950 px-2 py-0.5 rounded-md text-[10px] font-black';
+                    badge.textContent = `🟢 بلوتوث الـ APK متصل (${list.length} طابعة)`;
+                }
+                if (showFeedback) showToast(`تم العثور على ${list.length} طابعة مقترنة جاهزة`);
+            } catch (e) {
+                console.error(e);
+            }
+        };
+
+        async function convertDomStickerToTSPLBytes(stickerEl, dim) {
+            const DOTS_PER_MM = 8; // 203 DPI
+            const widthDots = Math.floor(dim.widthMm * DOTS_PER_MM);
+            const heightDots = Math.floor(dim.heightMm * DOTS_PER_MM);
+            const widthBytes = Math.ceil(widthDots / 8);
+
+            const renderedCanvas = await html2canvas(stickerEl, {
+                scale: 2.5,
+                backgroundColor: '#ffffff',
+                useCORS: true,
+                logging: false
+            });
+
+            const targetCanvas = document.createElement('canvas');
+            targetCanvas.width = widthDots;
+            targetCanvas.height = heightDots;
+            const ctx = targetCanvas.getContext('2d');
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, widthDots, heightDots);
+            ctx.drawImage(renderedCanvas, 0, 0, widthDots, heightDots);
+
+            const imgData = ctx.getImageData(0, 0, widthDots, heightDots).data;
+            const bitmapBytes = new Uint8Array(widthBytes * heightDots);
+            bitmapBytes.fill(0xFF);
+
+            for (let y = 0; y < heightDots; y++) {
+                for (let x = 0; x < widthDots; x++) {
+                    const idx = (y * widthDots + x) * 4;
+                    const lum = 0.299 * imgData[idx] + 0.587 * imgData[idx + 1] + 0.114 * imgData[idx + 2];
+                    if (lum < 185) {
+                        const byteIdx = y * widthBytes + Math.floor(x / 8);
+                        const bitPos = 7 - (x % 8);
+                        bitmapBytes[byteIdx] &= ~(1 << bitPos);
+                    }
+                }
+            }
+
+            const headerStr = [
+                `SIZE ${dim.widthMm} mm,${dim.heightMm} mm`,
+                `GAP 2 mm,0 mm`,
+                `SPEED 4`,
+                `DENSITY 12`,
+                `DIRECTION 0,0`,
+                `REFERENCE 0,0`,
+                `SET TEAR ON`,
+                `CLS`,
+                `BITMAP 0,0,${widthBytes},${heightDots},0,`
+            ].join('\r\n');
+
+            const encoder = new TextEncoder();
+            const headerBytes = encoder.encode(headerStr);
+            const footerBytes = encoder.encode('\r\nPRINT 1,1\r\n');
+
+            const packet = new Uint8Array(headerBytes.length + bitmapBytes.length + footerBytes.length);
+            packet.set(headerBytes, 0);
+            packet.set(bitmapBytes, headerBytes.length);
+            packet.set(footerBytes, headerBytes.length + bitmapBytes.length);
+            return packet;
+        }
+
+        async function buildAllDomStickersBase64TSPL() {
+            const stickers = [...document.querySelectorAll('#thermal-print-stage .thermal-sticker')];
+            const dim = getPaperDimensions();
+            await waitForPrintAssets();
+
+            let totalLen = 0;
+            const packets = [];
+            for (let i = 0; i < stickers.length; i++) {
+                const pkt = await convertDomStickerToTSPLBytes(stickers[i], dim);
+                packets.push(pkt);
+                totalLen += pkt.length;
+            }
+
+            const combined = new Uint8Array(totalLen);
+            let offset = 0;
+            packets.forEach(p => {
+                combined.set(p, offset);
+                offset += p.length;
+            });
+            return studioUint8ToBase64(combined);
+        }
+
+        window.executeSystemSpoolerPrint = async () => {
+            const stickers = document.querySelectorAll('#thermal-print-stage .thermal-sticker');
+            if (!stickers.length) {
+                showToast('لا توجد ملصقات جاهزة للطباعة.', 'warn');
+                return;
+            }
+            await waitForPrintAssets();
+            if (isStudioNativeApkAvailable() && typeof window.SmanNativePrinter.triggerAndroidSystemPrint === 'function') {
+                window.SmanNativePrinter.triggerAndroidSystemPrint('Sman_Hehya_Studio');
+            } else {
+                window.print();
+            }
+            if (activeStudioTab === 'orders' && currentPreviewType === 'orders') {
+                const orders = getPrintableSelectedOrders();
+                if (orders.length) openPostPrintModal(orders.length);
+            }
+        };
+
         window.executeDirectPrint = async () => {
             if (isPrinting) return;
             const stickers = document.querySelectorAll('#thermal-print-stage .thermal-sticker');
@@ -1924,18 +2112,90 @@
                 showToast('لا توجد ملصقات جاهزة للطباعة. اختر طلباً أو أنشئ استيكر أولاً.', 'warn');
                 return;
             }
+            if (!isStudioNativeApkAvailable()) {
+                return window.executeSystemSpoolerPrint();
+            }
+
+            isPrinting = true;
+            const btn = document.getElementById('btn-main-bt-print');
+            const origHtml = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري تحويل وإرسال الملصقات بالبلوتوث...';
+            }
+
+            try {
+                const base64Payload = await buildAllDomStickersBase64TSPL();
+                const targetMac = document.getElementById('p-native-bt-select')?.value || 'AUTO';
+                const res = window.SmanNativePrinter.printRawBase64Bluetooth(targetMac, base64Payload);
+
+                if (String(res).startsWith('OK:')) {
+                    showToast(`✅ تمت طباعة (${stickers.length}) ملصق بالبلوتوث على ${String(res).slice(3)}`);
+                    if (activeStudioTab === 'orders' && currentPreviewType === 'orders') {
+                        const orders = getPrintableSelectedOrders();
+                        if (orders.length) openPostPrintModal(orders.length);
+                    }
+                } else if (res === 'PERMISSION_REQUIRED') {
+                    showToast('يرجى السماح بإذن البلوتوث على الشاشة ثم أعد الضغط على طباعة', 'warn');
+                } else if (res === 'BLUETOOTH_OFF') {
+                    window.SmanNativePrinter.getPairedDevicesJson();
+                    showToast('البلوتوث مغلق! وافق على تشغيله ثم اطبع', 'warn');
+                } else {
+                    showToast('تنبيه اتصال الطابعة: ' + res, 'error');
+                }
+            } catch (err) {
+                console.error(err);
+                showToast('حدث خطأ أثناء التحويل الحراري: ' + err.message, 'error');
+            } finally {
+                isPrinting = false;
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = origHtml;
+                }
+            }
+        };
+
+        window.executeDirectUsbTSPLPrint = async () => {
+            if (isPrinting) return;
+            const stickers = document.querySelectorAll('#thermal-print-stage .thermal-sticker');
+            if (!stickers.length) return showToast('اختر ملصقاً للطباعة أولاً', 'warn');
+            if (!isStudioNativeApkAvailable()) return window.executeSystemSpoolerPrint();
+
             isPrinting = true;
             try {
-                await waitForPrintAssets();
-                window.print();
-                if (activeStudioTab === 'orders' && currentPreviewType === 'orders') {
-                    const orders = getPrintableSelectedOrders();
-                    if (orders.length) openPostPrintModal(orders.length);
+                showToast('جاري التجهيز والإرسال عبر كابل الـ USB...');
+                const base64Payload = await buildAllDomStickersBase64TSPL();
+                const res = window.SmanNativePrinter.printRawBase64Usb(base64Payload);
+                if (String(res).startsWith('OK:')) {
+                    showToast('✅ تمت الطباعة عبر كابل الـ USB بنجاح!');
+                    if (activeStudioTab === 'orders' && currentPreviewType === 'orders') {
+                        const orders = getPrintableSelectedOrders();
+                        if (orders.length) openPostPrintModal(orders.length);
+                    }
+                } else {
+                    showToast('تنبيه USB: ' + res, 'warn');
                 }
+            } catch (e) {
+                showToast('خطأ USB: ' + e.message, 'error');
             } finally {
                 isPrinting = false;
             }
         };
+
+        window.sendStudioHardwareCmd = function (cmdType) {
+            if (!isStudioNativeApkAvailable()) return showToast('أوامر المعايرة تعمل من داخل تطبيق الـ APK', 'warn');
+            const dim = getPaperDimensions();
+            const cmd = cmdType === 'calibrate'
+                ? `SIZE ${dim.widthMm} mm,${dim.heightMm} mm\r\nGAP 2 mm,0 mm\r\nHOME\r\nSOUND 2,100\r\n`
+                : `SIZE ${dim.widthMm} mm,${dim.heightMm} mm\r\nFORMFEED\r\n`;
+            const b64 = studioUint8ToBase64(new TextEncoder().encode(cmd));
+            const targetMac = document.getElementById('p-native-bt-select')?.value || 'AUTO';
+            const res = window.SmanNativePrinter.printRawBase64Bluetooth(targetMac, b64);
+            if (String(res).startsWith('OK:')) showToast('⚡ تم تنفيذ الأمر على طابعة Deli E750W');
+            else window.scanStudioPairedPrinters(true);
+        };
+
+        setTimeout(() => window.scanStudioPairedPrinters(false), 600);
 
         function openPostPrintModal(count) {
             document.getElementById('post-print-subtitle').textContent = `هل تمت طباعة (${count}) طلب بنجاح على طابعة Deli 750W؟`;
