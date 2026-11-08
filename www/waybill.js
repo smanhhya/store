@@ -1172,6 +1172,9 @@
                     </div>
 
                     <div class="flex items-center gap-1.5">
+                        <button type="button" onclick="const ids=(window.deliPrinterConnection.lastOrdersQueue||[]).map(o=>o.id).filter(Boolean).join(','); window.location.href='printer.html'+(ids?'?orderIds='+ids:'');" class="bg-amber-500 hover:bg-amber-400 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 shadow-sm" title="فتح صفحة الطابعة المستقلة الكاملة">
+                            <i class="fa-solid fa-up-right-from-square"></i> استوديو الطوارئ الشامل
+                        </button>
                         <button type="button" onclick="scanAndLoadNativePairedPrinters(true)" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 shadow-sm">
                             <i class="fa-brands fa-bluetooth-b"></i> تحديث الطابعات
                         </button>
@@ -1179,6 +1182,7 @@
                             <i class="fa-solid fa-xmark text-base"></i>
                         </button>
                     </div>
+
                 </div>
 
                 <!-- شريط اختيار نوع الاستيكر والتبويبات السريعة -->
