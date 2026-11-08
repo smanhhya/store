@@ -35,12 +35,14 @@ jobs:
           ANDROID_SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           echo "ANDROID_HOME=$ANDROID_SDK" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK" >> $GITHUB_ENV
-          SDKMANAGER="$ANDROID_SDK/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -f "$SDKMANAGER" ]; then
-            SDKMANAGER=$(find "$ANDROID_SDK" -name sdkmanager -type f | head -n 1)
+          if [ ! -d "$ANDROID_SDK/platforms/android-34" ]; then
+            SDKMANAGER="$ANDROID_SDK/cmdline-tools/latest/bin/sdkmanager"
+            if [ ! -f "$SDKMANAGER" ]; then
+              SDKMANAGER=$(find "$ANDROID_SDK" -name sdkmanager -type f | head -n 1)
+            fi
+            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+            "$SDKMANAGER" --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
           fi
-          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-          "$SDKMANAGER" --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Prepare Unified Signing Keystore (For Seamless App Updates)
         run: |
@@ -109,12 +111,21 @@ jobs:
           npx cap sync android
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
-          # زيادة رقم الإصدار تلقائياً مع كل عملية بناء ليقبل الهاتف التحديث المباشر
-           sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/g" android/app/build.gradle || true
-          sed -i "s/versionName \"1.0\"/versionName \"1.${{ github.run_number }}\"/g" android/app/build.gradle || true
-
-          # نسخ مفتاح التوقيع الموحد داخل مجلد التطبيق أيضاً
           cp -f sman-debug.keystore android/app/debug.keystore || true
+          cp -f sman-debug.keystore ~/.android/debug.keystore || true
+
+          RUN_NUM="${{ github.run_number }}"
+          VER_CODE=$((1000 + RUN_NUM))
+          node -e "
+            const fs = require('fs');
+            const gradlePath = 'android/app/build.gradle';
+            if (fs.existsSync(gradlePath)) {
+              let g = fs.readFileSync(gradlePath, 'utf8');
+              g = g.replace(/versionCode\s+\d+/, 'versionCode ' + $VER_CODE);
+              g = g.replace(/versionName\s+\"[^\"]+\"/, 'versionName \"1.0.' + $RUN_NUM + '\"');
+              fs.writeFileSync(gradlePath, g, 'utf8');
+            }
+          "
 
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
             sed -i 's/networkTimeout=10000/networkTimeout=120000/g' android/gradle/wrapper/gradle-wrapper.properties || true
@@ -124,7 +135,7 @@ jobs:
           org.gradle.internal.http.socketTimeout=120000
           EOG
 
-      - name: Inject Native Deli E750W Bluetooth & USB Bridge
+      - name: Inject Native Deli E750W Bridge + Smart Back Navigation + Keep-Alive State
         run: |
           node -e '
             const fs = require("fs");
@@ -140,8 +151,14 @@ jobs:
             `;
             if (!xml.includes("BLUETOOTH_CONNECT")) {
               xml = xml.replace("<application", perms + "\n    <application");
-              fs.writeFileSync(manifestPath, xml, "utf8");
             }
+            if (!xml.includes("enableOnBackInvokedCallback")) {
+              xml = xml.replace("<application", "<application android:enableOnBackInvokedCallback=\"false\"");
+            }
+            if (!xml.includes("alwaysRetainTaskState")) {
+              xml = xml.replace("<activity", "<activity android:alwaysRetainTaskState=\"true\"");
+            }
+            fs.writeFileSync(manifestPath, xml, "utf8");
           '
 
           cat << 'EOF' > android/app/src/main/java/com/smanhehya/crm/MainActivity.java
@@ -154,6 +171,7 @@ jobs:
           import android.bluetooth.BluetoothSocket;
           import android.content.Context;
           import android.content.Intent;
+          import android.content.SharedPreferences;
           import android.content.pm.PackageManager;
           import android.hardware.usb.UsbConstants;
           import android.hardware.usb.UsbDevice;
@@ -167,8 +185,13 @@ jobs:
           import android.print.PrintDocumentAdapter;
           import android.print.PrintManager;
           import android.util.Base64;
+          import android.view.KeyEvent;
           import android.webkit.JavascriptInterface;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebSettings;
           import android.webkit.WebView;
+          import android.widget.Toast;
+          import androidx.activity.OnBackPressedCallback;
           import androidx.core.app.ActivityCompat;
           import androidx.core.content.ContextCompat;
           import com.getcapacitor.BridgeActivity;
@@ -183,19 +206,172 @@ jobs:
           import java.util.UUID;
 
           public class MainActivity extends BridgeActivity {
+              private long lastBackPressTime = 0;
 
               @Override
               public void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
                   try {
                       if (this.bridge != null && this.bridge.getWebView() != null) {
-                          WebView webView = this.bridge.getWebView();
-                          webView.getSettings().setJavaScriptEnabled(true);
+                          final WebView webView = this.bridge.getWebView();
+                          WebSettings settings = webView.getSettings();
+                          settings.setJavaScriptEnabled(true);
+                          settings.setDomStorageEnabled(true);
+                          settings.setDatabaseEnabled(true);
+
                           webView.addJavascriptInterface(new SmanPrinterBridge(this, webView), "SmanNativePrinter");
                           webView.reload();
+
+                          // حقن نظام تتبع الصفحات وحفظ آخر صفحة مفتوحة بعد تحميل الواجهة
+                          webView.postDelayed(new Runnable() {
+                              @Override
+                              public void run() {
+                                  injectSmartNavigationTracker(webView);
+                              }
+                          }, 1200);
                       }
+
+                      // التقاط زر الرجوع وإيماءة السحب في أندرويد لإرجاع المستخدم للصفحة السابقة
+                      getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+                          @Override
+                          public void handleOnBackPressed() {
+                              handleSmartBackAction();
+                          }
+                      });
                   } catch (Exception e) {
                       e.printStackTrace();
+                  }
+              }
+
+              @Override
+              public void onResume() {
+                  super.onResume();
+                  try {
+                      if (this.bridge != null && this.bridge.getWebView() != null) {
+                          injectSmartNavigationTracker(this.bridge.getWebView());
+                      }
+                  } catch (Exception ignored) {}
+              }
+
+              @Override
+              public boolean dispatchKeyEvent(KeyEvent event) {
+                  if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+                      if (event.getAction() == KeyEvent.ACTION_UP) {
+                          handleSmartBackAction();
+                      }
+                      return true;
+                  }
+                  return super.dispatchKeyEvent(event);
+              }
+
+              private void injectSmartNavigationTracker(final WebView webView) {
+                  String trackerJs = "(function(){" +
+                      "window.SMAN_OWNER_TRUSTED_APK = true;" +
+                      "if(window._smanNativeNavInstalled) return;" +
+                      "window._smanNativeNavInstalled = true;" +
+                      "window._smanTabHistory = window._smanTabHistory || [];" +
+                      "var activeEl = document.querySelector('.view-section.active');" +
+                      "window._smanCurrentTabId = activeEl && activeEl.id ? activeEl.id.replace('view-','') : 'orders';" +
+                      "if(typeof window.switchTab === 'function'){" +
+                      "  var origSwitch = window.switchTab;" +
+                      "  window.switchTab = function(tabId, btnEl, isBack){" +
+                      "    if(!isBack && window._smanCurrentTabId && window._smanCurrentTabId !== tabId){" +
+                      "      window._smanTabHistory.push(window._smanCurrentTabId);" +
+                      "      if(window._smanTabHistory.length > 30) window._smanTabHistory.shift();" +
+                      "    }" +
+                      "    window._smanCurrentTabId = tabId;" +
+                      "    try{ localStorage.setItem('sman_last_open_tab', tabId); }catch(e){}" +
+                      "    return origSwitch.apply(this, arguments);" +
+                      "  };" +
+                      "}" +
+                      "try{" +
+                      "  var savedTab = localStorage.getItem('sman_last_open_tab');" +
+                      "  if(savedTab && savedTab !== 'orders' && !window._smanRestoredInitialTab){" +
+                      "    window._smanRestoredInitialTab = true;" +
+                      "    var btn = document.querySelector('#sidebar button[onclick*=\"switchTab(\\'' + savedTab + '\\'\"]');" +
+                      "    if(btn && typeof window.switchTab === 'function') window.switchTab(savedTab, btn, true);" +
+                      "  }" +
+                      "}catch(e){}" +
+                      "})();";
+                  webView.evaluateJavascript(trackerJs, null);
+              }
+
+              private void handleSmartBackAction() {
+                  try {
+                      if (this.bridge == null || this.bridge.getWebView() == null) {
+                          moveTaskToBack(true);
+                          return;
+                      }
+                      final WebView webView = this.bridge.getWebView();
+                      String backScript = "(function(){" +
+                          "if(typeof window.handleAndroidBackButton === 'function'){" +
+                          "  var r = window.handleAndroidBackButton();" +
+                          "  if(r === 'HANDLED') return 'HANDLED';" +
+                          "}" +
+                          "var pop = document.getElementById('lc-floating-popover');" +
+                          "if(pop && !pop.classList.contains('hidden')){ pop.classList.add('hidden'); return 'HANDLED'; }" +
+                          "var alerts = document.getElementById('lc-alerts-dropdown');" +
+                          "if(alerts && !alerts.classList.contains('hidden')){ alerts.classList.add('hidden'); return 'HANDLED'; }" +
+                          "var prnModal = document.getElementById('deli-waybill-studio-modal');" +
+                          "if(prnModal && !prnModal.classList.contains('hidden')){ prnModal.classList.add('hidden'); return 'HANDLED'; }" +
+                          "var modals = Array.from(document.querySelectorAll('[id$=\"-modal\"]:not(.hidden), .modal-backdrop:not(.hidden)'));" +
+                          "if(modals.length > 0){" +
+                          "  var topM = modals[modals.length - 1];" +
+                          "  if(typeof window.closeModal === 'function' && topM.id) window.closeModal(topM.id);" +
+                          "  else topM.classList.add('hidden');" +
+                          "  return 'HANDLED';" +
+                          "}" +
+                          "var sbOverlay = document.getElementById('sidebar-overlay');" +
+                          "if(sbOverlay && !sbOverlay.classList.contains('hidden')){" +
+                          "  if(typeof window.toggleSidebar === 'function') window.toggleSidebar();" +
+                          "  else sbOverlay.classList.add('hidden');" +
+                          "  return 'HANDLED';" +
+                          "}" +
+                          "if(window._smanTabHistory && window._smanTabHistory.length > 0){" +
+                          "  var prevTab = window._smanTabHistory.pop();" +
+                          "  if(prevTab && typeof window.switchTab === 'function'){" +
+                          "    var b = document.querySelector('#sidebar button[onclick*=\"switchTab(\\'' + prevTab + '\\'\"]');" +
+                          "    window.switchTab(prevTab, b, true);" +
+                          "    return 'HANDLED';" +
+                          "  }" +
+                          "}" +
+                          "var curView = document.querySelector('.view-section.active');" +
+                          "var curId = curView && curView.id ? curView.id.replace('view-','') : 'orders';" +
+                          "if(curId !== 'orders' && typeof window.switchTab === 'function'){" +
+                          "  var ordBtn = document.querySelector('#sidebar button[onclick*=\"switchTab(\\'orders\\'\"]');" +
+                          "  window.switchTab('orders', ordBtn, true);" +
+                          "  return 'HANDLED';" +
+                          "}" +
+                          "if(curId === 'orders' && typeof currentOrderTab !== 'undefined' && currentOrderTab !== 'all' && typeof window.setOrderTab === 'function'){" +
+                          "  window.setOrderTab('all');" +
+                          "  return 'HANDLED';" +
+                          "}" +
+                          "return 'AT_ROOT';" +
+                          "})()";
+
+                      webView.evaluateJavascript(backScript, new ValueCallback<String>() {
+                          @Override
+                          public void onReceiveValue(String value) {
+                              String clean = value != null ? value.replace("\"", "").trim() : "";
+                              if ("HANDLED".equals(clean)) {
+                                  return;
+                              }
+                              if (webView.canGoBack()) {
+                                  webView.goBack();
+                                  return;
+                              }
+                              long now = System.currentTimeMillis();
+                              if (now - lastBackPressTime < 2200) {
+                                  // إبقاء التطبيق حياً في الخلفية بدلاً من قتله حتى يفتح فوراً دون بدء من الصفر
+                                  moveTaskToBack(true);
+                              } else {
+                                  lastBackPressTime = now;
+                                  Toast.makeText(MainActivity.this, "اضغط رجوع مرة أخرى لتصغير التطبيق", Toast.LENGTH_SHORT).show();
+                              }
+                          }
+                      });
+                  } catch (Exception e) {
+                      moveTaskToBack(true);
                   }
               }
 
@@ -204,6 +380,7 @@ jobs:
                   private final WebView webView;
                   private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
                   private static final String ACTION_USB_PERMISSION = "com.smanhehya.crm.USB_PERMISSION";
+                  private static final String PREFS_NAME = "SmanOwnerPermanentPrefs";
 
                   public SmanPrinterBridge(MainActivity activity, WebView webView) {
                       this.activity = activity;
@@ -213,6 +390,24 @@ jobs:
                   @JavascriptInterface
                   public boolean isNativeBridgeReady() {
                       return true;
+                  }
+
+                  @JavascriptInterface
+                  public void savePermanentPref(String key, String value) {
+                      try {
+                          SharedPreferences prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                          prefs.edit().putString(key, value != null ? value : "").apply();
+                      } catch (Exception ignored) {}
+                  }
+
+                  @JavascriptInterface
+                  public String getPermanentPref(String key) {
+                      try {
+                          SharedPreferences prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                          return prefs.getString(key, "");
+                      } catch (Exception e) {
+                          return "";
+                      }
                   }
 
                   @JavascriptInterface
@@ -403,7 +598,7 @@ jobs:
                                   connection.releaseInterface(targetInterface);
                                   connection.close();
                                   return "USB_TRANSFER_ERROR";
-                              }
+                                }
                           }
 
                           connection.releaseInterface(targetInterface);
