@@ -5,18 +5,24 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -36,13 +42,29 @@ jobs:
           yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
           "$SDKMANAGER" --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
+      - name: Prepare Unified Signing Keystore (For Seamless App Updates)
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f "sman-debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -keystore sman-debug.keystore \
+              -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass android -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add sman-debug.keystore
+            git commit -m "chore: add persistent signing keystore for seamless APK updates [skip ci]" || true
+            git push || true
+          fi
+          cp -f sman-debug.keystore ~/.android/debug.keystore
+
       - name: Prepare Web Files and Capacitor Config
         run: |
           mkdir -p www
           mkdir -p www/www
-          # نسخ جميع ملفات HTML و JS و CSS والصور من المجلد الرئيسي إلى www لضمان دخول أحدث التعديلات في الـ APK
-          find . -maxdepth 1 -type f \( -name "*.html" -o -name "*.js" -o -name "*.css" -o -name "*.json" -o -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.webp" -o -name "*.svg" -o -name "*.ico" \) ! -name "package.json" ! -name "package-lock.json" ! -name "capacitor.config.json" -exec cp -f {} www/ \; || true
-          # نسخ نسخة احتياطية داخل www/www لدعم أي مسار مكتوب بصيغة www/file.js أو file.js معاً
+          find . -maxdepth 1 -type f \( -name "*.html" -o -name "*.js" -o -name "*.css" -o -name "*.json" -o -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.webp" -o -name "*.svg" -o -name "*.ico" \) ! -name "package.json" ! -name "package-lock.json" ! -name "capacitor.config.json" -exec cp -u {} www/ \; || true
           cp -f www/*.js www/www/ 2>/dev/null || true
           if [ ! -f "www/index.html" ]; then
             echo "ERROR: index.html not found in root or www/ folder!"
@@ -75,13 +97,32 @@ jobs:
             }, null, 2));
           '
 
-      - name: Install Dependencies & Add Android
+      - name: Install Dependencies & Add Android (Anti-Timeout & Auto-Version)
         run: |
           rm -rf node_modules package-lock.json android
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+          npm config set fetch-timeout 120000
           npm install
           npx cap add android
           npx cap sync android
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+
+          # زيادة رقم الإصدار تلقائياً مع كل عملية بناء ليقبل الهاتف التحديث المباشر
+           sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/g" android/app/build.gradle || true
+          sed -i "s/versionName \"1.0\"/versionName \"1.${{ github.run_number }}\"/g" android/app/build.gradle || true
+
+          # نسخ مفتاح التوقيع الموحد داخل مجلد التطبيق أيضاً
+          cp -f sman-debug.keystore android/app/debug.keystore || true
+
+          if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
+            sed -i 's/networkTimeout=10000/networkTimeout=120000/g' android/gradle/wrapper/gradle-wrapper.properties || true
+          fi
+          cat << 'EOG' >> android/gradle.properties
+          org.gradle.internal.http.connectionTimeout=120000
+          org.gradle.internal.http.socketTimeout=120000
+          EOG
 
       - name: Inject Native Deli E750W Bluetooth & USB Bridge
         run: |
