@@ -1335,7 +1335,7 @@
             const bFilter = document.getElementById('q-batch-filter').value;
             const zFilter = document.getElementById('q-zone-filter').value;
             const dFilter = document.getElementById('q-driver-filter').value;
-            const qSearch = normalizeDigits(document.getElementById('q-search-input').value || '').toLocaleLowerCase('ar');
+            const qSearch = normalizeDigits(document.getElementById('q-search-input').value || '').toLowerCase();
             return allOrdersRaw.filter(o => {
                 if (o.status === 'trash' || o.status === 'canceled' || o.isArchived) return false;
                 if (stFilter === 'active' && !['new', 'processing', 'dispatched'].includes(o.status)) return false;
@@ -1349,12 +1349,13 @@
                 if (dFilter !== 'all' && o.driverName !== dFilter) return false;
                 if (qSearch) {
                     const itemsStr = (Array.isArray(o.items) ? o.items : []).map(i => i && i.name || '').join(' ');
-                    const hay = normalizeDigits(`${o.id || ''} ${o.customerName || ''} ${o.customerPhone || ''} ${o.zone || ''} ${o.customerAddress || ''} ${itemsStr}`).toLocaleLowerCase('ar');
+                    const hay = normalizeDigits(`${o.id || ''} ${o.customerName || ''} ${o.customerPhone || ''} ${o.zone || ''} ${o.customerAddress || ''} ${itemsStr}`).toLowerCase();
                     if (!hay.includes(qSearch)) return false;
                 }
                 return true;
             });
         };
+
 
         window.renderOrdersQueue = () => {
             const listEl = document.getElementById('orders-queue-list');
