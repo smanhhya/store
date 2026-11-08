@@ -1151,9 +1151,144 @@
         }
     }
 
+    // =========================================================================
+    // 🔙 10. محرك سجل الصفحات والرجوع للخلف (Android & Browser Back Navigation)
+    // =========================================================================
+    window.smanNavHistory = {
+        stack: [],
+        currentTab: 'orders',
+        isHandlingBack: false
+    };
+
+    function initSmartBackNavigationEngine() {
+        //تتبع التبويب النشط الحالي عند بدء التشغيل
+        const activeView = document.querySelector('.view-section.active');
+        if (activeView && activeView.id) {
+            window.smanNavHistory.currentTab = activeView.id.replace('view-', '');
+        }
+
+        // 1. مراقبة الانتقال بين الصفحات والتبويبات لتسجيلها في سجل الرجوع
+        if (typeof window.switchTab === 'function' && !window.switchTab._backNavHooked) {
+            const _prevSwitch = window.switchTab;
+            const navWrappedSwitch = function (tabId, btnElement, isFromBackButton = false) {
+                const prevTab = window.smanNavHistory.currentTab;
+                if (!isFromBackButton && !window.smanNavHistory.isHandlingBack && prevTab && prevTab !== tabId) {
+                    window.smanNavHistory.stack.push({ type: 'tab', tabId: prevTab });
+                    if (window.smanNavHistory.stack.length > 25) {
+                        window.smanNavHistory.stack.shift();
+                    }
+                    try {
+                        window.history.pushState({ smanTab: tabId }, '', '#' + tabId);
+                    } catch (e) {}
+                }
+                window.smanNavHistory.currentTab = tabId;
+                return _prevSwitch.apply(this, arguments);
+            };
+            navWrappedSwitch._lcHooked = true;
+            navWrappedSwitch._backNavHooked = true;
+            window.switchTab = navWrappedSwitch;
+        }
+
+        // 2. مراقبة فتح النوافذ المنبثقة (Modals) لدعم إغلاقها بزر الرجوع
+        if (typeof window.openModal === 'function' && !window.openModal._backNavHooked) {
+            const _prevOpenModal = window.openModal;
+            const navWrappedOpenModal = function (modalId) {
+                try {
+                    window.history.pushState({ smanModal: modalId }, '', window.location.hash || '#modal');
+                } catch (e) {}
+                return _prevOpenModal.apply(this, arguments);
+            };
+            navWrappedOpenModal._backNavHooked = true;
+            window.openModal = navWrappedOpenModal;
+        }
+
+        // 3. التقاط حدث الرجوع في المتصفح (popstate)
+        window.addEventListener('popstate', function () {
+            if (window.smanNavHistory.isHandlingBack) return;
+            window.handleAndroidBackButton(true);
+        });
+    }
+
+    // الدالة الرئيسية التي يستدعيها زر الرجوع في هاتف الأندرويد
+    window.handleAndroidBackButton = function (fromPopState = false) {
+        window.smanNavHistory.isHandlingBack = true;
+        try {
+            // أولاً: إغلاق أي كبسولة طائرة أو قائمة تنبيهات مفتوحة
+            const pop = document.getElementById('lc-floating-popover');
+            if (pop && !pop.classList.contains('hidden')) {
+                window.closeLivePopover();
+                return 'HANDLED';
+            }
+
+            // ثانياً: إغلاق نافذة استوديو الطابعة إن كانت مفتوحة
+            const printerModal = document.getElementById('deli-waybill-studio-modal');
+            if (printerModal && !printerModal.classList.contains('hidden')) {
+                if (typeof window.closeDeliStudioModal === 'function') window.closeDeliStudioModal();
+                else printerModal.classList.add('hidden');
+                return 'HANDLED';
+            }
+
+            // ثالثاً: إغلاق أي نافذة منبثقة (Modal) مفتوحة حالياً والعودة للصفحة تحتها
+            const openModals = Array.from(document.querySelectorAll('[id$="-modal"]:not(.hidden), .modal-backdrop:not(.hidden)'));
+            if (openModals.length > 0) {
+                const topModal = openModals[openModals.length - 1];
+                if (typeof window.closeModal === 'function' && topModal.id) {
+                    window.closeModal(topModal.id);
+                } else {
+                    topModal.classList.add('hidden');
+                }
+                return 'HANDLED';
+            }
+
+            // رابعاً: إغلاق القائمة الجانبية في الموبايل إن كانت مفتوحة
+            const sidebarOverlay = document.getElementById('sidebar-overlay');
+            if (sidebarOverlay && !sidebarOverlay.classList.contains('hidden')) {
+                if (typeof window.toggleSidebar === 'function') window.toggleSidebar();
+                else sidebarOverlay.classList.add('hidden');
+                return 'HANDLED';
+            }
+
+            // خامساً: الرجوع إلى الصفحة / التبويب السابق الذي كان المستخدم يفتحه
+            while (window.smanNavHistory.stack.length > 0) {
+                const prevEntry = window.smanNavHistory.stack.pop();
+                if (prevEntry && prevEntry.type === 'tab' && prevEntry.tabId !== window.smanNavHistory.currentTab) {
+                    const targetBtn = document.querySelector(`#sidebar button[onclick*="switchTab('${prevEntry.tabId}'"]`);
+                    if (typeof window.switchTab === 'function') {
+                        window.switchTab(prevEntry.tabId, targetBtn, true);
+                        return 'HANDLED';
+                    }
+                }
+            }
+
+            // سادساً: إذا كان المستخدم في أي صفحة فرعية غير (الطلبات الحية) والسجل فارغ، نرجعه لصفحة الطلبات الحية
+            if (window.smanNavHistory.currentTab && window.smanNavHistory.currentTab !== 'orders') {
+                const ordersBtn = document.querySelector(`#sidebar button[onclick*="switchTab('orders'"]`);
+                if (typeof window.switchTab === 'function') {
+                    window.switchTab('orders', ordersBtn, true);
+                    return 'HANDLED';
+                }
+            }
+
+            // سابعاً: إذا كان داخل صفحة الطلبات الحية ومختار تبويب فرعي غير (الكل)، نرجعه لتبويب (الكل)
+            if (window.smanNavHistory.currentTab === 'orders' && typeof currentOrderTab !== 'undefined' && currentOrderTab !== 'all') {
+                if (typeof window.setOrderTab === 'function') {
+                    window.setOrderTab('all');
+                    return 'HANDLED';
+                }
+            }
+
+            return 'AT_ROOT';
+        } finally {
+            setTimeout(() => {
+                window.smanNavHistory.isHandlingBack = false;
+            }, 60);
+        }
+    };
+
     function bootLiveConnect() {
         injectLiveConnectStyles();
         hookIntoSystemFunctions();
+        initSmartBackNavigationEngine();
         window.initLiveHeaderAndSidebarUI();
         window.initZeroClutterOrdersScroll();
         window.enhanceOrderCardsLive();
