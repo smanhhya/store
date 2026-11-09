@@ -2161,4 +2161,707 @@
     } else {
         setTimeout(injectHeaderPrinterQuickBtn, 700);
     }
+    // =========================================================================
+    // 🐔 9. محرك تكت ميزان الفراخ والسمان بالدفعة (Batch Scale Tag Engine 203 DPI)
+    // إضافة مستقلة آمنة 100% تعمل داخل waybill.js بدون المساس بالكود الأساسي
+    // =========================================================================
+    window.poultryBatchState = {
+        previewIdx: 0,
+        parsedItems: [],
+        cancelRequested: false
+    };
+
+    function normalizeScaleDigits(str) {
+        return String(str ?? '')
+            .replace(/[\u0660-\u0669]/g, c => String(c.charCodeAt(0) - 0x0660))
+            .replace(/[\u06F0-\u06F9]/g, c => String(c.charCodeAt(0) - 0x06F0));
+    }
+
+    // تحليل مصفوفة الأوزان وحساب سعر كل فرخة بدقة
+    window.parsePoultryWeightsList = function () {
+        const rawText = normalizeScaleDigits(document.getElementById('dw-pb-weights-raw')?.value || '');
+        const kiloPrice = Math.max(0, parseFloat(normalizeScaleDigits(document.getElementById('dw-pb-kilo-price')?.value || '110')) || 0);
+        const tareGrams = Math.max(0, parseFloat(normalizeScaleDigits(document.getElementById('dw-pb-tare')?.value || '0')) || 0);
+        const roundMode = document.getElementById('dw-pb-rounding')?.value || 'nearest_1';
+
+        const tokens = rawText
+            .split(/[\n,،;\s\-]+/)
+            .map(t => t.trim())
+            .filter(Boolean);
+
+        const items = [];
+        tokens.forEach((tok, idx) => {
+            const num = parseFloat(tok);
+            if (!Number.isFinite(num) || num <= 0) return;
+
+            // إذا كان الرقم أقل من 25 نعتبره بالكيلو (مثلاً 1.389) وإلا نعتبره بالجرام (مثلاً 1389)
+            const grossGrams = num < 25 ? Math.round(num * 1000) : Math.round(num);
+            const netGrams = Math.max(1, grossGrams - tareGrams);
+            const rawPrice = (netGrams / 1000) * kiloPrice;
+
+            let finalPrice = rawPrice;
+            if (roundMode === 'nearest_1') finalPrice = Math.round(rawPrice);
+            else if (roundMode === 'floor_1') finalPrice = Math.floor(rawPrice);
+            else if (roundMode === 'ceil_1') finalPrice = Math.ceil(rawPrice);
+            else if (roundMode === 'nearest_5') finalPrice = Math.round(rawPrice / 5) * 5;
+            else finalPrice = Number(rawPrice.toFixed(1));
+
+            items.push({
+                index: items.length + 1,
+                rawTokenIndex: idx,
+                grossGrams,
+                netGrams,
+                kiloPrice,
+                price: finalPrice,
+                isAnomaly: (netGrams < 350 || netGrams > 4500)
+            });
+        });
+
+        window.poultryBatchState.parsedItems = items;
+        if (window.poultryBatchState.previewIdx >= items.length) {
+            window.poultryBatchState.previewIdx = Math.max(0, items.length - 1);
+        }
+        renderPoultryBatchChipsAndStats();
+        return items;
+    };
+
+    function renderPoultryBatchChipsAndStats() {
+        const items = window.poultryBatchState.parsedItems || [];
+        const chipsCont = document.getElementById('dw-pb-chips-list');
+        const summaryBar = document.getElementById('dw-pb-summary-bar');
+        const switcherBar = document.getElementById('dw-pb-preview-switcher');
+
+        const totalCount = items.length;
+        const totalGrams = items.reduce((s, i) => s + i.netGrams, 0);
+        const totalKg = (totalGrams / 1000).toFixed(3);
+        const avgGrams = totalCount > 0 ? Math.round(totalGrams / totalCount) : 0;
+        const totalCash = items.reduce((s, i) => s + i.price, 0);
+
+        if (summaryBar) {
+            summaryBar.innerHTML = `
+                <div class="grid grid-cols-4 gap-1.5 text-center">
+                    <div class="bg-slate-900 text-white p-1.5 rounded-xl">
+                        <span class="block text-[9px] text-slate-400">العدد</span>
+                        <span class="text-xs font-black text-amber-300">${totalCount} تكت</span>
+                    </div>
+                    <div class="bg-slate-900 text-white p-1.5 rounded-xl">
+                        <span class="block text-[9px] text-slate-400">إجمالي الوزن</span>
+                        <span class="text-xs font-black text-emerald-300">${totalKg} كجم</span>
+                    </div>
+                    <div class="bg-slate-900 text-white p-1.5 rounded-xl">
+                        <span class="block text-[9px] text-slate-400">متوسط الفرخة</span>
+                        <span class="text-xs font-black text-cyan-300">${avgGrams} جم</span>
+                    </div>
+                    <div class="bg-emerald-700 text-white p-1.5 rounded-xl">
+                        <span class="block text-[9px] text-emerald-200">إجمالي المبلغ</span>
+                        <span class="text-xs font-black">${totalCash.toLocaleString()} ج.م</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        if (chipsCont) {
+            if (items.length === 0) {
+                chipsCont.innerHTML = `<div class="text-center py-3 text-[11px] font-bold text-slate-400">ارص الأوزان بالجرام في المربع بالأعلى (مثال: 1389 ثم سطر جديد)</div>`;
+            } else {
+                chipsCont.innerHTML = items.map((it, idx) => {
+                    const active = idx === window.poultryBatchState.previewIdx;
+                    const baseCls = it.isAnomaly
+                        ? 'bg-amber-50 border-amber-400 text-amber-950'
+                        : (active ? 'bg-emerald-50 border-brand-primary text-emerald-950' : 'bg-white border-slate-200 text-slate-700');
+                    return `
+                        <div onclick="selectPoultryPreviewIdx(${idx})" class="flex items-center justify-between gap-1 px-2.5 py-1.5 rounded-xl border-2 text-[11px] font-black cursor-pointer transition-all ${baseCls}">
+                            <div class="flex items-center gap-1.5">
+                                <span class="bg-slate-900 text-white px-1.5 py-0.5 rounded text-[9px]">#${it.index}</span>
+                                <span>${it.netGrams} جم</span>
+                                ${it.isAnomaly ? `<button type="button" onclick="event.stopPropagation(); fixAnomalyWeightX10(${idx})" class="bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded text-[9px]" title="تصحيح الوزن بضربه في 10">⚠️ تقصد ${it.grossGrams * 10}؟</button>` : ''}
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-brand-primary font-black">${it.price} ج</span>
+                                <button type="button" onclick="event.stopPropagation(); removeSinglePoultryWeight(${idx})" class="text-rose-500 hover:text-rose-700 px-1">×</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        if (switcherBar) {
+            if (items.length > 1) {
+                const cur = window.poultryBatchState.previewIdx + 1;
+                switcherBar.classList.remove('hidden');
+                switcherBar.innerHTML = `
+                    <button type="button" onclick="stepPoultryPreviewIdx(-1)" class="px-2.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-white">◀ التكت السابق</button>
+                    <span class="text-amber-300">معاينة تكت (#${cur} من ${items.length}) — ${items[cur - 1]?.netGrams || 0} جم</span>
+                    <button type="button" onclick="stepPoultryPreviewIdx(1)" class="px-2.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-white">التكت التالي ▶</button>
+                `;
+            } else {
+                switcherBar.classList.add('hidden');
+            }
+        }
+    }
+
+    window.selectPoultryPreviewIdx = function (idx) {
+        window.poultryBatchState.previewIdx = idx;
+        renderPoultryBatchChipsAndStats();
+        window.onDeliStudioInputChange();
+    };
+
+    window.stepPoultryPreviewIdx = function (delta) {
+        const len = (window.poultryBatchState.parsedItems || []).length;
+        if (len <= 1) return;
+        let next = (window.poultryBatchState.previewIdx || 0) + delta;
+        if (next < 0) next = len - 1;
+        if (next >= len) next = 0;
+        window.selectPoultryPreviewIdx(next);
+    };
+
+    window.fixAnomalyWeightX10 = function (idx) {
+        const el = document.getElementById('dw-pb-weights-raw');
+        if (!el) return;
+        const tokens = normalizeScaleDigits(el.value).split(/[\n,،;\s\-]+/).map(t => t.trim()).filter(Boolean);
+        if (tokens[idx] !== undefined) {
+            tokens[idx] = String((parseFloat(tokens[idx]) || 0) * 10);
+            el.value = tokens.join('\n');
+            window.parsePoultryWeightsList();
+            window.onDeliStudioInputChange();
+        }
+    };
+
+    window.removeSinglePoultryWeight = function (idx) {
+        const el = document.getElementById('dw-pb-weights-raw');
+        if (!el) return;
+        const tokens = normalizeScaleDigits(el.value).split(/[\n,،;\s\-]+/).map(t => t.trim()).filter(Boolean);
+        tokens.splice(idx, 1);
+        el.value = tokens.join('\n');
+        window.parsePoultryWeightsList();
+        window.onDeliStudioInputChange();
+    };
+
+    window.quickAddSingleScaleWeight = function () {
+        const quickInp = document.getElementById('dw-pb-quick-weight');
+        const rawArea = document.getElementById('dw-pb-weights-raw');
+        if (!quickInp || !rawArea) return;
+        const val = normalizeScaleDigits(quickInp.value).trim();
+        if (!val || isNaN(parseFloat(val))) return;
+        rawArea.value = (rawArea.value.trim() ? rawArea.value.trim() + '\n' : '') + val;
+        quickInp.value = '';
+        quickInp.focus();
+        window.parsePoultryWeightsList();
+        window.poultryBatchState.previewIdx = Math.max(0, window.poultryBatchState.parsedItems.length - 1);
+        window.onDeliStudioInputChange();
+    };
+
+    // سحب الأوزان تلقائياً من السيستم الحي أو من الحافظة (Clipboard)
+    window.pullWeightsFromLiveSystemOrClipboard = async function () {
+        const rawArea = document.getElementById('dw-pb-weights-raw');
+        if (!rawArea) return;
+
+        // 1. الفحص في المتغيرات الحية للسيستم أولاً
+        if (Array.isArray(window.liveScaleWeights) && window.liveScaleWeights.length > 0) {
+            rawArea.value = window.liveScaleWeights.join('\n');
+            window.parsePoultryWeightsList();
+            window.onDeliStudioInputChange();
+            return notifyPrinterToast(`✅ تم سحب (${window.liveScaleWeights.length}) وزن من السيستم الحي!`);
+        }
+
+        // 2. الفحص في Firebase إن وجد مستند ميزان حي
+        if (typeof db !== 'undefined') {
+            try {
+                const snap = await db.collection('inventory').doc('live_scale').get();
+                if (snap.exists && Array.isArray(snap.data()?.weights) && snap.data().weights.length > 0) {
+                    rawArea.value = snap.data().weights.join('\n');
+                    if (snap.data().kiloPrice) document.getElementById('dw-pb-kilo-price').value = snap.data().kiloPrice;
+                    if (snap.data().productName) document.getElementById('dw-pb-name').value = snap.data().productName;
+                    window.parsePoultryWeightsList();
+                    window.onDeliStudioInputChange();
+                    return notifyPrinterToast(`✅ تم سحب (${snap.data().weights.length}) وزن من قاعدة البيانات الحية!`);
+                }
+            } catch (e) {}
+        }
+
+        // 3. اللصق الذكي من الحافظة (Clipboard)
+        if (navigator.clipboard && navigator.clipboard.readText) {
+            try {
+                const clipTxt = await navigator.clipboard.readText();
+                const matches = normalizeScaleDigits(clipTxt).match(/\d+(?:\.\d+)?/g);
+                if (matches && matches.length > 0) {
+                    rawArea.value = matches.join('\n');
+                    window.parsePoultryWeightsList();
+                    window.onDeliStudioInputChange();
+                    return notifyPrinterToast(`📋 تم استخراج (${matches.length}) وزن من الحافظة بنجاح!`);
+                }
+            } catch (e) {}
+        }
+
+        notifyPrinterToast('💡 انسخ الأوزان من أي رسالة أو شيت ثم اضغط هنا، أو اكتبها مباشرة.');
+    };
+
+    // نسخ كشف الأوزان والأسعار منسقاً للواتساب بضغطة زر
+    window.copyPoultryBatchToWhatsApp = function () {
+        const items = window.parsePoultryWeightsList();
+        if (items.length === 0) return alert('أدخل الأوزان أولاً لنسخ الكشف!');
+        const prodName = document.getElementById('dw-pb-name')?.value || 'فراخ طازجة';
+        const kiloPrice = document.getElementById('dw-pb-kilo-price')?.value || '110';
+        const totalGrams = items.reduce((s, i) => s + i.netGrams, 0);
+        const totalCash = items.reduce((s, i) => s + i.price, 0);
+
+        let lines = [
+            `🐔 *بيان أوزان وتسعير: ${prodName}*`,
+            `📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')} | سعر الكيلو: ${kiloPrice} ج`,
+            `--------------------------------`
+        ];
+        items.forEach(it => {
+            lines.push(`#${it.index} ⬅️ الوزن: *${it.netGrams} جم* = *${it.price} ج.م*`);
+        });
+        lines.push(`--------------------------------`);
+        lines.push(`📦 *إجمالي العدد:* ${items.length} قطعة`);
+        lines.push(`⚖️ *إجمالي الوزن الصافي:* ${(totalGrams / 1000).toFixed(3)} كجم`);
+        lines.push(`💰 *الإجمالي المطلوب:* ${totalCash.toLocaleString()} ج.م`);
+
+        const text = lines.join('\n');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => notifyPrinterToast('📲 تم نسخ كشف الأوزان والأسعار للواتساب!'));
+        } else {
+            prompt('انسخ الكشف التالي:', text);
+        }
+    };
+
+    // رسم التكت الحراري الحاد لكل فرخة بدقة 203 DPI
+    window.renderSinglePoultryScaleTag203DPI = function (itemObj, totalItemsCount, cfg) {
+        const dims = resolveDimensionsMm(cfg);
+        const W = Math.floor(dims.w * DOTS_PER_MM);
+        const H = Math.floor(dims.h * DOTS_PER_MM);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, W, H);
+
+        const offsetX = Math.round((Number(cfg.offsetXMm) || 0) * DOTS_PER_MM);
+        const offsetY = Math.round((Number(cfg.offsetYMm) || 0) * DOTS_PER_MM);
+        ctx.save();
+        ctx.translate(offsetX, offsetY);
+
+        const padPct = (Number(cfg.paddingPct) || 100) / 100;
+        const pad = Math.max(6, Math.round(Math.min(W, H) * 0.025 * padPct));
+        const borderStyle = cfg.borderStyle || 'double';
+        drawCustomFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, borderStyle);
+
+        const scaleMul = Math.min(1.45, Math.max(0.65, (Number(cfg.fontScalePct) || 100) / 100));
+        const innerMargin = borderStyle === 'double' ? 12 : 8;
+        const innerLeft = pad + innerMargin;
+        const innerRight = W - pad - innerMargin;
+        const innerWidth = innerRight - innerLeft;
+
+        const storeName = (cfg.customStoreTitle || (typeof storeSettings !== 'undefined' && storeSettings.storeName) || 'سمان ههيا').trim();
+        const storePhone = (cfg.customStorePhone || (typeof storeSettings !== 'undefined' && storeSettings.storePhone) || '01208027294').trim();
+        const prodName = (document.getElementById('dw-pb-name')?.value || 'فراخ تسمين طازجة - ذبح اليوم').trim();
+        const dateNote = (document.getElementById('dw-pb-date-note')?.value || `ذبح: ${new Date().toLocaleDateString('ar-EG')} • طازج 100%`).trim();
+
+        let y = pad + innerMargin;
+
+        // 1. الهيدر الأسود العلوي (اسم المتجر + رقم التكت في الدفعة)
+        const hdrH = Math.max(26, Math.round(H * 0.16));
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(innerLeft, y, innerWidth, hdrH);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textBaseline = 'middle';
+
+        ctx.textAlign = 'right';
+        ctx.font = `900 ${Math.max(12, Math.round(hdrH * 0.52 * scaleMul))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`${storeName} (${storePhone})`, innerRight - 8, y + hdrH / 2);
+
+        ctx.textAlign = 'left';
+        ctx.font = `900 ${Math.max(12, Math.round(hdrH * 0.50 * scaleMul))}px monospace`;
+        ctx.fillText(`#${itemObj.index}/${totalItemsCount}`, innerLeft + 8, y + hdrH / 2);
+
+        y += hdrH + Math.max(4, Math.round(H * 0.025));
+
+        // 2. اسم الصنف وتاريخ الذبح
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        const fProd = Math.max(14, Math.round(H * 0.105 * scaleMul));
+        ctx.font = `900 ${fProd}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(prodName.slice(0, 38), W / 2, y);
+        y += fProd + 3;
+
+        const fDate = Math.max(10, Math.round(H * 0.062 * scaleMul));
+        ctx.font = `800 ${fDate}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(dateNote.slice(0, 48), W / 2, y);
+        y += fDate + Math.max(5, Math.round(H * 0.03));
+
+        // 3. المربعات الثلاثة الرئيسية (الوزن الصافي | سعر الكيلو | الإجمالي المطلوب)
+        const boxesH = Math.max(44, Math.round(H * 0.30));
+        const gapX = Math.max(6, Math.round(innerWidth * 0.02));
+        const priceBoxW = Math.round(innerWidth * 0.42);
+        const weightBoxW = Math.round(innerWidth * 0.32);
+        const rateBoxW = innerWidth - priceBoxW - weightBoxW - (gapX * 2);
+
+        // أ) مربع الوزن الصافي (يمين)
+        const wBoxX = innerRight - weightBoxW;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#000000';
+        ctx.strokeRect(wBoxX, y, weightBoxW, boxesH);
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.font = `800 ${Math.max(10, Math.round(boxesH * 0.23 * scaleMul))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText('الوزن الصافي', wBoxX + weightBoxW / 2, y + 5);
+        ctx.textBaseline = 'middle';
+        ctx.font = `900 ${Math.max(14, Math.round(boxesH * 0.40 * scaleMul))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`${itemObj.netGrams} جم`, wBoxX + weightBoxW / 2, y + Math.round(boxesH * 0.67));
+
+        // ب) مربع سعر الكيلو (منتصف)
+        const rBoxX = wBoxX - gapX - rateBoxW;
+        ctx.strokeRect(rBoxX, y, rateBoxW, boxesH);
+        ctx.textBaseline = 'top';
+        ctx.font = `800 ${Math.max(9, Math.round(boxesH * 0.22 * scaleMul))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText('سعر الكيلو', rBoxX + rateBoxW / 2, y + 5);
+        ctx.textBaseline = 'middle';
+        ctx.font = `900 ${Math.max(13, Math.round(boxesH * 0.36 * scaleMul))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`${itemObj.kiloPrice} ج`, rBoxX + rateBoxW / 2, y + Math.round(boxesH * 0.67));
+
+        // ج) مربع السعر المطلوب (يسار - خلفية سوداء بارزة جداً)
+        const pBoxX = innerLeft;
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(pBoxX, y, priceBoxW, boxesH);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textBaseline = 'top';
+        ctx.font = `900 ${Math.max(10, Math.round(boxesH * 0.23 * scaleMul))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText('السعر المطلوب', pBoxX + priceBoxW / 2, y + 5);
+        ctx.textBaseline = 'middle';
+        ctx.font = `900 ${Math.max(16, Math.round(boxesH * 0.46 * scaleMul))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`${itemObj.price} ج.م`, pBoxX + priceBoxW / 2, y + Math.round(boxesH * 0.68));
+
+        y += boxesH + Math.max(5, Math.round(H * 0.03));
+
+        // 4. الباركود السفلي المدمج فيه رقم التكت والوزن والسعر
+        ctx.fillStyle = '#000000';
+        const remainingH = H - pad - innerMargin - y;
+        if (cfg.showBarcode !== false && remainingH >= 24) {
+            const bcText = `P${itemObj.index}-${itemObj.netGrams}-${Math.round(itemObj.price)}`;
+            const bcH = Math.min(Math.round(H * 0.14), remainingH - 14);
+            if (bcH >= 16) {
+                drawBarcodeOnCanvas(ctx, bcText, W / 2, y, Math.round(innerWidth * 0.82), bcH);
+                y += bcH + 2;
+            }
+        }
+
+        if (cfg.footerText && remainingH >= 12) {
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.font = `900 ${Math.max(9, Math.round(H * 0.052 * scaleMul))}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(cfg.footerText.trim().slice(0, 52), W / 2, H - pad - Math.max(3, Math.floor(innerMargin * 0.3)));
+        }
+
+        ctx.restore();
+        return canvas;
+    };
+
+    // رسم تكت ملخص الدفعة والبرنيكة (تكت رقم 31)
+    function renderPoultryBatchMasterSummaryCanvas(itemsList, cfg) {
+        const dims = resolveDimensionsMm(cfg);
+        const W = Math.floor(dims.w * DOTS_PER_MM);
+        const H = Math.floor(dims.h * DOTS_PER_MM);
+        const canvas = document.createElement('canvas');
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, W, H);
+        const pad = Math.max(8, Math.round(Math.min(W, H) * 0.03));
+        drawCustomFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, cfg.borderStyle || 'double');
+
+        const prodName = (document.getElementById('dw-pb-name')?.value || 'دفعة فراخ طازجة').trim();
+        const totalGrams = itemsList.reduce((s, i) => s + i.netGrams, 0);
+        const totalCash = itemsList.reduce((s, i) => s + i.price, 0);
+        const avgGrams = itemsList.length > 0 ? Math.round(totalGrams / itemsList.length) : 0;
+
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        const fH = Math.max(14, Math.round(H * 0.11));
+        ctx.font = `900 ${fH}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText('📦 ملصق إجمالي الدفعة والبرنيكة', W / 2, pad + 10);
+
+        const fSub = Math.max(12, Math.round(H * 0.085));
+        ctx.font = `900 ${fSub}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`${prodName} (${new Date().toLocaleDateString('ar-EG')})`, W / 2, pad + 16 + fH);
+
+        let curY = pad + 26 + fH + fSub;
+        ctx.textAlign = 'right';
+        ctx.font = `900 ${Math.max(11, Math.round(H * 0.08))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`• إجمالي العدد بالدفعة: ${itemsList.length} فرخة / عبوة`, W - pad - 16, curY);
+        curY += Math.round(H * 0.11);
+        ctx.fillText(`• إجمالي الوزن الصافي: ${(totalGrams / 1000).toFixed(3)} كجم (${totalGrams} جم)`, W - pad - 16, curY);
+        curY += Math.round(H * 0.11);
+        ctx.fillText(`• متوسط وزن القطعة: ${avgGrams} جم | الكيلو: ${itemsList[0]?.kiloPrice || 0} ج`, W - pad - 16, curY);
+
+        const boxH = Math.max(30, Math.round(H * 0.20));
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(pad + 12, H - pad - boxH - 10, W - (pad + 12) * 2, boxH);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `900 ${Math.max(14, Math.round(boxH * 0.52))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`إجمالي قيمة الدفعة: ${totalCash.toLocaleString()} ج.م`, W / 2, H - pad - 10 - boxH / 2);
+
+        return canvas;
+    }
+
+    // حقن واجهة "تكت ميزان الفراخ" داخل استوديو waybill.js
+    function injectPoultryBatchUIInsideWaybillModal() {
+        const modeBtnFree = document.getElementById('dw-mode-btn-free_custom');
+        if (modeBtnFree && !document.getElementById('dw-mode-btn-poultry_batch')) {
+            const pbBtn = document.createElement('button');
+            pbBtn.type = 'button';
+            pbBtn.id = 'dw-mode-btn-poultry_batch';
+            pbBtn.onclick = () => window.switchDeliTemplateMode('poultry_batch');
+            pbBtn.className = 'px-3 py-1.5 rounded-xl text-xs font-black bg-amber-100 text-amber-950 border border-amber-300 hover:bg-amber-200 transition-all';
+            pbBtn.innerHTML = '🐔 تكت ميزان فراخ (دفعة أوزان)';
+            modeBtnFree.after(pbBtn);
+        }
+
+        const subtabOrderBags = document.getElementById('dw-subtab-order_bags');
+        if (subtabOrderBags && !document.getElementById('dw-poultry-batch-editor')) {
+            const editorDiv = document.createElement('div');
+            editorDiv.id = 'dw-poultry-batch-editor';
+            editorDiv.className = 'hidden bg-white p-4 rounded-2xl border-2 border-amber-300 shadow-sm space-y-3';
+            editorDiv.innerHTML = `
+                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-amber-100 pb-2">
+                    <div>
+                        <h4 class="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                            <i class="fa-solid fa-scale-balanced text-amber-600"></i> منظومة تكت أوزان وتسعير الفراخ والطيور بالدفعة
+                        </h4>
+                        <p class="text-[10px] font-bold text-slate-500">ارص أوزان الدفعة كلها (30 فرخة أو أكثر) وسيحسب السيستم سعر كل فرخة ويطبعها وراء بعضها بدون تهنيج</p>
+                    </div>
+                    <div class="flex flex-wrap gap-1">
+                        <button type="button" onclick="pullWeightsFromLiveSystemOrClipboard()" class="bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all">📥 سحب الأوزان / لصق ذكي</button>
+                        <button type="button" onclick="copyPoultryBatchToWhatsApp()" class="bg-emerald-50 hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-200 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all">📲 نسخ كشف واتساب</button>
+                    </div>
+                </div>
+
+                <!-- إعدادات الصنف وسعر الكيلو والتقريب -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div class="col-span-2">
+                        <label class="text-[10px] font-black text-slate-600 block mb-1">اسم الصنف على التكت</label>
+                        <input type="text" id="dw-pb-name" value="فراخ تسمين طازجة - ذبح اليوم" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-emerald-700 block mb-1">💰 سعر الكيلو (ج.م)</label>
+                        <input type="number" id="dw-pb-kilo-price" value="110" min="1" step="0.5" oninput="parsePoultryWeightsList(); onDeliStudioInputChange()" class="w-full border-2 border-emerald-400 rounded-xl p-2 text-center text-xs font-black bg-emerald-50 text-emerald-950">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-600 block mb-1">تقريب السعر التجاري</label>
+                        <select id="dw-pb-rounding" onchange="parsePoultryWeightsList(); onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
+                            <option value="nearest_1" selected>أقرب جنيه صحيح</option>
+                            <option value="floor_1">جبر الكسر لصالح العميل</option>
+                            <option value="nearest_5">أقرب 5 جنيه</option>
+                            <option value="exact">بالقروش (بدون تقريب)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div class="sm:col-span-2">
+                        <label class="text-[10px] font-black text-slate-600 block mb-1">بيان التاريخ والصلاحية أعلى التكت</label>
+                        <input type="text" id="dw-pb-date-note" value="ذبح اليوم - طازج ونظيف 100%" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-slate-50">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-600 block mb-1">خصم وزن الطبق/الكيس (جم)</label>
+                        <input type="number" id="dw-pb-tare" value="0" min="0" max="200" oninput="parsePoultryWeightsList(); onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-center text-xs font-black bg-slate-50">
+                    </div>
+                </div>
+
+                <!-- إدخال الأوزان (إدخال سريع بالواحدة + مصفوفة الدفعة الكاملة) -->
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
+                    <div class="sm:col-span-5 space-y-2">
+                        <label class="text-[10px] font-black text-slate-700 block">1. رص أوزان الدفعة هنا (كل وزن في سطر أو بمسافة):</label>
+                        <div class="flex gap-1">
+                            <input type="number" id="dw-pb-quick-weight" placeholder="اكتب الوزن بالجرام ثم Enter" onkeydown="if(event.key==='Enter'){event.preventDefault(); quickAddSingleScaleWeight();}" class="flex-1 border border-amber-300 rounded-xl px-2.5 py-1.5 text-xs font-black bg-amber-50/40 outline-none">
+                            <button type="button" onclick="quickAddSingleScaleWeight()" class="bg-slate-900 text-amber-300 px-3 py-1.5 rounded-xl text-xs font-black">+ أضف</button>
+                        </div>
+                        <textarea id="dw-pb-weights-raw" rows="5" oninput="parsePoultryWeightsList(); onDeliStudioInputChange()" placeholder="1389&#10;1389&#10;1700&#10;638" class="w-full border border-slate-300 rounded-xl p-2.5 text-xs font-black bg-slate-50 font-mono leading-relaxed outline-none focus:border-brand-primary">1389
+1389
+170
+638</textarea>
+                    </div>
+
+                    <div class="sm:col-span-7 flex flex-col justify-between space-y-2">
+                        <div class="flex items-center justify-between">
+                            <label class="text-[10px] font-black text-slate-700">2. مراجعة التكتات المحسوبة (اضغط على أي فرخة لمعاينتها):</label>
+                            <button type="button" onclick="document.getElementById('dw-pb-weights-raw').value=''; parsePoultryWeightsList(); onDeliStudioInputChange();" class="text-[10px] font-black text-rose-600 hover:underline">🗑️ مسح الكل</button>
+                        </div>
+                        <div id="dw-pb-chips-list" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto custom-scroll p-1 bg-slate-100 rounded-xl border border-slate-200"></div>
+                        <div id="dw-pb-summary-bar"></div>
+                    </div>
+                </div>
+
+                <label class="flex items-center gap-2 text-xs font-black text-amber-950 bg-amber-50 px-3 py-2 rounded-xl border border-amber-200 cursor-pointer">
+                    <input type="checkbox" id="dw-pb-master-summary" checked onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-amber-600 rounded">
+                    📦 طباعة «تكت ملخص الدفعة والبرنيكة» تلقائياً بعد انتهاء تكتات الفراخ
+                </label>
+            `;
+            subtabOrderBags.appendChild(editorDiv);
+        }
+
+        const previewStage = document.getElementById('dw-live-preview-stage');
+        if (previewStage && !document.getElementById('dw-pb-preview-switcher')) {
+            const sw = document.createElement('div');
+            sw.id = 'dw-pb-preview-switcher';
+            sw.className = 'hidden mb-2 flex items-center justify-between bg-slate-900 text-white px-2.5 py-1.5 rounded-xl text-[10px] font-black';
+            previewStage.before(sw);
+        }
+    }
+
+    // ترقية دالة تبديل القوالب لدعم وضع poultry_batch دون المساس بالأوضاع الثلاثة القديمة
+    const _origSwitchDeliTemplateMode = window.switchDeliTemplateMode;
+    window.switchDeliTemplateMode = function (mode, skipRender = false) {
+        injectPoultryBatchUIInsideWaybillModal();
+        _origSwitchDeliTemplateMode(mode, true);
+
+        const pbBtn = document.getElementById('dw-mode-btn-poultry_batch');
+        if (pbBtn) {
+            pbBtn.className = (mode === 'poultry_batch')
+                ? 'px-3 py-1.5 rounded-xl text-xs font-black bg-amber-500 text-slate-950 shadow-sm transition-all'
+                : 'px-3 py-1.5 rounded-xl text-xs font-black bg-amber-100 text-amber-950 border border-amber-300 hover:bg-amber-200 transition-all';
+        }
+
+        const pbEditor = document.getElementById('dw-poultry-batch-editor');
+        const bagsCard = document.getElementById('dw-bags-control-card');
+        const pbSwitcher = document.getElementById('dw-pb-preview-switcher');
+
+        if (pbEditor) pbEditor.classList.toggle('hidden', mode !== 'poultry_batch');
+        if (mode === 'poultry_batch') {
+            if (bagsCard) bagsCard.classList.add('hidden');
+            window.parsePoultryWeightsList();
+        } else if (pbSwitcher) {
+            pbSwitcher.classList.add('hidden');
+        }
+
+        if (!skipRender) {
+            window.switchDeliStudioSubTab('order_bags');
+            window.onDeliStudioInputChange();
+        }
+    };
+
+    // ترقية محرك الرسم الحراري ليرسم تكت الميزان عند اختيار poultry_batch
+    const _origRenderWaybillToCanvas = window.renderWaybillToCanvas203DPI;
+    window.renderWaybillToCanvas203DPI = function (order, cfg, indexNum = 1, totalCount = 1, bagIndex = 1, bagsTotal = 1) {
+        if (cfg && cfg.templateMode === 'poultry_batch') {
+            const items = window.poultryBatchState.parsedItems.length > 0
+                ? window.poultryBatchState.parsedItems
+                : window.parsePoultryWeightsList();
+            const safeList = items.length > 0 ? items : [{ index: 1, netGrams: 1389, kiloPrice: 110, price: 153 }];
+            const targetItem = order && order._poultryItem
+                ? order._poultryItem
+                : (safeList[window.poultryBatchState.previewIdx] || safeList[0]);
+
+            const cnv = window.renderSinglePoultryScaleTag203DPI(targetItem, safeList.length, cfg);
+            const qBadge = document.getElementById('dw-queue-count-badge');
+            if (qBadge) {
+                const includeMaster = document.getElementById('dw-pb-master-summary')?.checked;
+                qBadge.innerText = safeList.length + (includeMaster && safeList.length > 1 ? 1 : 0);
+            }
+            return cnv;
+        }
+        return _origRenderWaybillToCanvas(order, cfg, indexNum, totalCount, bagIndex, bagsTotal);
+    };
+
+    // مضخة الطباعة المتتابعة بالبلوتوث للـ 30 تكت لمنع امتلاء ذاكرة الطابعة (Anti-Overflow)
+    window.printPoultryBatchSequentiallyBluetooth = async function (cfg) {
+        if (window.deliPrinterConnection.isPrinting) return;
+        const items = window.parsePoultryWeightsList();
+        if (items.length === 0) return alert('يرجى كتابة وزن واحد على الأقل في قائمة الأوزان!');
+
+        const copies = Math.max(1, parseInt(cfg.copies) || 1);
+        const includeMaster = document.getElementById('dw-pb-master-summary')?.checked;
+        const allCanvases = [];
+
+        items.forEach(it => {
+            for (let c = 0; c < copies; c++) {
+                allCanvases.push(window.renderSinglePoultryScaleTag203DPI(it, items.length, cfg));
+            }
+        });
+        if (includeMaster && items.length > 1) {
+            allCanvases.push(renderPoultryBatchMasterSummaryCanvas(items, cfg));
+        }
+
+        // إذا كان فاتح من الكمبيوتر بدون APK يطبع عبر السبولر
+        if (!isNativeApkBridgeAvailable()) {
+            const fakeOrders = items.map(it => ({ _poultryItem: it, _bagsCount: 1 }));
+            return window.printViaInPageThermalFrame(fakeOrders, cfg);
+        }
+
+        const btn = document.getElementById('dw-btn-direct-ble');
+        const origHtml = btn ? btn.innerHTML : '';
+        window.deliPrinterConnection.isPrinting = true;
+        const targetMac = document.getElementById('dw-native-printer-select')?.value || cfg.selectedMac || 'AUTO';
+
+        try {
+            // إرسال كل تكتين في نبضة بلوتوث مستقلة مع راحة 220 ملي ثانية لضمان طباعة 30+ تكت بدون تقطيع
+            const BATCH_STEP = 2;
+            for (let i = 0; i < allCanvases.length; i += BATCH_STEP) {
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> جاري طباعة تكت (${Math.min(allCanvases.length, i + BATCH_STEP)} من ${allCanvases.length})...`;
+                }
+                await new Promise(r => setTimeout(r, 90));
+
+                const slice = allCanvases.slice(i, i + BATCH_STEP);
+                let sliceLen = 0;
+                const pkts = slice.map(cnv => {
+                    const p = convertCanvasToTSPLPacket(cnv, cfg);
+                    sliceLen += p.length;
+                    return p;
+                });
+                const combined = new Uint8Array(sliceLen);
+                let off = 0;
+                pkts.forEach(p => { combined.set(p, off); off += p.length; });
+
+                const b64 = uint8ArrayToBase64(combined);
+                const res = window.SmanNativePrinter.printRawBase64Bluetooth(targetMac, b64);
+                if (!String(res).startsWith('OK:')) {
+                    alert(`⚠️ توقفت الطباعة عند التكت رقم ${i + 1}: (${res})`);
+                    break;
+                }
+                if (i + BATCH_STEP < allCanvases.length) {
+                    await new Promise(r => setTimeout(r, 220));
+                }
+            }
+            notifyPrinterToast(`✅ تمت طباعة دفعة الفراخ بالكامل (${allCanvases.length} تكت) بنجاح!`);
+        } catch (err) {
+            alert('حدث خطأ أثناء طباعة الدفعة: ' + err.message);
+        } finally {
+            window.deliPrinterConnection.isPrinting = false;
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+            }
+        }
+    };
+
+    // ربط زر الطباعة الرئيسي في الاستوديو بمضخة الدفعات عند تفعيل وضع الفراخ
+    const _origTriggerDirectHardwarePrintBtn = window.triggerDirectHardwarePrintBtn;
+    window.triggerDirectHardwarePrintBtn = function () {
+        const cfg = readStudioInputsToConfig();
+        if (cfg.templateMode === 'poultry_batch') {
+            persistWaybillConfig(cfg);
+            return window.printPoultryBatchSequentiallyBluetooth(cfg);
+        }
+        return _origTriggerDirectHardwarePrintBtn();
+    };
+
+    const _origOpenWaybillSettingsModal = window.openWaybillSettingsModal;
+    window.openWaybillSettingsModal = function (ordersQueue = null) {
+        _origOpenWaybillSettingsModal(ordersQueue);
+        injectPoultryBatchUIInsideWaybillModal();
+    };
+
 })();
