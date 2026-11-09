@@ -2292,6 +2292,272 @@
             await waitForPrintAssets();
             window.print();
         };
+        // ================================================================
+        // 🎛️ MOBILE TOUCH BOX BUILDER & ANTI-STREAK 203-DPI THERMAL ENGINE
+        // دمج التحكم الحر في المربعات باللمس + علاج الخطوط المقطعة لطابعة Deli 750W-S
+        // ================================================================
+        let activeTouchBoxEl = null;
+
+        function injectMobileTouchBoxBuilderUI() {
+            const previewPanel = document.querySelector('#preview-panel > .no-print');
+            if (!previewPanel || document.getElementById('mobile-box-builder-bar')) return;
+
+            // 1. حقن ستايل تقوية الخطوط والمربعات الحرارية لمنع التقطيع نهائياً
+            const crispStyle = document.createElement('style');
+            crispStyle.innerHTML = `
+                .thermal-sticker, .thermal-sticker * {
+                    -webkit-font-smoothing: none !important;
+                    font-smooth: never !important;
+                    text-rendering: geometricPrecision !important;
+                    color: #000000 !important;
+                }
+                .thermal-sticker {
+                    border-width: 3px !important;
+                    border-color: #000000 !important;
+                }
+                .thermal-sticker table, .thermal-sticker th, .thermal-sticker td {
+                    border: 2.2px solid #000000 !important;
+                }
+                .thermal-sticker .touch-box-active {
+                    outline: 3px solid #10b981 !important;
+                    background-color: #ecfdf5 !important;
+                    position: relative;
+                }
+            `;
+            document.head.appendChild(crispStyle);
+
+            // 2. إنشاء شريط التحكم اللمسي السريع للموبايل فوق المعاينة
+            const builderBar = document.createElement('div');
+            builderBar.id = 'mobile-box-builder-bar';
+            builderBar.className = 'bg-slate-800/95 p-2.5 rounded-xl border border-emerald-500/40 space-y-2 text-[11px] font-black';
+            builderBar.innerHTML = `
+                <div class="flex items-center justify-between text-emerald-300 border-b border-slate-700 pb-1.5">
+                    <span><i class="fa-solid fa-cubes-stacked ml-1"></i> المس أي مربع في الاستيكر للتحكم فيه:</span>
+                    <span id="touch-box-status" class="bg-slate-900 text-amber-300 px-2 py-0.5 rounded text-[10px]">لم يتم تحديد مربع</span>
+                </div>
+                <div class="grid grid-cols-4 sm:grid-cols-8 gap-1 text-center">
+                    <button type="button" onclick="touchBoxAction('add_full')" class="bg-emerald-600 hover:bg-emerald-500 text-white py-1.5 px-1 rounded-lg" title="إضافة مربع جديد بعرض الاستيكر">➕ مربع</button>
+                    <button type="button" onclick="touchBoxAction('add_split')" class="bg-teal-600 hover:bg-teal-500 text-white py-1.5 px-1 rounded-lg" title="إضافة مربعين متجاورين يمين ويسار">📐 مقسوم</button>
+                    <button type="button" onclick="touchBoxAction('up')" class="bg-slate-700 hover:bg-slate-600 text-white py-1.5 px-1 rounded-lg" title="تحريك المربع لأعلى">⬆️ فوق</button>
+                    <button type="button" onclick="touchBoxAction('down')" class="bg-slate-700 hover:bg-slate-600 text-white py-1.5 px-1 rounded-lg" title="تحريك المربع لأسفل">⬇️ تحت</button>
+                    <button type="button" onclick="touchBoxAction('font_plus')" class="bg-slate-700 hover:bg-slate-600 text-amber-300 py-1.5 px-1 rounded-lg" title="تكبير خط المربع">A+</button>
+                    <button type="button" onclick="touchBoxAction('font_minus')" class="bg-slate-700 hover:bg-slate-600 text-amber-300 py-1.5 px-1 rounded-lg" title="تصغير خط المربع">A-</button>
+                    <button type="button" onclick="touchBoxAction('border')" class="bg-indigo-600 hover:bg-indigo-500 text-white py-1.5 px-1 rounded-lg" title="تغيير شكل برواز المربع">▣ برواز</button>
+                    <button type="button" onclick="touchBoxAction('delete')" class="bg-rose-600 hover:bg-rose-500 text-white py-1.5 px-1 rounded-lg" title="حذف أو إخفاء المربع">🗑️ حذف</button>
+                </div>
+                <div class="flex items-center gap-1 pt-1 overflow-x-auto custom-scroll">
+                    <span class="text-[10px] text-slate-400 shrink-0">إدراج ختم ذكي:</span>
+                    <button type="button" onclick="insertSmartTagInBox('👤 العميل: ')" class="bg-slate-900 hover:bg-slate-700 text-slate-200 px-2 py-1 rounded text-[10px] shrink-0">+ اسم العميل</button>
+                    <button type="button" onclick="insertSmartTagInBox('📞 موبايل: ')" class="bg-slate-900 hover:bg-slate-700 text-slate-200 px-2 py-1 rounded text-[10px] shrink-0">+ الموبايل</button>
+                    <button type="button" onclick="insertSmartTagInBox('📍 المنطقة: ')" class="bg-slate-900 hover:bg-slate-700 text-slate-200 px-2 py-1 rounded text-[10px] shrink-0">+ المنطقة</button>
+                    <button type="button" onclick="insertSmartTagInBox('💰 المطلوب: 000 ج.م')" class="bg-slate-900 hover:bg-slate-700 text-amber-300 px-2 py-1 rounded text-[10px] shrink-0">+ صندوق التحصيل</button>
+                    <button type="button" onclick="touchBoxAction('pad_plus')" class="bg-slate-900 hover:bg-slate-700 text-cyan-300 px-2 py-1 rounded text-[10px] shrink-0">↕️ توسيع المربع</button>
+                </div>
+            `;
+            previewPanel.appendChild(builderBar);
+
+            // 3. التقاط لمسة المستخدم لأي مربع داخل الاستيكر لتحديده فوراً
+            const stage = document.getElementById('thermal-print-stage');
+            stage.addEventListener('click', e => {
+                const sticker = e.target.closest('.thermal-sticker');
+                if (!sticker) return;
+                let box = e.target;
+                while (box && box.parentElement !== sticker && box !== sticker) {
+                    box = box.parentElement;
+                }
+                if (box && box !== sticker) {
+                    selectTouchBox(box);
+                }
+            });
+        }
+
+        function selectTouchBox(boxEl) {
+            document.querySelectorAll('.thermal-sticker .touch-box-active').forEach(el => el.classList.remove('touch-box-active'));
+            activeTouchBoxEl = boxEl;
+            activeTouchBoxEl.classList.add('touch-box-active');
+            const st = document.getElementById('touch-box-status');
+            if (st) st.textContent = '✅ المربع محدد وجاهز للتعديل';
+        }
+
+        window.touchBoxAction = function (action) {
+            const firstSticker = document.querySelector('#thermal-print-stage .thermal-sticker');
+            if (!firstSticker) return showToast('اختر طلباً أو ملصقاً أولاً', 'warn');
+
+            if (action === 'add_full') {
+                const newBox = document.createElement('div');
+                newBox.setAttribute('contenteditable', 'true');
+                newBox.style.cssText = 'border:2.5px solid #000;border-radius:4px;padding:1.8mm;margin-bottom:1.5mm;font-size:11pt;font-weight:900;text-align:center;';
+                newBox.innerHTML = 'اكتب هنا داخل المربع الجديد...';
+                if (activeTouchBoxEl && activeTouchBoxEl.parentElement === firstSticker) {
+                    activeTouchBoxEl.after(newBox);
+                } else {
+                    firstSticker.appendChild(newBox);
+                }
+                selectTouchBox(newBox);
+                hasManualInlineEdits = true;
+                document.getElementById('manual-edit-lock-bar')?.classList.remove('hidden');
+                return;
+            }
+
+            if (action === 'add_split') {
+                const splitRow = document.createElement('div');
+                splitRow.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:1.5mm;margin-bottom:1.5mm;';
+                splitRow.innerHTML = `
+                    <div contenteditable="true" style="border:2.5px solid #000;border-radius:4px;padding:1.5mm;font-size:10pt;font-weight:900;text-align:center;">المربع الأيمن</div>
+                    <div contenteditable="true" style="border:2.5px solid #000;border-radius:4px;padding:1.5mm;font-size:10pt;font-weight:900;text-align:center;">المربع الأيسر</div>
+                `;
+                if (activeTouchBoxEl && activeTouchBoxEl.parentElement === firstSticker) {
+                    activeTouchBoxEl.after(splitRow);
+                } else {
+                    firstSticker.appendChild(splitRow);
+                }
+                selectTouchBox(splitRow);
+                hasManualInlineEdits = true;
+                document.getElementById('manual-edit-lock-bar')?.classList.remove('hidden');
+                return;
+            }
+
+            if (!activeTouchBoxEl) return showToast('المس أي مربع داخل الاستيكر أولاً لتحديده!', 'warn');
+            hasManualInlineEdits = true;
+            document.getElementById('manual-edit-lock-bar')?.classList.remove('hidden');
+
+            if (action === 'up' && activeTouchBoxEl.previousElementSibling) {
+                activeTouchBoxEl.parentElement.insertBefore(activeTouchBoxEl, activeTouchBoxEl.previousElementSibling);
+            } else if (action === 'down' && activeTouchBoxEl.nextElementSibling) {
+                activeTouchBoxEl.parentElement.insertBefore(activeTouchBoxEl.nextElementSibling, activeTouchBoxEl);
+            } else if (action === 'font_plus' || action === 'font_minus') {
+                const cur = parseFloat(window.getComputedStyle(activeTouchBoxEl).fontSize) || 14;
+                const nextPx = Math.max(9, Math.min(38, cur + (action === 'font_plus' ? 2 : -2)));
+                activeTouchBoxEl.style.fontSize = nextPx + 'px';
+                activeTouchBoxEl.querySelectorAll('*').forEach(ch => { ch.style.fontSize = nextPx + 'px'; });
+            } else if (action === 'pad_plus') {
+                const curPad = parseFloat(window.getComputedStyle(activeTouchBoxEl).paddingTop) || 4;
+                const nextPad = (curPad > 18) ? 4 : curPad + 4;
+                activeTouchBoxEl.style.paddingTop = nextPad + 'px';
+                activeTouchBoxEl.style.paddingBottom = nextPad + 'px';
+            } else if (action === 'border') {
+                const modes = [
+                    { b: '2.5px solid #000', bg: '#fff', c: '#000' },
+                    { b: '4px double #000', bg: '#fff', c: '#000' },
+                    { b: '2.5px solid #000', bg: '#000', c: '#fff' },
+                    { b: '2.5px dashed #000', bg: '#fff', c: '#000' },
+                    { b: 'none', bg: 'transparent', c: '#000' }
+                ];
+                const nextIdx = ((Number(activeTouchBoxEl.dataset.bmode) || 0) + 1) % modes.length;
+                activeTouchBoxEl.dataset.bmode = nextIdx;
+                activeTouchBoxEl.style.border = modes[nextIdx].b;
+                activeTouchBoxEl.style.background = modes[nextIdx].bg;
+                activeTouchBoxEl.style.setProperty('color', modes[nextIdx].c, 'important');
+            } else if (action === 'delete') {
+                const toRemove = activeTouchBoxEl;
+                activeTouchBoxEl = null;
+                toRemove.remove();
+                const st = document.getElementById('touch-box-status');
+                if (st) st.textContent = 'تم حذف المربع';
+            }
+        };
+
+        window.insertSmartTagInBox = function (tagText) {
+            if (!activeTouchBoxEl) {
+                window.touchBoxAction('add_full');
+                if (activeTouchBoxEl) activeTouchBoxEl.innerHTML = tagText;
+                return;
+            }
+            activeTouchBoxEl.innerHTML += ` <span>${tagText}</span>`;
+            hasManualInlineEdits = true;
+            document.getElementById('manual-edit-lock-bar')?.classList.remove('hidden');
+        };
+
+        // 4. ترقية محول TSPL 203-DPI لمنع تقطيع الخطوط الأفقية والمربعات نهائياً
+        convertDomStickerToTSPLBytes = async function (stickerEl, dim) {
+            // إزالة إطار التحديد الأخضر مؤقتاً أثناء التصوير الحراري
+            const prevActive = stickerEl.querySelector('.touch-box-active');
+            if (prevActive) prevActive.classList.remove('touch-box-active');
+
+            stickerEl.querySelectorAll('svg').forEach(svg => {
+                const r = svg.getBoundingClientRect();
+                if (r.width > 0 && r.height > 0) {
+                    svg.setAttribute('width', Math.round(r.width));
+                    svg.setAttribute('height', Math.round(r.height));
+                }
+            });
+
+            const DOTS_PER_MM = 8; // 203 DPI
+            const widthDots = Math.floor(dim.widthMm * DOTS_PER_MM);
+            const heightDots = Math.floor(dim.heightMm * DOTS_PER_MM);
+            const widthBytes = Math.ceil(widthDots / 8);
+
+            const renderedCanvas = await html2canvas(stickerEl, {
+                scale: 3,
+                backgroundColor: '#ffffff',
+                useCORS: true,
+                logging: false
+            });
+
+            if (prevActive) prevActive.classList.add('touch-box-active');
+
+            const targetCanvas = document.createElement('canvas');
+            targetCanvas.width = widthDots;
+            targetCanvas.height = heightDots;
+            const ctx = targetCanvas.getContext('2d');
+            ctx.imageSmoothingEnabled = false;
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, widthDots, heightDots);
+            ctx.drawImage(renderedCanvas, 0, 0, widthDots, heightDots);
+
+            const imgData = ctx.getImageData(0, 0, widthDots, heightDots).data;
+            const bitmapBytes = new Uint8Array(widthBytes * heightDots);
+            bitmapBytes.fill(0xFF);
+
+            // رفع حساسية الالتقاط إلى 205 مع تكثيف النقاط الرأسية لمنع اختفاء أي خط أفقي
+            const isBlack = new Uint8Array(widthDots * heightDots);
+            for (let y = 0; y < heightDots; y++) {
+                for (let x = 0; x < widthDots; x++) {
+                    const idx = (y * widthDots + x) * 4;
+                    const lum = 0.299 * imgData[idx] + 0.587 * imgData[idx + 1] + 0.114 * imgData[idx + 2];
+                    if (lum < 205) {
+                        isBlack[y * widthDots + x] = 1;
+                    }
+                }
+            }
+
+            for (let y = 0; y < heightDots; y++) {
+                for (let x = 0; x < widthDots; x++) {
+                    const pos = y * widthDots + x;
+                    // إذا كانت النقطة سوداء أو فوقها مباشرة نقطة سوداء، نطبعها لتسميك الخطوط الأفقية
+                    if (isBlack[pos] || (y > 0 && isBlack[pos - widthDots])) {
+                        const byteIdx = y * widthBytes + Math.floor(x / 8);
+                        const bitPos = 7 - (x % 8);
+                        bitmapBytes[byteIdx] &= ~(1 << bitPos);
+                    }
+                }
+            }
+
+            const headerStr = [
+                `SIZE ${dim.widthMm} mm,${dim.heightMm} mm`,
+                `GAP 2 mm,0 mm`,
+                `SPEED 3`,
+                `DENSITY 14`,
+                `DIRECTION 0,0`,
+                `REFERENCE 0,0`,
+                `SET TEAR ON`,
+                `CLS`,
+                `BITMAP 0,0,${widthBytes},${heightDots},0,`
+            ].join('\r\n');
+
+            const encoder = new TextEncoder();
+            const headerBytes = encoder.encode(headerStr);
+            const footerBytes = encoder.encode('\r\nPRINT 1,1\r\n');
+
+            const packet = new Uint8Array(headerBytes.length + bitmapBytes.length + footerBytes.length);
+            packet.set(headerBytes, 0);
+            packet.set(bitmapBytes, headerBytes.length);
+            packet.set(footerBytes, headerBytes.length + bitmapBytes.length);
+            return packet;
+        };
+
+        setTimeout(injectMobileTouchBoxBuilderUI, 400);
+
     </script>
 </body>
 </html>
