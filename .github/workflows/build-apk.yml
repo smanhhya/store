@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout Repository
@@ -35,16 +35,14 @@ jobs:
           ANDROID_SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           echo "ANDROID_HOME=$ANDROID_SDK" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK" >> $GITHUB_ENV
-          if [ ! -d "$ANDROID_SDK/platforms/android-34" ]; then
-            SDKMANAGER="$ANDROID_SDK/cmdline-tools/latest/bin/sdkmanager"
-            if [ ! -f "$SDKMANAGER" ]; then
-              SDKMANAGER=$(find "$ANDROID_SDK" -name sdkmanager -type f | head -n 1)
-            fi
-            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-            "$SDKMANAGER" --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          SDKMANAGER="$ANDROID_SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -f "$SDKMANAGER" ]; then
+            SDKMANAGER=$(find "$ANDROID_SDK" -name sdkmanager -type f | head -n 1)
           fi
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
-      - name: Prepare Unified Signing Keystore (For Seamless App Updates)
+      - name: Prepare Unified Signing Keystore
         run: |
           mkdir -p ~/.android
           if [ ! -f "sman-debug.keystore" ]; then
@@ -57,21 +55,133 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add sman-debug.keystore
-            git commit -m "chore: add persistent signing keystore for seamless APK updates [skip ci]" || true
+            git commit -m "chore: add persistent signing keystore [skip ci]" || true
             git push || true
           fi
           cp -f sman-debug.keystore ~/.android/debug.keystore
 
-      - name: Prepare Web Files and Capacitor Config
+      - name: Prepare Web Files and Auto-Patch printer.html with Native Bluetooth TSPL
         run: |
           mkdir -p www
           mkdir -p www/www
           find . -maxdepth 1 -type f \( -name "*.html" -o -name "*.js" -o -name "*.css" -o -name "*.json" -o -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.webp" -o -name "*.svg" -o -name "*.ico" \) ! -name "package.json" ! -name "package-lock.json" ! -name "capacitor.config.json" -exec cp -u {} www/ \; || true
           cp -f www/*.js www/www/ 2>/dev/null || true
-          if [ ! -f "www/index.html" ]; then
-            echo "ERROR: index.html not found in root or www/ folder!"
-            exit 1
-          fi
+
+          # حقن محرك البلوتوث المباشر لطابعة Deli 750W-S (MAC: A5:A4:00:0A:22:90) داخل printer.html تلقائياً
+          node -e '
+            const fs = require("fs");
+            ["www/printer.html", "printer.html"].forEach(p => {
+              if (!fs.existsSync(p)) return;
+              let html = fs.readFileSync(p, "utf8");
+              if (html.includes("DELI_750WS_DIRECT_INJECTED")) return;
+              const patchScript = `
+              <script>
+              // DELI_750WS_DIRECT_INJECTED (MAC: A5:A4:00:0A:22:90 | Name: 750W-S2290)
+              (function() {
+                  const DELI_DEFAULT_MAC = "A5:A4:00:0A:22:90";
+                  function uint8ToB64(bytes) {
+                      let bin = "";
+                      for (let i = 0; i < bytes.length; i += 0x8000) {
+                          bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+                      }
+                      return btoa(bin);
+                  }
+                  async function domStickerToTSPL(stickerEl, dim) {
+                      stickerEl.querySelectorAll("svg").forEach(svg => {
+                          const r = svg.getBoundingClientRect();
+                          if (r.width > 0 && r.height > 0) {
+                              svg.setAttribute("width", Math.round(r.width));
+                              svg.setAttribute("height", Math.round(r.height));
+                          }
+                      });
+                      const wDots = Math.floor((dim.widthMm || 100) * 8);
+                      const hDots = Math.floor((dim.heightMm || 100) * 8);
+                      const wBytes = Math.ceil(wDots / 8);
+                      const srcCanvas = await html2canvas(stickerEl, { scale: 2.5, backgroundColor: "#ffffff", useCORS: true, logging: false });
+                      const cnv = document.createElement("canvas");
+                      cnv.width = wDots; cnv.height = hDots;
+                      const ctx = cnv.getContext("2d");
+                      ctx.fillStyle = "#FFFFFF";
+                      ctx.fillRect(0, 0, wDots, hDots);
+                      ctx.drawImage(srcCanvas, 0, 0, wDots, hDots);
+                      const imgData = ctx.getImageData(0, 0, wDots, hDots).data;
+                      const bitmap = new Uint8Array(wBytes * hDots);
+                      bitmap.fill(0xFF);
+                      for (let y = 0; y < hDots; y++) {
+                          for (let x = 0; x < wDots; x++) {
+                              const idx = (y * wDots + x) * 4;
+                              const lum = 0.299 * imgData[idx] + 0.587 * imgData[idx + 1] + 0.114 * imgData[idx + 2];
+                              if (lum < 185) bitmap[y * wBytes + Math.floor(x / 8)] &= ~(1 << (7 - (x % 8)));
+                          }
+                      }
+                      const hdr = new TextEncoder().encode([
+                          "SIZE " + (dim.widthMm || 100) + " mm," + (dim.heightMm || 100) + " mm",
+                          "GAP 2 mm,0 mm",
+                          "SPEED 4",
+                          "DENSITY 14",
+                          "DIRECTION 0,0",
+                          "REFERENCE 0,0",
+                          "SET TEAR ON",
+                          "CLS",
+                          "BITMAP 0,0," + wBytes + "," + hDots + ",0,"
+                      ].join("\\r\\n"));
+                      const ftr = new TextEncoder().encode("\\r\\nPRINT 1,1\\r\\n");
+                      const pkt = new Uint8Array(hdr.length + bitmap.length + ftr.length);
+                      pkt.set(hdr, 0); pkt.set(bitmap, hdr.length); pkt.set(ftr, hdr.length + bitmap.length);
+                      return pkt;
+                  }
+                  window.addEventListener("load", function() {
+                      window.executeDirectPrint = async function() {
+                          const stickers = [...document.querySelectorAll("#thermal-print-stage .thermal-sticker")];
+                          if (!stickers.length) {
+                              if (typeof showToast === "function") showToast("اختر طلباً أو ملصقاً أولاً", "warn");
+                              return;
+                          }
+                          if (!window.SmanNativePrinter) {
+                              alert("⚠️ للطباعة المباشرة بدون نوافذ، افتح تطبيق (مطبعة سمان ههيا APK) المثبت على هاتفك.");
+                              return;
+                          }
+                          if (typeof showToast === "function") showToast("⚡ جاري الطباعة المباشرة على Deli 750W-S...");
+                          try {
+                              if (typeof waitForPrintAssets === "function") await waitForPrintAssets();
+                              const dim = typeof getPaperDimensions === "function" ? getPaperDimensions() : { widthMm: 100, heightMm: 100 };
+                              let totalLen = 0;
+                              const pkts = [];
+                              for (let i = 0; i < stickers.length; i++) {
+                                  const p = await domStickerToTSPL(stickers[i], dim);
+                                  pkts.push(p);
+                                  totalLen += p.length;
+                              }
+                              const combined = new Uint8Array(totalLen);
+                              let off = 0;
+                              pkts.forEach(p => { combined.set(p, off); off += p.length; });
+                              const b64 = uint8ToB64(combined);
+                              let res = window.SmanNativePrinter.printRawBase64Bluetooth(DELI_DEFAULT_MAC, b64);
+                              if (!String(res).startsWith("OK:")) {
+                                  res = window.SmanNativePrinter.printRawBase64Bluetooth("AUTO", b64);
+                              }
+                              if (String(res).startsWith("OK:")) {
+                                  if (typeof showToast === "function") showToast("✅ تمت الطباعة المباشرة على " + String(res).slice(3));
+                                  if (typeof openPostPrintModal === "function" && typeof getPrintableSelectedOrders === "function") {
+                                      const ords = getPrintableSelectedOrders();
+                                      if (ords.length) openPostPrintModal(ords.length);
+                                  }
+                              } else {
+                                  alert("تنبيه الطابعة: " + res + "\\nتأكد أن طابعة 750W-S2290 مفتوحة ومقترنة بالبلوتوث (الرقم السري 0000).");
+                              }
+                          } catch (err) {
+                              alert("خطأ أثناء الطباعة: " + err.message);
+                          }
+                      };
+                  });
+              })();
+              </script>
+              `;
+              html = html.replace("</body>", patchScript + "\n</body>");
+              fs.writeFileSync(p, html, "utf8");
+            });
+          '
+
           node -e '
             const fs = require("fs");
             fs.writeFileSync("package.json", JSON.stringify({
@@ -99,7 +209,7 @@ jobs:
             }, null, 2));
           '
 
-      - name: Install Dependencies & Add Android (Anti-Timeout & Auto-Version)
+      - name: Install Dependencies & Add Android
         run: |
           rm -rf node_modules package-lock.json android
           npm config set fetch-retries 5
@@ -110,23 +220,9 @@ jobs:
           npx cap add android
           npx cap sync android
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-
+          sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/g" android/app/build.gradle || true
+          sed -i "s/versionName \"1.0\"/versionName \"1.${{ github.run_number }}\"/g" android/app/build.gradle || true
           cp -f sman-debug.keystore android/app/debug.keystore || true
-          cp -f sman-debug.keystore ~/.android/debug.keystore || true
-
-          RUN_NUM="${{ github.run_number }}"
-          VER_CODE=$((1000 + RUN_NUM))
-          node -e "
-            const fs = require('fs');
-            const gradlePath = 'android/app/build.gradle';
-            if (fs.existsSync(gradlePath)) {
-              let g = fs.readFileSync(gradlePath, 'utf8');
-              g = g.replace(/versionCode\s+\d+/, 'versionCode ' + $VER_CODE);
-              g = g.replace(/versionName\s+\"[^\"]+\"/, 'versionName \"1.0.' + $RUN_NUM + '\"');
-              fs.writeFileSync(gradlePath, g, 'utf8');
-            }
-          "
-
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
             sed -i 's/networkTimeout=10000/networkTimeout=120000/g' android/gradle/wrapper/gradle-wrapper.properties || true
           fi
@@ -135,7 +231,7 @@ jobs:
           org.gradle.internal.http.socketTimeout=120000
           EOG
 
-      - name: Inject Native Deli E750W Bridge + Smart Back Navigation + Keep-Alive State
+      - name: Inject Native Deli 750W-S (A5:A4:00:0A:22:90) Bluetooth & USB Bridge
         run: |
           node -e '
             const fs = require("fs");
@@ -151,14 +247,8 @@ jobs:
             `;
             if (!xml.includes("BLUETOOTH_CONNECT")) {
               xml = xml.replace("<application", perms + "\n    <application");
+              fs.writeFileSync(manifestPath, xml, "utf8");
             }
-            if (!xml.includes("enableOnBackInvokedCallback")) {
-              xml = xml.replace("<application", "<application android:enableOnBackInvokedCallback=\"false\"");
-            }
-            if (!xml.includes("alwaysRetainTaskState")) {
-              xml = xml.replace("<activity", "<activity android:alwaysRetainTaskState=\"true\"");
-            }
-            fs.writeFileSync(manifestPath, xml, "utf8");
           '
 
           cat << 'EOF' > android/app/src/main/java/com/smanhehya/crm/MainActivity.java
@@ -171,7 +261,6 @@ jobs:
           import android.bluetooth.BluetoothSocket;
           import android.content.Context;
           import android.content.Intent;
-          import android.content.SharedPreferences;
           import android.content.pm.PackageManager;
           import android.hardware.usb.UsbConstants;
           import android.hardware.usb.UsbDevice;
@@ -185,13 +274,8 @@ jobs:
           import android.print.PrintDocumentAdapter;
           import android.print.PrintManager;
           import android.util.Base64;
-          import android.view.KeyEvent;
           import android.webkit.JavascriptInterface;
-          import android.webkit.ValueCallback;
-          import android.webkit.WebSettings;
           import android.webkit.WebView;
-          import android.widget.Toast;
-          import androidx.activity.OnBackPressedCallback;
           import androidx.core.app.ActivityCompat;
           import androidx.core.content.ContextCompat;
           import com.getcapacitor.BridgeActivity;
@@ -206,172 +290,19 @@ jobs:
           import java.util.UUID;
 
           public class MainActivity extends BridgeActivity {
-              private long lastBackPressTime = 0;
 
               @Override
               public void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
                   try {
                       if (this.bridge != null && this.bridge.getWebView() != null) {
-                          final WebView webView = this.bridge.getWebView();
-                          WebSettings settings = webView.getSettings();
-                          settings.setJavaScriptEnabled(true);
-                          settings.setDomStorageEnabled(true);
-                          settings.setDatabaseEnabled(true);
-
+                          WebView webView = this.bridge.getWebView();
+                          webView.getSettings().setJavaScriptEnabled(true);
                           webView.addJavascriptInterface(new SmanPrinterBridge(this, webView), "SmanNativePrinter");
                           webView.reload();
-
-                          // حقن نظام تتبع الصفحات وحفظ آخر صفحة مفتوحة بعد تحميل الواجهة
-                          webView.postDelayed(new Runnable() {
-                              @Override
-                              public void run() {
-                                  injectSmartNavigationTracker(webView);
-                              }
-                          }, 1200);
                       }
-
-                      // التقاط زر الرجوع وإيماءة السحب في أندرويد لإرجاع المستخدم للصفحة السابقة
-                      getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
-                          @Override
-                          public void handleOnBackPressed() {
-                              handleSmartBackAction();
-                          }
-                      });
                   } catch (Exception e) {
                       e.printStackTrace();
-                  }
-              }
-
-              @Override
-              public void onResume() {
-                  super.onResume();
-                  try {
-                      if (this.bridge != null && this.bridge.getWebView() != null) {
-                          injectSmartNavigationTracker(this.bridge.getWebView());
-                      }
-                  } catch (Exception ignored) {}
-              }
-
-              @Override
-              public boolean dispatchKeyEvent(KeyEvent event) {
-                  if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
-                      if (event.getAction() == KeyEvent.ACTION_UP) {
-                          handleSmartBackAction();
-                      }
-                      return true;
-                  }
-                  return super.dispatchKeyEvent(event);
-              }
-
-              private void injectSmartNavigationTracker(final WebView webView) {
-                  String trackerJs = "(function(){" +
-                      "window.SMAN_OWNER_TRUSTED_APK = true;" +
-                      "if(window._smanNativeNavInstalled) return;" +
-                      "window._smanNativeNavInstalled = true;" +
-                      "window._smanTabHistory = window._smanTabHistory || [];" +
-                      "var activeEl = document.querySelector('.view-section.active');" +
-                      "window._smanCurrentTabId = activeEl && activeEl.id ? activeEl.id.replace('view-','') : 'orders';" +
-                      "if(typeof window.switchTab === 'function'){" +
-                      "  var origSwitch = window.switchTab;" +
-                      "  window.switchTab = function(tabId, btnEl, isBack){" +
-                      "    if(!isBack && window._smanCurrentTabId && window._smanCurrentTabId !== tabId){" +
-                      "      window._smanTabHistory.push(window._smanCurrentTabId);" +
-                      "      if(window._smanTabHistory.length > 30) window._smanTabHistory.shift();" +
-                      "    }" +
-                      "    window._smanCurrentTabId = tabId;" +
-                      "    try{ localStorage.setItem('sman_last_open_tab', tabId); }catch(e){}" +
-                      "    return origSwitch.apply(this, arguments);" +
-                      "  };" +
-                      "}" +
-                      "try{" +
-                      "  var savedTab = localStorage.getItem('sman_last_open_tab');" +
-                      "  if(savedTab && savedTab !== 'orders' && !window._smanRestoredInitialTab){" +
-                      "    window._smanRestoredInitialTab = true;" +
-                      "    var btn = document.querySelector('#sidebar button[onclick*=\"switchTab(\\'' + savedTab + '\\'\"]');" +
-                      "    if(btn && typeof window.switchTab === 'function') window.switchTab(savedTab, btn, true);" +
-                      "  }" +
-                      "}catch(e){}" +
-                      "})();";
-                  webView.evaluateJavascript(trackerJs, null);
-              }
-
-              private void handleSmartBackAction() {
-                  try {
-                      if (this.bridge == null || this.bridge.getWebView() == null) {
-                          moveTaskToBack(true);
-                          return;
-                      }
-                      final WebView webView = this.bridge.getWebView();
-                      String backScript = "(function(){" +
-                          "if(typeof window.handleAndroidBackButton === 'function'){" +
-                          "  var r = window.handleAndroidBackButton();" +
-                          "  if(r === 'HANDLED') return 'HANDLED';" +
-                          "}" +
-                          "var pop = document.getElementById('lc-floating-popover');" +
-                          "if(pop && !pop.classList.contains('hidden')){ pop.classList.add('hidden'); return 'HANDLED'; }" +
-                          "var alerts = document.getElementById('lc-alerts-dropdown');" +
-                          "if(alerts && !alerts.classList.contains('hidden')){ alerts.classList.add('hidden'); return 'HANDLED'; }" +
-                          "var prnModal = document.getElementById('deli-waybill-studio-modal');" +
-                          "if(prnModal && !prnModal.classList.contains('hidden')){ prnModal.classList.add('hidden'); return 'HANDLED'; }" +
-                          "var modals = Array.from(document.querySelectorAll('[id$=\"-modal\"]:not(.hidden), .modal-backdrop:not(.hidden)'));" +
-                          "if(modals.length > 0){" +
-                          "  var topM = modals[modals.length - 1];" +
-                          "  if(typeof window.closeModal === 'function' && topM.id) window.closeModal(topM.id);" +
-                          "  else topM.classList.add('hidden');" +
-                          "  return 'HANDLED';" +
-                          "}" +
-                          "var sbOverlay = document.getElementById('sidebar-overlay');" +
-                          "if(sbOverlay && !sbOverlay.classList.contains('hidden')){" +
-                          "  if(typeof window.toggleSidebar === 'function') window.toggleSidebar();" +
-                          "  else sbOverlay.classList.add('hidden');" +
-                          "  return 'HANDLED';" +
-                          "}" +
-                          "if(window._smanTabHistory && window._smanTabHistory.length > 0){" +
-                          "  var prevTab = window._smanTabHistory.pop();" +
-                          "  if(prevTab && typeof window.switchTab === 'function'){" +
-                          "    var b = document.querySelector('#sidebar button[onclick*=\"switchTab(\\'' + prevTab + '\\'\"]');" +
-                          "    window.switchTab(prevTab, b, true);" +
-                          "    return 'HANDLED';" +
-                          "  }" +
-                          "}" +
-                          "var curView = document.querySelector('.view-section.active');" +
-                          "var curId = curView && curView.id ? curView.id.replace('view-','') : 'orders';" +
-                          "if(curId !== 'orders' && typeof window.switchTab === 'function'){" +
-                          "  var ordBtn = document.querySelector('#sidebar button[onclick*=\"switchTab(\\'orders\\'\"]');" +
-                          "  window.switchTab('orders', ordBtn, true);" +
-                          "  return 'HANDLED';" +
-                          "}" +
-                          "if(curId === 'orders' && typeof currentOrderTab !== 'undefined' && currentOrderTab !== 'all' && typeof window.setOrderTab === 'function'){" +
-                          "  window.setOrderTab('all');" +
-                          "  return 'HANDLED';" +
-                          "}" +
-                          "return 'AT_ROOT';" +
-                          "})()";
-
-                      webView.evaluateJavascript(backScript, new ValueCallback<String>() {
-                          @Override
-                          public void onReceiveValue(String value) {
-                              String clean = value != null ? value.replace("\"", "").trim() : "";
-                              if ("HANDLED".equals(clean)) {
-                                  return;
-                              }
-                              if (webView.canGoBack()) {
-                                  webView.goBack();
-                                  return;
-                              }
-                              long now = System.currentTimeMillis();
-                              if (now - lastBackPressTime < 2200) {
-                                  // إبقاء التطبيق حياً في الخلفية بدلاً من قتله حتى يفتح فوراً دون بدء من الصفر
-                                  moveTaskToBack(true);
-                              } else {
-                                  lastBackPressTime = now;
-                                  Toast.makeText(MainActivity.this, "اضغط رجوع مرة أخرى لتصغير التطبيق", Toast.LENGTH_SHORT).show();
-                              }
-                          }
-                      });
-                  } catch (Exception e) {
-                      moveTaskToBack(true);
                   }
               }
 
@@ -379,8 +310,8 @@ jobs:
                   private final MainActivity activity;
                   private final WebView webView;
                   private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+                  private static final String DEFAULT_DELI_MAC = "A5:A4:00:0A:22:90";
                   private static final String ACTION_USB_PERMISSION = "com.smanhehya.crm.USB_PERMISSION";
-                  private static final String PREFS_NAME = "SmanOwnerPermanentPrefs";
 
                   public SmanPrinterBridge(MainActivity activity, WebView webView) {
                       this.activity = activity;
@@ -390,24 +321,6 @@ jobs:
                   @JavascriptInterface
                   public boolean isNativeBridgeReady() {
                       return true;
-                  }
-
-                  @JavascriptInterface
-                  public void savePermanentPref(String key, String value) {
-                      try {
-                          SharedPreferences prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-                          prefs.edit().putString(key, value != null ? value : "").apply();
-                      } catch (Exception ignored) {}
-                  }
-
-                  @JavascriptInterface
-                  public String getPermanentPref(String key) {
-                      try {
-                          SharedPreferences prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-                          return prefs.getString(key, "");
-                      } catch (Exception e) {
-                          return "";
-                      }
                   }
 
                   @JavascriptInterface
@@ -435,17 +348,12 @@ jobs:
                   @JavascriptInterface
                   public String getPairedDevicesJson() {
                       try {
-                          if (!checkAndRequestPermissions()) {
-                              return "PERMISSION_REQUIRED";
-                          }
+                          if (!checkAndRequestPermissions()) return "PERMISSION_REQUIRED";
                           BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-                          if (adapter == null) {
-                              return "NO_BLUETOOTH";
-                          }
+                          if (adapter == null) return "NO_BLUETOOTH";
                           if (!adapter.isEnabled()) {
                               try {
-                                  Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-                                  activity.startActivityForResult(enableBtIntent, 7502);
+                                  activity.startActivityForResult(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE), 7502);
                               } catch (Exception ignored) {}
                               return "BLUETOOTH_OFF";
                           }
@@ -454,7 +362,7 @@ jobs:
                           if (paired != null) {
                               for (BluetoothDevice dev : paired) {
                                   JSONObject obj = new JSONObject();
-                                  obj.put("name", dev.getName() != null ? dev.getName() : "طابعة بلوتوث");
+                                  obj.put("name", dev.getName() != null ? dev.getName() : "750W-S2290");
                                   obj.put("address", dev.getAddress());
                                   arr.put(obj);
                               }
@@ -491,13 +399,9 @@ jobs:
                   public String printRawBase64Bluetooth(String macAddress, String base64Data) {
                       BluetoothSocket socket = null;
                       try {
-                          if (!checkAndRequestPermissions()) {
-                              return "PERMISSION_REQUIRED";
-                          }
+                          if (!checkAndRequestPermissions()) return "PERMISSION_REQUIRED";
                           BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-                          if (adapter == null || !adapter.isEnabled()) {
-                              return "BLUETOOTH_OFF";
-                          }
+                          if (adapter == null || !adapter.isEnabled()) return "BLUETOOTH_OFF";
                           try { adapter.cancelDiscovery(); } catch (Exception ignored) {}
 
                           BluetoothDevice targetDevice = null;
@@ -507,21 +411,20 @@ jobs:
                               Set<BluetoothDevice> paired = adapter.getBondedDevices();
                               if (paired != null) {
                                   for (BluetoothDevice dev : paired) {
+                                      String addr = (dev.getAddress() != null ? dev.getAddress() : "").toUpperCase();
                                       String nm = (dev.getName() != null ? dev.getName() : "").toLowerCase();
-                                      if (nm.contains("deli") || nm.contains("750") || nm.contains("printer") || nm.contains("label") || nm.contains("pos")) {
+                                      if (addr.equals(DEFAULT_DELI_MAC) || nm.contains("750w") || nm.contains("2290") || nm.contains("deli")) {
                                           targetDevice = dev;
                                           break;
                                       }
                                   }
-                                  if (targetDevice == null && !paired.isEmpty()) {
-                                      targetDevice = paired.iterator().next();
-                                  }
+                              }
+                              if (targetDevice == null) {
+                                  targetDevice = adapter.getRemoteDevice(DEFAULT_DELI_MAC);
                               }
                           }
 
-                          if (targetDevice == null) {
-                              return "NO_PAIRED_PRINTER";
-                          }
+                          if (targetDevice == null) return "NO_PAIRED_PRINTER";
 
                           byte[] rawBytes = Base64.decode(base64Data, Base64.DEFAULT);
                           socket = connectBluetoothSocketWithFallback(targetDevice);
@@ -537,7 +440,7 @@ jobs:
                           os.flush();
                           Thread.sleep(350);
                           socket.close();
-                          return "OK:" + (targetDevice.getName() != null ? targetDevice.getName() : targetDevice.getAddress());
+                          return "OK:" + (targetDevice.getName() != null ? targetDevice.getName() : DEFAULT_DELI_MAC);
                       } catch (Exception e) {
                           try { if (socket != null) socket.close(); } catch (Exception ignored) {}
                           return "ERROR:" + e.getMessage();
@@ -549,11 +452,8 @@ jobs:
                       try {
                           UsbManager usbManager = (UsbManager) activity.getSystemService(Context.USB_SERVICE);
                           if (usbManager == null) return "NO_USB_SERVICE";
-
                           HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
-                          if (deviceList == null || deviceList.isEmpty()) {
-                              return "NO_USB_DEVICE";
-                          }
+                          if (deviceList == null || deviceList.isEmpty()) return "NO_USB_DEVICE";
 
                           UsbDevice printerDevice = deviceList.values().iterator().next();
                           if (!usbManager.hasPermission(printerDevice)) {
@@ -565,7 +465,6 @@ jobs:
 
                           UsbInterface targetInterface = null;
                           UsbEndpoint targetEndpoint = null;
-
                           for (int i = 0; i < printerDevice.getInterfaceCount(); i++) {
                               UsbInterface usbIf = printerDevice.getInterface(i);
                               for (int j = 0; j < usbIf.getEndpointCount(); j++) {
@@ -578,10 +477,7 @@ jobs:
                               }
                               if (targetEndpoint != null) break;
                           }
-
-                          if (targetInterface == null || targetEndpoint == null) {
-                              return "NO_USB_PRINTER_ENDPOINT";
-                          }
+                          if (targetInterface == null || targetEndpoint == null) return "NO_USB_PRINTER_ENDPOINT";
 
                           byte[] rawBytes = Base64.decode(base64Data, Base64.DEFAULT);
                           UsbDeviceConnection connection = usbManager.openDevice(printerDevice);
@@ -593,14 +489,12 @@ jobs:
                               int len = Math.min(chunkSize, rawBytes.length - i);
                               byte[] chunk = new byte[len];
                               System.arraycopy(rawBytes, i, chunk, 0, len);
-                              int transferred = connection.bulkTransfer(targetEndpoint, chunk, len, 4000);
-                              if (transferred < 0) {
+                              if (connection.bulkTransfer(targetEndpoint, chunk, len, 4000) < 0) {
                                   connection.releaseInterface(targetInterface);
                                   connection.close();
                                   return "USB_TRANSFER_ERROR";
-                                }
+                              }
                           }
-
                           connection.releaseInterface(targetInterface);
                           connection.close();
                           return "OK:USB";
@@ -615,11 +509,11 @@ jobs:
                           @Override
                           public void run() {
                               try {
-                                  PrintManager printManager = (PrintManager) activity.getSystemService(Context.PRINT_SERVICE);
-                                  if (printManager != null && webView != null) {
+                                  PrintManager pm = (PrintManager) activity.getSystemService(Context.PRINT_SERVICE);
+                                  if (pm != null && webView != null) {
                                       String name = (jobName != null && !jobName.isEmpty()) ? jobName : "Sman_Hehya_Waybill";
                                       PrintDocumentAdapter adapter = webView.createPrintDocumentAdapter(name);
-                                      printManager.print(name, adapter, new PrintAttributes.Builder().build());
+                                      pm.print(name, adapter, new PrintAttributes.Builder().build());
                                   }
                               } catch (Exception e) {
                                   e.printStackTrace();
@@ -631,14 +525,33 @@ jobs:
           }
           EOF
 
-      - name: Build Debug APK
+      - name: Build 1 - Main Sman CRM APK
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../Sman-CRM-APK.apk
 
-      - name: Upload APK Artifact
+      - name: Build 2 - Standalone Sman Printer Studio APK (printer.html)
+        run: |
+          if [ -f "www/printer.html" ]; then
+            cp -f www/printer.html android/app/src/main/assets/public/index.html
+            sed -i 's/applicationId "com.smanhehya.crm"/applicationId "com.smanhehya.printer"/g' android/app/build.gradle
+            sed -i 's/سمان ههيا CRM/مطبعة سمان ههيا/g' android/app/src/main/res/values/strings.xml || true
+            cd android
+            ./gradlew assembleDebug --no-daemon
+            cp app/build/outputs/apk/debug/app-debug.apk ../Sman-Printer-750W-APK.apk
+          fi
+
+      - name: Upload Main CRM APK
         uses: actions/upload-artifact@v4
         with:
           name: Sman-CRM-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: Sman-CRM-APK.apk
+
+      - name: Upload Standalone Printer Studio APK
+        if: hashFiles('Sman-Printer-750W-APK.apk') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sman-Printer-750W-APK
+          path: Sman-Printer-750W-APK.apk
