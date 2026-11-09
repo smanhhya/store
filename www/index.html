@@ -3139,110 +3139,265 @@
             }
         };
 
-        window.generateDynamicOrderInputs = () => {
-            const container = document.getElementById('dynamic-order-items'); if(!container) return; 
-            container.innerHTML = '';
-            Object.keys(storeProducts).forEach(id => {
-                let p = storeProducts[id];
+                // =========================================================================
+        // ⚖️ محرك المصفوفة الذكي للأصناف المباعة بالوزن (فراخ / طيور بالكيلو) ⚖️
+        // =========================================================================
 
+        // دالة تحويل أي نص أوزان (أرقام عربي أو إنجليزي مفصولة بمسافات أو فواصل أو سطور) إلى مصفوفة أوزان بالجرام
+        window.parseWeightsArray = (rawText) => {
+            if (!rawText) return [];
+            let normalized = rawText.toString()
+                .replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660)
+                .replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0);
 
+            return normalized
+                .split(/[\s,،;\n\r\-]+/)
+                .map(w => parseFloat(w.trim()))
+                .filter(n => !isNaN(n) && n > 0);
+        };
 
-                let icon = p.isWeightBased ? "⚖️" : "";
-                let inputHtml = "";
-
-                if (p.isWeightBased) {
-                    let weightsArr = (p.weightsList || '').split('\
-').map(w => w.trim()).filter(w => w !== '');
-                    if (weightsArr.length > 0) {
-                        let checkboxes = weightsArr.map(w => `
-                            <label class="flex items-center gap-1 bg-white border border-slate-200 px-1.5 py-1 rounded shadow-sm cursor-pointer hover:border-indigo-400 transition-colors">
-                                <input type="checkbox" class="weight-cb-${id} w-3 h-3 accent-indigo-600" value="${w}" onchange="calcTotal('no')">
-                                <span class="text-[11px] font-black text-slate-700">${w}</span>
-                            </label>
-                        `).join('');
-                        inputHtml = `<div class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto custom-scroll p-1 justify-center">${checkboxes}</div><input type="hidden" id="no-q-${id}" value="0">`;
-                    } else {
-                        inputHtml = `<div class="text-[10px] text-red-500 font-bold p-2 bg-red-50 rounded border border-red-100">رصيد الأوزان فارغ</div><input type="hidden" id="no-q-${id}" value="0">`;
-                    }
-                } else {
-                    inputHtml = `<input type="number" id="no-q-${id}" min="0" step="1" class="w-full border-none bg-white rounded-lg p-2 text-center font-black text-brand-primary outline-none focus:ring-2 focus:ring-brand-primary/20 shadow-sm transition-all" placeholder="0" oninput="calcTotal('no')">`;
-                }
-
-                container.innerHTML += `
-                <div class="bg-slate-50 border border-slate-100 p-2 rounded-xl text-center flex flex-col justify-between">
-                    <span class="text-[10px] font-bold text-slate-600 block truncate mb-2" title="${p.name}">${p.name} ${icon}</span>
-                    ${inputHtml}
-                </div>`;
-            });
-            const zSel = document.getElementById('no-zone');
-            if(zSel) { 
-                let zVal = zSel.value; 
-                zSel.innerHTML = '<option value="">-- اختر المنطقة --</option>'; 
-                (storeSettings.deliveryZones || []).forEach(z => { zSel.innerHTML += `<option value="${z.name}" data-price="${z.price}">${z.name}</option>`; }); 
-                if(zVal) zSel.value = zVal; 
-            }
-            const bSel = document.getElementById('no-batch');
-            if(bSel) { 
-                let bVal = bSel.value; 
-                bSel.innerHTML = '<option value="">-- أوردر عادي (بدون دورة) --</option>'; 
-                Object.keys(storeBatches).forEach(bId => { if(storeBatches[bId].isOpen) bSel.innerHTML += `<option value="${bId}">${storeBatches[bId].name}</option>`; }); 
-                if(bVal) bSel.value = bVal; 
+        // فتح أو غلق القائمة المنسدلة لأوزان الصنف داخل نافذة الطلب
+        window.toggleWeightDropdownMenu = (id) => {
+            const menu = document.getElementById(`weight-dropdown-menu-${id}`);
+            const arrow = document.getElementById(`weight-dropdown-arrow-${id}`);
+            if (!menu) return;
+            menu.classList.toggle('hidden');
+            if (arrow) {
+                arrow.style.transform = menu.classList.contains('hidden') ? 'rotate(0deg)' : 'rotate(180deg)';
             }
         };
 
-        window.calcTotal = (prefix) => { 
+        // تحديد تلقائي لعدد معين من الفرخات (مثلاً الزبون طلب 10 فرخات)
+        window.autoPickCountOfWeights = (id, requestedCount, mode = 'first') => {
+            const cbs = Array.from(document.querySelectorAll(`.weight-cb-${id}`));
+            const count = Math.max(0, Math.min(cbs.length, parseInt(requestedCount) || 0));
+
+            // إلغاء التحديد أولاً
+            cbs.forEach(cb => cb.checked = false);
+
+            if (count > 0) {
+                let sortedCbs = [...cbs];
+                if (mode === 'light') {
+                    sortedCbs.sort((a, b) => (parseFloat(a.value) || 0) - (parseFloat(b.value) || 0));
+                } else if (mode === 'heavy') {
+                    sortedCbs.sort((a, b) => (parseFloat(b.value) || 0) - (parseFloat(a.value) || 0));
+                }
+                for (let i = 0; i < count; i++) {
+                    sortedCbs[i].checked = true;
+                }
+            }
+
+            const countInput = document.getElementById(`weight-quick-count-${id}`);
+            if (countInput && document.activeElement !== countInput) {
+                countInput.value = count > 0 ? count : '';
+            }
+            calcTotal('no');
+        };
+
+        // زيادة أو إنقاص عدد الفرخات المختارة بضغطة زر (+ / -)
+        window.stepWeightQuickCount = (id, delta) => {
+            const cbs = Array.from(document.querySelectorAll(`.weight-cb-${id}`));
+            const currentlyChecked = cbs.filter(cb => cb.checked).length;
+            const nextCount = Math.max(0, Math.min(cbs.length, currentlyChecked + delta));
+            window.autoPickCountOfWeights(id, nextCount, 'first');
+        };
+
+        window.generateDynamicOrderInputs = () => {
+            const container = document.getElementById('dynamic-order-items');
+            if (!container) return;
+            container.innerHTML = '';
+
+            Object.keys(storeProducts).forEach(id => {
+                let p = storeProducts[id];
+                let kiloPrice = storePrices[id] || p.basePrice || 0;
+
+                if (p.isWeightBased) {
+                    let weightsArr = window.parseWeightsArray(p.weightsList);
+                    let totalStockCount = weightsArr.length;
+                    let totalStockKg = (weightsArr.reduce((s, v) => s + v, 0) / 1000).toFixed(2);
+
+                    let dropdownContentHtml = '';
+                    if (weightsArr.length > 0) {
+                        let checkboxesHtml = weightsArr.map((w, idx) => {
+                            let itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
+                            let itemPriceEGP = Math.round((w / 1000) * kiloPrice);
+                            return `
+                            <label class="flex items-center justify-between gap-2 bg-slate-50 hover:bg-indigo-50/80 border border-slate-200 px-3 py-2 rounded-xl cursor-pointer transition-all select-none">
+                                <div class="flex items-center gap-2">
+                                    <input type="checkbox" data-idx="${idx}" class="weight-cb-${id} w-4 h-4 accent-indigo-600 rounded" value="${w}" onchange="calcTotal('no')">
+                                    <span class="text-xs font-black text-slate-700">#${idx + 1}: <span class="text-indigo-700">${w} جم</span> <span class="text-[10px] text-slate-400">(${itemKg} كجم)</span></span>
+                                </div>
+                                <span class="text-[11px] font-black bg-white text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-lg shadow-sm">${itemPriceEGP} ج.م</span>
+                            </label>`;
+                        }).join('');
+
+                        dropdownContentHtml = `
+                        <!-- شريط التحديد السريع بالعدد + القائمة المنسدلة -->
+                        <div class="space-y-2.5 mt-2">
+                            <div class="flex flex-wrap items-center justify-between gap-2 bg-white p-2.5 rounded-xl border border-indigo-100 shadow-sm">
+                                <span class="text-[11px] font-black text-slate-700"><i class="fa-solid fa-wand-magic-sparkles text-indigo-500 ml-1"></i> الزبون عايز كام واحدة؟</span>
+                                <div class="flex items-center gap-1.5">
+                                    <button type="button" onclick="stepWeightQuickCount('${id}', -1)" class="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-500 text-rose-600 hover:text-white font-black text-sm transition-colors">-</button>
+                                    <input type="number" id="weight-quick-count-${id}" min="0" max="${totalStockCount}" placeholder="العدد" oninput="autoPickCountOfWeights('${id}', this.value, 'first')" class="w-16 border border-indigo-200 rounded-lg p-1 text-center font-black text-xs text-indigo-700 outline-none bg-indigo-50/30">
+                                    <button type="button" onclick="stepWeightQuickCount('${id}', 1)" class="w-7 h-7 rounded-lg bg-emerald-50 hover:bg-emerald-500 text-emerald-600 hover:text-white font-black text-sm transition-colors">+</button>
+                                </div>
+                                <div class="flex gap-1 w-full sm:w-auto justify-end pt-1 sm:pt-0">
+                                    <button type="button" onclick="autoPickCountOfWeights('${id}', document.getElementById('weight-quick-count-${id}').value || 1, 'light')" class="text-[9px] bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 font-black px-2 py-1 rounded-lg transition-colors" title="اختيار الأوزان الأخف أولاً">الأخف</button>
+                                    <button type="button" onclick="autoPickCountOfWeights('${id}', document.getElementById('weight-quick-count-${id}').value || 1, 'heavy')" class="text-[9px] bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 font-black px-2 py-1 rounded-lg transition-colors" title="اختيار الأوزان الأثقل أولاً">الأثقل</button>
+                                    <button type="button" onclick="autoPickCountOfWeights('${id}', 0)" class="text-[9px] bg-red-50 hover:bg-red-500 hover:text-white text-red-500 font-black px-2 py-1 rounded-lg transition-colors">مسح</button>
+                                </div>
+                            </div>
+
+                            <!-- زر فتح القائمة المنسدلة للأوزان -->
+                            <div class="relative">
+                                <button type="button" onclick="toggleWeightDropdownMenu('${id}')" class="w-full bg-white hover:bg-indigo-50/50 border-2 border-indigo-200 rounded-xl p-2.5 flex items-center justify-between text-right transition-all shadow-sm">
+                                    <div class="flex items-center gap-2">
+                                        <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
+                                        <span id="weight-summary-label-${id}" class="text-xs font-black text-slate-700">اضغط لفتح قائمة الأوزان المنسدلة (${totalStockCount} متاح)</span>
+                                    </div>
+                                    <i id="weight-dropdown-arrow-${id}" class="fa-solid fa-chevron-down text-indigo-500 text-xs transition-transform duration-200"></i>
+                                </button>
+
+                                <!-- القائمة المنسدلة للأوزان -->
+                                <div id="weight-dropdown-menu-${id}" class="hidden mt-1.5 bg-white border-2 border-indigo-200 rounded-2xl p-2.5 shadow-xl max-h-56 overflow-y-auto custom-scroll grid grid-cols-1 sm:grid-cols-2 gap-1.5 z-30">
+                                    ${checkboxesHtml}
+                                </div>
+                            </div>
+
+                            <!-- شريط ملخص الوزن والسعر المحسوب لحظياً -->
+                            <div id="weight-live-bar-${id}" class="hidden bg-indigo-900 text-white px-3 py-2 rounded-xl text-[11px] font-black flex flex-wrap items-center justify-between gap-2 shadow-sm"></div>
+                            <input type="hidden" id="no-q-${id}" value="0">
+                        </div>`;
+                    } else {
+                        dropdownContentHtml = `<div class="text-xs text-red-600 font-black p-3 bg-red-50 rounded-xl border border-red-200 mt-2">⚠️ رصيد مصفوفة الأوزان فارغ! ادخل لقسم (الأصناف والأسعار) وأضف الأوزان المتاحة.</div><input type="hidden" id="no-q-${id}" value="0">`;
+                    }
+
+                    container.innerHTML += `
+                    <div class="col-span-2 sm:col-span-3 bg-indigo-50/60 border-2 border-indigo-200/80 p-3.5 rounded-2xl text-right flex flex-col justify-between shadow-sm">
+                        <div class="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-indigo-100">
+                            <span class="text-xs font-black text-indigo-950 flex items-center gap-1.5"><i class="fa-solid fa-weight-scale text-indigo-600"></i> ${p.name} <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full">سعر الكيلو: ${kiloPrice} ج</span></span>
+                            <span class="text-[10px] font-black text-indigo-700 bg-white px-2.5 py-1 rounded-lg border border-indigo-200">المتاح بالمصفوفة: ${totalStockCount} عدد (${totalStockKg} كجم)</span>
+                        </div>
+                        ${dropdownContentHtml}
+                    </div>`;
+                } else {
+                    container.innerHTML += `
+                    <div class="bg-slate-50 border border-slate-100 p-2 rounded-xl text-center flex flex-col justify-between">
+                        <span class="text-[10px] font-bold text-slate-600 block truncate mb-2" title="${p.name}">${p.name}</span>
+                        <input type="number" id="no-q-${id}" min="0" step="1" class="w-full border-none bg-white rounded-lg p-2 text-center font-black text-brand-primary outline-none focus:ring-2 focus:ring-brand-primary/20 shadow-sm transition-all" placeholder="0" oninput="calcTotal('no')">
+                    </div>`;
+                }
+            });
+
+            const zSel = document.getElementById('no-zone');
+            if (zSel) {
+                let zVal = zSel.value;
+                zSel.innerHTML = '<option value="">-- اختر المنطقة --</option>';
+                (storeSettings.deliveryZones || []).forEach(z => { zSel.innerHTML += `<option value="${z.name}" data-price="${z.price}">${z.name}</option>`; });
+                if (zVal) zSel.value = zVal;
+            }
+            const bSel = document.getElementById('no-batch');
+            if (bSel) {
+                let bVal = bSel.value;
+                bSel.innerHTML = '<option value="">-- أوردر عادي (بدون دورة) --</option>';
+                Object.keys(storeBatches).forEach(bId => { if (storeBatches[bId].isOpen) bSel.innerHTML += `<option value="${bId}">${storeBatches[bId].name}</option>`; });
+                if (bVal) bSel.value = bVal;
+            }
+        };
+
+        window.calcTotal = (prefix) => {
             let itemsTotal = 0;
             let useOldPriceCheckbox = document.getElementById(`${prefix}-use-old-price`);
             let useOldPrice = useOldPriceCheckbox ? useOldPriceCheckbox.checked : false;
 
-            Object.keys(storeProducts).forEach(id => { 
+            Object.keys(storeProducts).forEach(id => {
                 let p = storeProducts[id];
                 let q = 0;
                 let selectedDetails = "";
+                let selectedIndices = "";
+                let selectedCount = 0;
 
-                // سحب الأوزان وجمعها أوتوماتيك لو الصنف ده ميزان
-                if (p.isWeightBased && document.querySelectorAll(`.weight-cb-${id}`).length > 0) {
-                    let checkedBoxes = Array.from(document.querySelectorAll(`.weight-cb-${id}:checked`));
-                    let totalGrams = checkedBoxes.reduce((sum, cb) => sum + (Number(cb.value) || 0), 0);
-                    q = totalGrams / 1000; // التحويل لكيلو لضربه في السعر
-                    selectedDetails = checkedBoxes.map(cb => cb.value).join(' و ');
-                    
-                    if(document.getElementById(`${prefix}-q-${id}`)) {
-                        document.getElementById(`${prefix}-q-${id}`).value = q;
-                        document.getElementById(`${prefix}-q-${id}`).setAttribute('data-details', selectedDetails);
-                    }
-                } else {
-                    q = Number(document.getElementById(`${prefix}-q-${id}`)?.value) || 0; 
-                    if(document.getElementById(`${prefix}-q-${id}`)) {
-                        document.getElementById(`${prefix}-q-${id}`).removeAttribute('data-details');
-                    }
-                }
-
-                let price = storePrices[id] || storeProducts[id].basePrice || 0; 
-                
-                if(useOldPrice && storeProducts[id].oldBatchPrice > 0) {
+                let price = storePrices[id] || storeProducts[id].basePrice || 0;
+                if (useOldPrice && storeProducts[id].oldBatchPrice > 0) {
                     price = storeProducts[id].oldBatchPrice;
                 }
 
-                itemsTotal += (q * price); 
+                // إذا كان الصنف يباع بالوزن (مصفوفة أوزان بالجرام)
+                if (p.isWeightBased && prefix === 'no') {
+                    let checkedBoxes = Array.from(document.querySelectorAll(`.weight-cb-${id}:checked`));
+                    selectedCount = checkedBoxes.length;
+                    let totalGrams = checkedBoxes.reduce((sum, cb) => sum + (parseFloat(cb.value) || 0), 0);
+                    q = Number((totalGrams / 1000).toFixed(3)); // الوزن بالكيلوجرام
+                    selectedDetails = checkedBoxes.map(cb => cb.value).join(' + ');
+                    selectedIndices = checkedBoxes.map(cb => cb.getAttribute('data-idx')).join(',');
+
+                    let qInput = document.getElementById(`${prefix}-q-${id}`);
+                    if (qInput) {
+                        qInput.value = q;
+                        if (selectedCount > 0) {
+                            qInput.setAttribute('data-details', selectedDetails);
+                            qInput.setAttribute('data-indices', selectedIndices);
+                            qInput.setAttribute('data-count', String(selectedCount));
+                        } else {
+                            qInput.removeAttribute('data-details');
+                            qInput.removeAttribute('data-indices');
+                            qInput.removeAttribute('data-count');
+                        }
+                    }
+
+                    // تحديث عنوان القائمة المنسدلة وشريط الملخص اللحظي
+                    const summaryLbl = document.getElementById(`weight-summary-label-${id}`);
+                    const liveBar = document.getElementById(`weight-live-bar-${id}`);
+                    const quickInput = document.getElementById(`weight-quick-count-${id}`);
+                    const lineMoney = Math.round(q * price);
+
+                    if (quickInput && document.activeElement !== quickInput) {
+                        quickInput.value = selectedCount > 0 ? selectedCount : '';
+                    }
+
+                    if (selectedCount > 0) {
+                        if (summaryLbl) {
+                            summaryLbl.innerHTML = `✅ تم اختيار <span class="text-indigo-600">(${selectedCount})</span> فرخة/وحدة — إجمالي: <span class="text-emerald-700">${q} كجم</span>`;
+                        }
+                        if (liveBar) {
+                            liveBar.classList.remove('hidden');
+                            liveBar.innerHTML = `
+                                <span>🐔 العدد: <strong class="text-amber-300">${selectedCount}</strong></span>
+                                <span>⚖️ الوزن: <strong class="text-amber-300">${totalGrams.toLocaleString()} جم (${q} كجم)</strong></span>
+                                <span>💰 الإجمالي: <strong class="text-emerald-300 text-xs">${lineMoney} ج.م</strong></span>
+                            `;
+                        }
+                    } else {
+                        let totalAvailable = window.parseWeightsArray(p.weightsList).length;
+                        if (summaryLbl) {
+                            summaryLbl.innerHTML = `اضغط لفتح قائمة الأوزان المنسدلة (${totalAvailable} متاح)`;
+                        }
+                        if (liveBar) liveBar.classList.add('hidden');
+                    }
+
+                    itemsTotal += lineMoney;
+                } else {
+                    q = Number(document.getElementById(`${prefix}-q-${id}`)?.value) || 0;
+                    if (document.getElementById(`${prefix}-q-${id}`)) {
+                        document.getElementById(`${prefix}-q-${id}`).removeAttribute('data-details');
+                    }
+                    itemsTotal += Math.round(q * price);
+                }
             });
-            document.getElementById(`${prefix}-price`).value = itemsTotal;
-            
-            let d = Number(document.getElementById(`${prefix}-delivery`).value) || 0; 
-            
-            // 🚚 سحر التوصيل المجاني: لو الإعداد متفعل والمبلغ اتكسر، صفر التوصيل!
-            if(storeSettings.freeDeliveryActive && storeSettings.freeDeliveryThreshold > 0) {
-                if(itemsTotal >= storeSettings.freeDeliveryThreshold) {
-                    d = 0; // خصم التوصيل
+
+            document.getElementById(`${prefix}-price`).value = Math.round(itemsTotal);
+
+            let d = Number(document.getElementById(`${prefix}-delivery`).value) || 0;
+            if (storeSettings.freeDeliveryActive && storeSettings.freeDeliveryThreshold > 0) {
+                if (itemsTotal >= storeSettings.freeDeliveryThreshold) {
+                    d = 0;
                     document.getElementById(`${prefix}-delivery`).value = 0;
-                    // حط رسالة سريعة تفرح اللي بيعمل الأوردر
-                    showToast("🎉 تم تطبيق التوصيل المجاني لتخطي الحد المسموح!");
+                    if (typeof showToast === 'function') showToast("🎉 تم تطبيق التوصيل المجاني لتخطي الحد المسموح!");
                 }
             }
 
             let disc = Number(document.getElementById(`${prefix}-discount`).value) || 0;
-            
-            let final = itemsTotal + d - disc;
+            let final = Math.round(itemsTotal + d - disc);
             document.getElementById(`${prefix}-total`).value = final > 0 ? final : 0;
         };
 
@@ -3336,44 +3491,57 @@
                 let qInput = document.getElementById(`no-q-${id}`);
                 let q = Number(qInput?.value) || 0;
                 
-                if(q > 0) { 
+                if (q > 0) {
                     let price = storePrices[id] || storeProducts[id].basePrice;
-                    if(useOldPrice && storeProducts[id].oldBatchPrice > 0) {
+                    if (useOldPrice && storeProducts[id].oldBatchPrice > 0) {
                         price = storeProducts[id].oldBatchPrice;
                     }
 
                     let pName = storeProducts[id].name;
                     let details = qInput?.getAttribute('data-details');
-                    
-                    // إضافة الأوزان جنب اسم الفرخة عشان تظهر في ورقة التحضير وواتساب
-                    let finalName = details ? `${pName} (${details} جم)` : pName;
+                    let indicesStr = qInput?.getAttribute('data-indices');
+                    let birdsCount = Number(qInput?.getAttribute('data-count')) || 1;
+                    let itemLineMoney = Math.round(q * price);
 
-                    items.push({ id: id, name: finalName, quantity: q, price: price }); 
-                    
-                    // خصم الأوزان المتباعة من قائمة المخزن أوتوماتيك
+                    // كتابة عدد الفرخات والأوزان بوضوح في الفاتورة وواتساب والبوليصة
+                    let finalName = details
+                        ? `${pName} [${birdsCount} فرخة = ${q} كجم] (${details} جم)`
+                        : pName;
+
+                    items.push({ id: id, name: finalName, quantity: q, price: price, birdsCount: birdsCount });
+
+                    // خصم الأوزان المباعة من مصفوفة المخزن بدقة متناهية حسب ترتيبها (Index)
                     if (storeProducts[id].isWeightBased && details) {
-                        let soldWeights = details.split(' و ');
-                        let currentWeightsList = (storeProducts[id].weightsList || '').split('\
-').map(w => w.trim()).filter(w => w !== '');
-                        
-                        soldWeights.forEach(sw => {
-                            let idx = currentWeightsList.indexOf(sw);
-                            if (idx > -1) currentWeightsList.splice(idx, 1);
-                        });
-                        
-                        storeProducts[id].weightsList = currentWeightsList.join('\
-');
+                        let currentWeightsArr = window.parseWeightsArray(storeProducts[id].weightsList);
+                        if (indicesStr) {
+                            let idxList = indicesStr.split(',').map(x => parseInt(x)).filter(x => !isNaN(x)).sort((a, b) => b - a);
+                            idxList.forEach(remIdx => {
+                                if (remIdx >= 0 && remIdx < currentWeightsArr.length) {
+                                    currentWeightsArr.splice(remIdx, 1);
+                                }
+                            });
+                        } else {
+                            let soldWeights = window.parseWeightsArray(details);
+                            soldWeights.forEach(sw => {
+                                let idx = currentWeightsArr.indexOf(sw);
+                                if (idx > -1) currentWeightsArr.splice(idx, 1);
+                            });
+                        }
+
+                        storeProducts[id].weightsList = currentWeightsArr.join(' ');
+                        storeStock[id] = currentWeightsArr.length;
                         inventoryNeedsUpdate = true;
                     }
-                    subtotal += (q * price); 
-                    if(batchId) batchUpdates[id] = q;
-                    
-                    ticktickItemsStr += `[ ${q} ] ${pName} = ${q * price} ج.م\n`; 
- 
-                    ticktickItemsTitleArr.push(`${q} ${pName}`);
+
+                    subtotal += itemLineMoney;
+                    if (batchId) batchUpdates[id] = storeProducts[id].isWeightBased ? birdsCount : q;
+
+                    ticktickItemsStr += `[ ${storeProducts[id].isWeightBased ? (birdsCount + ' فرخة / ' + q + ' كجم') : q} ] ${finalName} = ${itemLineMoney} ج.م\n`;
+                    ticktickItemsTitleArr.push(`${storeProducts[id].isWeightBased ? (birdsCount + ' ' + pName) : (q + ' ' + pName)}`);
                     autoHashtags.push('#' + pName.replace(/\s+/g, '_'));
                 }
             });
+
             if(items.length === 0) return alert('يجب إضافة صنف واحد على الأقل للسلة!');
             
             let btn = document.getElementById('btn-save-order'); 
@@ -4317,7 +4485,7 @@
                     <div class="flex flex-wrap items-center gap-5 bg-slate-50/80 p-3 rounded-xl border border-slate-100/50 mt-2">
                         <label class="flex items-center gap-2 text-[11px] font-bold cursor-pointer text-slate-600"><input type="checkbox" ${p.isExtra?'checked':''} onchange="storeProducts['${id}'].isExtra = this.checked" class="w-4 h-4 text-brand-primary rounded"> يُعرض كمنتج إضافي</label>
                         <label class="flex items-center gap-2 text-[11px] font-bold cursor-pointer text-amber-600"><input type="checkbox" ${p.isBest?'checked':''} onchange="storeProducts['${id}'].isBest = this.checked" class="w-4 h-4 text-amber-500 rounded"> الأكثر طلباً 🔥</label>
-                        <label class="flex items-center gap-2 text-[11px] font-bold cursor-pointer text-indigo-600"><input type="checkbox" ${p.isWeightBased?'checked':''} onchange="storeProducts['${id}'].isWeightBased = this.checked; generateDynamicOrderInputs();" class="w-4 h-4 text-indigo-500 rounded"> يباع بالوزن ⚖️</label>
+                        <label class="flex items-center gap-2 text-[11px] font-bold cursor-pointer text-indigo-600"><input type="checkbox" ${p.isWeightBased?'checked':''} onchange="storeProducts['${id}'].isWeightBased = this.checked; renderInventoryUI(); generateDynamicOrderInputs();" class="w-4 h-4 text-indigo-500 rounded"> يباع بالوزن ⚖️</label>
                         <label class="flex items-center gap-2 text-[11px] font-bold cursor-pointer text-slate-500"><input type="checkbox" ${p.isHidden?'checked':''} onchange="storeProducts['${id}'].isHidden = this.checked" class="w-4 h-4 text-slate-400 rounded"> إخفاء من المتجر 🚫</label>
                         <div class="flex items-center gap-3 border-r border-slate-200 pr-4">
 
@@ -4325,11 +4493,21 @@
                             ${p.isDisc ? `<input type="number" value="${oldPrice}" onchange="storeProducts['${id}'].oldPrice = parseInt(this.value) || 0" class="w-20 border-none bg-white rounded-lg p-1.5 text-[11px] font-black text-red-400 text-center line-through shadow-sm outline-none focus:ring-2 focus:ring-red-100" placeholder="السعر القديم">` : ''}
                         </div>
                     </div>
-                    ${p.isWeightBased ? `<div class="mt-2 bg-indigo-50/50 p-3 rounded-xl border border-indigo-100"><label class="text-[10px] font-black text-indigo-700 block mb-2"><i class="fa-solid fa-list-ol mr-1"></i> رصيد الأوزان المتاحة بالجرام (كل وزن في سطر منفصل):</label><textarea onchange="storeProducts['${id}'].weightsList = this.value; saveAllSettings();" class="w-full border border-indigo-200 rounded-lg p-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-300 custom-scroll" rows="3" placeholder="مثال:
-2200
-2150
-1980">${p.weightsList || ''}</textarea></div>` : ''}
-                </div>`; 
+                    ${p.isWeightBased ? (() => {
+                        let parsedArr = window.parseWeightsArray ? window.parseWeightsArray(p.weightsList) : [];
+                        let totalKg = (parsedArr.reduce((s, v) => s + v, 0) / 1000).toFixed(2);
+                        return `
+                        <div class="mt-3 bg-indigo-50/70 p-3.5 rounded-2xl border-2 border-indigo-200 space-y-2">
+                            <div class="flex flex-wrap justify-between items-center gap-2">
+                                <label class="text-xs font-black text-indigo-900"><i class="fa-solid fa-weight-scale text-indigo-600 ml-1"></i> مصفوفة أوزان الفرخات بالجرام (اكتب السعر بالأعلى للكيلو الواحد):</label>
+                                <span id="weights-badge-${id}" class="bg-indigo-600 text-white text-[10px] font-black px-2.5 py-1 rounded-lg shadow-sm">المتاح بالمصفوفة: ${parsedArr.length} فرخة (${totalKg} كجم)</span>
+                            </div>
+                            <p class="text-[10px] font-bold text-indigo-600">💡 الصق أو اكتب الأوزان بالجرام جنب بعض بمسافة أو تحت بعض (يقبل أرقام عربي وإنجليزي مثل: ١٤٠٠ ١٥٩٩ ١١٠٠ ١٠٠٠)</p>
+                            <textarea oninput="let arr = window.parseWeightsArray(this.value); storeProducts['${id}'].weightsList = arr.join(' '); storeStock['${id}'] = arr.length; let b = document.getElementById('weights-badge-${id}'); if(b) b.innerText = 'المتاح بالمصفوفة: ' + arr.length + ' فرخة (' + (arr.reduce((s,v)=>s+v,0)/1000).toFixed(2) + ' كجم)'; generateDynamicOrderInputs();" onchange="saveAllSettings();" class="w-full border border-indigo-300 bg-white rounded-xl p-2.5 text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-indigo-400 custom-scroll leading-relaxed" dir="ltr" rows="3" placeholder="1400 1599 1100 1000 1350 ...">${p.weightsList || ''}</textarea>
+                        </div>`;
+                    })() : ''}
+                </div>`;
+
             }); 
         }
 
