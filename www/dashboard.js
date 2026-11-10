@@ -784,43 +784,59 @@
                 </div>
             </div>
 
-            <!-- 💰 4. الكروت المالية الـ 6 (تظهر المباع الكلي + المحصل الفعلي بوضوح تام) -->
+            <!-- ⚖️ شريط تحديد وضع الحساب المحاسبي (منع خلط المستلم بالمحجوز) -->
+            <div class="bg-white p-3.5 rounded-2xl border-2 border-emerald-500/20 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                    <span class="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-sm shrink-0"><i class="fa-solid fa-calculator"></i></span>
+                    <div>
+                        <h4 class="text-xs font-black text-slate-800">معيار عرض الأرقام في الكروت والأصناف:</h4>
+                        <p id="sm-calc-mode-hint" class="text-[10px] font-bold text-emerald-700">الوضع الحالي: يعرض فقط الطلبات التي تم تسليمها وتحصيل فلوسها فعلياً (بدون خلط مع المحجوز)</p>
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-1.5 w-full sm:w-auto bg-slate-100 p-1 rounded-xl border border-slate-200">
+                    <button type="button" onclick="setDashAccountingMode('completed')" id="sm-cm-completed" class="sm-cm-btn flex-1 sm:flex-none bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-black shadow-sm transition-all">✅ المسلّم والمحصّل فعلياً</button>
+                    <button type="button" onclick="setDashAccountingMode('pending')" id="sm-cm-pending" class="sm-cm-btn flex-1 sm:flex-none text-slate-600 hover:bg-white px-3 py-1.5 rounded-lg text-[11px] font-black transition-all">⏳ المحجوز قيد التسليم فقط</button>
+                    <button type="button" onclick="setDashAccountingMode('all')" id="sm-cm-all" class="sm-cm-btn flex-1 sm:flex-none text-slate-600 hover:bg-white px-3 py-1.5 rounded-lg text-[11px] font-black transition-all">📊 الشامل (مسلّم + محجوز)</button>
+                </div>
+            </div>
+
+            <!-- 💰 4. الكروت المالية الـ 6 (مفصولة ومنظمة محاسبياً 100%) -->
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <!-- 1. إجمالي المبيعات الكلي والمحصل -->
-                <div class="bg-white p-5 rounded-[1.5rem] border border-amber-200/80 shadow-soft">
+                <!-- 1. الصافي المحصل الفعلي (شامل التوصيل) -->
+                <div class="bg-white p-5 rounded-[1.5rem] border-2 border-emerald-500/30 shadow-soft">
                     <div class="flex justify-between items-start mb-2">
                         <div>
-                            <p class="text-xs font-black text-slate-500">إجمالي المبيعات الكلي (المسلم + قيد التسليم)</p>
-                            <h3 id="sm-dash-total-revenue" class="text-3xl font-black text-amber-600 mt-1">0 <span class="text-sm">ج</span></h3>
+                            <p id="sm-lbl-card1-title" class="text-xs font-black text-emerald-800">✅ إجمالي التحصيل الفعلي (تم تسليمه)</p>
+                            <h3 id="sm-dash-total-revenue" class="text-3xl font-black text-emerald-600 mt-1">0 <span class="text-sm">ج</span></h3>
                         </div>
-                        <div class="w-11 h-11 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center text-lg"><i class="fa-solid fa-wallet"></i></div>
+                        <div class="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-lg"><i class="fa-solid fa-wallet"></i></div>
                     </div>
-                    <div id="sm-dash-collected-vs-pending" class="text-[11px] font-black text-slate-700 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200/70 mb-1.5 flex justify-between">
-                        <span class="text-emerald-700">✅ محصل: 0 ج</span>
-                        <span class="text-blue-600">⏳ قيد التحصيل: 0 ج</span>
-                    </div>
-                    <div id="sm-dash-payment-split" class="text-[10px] font-black text-slate-600 bg-amber-50/70 px-3 py-1 rounded-lg border border-amber-100 flex justify-between">
+                    <div id="sm-dash-payment-split" class="text-[11px] font-black text-emerald-900 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200/70 mb-1.5 flex justify-between">
                         <span>💵 كاش: 0 ج</span>
                         <span>💳 أونلاين: 0 ج</span>
                     </div>
+                    <div id="sm-dash-collected-vs-pending" class="text-[10px] font-bold text-slate-500 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200/60 flex justify-between">
+                        <span>عدد الطلبات: 0</span>
+                        <span>متوسط الفاتورة: 0 ج</span>
+                    </div>
                 </div>
 
-                <!-- 2. صافي قيمة المنتجات -->
-                <div class="bg-white p-5 rounded-[1.5rem] border border-emerald-200/80 shadow-soft">
+                <!-- 2. صافي مبيعات المنتجات (بدون توصيل) -->
+                <div class="bg-white p-5 rounded-[1.5rem] border border-slate-200 shadow-soft">
                     <div class="flex justify-between items-start mb-2">
                         <div>
-                            <p class="text-xs font-black text-slate-500">إيراد المنتجات الصافي (بدون توصيل)</p>
+                            <p id="sm-lbl-card2-title" class="text-xs font-black text-slate-600">🥩 صافي قيمة المنتجات المسلّمة (بدون توصيل)</p>
                             <h3 id="sm-dash-products-revenue" class="text-3xl font-black text-brand-primary mt-1">0 <span class="text-sm">ج</span></h3>
                         </div>
-                        <div class="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-lg"><i class="fa-solid fa-sack-dollar"></i></div>
+                        <div class="w-11 h-11 rounded-2xl bg-emerald-50 text-brand-primary flex items-center justify-center text-lg"><i class="fa-solid fa-sack-dollar"></i></div>
                     </div>
-                    <div id="sm-dash-products-sub-split" class="text-[11px] font-black text-slate-700 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200/70 mb-1.5 flex justify-between">
-                        <span class="text-emerald-700">✅ مسلم: 0 ج</span>
-                        <span class="text-blue-600">⏳ محجوز: 0 ج</span>
+                    <div id="sm-dash-avg-order" class="text-[11px] font-black text-slate-700 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200/70 mb-1.5 flex justify-between">
+                        <span>🥩 0 طبق سمان</span>
+                        <span>متوسط السعر: 0 ج</span>
                     </div>
-                    <div id="sm-dash-avg-order" class="text-[10px] font-black text-emerald-800 bg-emerald-50/70 px-3 py-1 rounded-lg border border-emerald-100 flex justify-between">
-                        <span>متوسط الطلب: 0 ج</span>
-                        <span>🥩 0 لحم</span>
+                    <div id="sm-dash-products-sub-split" class="text-[10px] font-bold text-slate-500 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200/60 flex justify-between">
+                        <span>✅ مسلّم: 0 ج</span>
+                        <span>⏳ محجوز: 0 ج</span>
                     </div>
                 </div>
 
@@ -828,7 +844,7 @@
                 <div onclick="updateDashState('activeSubTab', 'ledger_waste')" class="bg-white p-5 rounded-[1.5rem] border-2 border-teal-500/40 shadow-soft cursor-pointer hover:border-teal-600 transition-all">
                     <div class="flex justify-between items-start mb-3">
                         <div>
-                            <p class="text-xs font-black text-teal-800">💎 صافي الربح (بعد المصروف والهالك)</p>
+                            <p id="sm-lbl-card3-title" class="text-xs font-black text-teal-800">💎 صافي الربح الفعلي (بعد المصروف والهالك)</p>
                             <h3 id="sm-dash-true-net-profit" class="text-3xl font-black text-teal-700 mt-1">0 <span class="text-sm">ج</span></h3>
                         </div>
                         <div class="w-11 h-11 rounded-2xl bg-teal-100 text-teal-700 flex items-center justify-center text-lg"><i class="fa-solid fa-gem"></i></div>
@@ -839,11 +855,26 @@
                     </div>
                 </div>
 
-                <!-- 4. إجمالي الخصومات والواجب -->
+                <!-- 4. كارت مستقل للحجوزات المنتظرة تحت التحصيل (غير مخلوط مع المسلّم) -->
+                <div onclick="setDashAccountingMode('pending')" class="bg-amber-50/40 p-5 rounded-[1.5rem] border-2 border-amber-300/80 shadow-soft cursor-pointer hover:border-amber-500 transition-all">
+                    <div class="flex justify-between items-start mb-3">
+                        <div>
+                            <p class="text-xs font-black text-amber-900">⏳ حجوزات منتظرة (قيد التجهيز والطريق)</p>
+                            <h3 id="sm-dash-completed-count" class="text-2xl font-black text-amber-600 mt-1">0 <span class="text-xs">ج منتظر</span></h3>
+                        </div>
+                        <div class="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center text-base"><i class="fa-solid fa-hourglass-half"></i></div>
+                    </div>
+                    <div id="sm-dash-pipeline-info" class="text-[11px] font-black text-amber-900 bg-white px-3 py-1.5 rounded-xl border border-amber-200 flex justify-between">
+                        <span>📦 محجوز: 0 طلب</span>
+                        <span class="text-slate-400">❌ ملغي: 0</span>
+                    </div>
+                </div>
+
+                <!-- 5. إجمالي الخصومات والواجب -->
                 <div onclick="updateDashState('activeSubTab', 'overview'); updateDashState('tableSubFilter', 'discounted'); document.getElementById('sm-dash-orders-section').scrollIntoView({behavior:'smooth'});" class="bg-white p-5 rounded-[1.5rem] border border-red-200 shadow-soft cursor-pointer hover:border-red-400 transition-all">
                     <div class="flex justify-between items-start mb-3">
                         <div>
-                            <p class="text-xs font-black text-red-600">🎁 إجمالي الخصومات والواجب بالفترة</p>
+                            <p class="text-xs font-black text-red-600">🎁 الخصومات والواجب (للمعروض)</p>
                             <h3 id="sm-dash-discounts-total" class="text-2xl font-black text-red-600 mt-1">0 <span class="text-sm">ج</span></h3>
                         </div>
                         <div class="w-10 h-10 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center text-base"><i class="fa-solid fa-tags"></i></div>
@@ -854,26 +885,11 @@
                     </div>
                 </div>
 
-                <!-- 5. الطلبات المسلمة وقيد التنفيذ -->
-                <div class="bg-white p-5 rounded-[1.5rem] border border-blue-100 shadow-soft">
-                    <div class="flex justify-between items-start mb-3">
-                        <div>
-                            <p class="text-xs font-black text-slate-500">إجمالي الطلبات الفعالة وحركة التسليم</p>
-                            <h3 id="sm-dash-completed-count" class="text-2xl font-black text-blue-600 mt-1">0 <span class="text-xs text-slate-400">طلب</span></h3>
-                        </div>
-                        <div class="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center text-base"><i class="fa-solid fa-check-double"></i></div>
-                    </div>
-                    <div id="sm-dash-pipeline-info" class="text-[11px] font-black text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200/60 flex justify-between">
-                        <span class="text-amber-600">⏳ قيد التنفيذ: 0 (0 ج)</span>
-                        <span class="text-slate-400">❌ ملغي: 0</span>
-                    </div>
-                </div>
-
                 <!-- 6. إيراد التوصيل والآجل -->
                 <div class="bg-white p-5 rounded-[1.5rem] border border-indigo-100 shadow-soft">
                     <div class="flex justify-between items-start mb-3">
                         <div>
-                            <p class="text-xs font-black text-slate-500">إيرادات التوصيل والآجل المسجل</p>
+                            <p class="text-xs font-black text-slate-500">🚚 إيراد التوصيل والآجل المسجل</p>
                             <h3 id="sm-dash-delivery-revenue" class="text-2xl font-black text-indigo-600 mt-1">0 <span class="text-sm">ج توصيل</span></h3>
                         </div>
                         <div class="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-base"><i class="fa-solid fa-truck-fast"></i></div>
@@ -884,6 +900,7 @@
                     </div>
                 </div>
             </div>
+
 
             <!-- 📊 5. شريط متوسطات الدفعات التاريخي (خاص بلحوم السمان فقط) -->
             <div class="bg-white p-5 rounded-[1.5rem] border border-slate-200/80 shadow-soft">
@@ -1531,20 +1548,120 @@
             return true;
         });
 
-        // 6. الحسابات المالية للكروت الـ 6 (شاملة للمباع الكلي + المحصل + قيد التحصيل)
+        // تهيئة وضع الحساب الافتراضي (المسلّم الفعلي فقط لمنع اللخبطة) وحالة درج الأرشيف
+        if (!window.dashState.calcMode) window.dashState.calcMode = 'completed';
+        if (window.dashState.showArchivedDrawer === undefined) window.dashState.showArchivedDrawer = false;
+
+        // دالة التبديل بين أوضاع الحساب الثلاثة (مسلّم فقط / محجوز فقط / شامل)
+        if (typeof window.setDashAccountingMode !== 'function') {
+            window.setDashAccountingMode = function (mode) {
+                window.dashState.calcMode = mode;
+                if (mode === 'completed') window.dashState.tableSubFilter = 'completed';
+                else if (mode === 'pending') window.dashState.tableSubFilter = 'all_active';
+                else window.dashState.tableSubFilter = 'all_valid';
+
+                document.querySelectorAll('.sm-tf-btn').forEach(btn => {
+                    btn.className = 'sm-tf-btn bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all';
+                });
+                const activeTf = document.getElementById('sm-tf-' + window.dashState.tableSubFilter);
+                if (activeTf) {
+                    activeTf.className = 'sm-tf-btn bg-slate-800 text-white px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm transition-all';
+                }
+                window.renderSmartDashboard();
+            };
+
+            window.toggleDashArchiveDrawer = function () {
+                window.dashState.showArchivedDrawer = !window.dashState.showArchivedDrawer;
+                const drawer = document.getElementById('sm-archived-batches-drawer');
+                const arrow = document.getElementById('sm-archived-drawer-arrow');
+                if (drawer) drawer.classList.toggle('hidden', !window.dashState.showArchivedDrawer);
+                if (arrow) arrow.style.transform = window.dashState.showArchivedDrawer ? 'rotate(180deg)' : 'rotate(0deg)';
+            };
+
+            window.filterArchivedBatchCards = function (val) {
+                const q = String(val || '').toLowerCase().trim();
+                document.querySelectorAll('.sm-archived-batch-card').forEach(card => {
+                    const name = (card.getAttribute('data-bname') || '').toLowerCase();
+                    card.style.display = (!q || name.includes(q)) ? '' : 'none';
+                });
+            };
+        }
+
+        // تحديث أزرار وضع الحساب بصرياً
+        const currentCalcMode = window.dashState.calcMode || 'completed';
+        ['completed', 'pending', 'all'].forEach(m => {
+            const btn = document.getElementById('sm-cm-' + m);
+            if (!btn) return;
+            if (m === currentCalcMode) {
+                const activeColor = m === 'completed' ? 'bg-emerald-600 text-white' : (m === 'pending' ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-white');
+                btn.className = `sm-cm-btn flex-1 sm:flex-none ${activeColor} px-3 py-1.5 rounded-lg text-[11px] font-black shadow-sm transition-all`;
+            } else {
+                btn.className = 'sm-cm-btn flex-1 sm:flex-none text-slate-600 hover:bg-white px-3 py-1.5 rounded-lg text-[11px] font-black transition-all';
+            }
+        });
+
+        const modeHintEl = document.getElementById('sm-calc-mode-hint');
+        if (modeHintEl) {
+            if (currentCalcMode === 'completed') {
+                modeHintEl.className = 'text-[10px] font-bold text-emerald-700';
+                modeHintEl.innerText = '✅ الوضع الدقيق (الافتراضي): الكروت وصافي الربح والأصناف تعرض فقط ما تم تسليمه وتحصيله فعلياً.';
+            } else if (currentCalcMode === 'pending') {
+                modeHintEl.className = 'text-[10px] font-bold text-amber-700';
+                modeHintEl.innerText = '⏳ وضع الحجوزات: الكروت والأصناف تعرض فقط الطلبات المحجوزة التي لم تُسلّم بعد.';
+            } else {
+                modeHintEl.className = 'text-[10px] font-bold text-slate-600';
+                modeHintEl.innerText = '📊 الوضع الشامل: يجمع المسلّم الفعلي + المحجوز قيد التسليم معاً.';
+            }
+        }
+
+        // تنظيم القائمة المنسدلة للدفعات إلى مجموعتين (الدفعات النشطة الحالية + أرشيف الدفعات السابقة)
+        if (sourceSelect) {
+            const currentVal = window.dashState.sourceFilter;
+            const liveNamesArr = Array.from(batchNamesSet).filter(n => Boolean(liveBatchByName[n]));
+            const archNamesArr = Array.from(batchNamesSet).filter(n => !liveBatchByName[n]);
+
+            let groupedHtml = `
+                <option value="all">📦 كل المبيعات (دفعات + فوري)</option>
+                <option value="batches_only">🏷️ طلبات الدفعات فقط</option>
+                <option value="normal_only">❄️ الطلبات الفورية فقط</option>
+            `;
+            if (liveNamesArr.length > 0) {
+                groupedHtml += `<optgroup label="🟢 الدفعات النشطة الحالية (${liveNamesArr.length})">`;
+                liveNamesArr.forEach(bName => {
+                    const valKey = 'batch:' + bName;
+                    groupedHtml += `<option value="${valKey}" ${currentVal === valKey ? 'selected' : ''}>🟢 دفعة: ${bName}</option>`;
+                });
+                groupedHtml += `</optgroup>`;
+            }
+            if (archNamesArr.length > 0) {
+                groupedHtml += `<optgroup label="📂 أرشيف الدفعات السابقة (${archNamesArr.length})">`;
+                archNamesArr.forEach(bName => {
+                    const valKey = 'batch:' + bName;
+                    groupedHtml += `<option value="${valKey}" ${currentVal === valKey ? 'selected' : ''}>📦 أرشيف: ${bName}</option>`;
+                });
+                groupedHtml += `</optgroup>`;
+            }
+            sourceSelect.innerHTML = groupedHtml;
+            sourceSelect.value = currentVal;
+        }
+
+        // 6. الحسابات المالية الدقيقة المفصولة (المسلّم الفعلي vs المحجوز قيد التسليم)
         let completedCount = 0, activeCount = 0, canceledCount = 0;
         let completedRevenue = 0, activeExpectedRev = 0;
         let cashCompletedRev = 0, onlineCompletedRev = 0;
-        let cashAllValidRev = 0, onlineAllValidRev = 0;
+        let cashPendingRev = 0, onlinePendingRev = 0;
 
         let completedProductsSub = 0, activeProductsSub = 0;
-        let completedDeliveryRev = 0, activeDeliveryRev = 0, freeDeliveryCount = 0;
-        let directDiscounts = 0, implicitPriceDiscounts = 0, discountedOrdersCount = 0;
-        let periodDebtTotal = 0;
+        let completedDeliveryRev = 0, activeDeliveryRev = 0;
+        let completedFreeDelCount = 0, activeFreeDelCount = 0;
 
-        // فصل الكميات لـ 3 قطاعات (شامل لكل الطلبات الفعالة غير الملغية)
-        let totalMeatUnits = 0, totalChickUnits = 0, totalEggUnits = 0;
-        let meatRevenueTotal = 0;
+        let completedDirectDisc = 0, completedImplicitDisc = 0, completedDiscOrders = 0;
+        let activeDirectDisc = 0, activeImplicitDisc = 0, activeDiscOrders = 0;
+        let completedDebtTotal = 0, activeDebtTotal = 0;
+
+        // فصل كميات الأصناف حسب الحالة (مسلّم فعلي / محجوز / شامل)
+        let compMeatUnits = 0, compChickUnits = 0, compEggUnits = 0, compMeatRev = 0;
+        let pendMeatUnits = 0, pendChickUnits = 0, pendEggUnits = 0, pendMeatRev = 0;
 
         const itemsSoldMap = {};
         const zoneStatsMap = {};
@@ -1566,20 +1683,9 @@
             const oDebt = Number(o.debt) || 0;
 
             if (!zoneStatsMap[zName]) zoneStatsMap[zName] = { name: zName, count: 0, canceled: 0, revenue: 0 };
-            zoneStatsMap[zName].count++;
-            zoneStatsMap[zName].revenue += fin.total;
-
-            if (oDebt > 0) periodDebtTotal += oDebt;
-
-            if (o.paymentMethod === 'online') onlineAllValidRev += fin.total;
-            else cashAllValidRev += fin.total;
-
-            if (fin.delivery === 0 && fin.total > 0) freeDeliveryCount++;
-
-            if (fin.discount > 0 || fin.implicitDiscount > 0) {
-                directDiscounts += fin.discount;
-                implicitPriceDiscounts += fin.implicitDiscount;
-                discountedOrdersCount++;
+            if (isComp || currentCalcMode !== 'completed') {
+                zoneStatsMap[zName].count++;
+                zoneStatsMap[zName].revenue += fin.total;
             }
 
             if (isComp) {
@@ -1587,9 +1693,17 @@
                 completedRevenue += fin.total;
                 completedProductsSub += fin.subtotal;
                 completedDeliveryRev += fin.delivery;
+                if (oDebt > 0) completedDebtTotal += oDebt;
+                if (fin.delivery === 0 && fin.total > 0) completedFreeDelCount++;
 
                 if (o.paymentMethod === 'online') onlineCompletedRev += fin.total;
                 else cashCompletedRev += fin.total;
+
+                if (fin.discount > 0 || fin.implicitDiscount > 0) {
+                    completedDirectDisc += fin.discount;
+                    completedImplicitDisc += fin.implicitDiscount;
+                    completedDiscOrders++;
+                }
 
                 if (o.driverName) {
                     if (!driverStatsMap[o.driverName]) driverStatsMap[o.driverName] = { name: o.driverName, completed: 0, revenue: 0 };
@@ -1601,6 +1715,17 @@
                 activeExpectedRev += fin.total;
                 activeProductsSub += fin.subtotal;
                 activeDeliveryRev += fin.delivery;
+                if (oDebt > 0) activeDebtTotal += oDebt;
+                if (fin.delivery === 0 && fin.total > 0) activeFreeDelCount++;
+
+                if (o.paymentMethod === 'online') onlinePendingRev += fin.total;
+                else cashPendingRev += fin.total;
+
+                if (fin.discount > 0 || fin.implicitDiscount > 0) {
+                    activeDirectDisc += fin.discount;
+                    activeImplicitDisc += fin.implicitDiscount;
+                    activeDiscOrders++;
+                }
             }
 
             if (Array.isArray(o.items)) {
@@ -1610,36 +1735,65 @@
                     const cleanName = item.name || 'صنف';
                     const cls = window.classifyOrderItem(item);
 
-                    if (cls.type === 'egg') {
-                        totalEggUnits += q;
-                    } else if (cls.type === 'chick') {
-                        totalChickUnits += q;
+                    if (isComp) {
+                        if (cls.type === 'egg') compEggUnits += q;
+                        else if (cls.type === 'chick') compChickUnits += q;
+                        else { compMeatUnits += q; compMeatRev += (q * p); }
                     } else {
-                        totalMeatUnits += q;
-                        meatRevenueTotal += (q * p);
+                        if (cls.type === 'egg') pendEggUnits += q;
+                        else if (cls.type === 'chick') pendChickUnits += q;
+                        else { pendMeatUnits += q; pendMeatRev += (q * p); }
                     }
 
                     if (!itemsSoldMap[cleanName]) {
-                        itemsSoldMap[cleanName] = { qty: 0, completedQty: 0, revenue: 0, type: cls.type, unitLabel: cls.unitLabel };
+                        itemsSoldMap[cleanName] = {
+                            qty: 0, revenue: 0,
+                            completedQty: 0, completedRev: 0,
+                            pendingQty: 0, pendingRev: 0,
+                            type: cls.type, unitLabel: cls.unitLabel
+                        };
                     }
                     itemsSoldMap[cleanName].qty += q;
-                    if (isComp) itemsSoldMap[cleanName].completedQty += q;
                     itemsSoldMap[cleanName].revenue += (q * p);
+                    if (isComp) {
+                        itemsSoldMap[cleanName].completedQty += q;
+                        itemsSoldMap[cleanName].completedRev += (q * p);
+                    } else {
+                        itemsSoldMap[cleanName].pendingQty += q;
+                        itemsSoldMap[cleanName].pendingRev += (q * p);
+                    }
                 });
             }
         });
 
-        const grandTotalSales = completedRevenue + activeExpectedRev;
-        const grandProductsSubtotal = completedProductsSub + activeProductsSub;
-        const grandDeliveryRevenue = completedDeliveryRev + activeDeliveryRev;
-        const totalValidOrdersCount = completedCount + activeCount;
-        const totalAllDiscounts = directDiscounts + implicitPriceDiscounts;
-        const avgOrderVal = totalValidOrdersCount > 0 ? Math.round(grandTotalSales / totalValidOrdersCount) : 0;
+        // تحديد الأرقام المعروضة في الكروت بناءً على وضع الحساب المختار (الافتراضي: المسلّم الفعلي فقط)
+        const isPendingMode = (currentCalcMode === 'pending');
+        const isAllMode = (currentCalcMode === 'all');
 
-        // صافي الربح المبني على إجمالي مبيعات المنتجات الفعلي بعد خصم المصاريف والهالك
-        const trueNetProfit = grandProductsSubtotal - totalPeriodExpenses - periodWasteCost;
+        const shownOrdersCount = isPendingMode ? activeCount : (isAllMode ? (completedCount + activeCount) : completedCount);
+        const shownTotalRev = isPendingMode ? activeExpectedRev : (isAllMode ? (completedRevenue + activeExpectedRev) : completedRevenue);
+        const shownCashRev = isPendingMode ? cashPendingRev : (isAllMode ? (cashCompletedRev + cashPendingRev) : cashCompletedRev);
+        const shownOnlineRev = isPendingMode ? onlinePendingRev : (isAllMode ? (onlineCompletedRev + onlinePendingRev) : onlineCompletedRev);
+        const shownProductsSub = isPendingMode ? activeProductsSub : (isAllMode ? (completedProductsSub + activeProductsSub) : completedProductsSub);
+        const shownDeliveryRev = isPendingMode ? activeDeliveryRev : (isAllMode ? (completedDeliveryRev + activeDeliveryRev) : completedDeliveryRev);
+        const shownFreeDelCount = isPendingMode ? activeFreeDelCount : (isAllMode ? (completedFreeDelCount + activeFreeDelCount) : completedFreeDelCount);
+        const shownDirectDisc = isPendingMode ? activeDirectDisc : (isAllMode ? (completedDirectDisc + activeDirectDisc) : completedDirectDisc);
+        const shownImplicitDisc = isPendingMode ? activeImplicitDisc : (isAllMode ? (completedImplicitDisc + activeImplicitDisc) : completedImplicitDisc);
+        const shownDiscOrders = isPendingMode ? activeDiscOrders : (isAllMode ? (completedDiscOrders + activeDiscOrders) : completedDiscOrders);
+        const shownDebtTotal = isPendingMode ? activeDebtTotal : (isAllMode ? (completedDebtTotal + activeDebtTotal) : completedDebtTotal);
 
-        // 7. حساب الخزن الـ 4 اللحظية
+        const shownMeatUnits = isPendingMode ? pendMeatUnits : (isAllMode ? (compMeatUnits + pendMeatUnits) : compMeatUnits);
+        const shownChickUnits = isPendingMode ? pendChickUnits : (isAllMode ? (compChickUnits + pendChickUnits) : compChickUnits);
+        const shownEggUnits = isPendingMode ? pendEggUnits : (isAllMode ? (compEggUnits + pendEggUnits) : compEggUnits);
+        const shownMeatRev = isPendingMode ? pendMeatRev : (isAllMode ? (compMeatRev + pendMeatRev) : compMeatRev);
+
+        const shownAllDiscounts = shownDirectDisc + shownImplicitDisc;
+        const avgOrderVal = shownOrdersCount > 0 ? Math.round(shownTotalRev / shownOrdersCount) : 0;
+
+        // صافي الربح الحقيقي يُحسب من المنتجات المسلّمة فعلياً (أو المعروضة) ناقص المصروفات والهالك
+        const trueNetProfit = shownProductsSub - totalPeriodExpenses - periodWasteCost;
+
+        // 7. حساب الخزن الـ 4 اللحظية (مبنية دائماً على الكاش الفعلي بالدرج)
         let streetCashNow = 0;
         ordersList.forEach(o => {
             if (o && o.status === 'dispatched' && o.paymentMethod !== 'online') {
@@ -1655,56 +1809,61 @@
         setElHtml('sm-safe-street-cash', `${streetCashNow.toLocaleString()} ج`);
         setElHtml('sm-safe-market-debt', `${totalMarketDebtNow.toLocaleString()} ج`);
 
-        // 8. تحديث الكروت المالية الـ 6 (إظهار الـ 20,000 والـ 7,000 معاً بوضوح تام)
-        setElHtml('sm-dash-total-revenue', `${grandTotalSales.toLocaleString()} <span class="text-sm font-bold text-slate-400">ج</span>`);
+        // 8. تحديث الكروت المالية الـ 6 بأرقام صافية لا تخلط المستلم بالمحجوز
+        const modeTitleLabel = isPendingMode ? '⏳ المحجوز قيد التحصيل' : (isAllMode ? '📊 الإجمالي الشامل (مسلّم + محجوز)' : '✅ المحصّل الفعلي (المسلّم فقط)');
+        setElHtml('sm-lbl-card1-title', `${modeTitleLabel}`);
+        setElHtml('sm-dash-total-revenue', `${shownTotalRev.toLocaleString()} <span class="text-sm font-bold text-slate-400">ج</span>`);
+        setElHtml('sm-dash-payment-split', `<span>💵 كاش: ${shownCashRev.toLocaleString()} ج</span><span>💳 أونلاين: ${shownOnlineRev.toLocaleString()} ج</span>`);
         setElHtml('sm-dash-collected-vs-pending', `
-            <span class="text-emerald-700">✅ محصل (مكتمل): ${completedRevenue.toLocaleString()} ج</span>
-            <span class="text-blue-600">⏳ قيد التحصيل: ${activeExpectedRev.toLocaleString()} ج</span>
+            <span>📦 عدد الطلبات: <strong>${shownOrdersCount} طلب</strong></span>
+            <span>متوسط الفاتورة: <strong>${avgOrderVal.toLocaleString()} ج</strong></span>
         `);
-        setElHtml('sm-dash-payment-split', `<span>💵 كاش: ${cashAllValidRev.toLocaleString()} ج</span><span>💳 أونلاين: ${onlineAllValidRev.toLocaleString()} ج</span>`);
 
-        setElHtml('sm-dash-products-revenue', `${grandProductsSubtotal.toLocaleString()} <span class="text-sm font-bold text-slate-400">ج</span>`);
+        setElHtml('sm-lbl-card2-title', isPendingMode ? '🥩 قيمة المنتجات المحجوزة (بدون توصيل)' : (isAllMode ? '🥩 إجمالي المنتجات الشامل (بدون توصيل)' : '🥩 صافي قيمة المنتجات المسلّمة (بدون توصيل)'));
+        setElHtml('sm-dash-products-revenue', `${shownProductsSub.toLocaleString()} <span class="text-sm font-bold text-slate-400">ج</span>`);
+
+        let unitsBadge = `🥩 ${Number(shownMeatUnits.toFixed(1))} طبق سمان`;
+        if (shownChickUnits > 0) unitsBadge += ` | 🐣 ${Number(shownChickUnits.toFixed(0))} كتكوت`;
+        if (shownEggUnits > 0) unitsBadge += ` | 🥚 ${Number(shownEggUnits.toFixed(0))} بيض`;
+        const avgMeatUnitPrice = shownMeatUnits > 0 ? Math.round(shownMeatRev / shownMeatUnits) : 0;
+
+        setElHtml('sm-dash-avg-order', `<span class="text-[10px] font-black">${unitsBadge}</span><span>متوسط الطبق: ${avgMeatUnitPrice} ج</span>`);
         setElHtml('sm-dash-products-sub-split', `
-            <span class="text-emerald-700">✅ منتجات مسلمة: ${completedProductsSub.toLocaleString()} ج</span>
-            <span class="text-blue-600">⏳ منتجات محجوزة: ${activeProductsSub.toLocaleString()} ج</span>
+            <span class="text-emerald-700">✅ منتجات مسلّمة: ${completedProductsSub.toLocaleString()} ج</span>
+            <span class="text-amber-700">⏳ منتجات محجوزة: ${activeProductsSub.toLocaleString()} ج</span>
         `);
 
-        let unitsBadge = `🥩 ${Number(totalMeatUnits.toFixed(1))} طبق سمان`;
-        if (totalChickUnits > 0) unitsBadge += ` | 🐣 ${Number(totalChickUnits.toFixed(0))} كتكوت`;
-        if (totalEggUnits > 0) unitsBadge += ` | 🥚 ${Number(totalEggUnits.toFixed(0))} بيض`;
-        setElHtml('sm-dash-avg-order', `<span>متوسط الطلب: ${avgOrderVal.toLocaleString()} ج</span><span class="text-[10px] font-black">${unitsBadge}</span>`);
-
-        const profitMargin = grandProductsSubtotal > 0 ? ((trueNetProfit / grandProductsSubtotal) * 100).toFixed(1) : 0;
+        const profitMargin = shownProductsSub > 0 ? ((trueNetProfit / shownProductsSub) * 100).toFixed(1) : 0;
         const marginBadge = trueNetProfit >= 0
             ? `<span class="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-lg border border-emerald-200 ml-1">هامش ${profitMargin}%</span>`
             : `<span class="text-xs bg-rose-50 text-rose-700 px-2 py-0.5 rounded-lg border border-rose-200 ml-1">عجز</span>`;
         setElHtml('sm-dash-true-net-profit', `${trueNetProfit.toLocaleString()} <span class="text-sm font-bold">ج</span> ${marginBadge}`);
         setElHtml('sm-dash-expenses-summary', `<span>مصروفات: ${totalPeriodExpenses.toLocaleString()} ج</span><span>هالك/بايظ: ${periodWasteUnits} (${periodWasteCost.toLocaleString()} ج)</span>`);
 
-        setElHtml('sm-dash-discounts-total', `${totalAllDiscounts.toLocaleString()} <span class="text-sm font-bold text-red-400">ج</span> <span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">في ${discountedOrdersCount} طلب</span>`);
-        setElHtml('sm-dash-discounts-breakdown', `<span>خصم فواتير: ${directDiscounts.toLocaleString()} ج</span><span>واجب/فرق سعر: ${implicitPriceDiscounts.toLocaleString()} ج</span>`);
+        // الكارت رقم 4 المخصص للحجوزات المنتظرة تحت التحصيل
+        setElHtml('sm-dash-completed-count', `${activeExpectedRev.toLocaleString()} <span class="text-xs font-bold text-amber-800">ج قيد التحصيل (${activeCount} طلب)</span>`);
+        setElHtml('sm-dash-pipeline-info', `<span class="text-emerald-700">✅ تم تسليمه: ${completedCount} طلب (${completedRevenue.toLocaleString()} ج)</span><span class="text-slate-400">❌ ملغي: ${canceledCount}</span>`);
 
-        setElHtml('sm-dash-completed-count', `${totalValidOrdersCount} <span class="text-xs font-bold text-slate-400">طلب فعلي (منها ${completedCount} مكتمل)</span>`);
-        setElHtml('sm-dash-pipeline-info', `<span class="text-amber-600">⏳ قيد التسليم: ${activeCount} (${activeExpectedRev.toLocaleString()} ج)</span><span class="text-slate-400">❌ ملغي: ${canceledCount}</span>`);
+        setElHtml('sm-dash-discounts-total', `${shownAllDiscounts.toLocaleString()} <span class="text-sm font-bold text-red-400">ج</span> <span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">في ${shownDiscOrders} طلب</span>`);
+        setElHtml('sm-dash-discounts-breakdown', `<span>خصم فواتير: ${shownDirectDisc.toLocaleString()} ج</span><span>واجب/فرق سعر: ${shownImplicitDisc.toLocaleString()} ج</span>`);
 
-        setElHtml('sm-dash-delivery-revenue', `${grandDeliveryRevenue.toLocaleString()} <span class="text-sm font-bold text-slate-400">ج توصيل</span>`);
-        setElHtml('sm-dash-free-delivery-info', `<span>توصيل مجاني: ${freeDeliveryCount} طلب</span><span class="text-rose-600">آجل الفترة: ${periodDebtTotal.toLocaleString()} ج</span>`);
+        setElHtml('sm-dash-delivery-revenue', `${shownDeliveryRev.toLocaleString()} <span class="text-sm font-bold text-slate-400">ج توصيل</span>`);
+        setElHtml('sm-dash-free-delivery-info', `<span>توصيل مجاني: ${shownFreeDelCount} طلب</span><span class="text-rose-600">آجل: ${shownDebtTotal.toLocaleString()} ج</span>`);
 
-        // 9. شريط متوسطات الدفعات التاريخي (مبني على أطباق السمان المذبوح فقط!)
+        // 9. شريط متوسطات الدفعات التاريخي (مبني على أطباق السمان المذبوح فقط)
         const visibleBatchesList = Object.values(sourcesSummary).filter(s => s.isBatch && s.hasOrderInSelectedPeriod && s.totalValidCount > 0);
         const batchesCount = visibleBatchesList.length;
-        const avgMeatUnitsPerBatch = batchesCount > 0 ? Math.round(visibleBatchesList.reduce((s, b) => s + b.soldMeatUnits, 0) / batchesCount) : 0;
-        const avgRevPerBatch = batchesCount > 0 ? Math.round(visibleBatchesList.reduce((s, b) => s + b.totalBatchSales, 0) / batchesCount) : 0;
-        const avgMeatUnitPrice = totalMeatUnits > 0 ? Math.round(meatRevenueTotal / totalMeatUnits) : 0;
-        const wasteRatio = (totalMeatUnits + periodWasteUnits) > 0 ? ((periodWasteUnits / (totalMeatUnits + periodWasteUnits)) * 100).toFixed(1) : '0.0';
+        const avgMeatUnitsPerBatch = batchesCount > 0 ? Math.round(visibleBatchesList.reduce((s, b) => s + b.completedMeatUnits, 0) / batchesCount) : 0;
+        const avgRevPerBatch = batchesCount > 0 ? Math.round(visibleBatchesList.reduce((s, b) => s + b.collectedRevenue, 0) / batchesCount) : 0;
+        const wasteRatio = (shownMeatUnits + periodWasteUnits) > 0 ? ((periodWasteUnits / (shownMeatUnits + periodWasteUnits)) * 100).toFixed(1) : '0.0';
 
         setElHtml('sm-dash-benchmarks-bar', `
             <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/70 text-center">
-                <span class="text-[10px] font-bold text-slate-400 block">متوسط سمان الدفعة المباع</span>
+                <span class="text-[10px] font-bold text-slate-400 block">متوسط المسلّم بالدفعة</span>
                 <span class="text-lg font-black text-slate-800">${avgMeatUnitsPerBatch} <span class="text-xs text-brand-primary">طبق سمان</span></span>
             </div>
             <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/70 text-center">
-                <span class="text-[10px] font-bold text-slate-400 block">متوسط مبيعات الدفعة الواحدة</span>
+                <span class="text-[10px] font-bold text-slate-400 block">متوسط تحصيل الدفعة الفعلي</span>
                 <span class="text-lg font-black text-emerald-700">${avgRevPerBatch.toLocaleString()} <span class="text-xs">ج</span></span>
             </div>
             <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/70 text-center">
@@ -1717,153 +1876,225 @@
             </div>
         `);
 
-        // 10. رسم كروت ميزان الدفعات (تعرض إجمالي الدفعة الكلي 20,000 ج + المحصل 7,000 ج + قيد التحصيل 13,000 ج)
+        // 10. رسم كروت الدفعات: عرض الدفعات النشطة فقط في الواجهة + جمع الأرشيف في درج مطوي ذكي
         const batchesCont = document.getElementById('sm-dash-batches-breakdown');
         if (batchesCont) {
-            const sortedSources = Object.values(sourcesSummary)
-                .filter(src => src.hasOrderInSelectedPeriod || window.dashState.sourceFilter === src.filterKey)
-                .sort((a, b) => b.totalBatchSales - a.totalBatchSales);
+            const buildSingleBatchCardHtml = (src, isArchivedCard = false) => {
+                const isSelected = window.dashState.sourceFilter === src.filterKey;
+                const borderClass = isSelected
+                    ? 'border-2 border-brand-primary bg-emerald-50/40 ring-2 ring-brand-primary/10'
+                    : (isArchivedCard ? 'border border-slate-200 bg-white hover:border-teal-400' : 'border-2 border-teal-500/30 bg-white hover:border-teal-500');
 
-            if (sortedSources.length === 0) {
-                batchesCont.innerHTML = `<div class="col-span-full text-center py-6 text-slate-400 text-xs font-bold">لا توجد بيانات دفعات أو طلبات في هذه الفترة.</div>`;
-            } else {
-                batchesCont.innerHTML = sortedSources.map(src => {
-                    const isSelected = window.dashState.sourceFilter === src.filterKey;
-                    const borderClass = isSelected ? 'border-2 border-brand-primary bg-emerald-50/40 ring-2 ring-brand-primary/10' : 'border border-slate-200/80 bg-slate-50/60 hover:bg-white hover:border-teal-400';
+                let balanceHtml = '';
+                let actionBtnHtml = '';
+                const pendingMeatUnits = Math.max(0, Number((src.soldMeatUnits - src.completedMeatUnits).toFixed(1)));
 
-                    let balanceHtml = '';
-                    let actionBtnHtml = '';
+                if (src.isBatch) {
+                    const liveB = liveBatchByName[src.label] || (src.batchId && batchesObj[src.batchId] ? { id: src.batchId, ...batchesObj[src.batchId] } : null);
+                    const archB = archBatchByName[src.label];
+                    const bObj = liveB || archB || {};
 
-                    if (src.isBatch) {
-                        const liveB = liveBatchByName[src.label] || (src.batchId && batchesObj[src.batchId] ? { id: src.batchId, ...batchesObj[src.batchId] } : null);
-                        const archB = archBatchByName[src.label];
-                        const bObj = liveB || archB || {};
+                    let meatStockTotal = 0;
+                    const sObj = bObj.stock || bObj.rawStock || {};
+                    Object.keys(sObj).forEach(pId => {
+                        const cls = window.classifyOrderItem({ id: pId, name: prodsObj[pId]?.name || '' });
+                        if (cls.isMeat) meatStockTotal += (Number(sObj[pId]) || 0);
+                    });
 
-                        // حساب مخزن ومذبوح لحم السمان فقط في الدفعة
-                        let meatStockTotal = 0;
-                        const sObj = bObj.stock || bObj.rawStock || {};
-                        Object.keys(sObj).forEach(pId => {
-                            const cls = window.classifyOrderItem({ id: pId, name: prodsObj[pId]?.name || '' });
-                            if (cls.isMeat) meatStockTotal += (Number(sObj[pId]) || 0);
-                        });
+                    let meatSlaughteredTotal = 0;
+                    const slObj = bObj.slaughtered || {};
+                    Object.keys(slObj).forEach(pId => {
+                        const cls = window.classifyOrderItem({ id: pId, name: prodsObj[pId]?.name || '' });
+                        if (cls.isMeat) meatSlaughteredTotal += (Number(slObj[pId]) || 0);
+                    });
 
-                        let meatSlaughteredTotal = 0;
-                        const slObj = bObj.slaughtered || {};
-                        Object.keys(slObj).forEach(pId => {
-                            const cls = window.classifyOrderItem({ id: pId, name: prodsObj[pId]?.name || '' });
-                            if (cls.isMeat) meatSlaughteredTotal += (Number(slObj[pId]) || 0);
-                        });
+                    const actualTarget = Number(bObj.actualPairs) || meatStockTotal || meatSlaughteredTotal || 0;
+                    const loggedWaste = wasteByBatchName[src.label] || 0;
+                    const batchExp = expensesByBatchName[src.label] || 0;
+                    const autoDiff = (actualTarget > 0 && meatSlaughteredTotal > 0 && actualTarget > meatSlaughteredTotal) ? (actualTarget - meatSlaughteredTotal) : 0;
+                    const totalShrinkage = loggedWaste + autoDiff;
 
-                        const actualTarget = Number(bObj.actualPairs) || meatStockTotal || meatSlaughteredTotal || 0;
-                        const loggedWaste = wasteByBatchName[src.label] || 0;
-                        const batchExp = expensesByBatchName[src.label] || 0;
-                        const autoDiff = (actualTarget > 0 && meatSlaughteredTotal > 0 && actualTarget > meatSlaughteredTotal) ? (actualTarget - meatSlaughteredTotal) : 0;
-                        const totalShrinkage = loggedWaste + autoDiff;
-
-                        let extrasLine = '';
-                        if (src.soldChickUnits > 0 || src.soldEggUnits > 0) {
-                            extrasLine = `<div class="text-[9px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded flex justify-between">
-                                <span>🐣 كتاكيت بالدفعة: ${src.soldChickUnits}</span>
-                                <span>🥚 أطباق بيض: ${src.soldEggUnits}</span>
-                            </div>`;
-                        }
-
-                        balanceHtml = `
-                        <div class="grid grid-cols-2 gap-1.5 text-[10px] font-black bg-white p-2 rounded-xl border border-slate-200/70">
-                            <div class="text-emerald-700">✅ محصل: ${src.collectedRevenue.toLocaleString()} ج (${src.completedCount})</div>
-                            <div class="text-blue-600 text-left">⏳ قيد التحصيل: ${src.pendingRevenue.toLocaleString()} ج (${src.activeCount})</div>
+                    balanceHtml = `
+                    <!-- جدول الـ 3 خانات المفصولة (المسلّم vs المحجوز vs الإجمالي) -->
+                    <div class="grid grid-cols-3 gap-1.5 text-center bg-slate-50 p-2 rounded-xl border border-slate-200/80">
+                        <div class="bg-emerald-50 border border-emerald-200/80 p-1.5 rounded-lg">
+                            <span class="block text-[9px] font-black text-emerald-700">🟢 تم تسليمه وتحصيله</span>
+                            <span class="text-xs font-black text-emerald-800 block mt-0.5">${src.collectedRevenue.toLocaleString()} ج</span>
+                            <span class="text-[9px] font-bold text-emerald-600">${src.completedCount} طلب (${Number(src.completedMeatUnits.toFixed(1))} طبق)</span>
                         </div>
-                        <div class="grid grid-cols-4 gap-1 text-center bg-white p-2 rounded-xl border border-slate-200/60 text-[10px] font-black">
-                            <div><span class="text-slate-400 block text-[9px]">العدد الكلي</span><span class="text-slate-700">${actualTarget || '-'}</span></div>
-                            <div><span class="text-slate-400 block text-[9px]">المذبوح</span><span class="text-indigo-600">${meatSlaughteredTotal || '-'}</span></div>
-                            <div><span class="text-slate-400 block text-[9px]">المباع (سمان)</span><span class="text-emerald-600">${Number(src.soldMeatUnits.toFixed(1))}</span></div>
-                            <div><span class="text-rose-400 block text-[9px]">هالك/فاقد</span><span class="text-rose-600">${totalShrinkage}</span></div>
+                        <div class="bg-amber-50 border border-amber-200/80 p-1.5 rounded-lg">
+                            <span class="block text-[9px] font-black text-amber-800">🟠 محجوز لم يُسلّم</span>
+                            <span class="text-xs font-black text-amber-700 block mt-0.5">${src.pendingRevenue.toLocaleString()} ج</span>
+                            <span class="text-[9px] font-bold text-amber-600">${src.activeCount} طلب (${pendingMeatUnits} طبق)</span>
                         </div>
-                        ${extrasLine}
-                        ${batchExp > 0 ? `<div class="text-[10px] font-black text-teal-800 bg-teal-50 px-2.5 py-1 rounded-lg flex justify-between"><span>مصاريف الدفعة: ${batchExp.toLocaleString()} ج</span><span>صافيها: ${(src.productsSubTotal - batchExp).toLocaleString()} ج</span></div>` : ''}
-                        `;
+                        <div class="bg-white border border-slate-200 p-1.5 rounded-lg">
+                            <span class="block text-[9px] font-black text-slate-500">⚪ إجمالي الدفعة</span>
+                            <span class="text-xs font-black text-slate-800 block mt-0.5">${src.totalBatchSales.toLocaleString()} ج</span>
+                            <span class="text-[9px] font-bold text-slate-500">${src.totalValidCount} طلب (${Number(src.soldMeatUnits.toFixed(1))} طبق)</span>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-4 gap-1 text-center bg-slate-50/70 p-1.5 rounded-xl border border-slate-200/60 text-[10px] font-black">
+                        <div><span class="text-slate-400 block text-[8px]">العدد الكلي</span><span class="text-slate-700">${actualTarget || '-'}</span></div>
+                        <div><span class="text-slate-400 block text-[8px]">المذبوح</span><span class="text-indigo-600">${meatSlaughteredTotal || '-'}</span></div>
+                        <div><span class="text-slate-400 block text-[8px]">المسلّم فعلياً</span><span class="text-emerald-600">${Number(src.completedMeatUnits.toFixed(1))}</span></div>
+                        <div><span class="text-rose-400 block text-[8px]">هالك/فاقد</span><span class="text-rose-600">${totalShrinkage}</span></div>
+                    </div>
+                    ${batchExp > 0 ? `<div class="text-[10px] font-black text-teal-800 bg-teal-50 px-2.5 py-1 rounded-lg flex justify-between"><span>مصاريف الدفعة: ${batchExp.toLocaleString()} ج</span><span>صافي المحصّل: ${(src.collectedRevenue - batchExp).toLocaleString()} ج</span></div>` : ''}
+                    `;
 
-                        if (liveB) {
-                            const statusLabel = liveB.isOpen ? 'مفتوحة للحجز' : 'مغلقة الحجز';
-                            actionBtnHtml = `
-                            <div class="flex flex-wrap justify-between items-center gap-1 pt-2 mt-1 border-t border-slate-200/60">
-                                <span class="text-[10px] font-black ${liveB.isOpen ? 'text-emerald-600' : 'text-amber-600'}">● ${statusLabel}</span>
-                                <div class="flex gap-1">
-                                    <button onclick="event.stopPropagation(); openLedgerEntryBox('waste', '${src.label}')" class="bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 px-2 py-1 rounded-lg text-[10px] font-black transition-all" title="تسجيل هالك أو بايظ لهذه الدفعة">+ هالك</button>
-                                    <button onclick="event.stopPropagation(); archiveBatch('${liveB.id}')" class="bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm transition-all">
-                                        <i class="fa-solid fa-box-archive mr-0.5"></i> أرشفة الدفعة
-                                    </button>
-                                </div>
-                            </div>`;
-                        } else if (archB) {
-                            actionBtnHtml = `
-                            <div class="flex justify-between items-center pt-2 mt-1 border-t border-slate-200/60">
-                                <span class="text-[10px] font-black text-slate-400">📦 محفوظة في الأرشيف</span>
-                                <button onclick="event.stopPropagation(); openArchiveReport('${archB.id}')" class="bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm transition-all">
-                                    تقرير الأرشيف / استعادة
+                    if (liveB) {
+                        const statusLabel = liveB.isOpen ? '🟢 نشطة ومفتوحة للحجز' : '🟠 نشطة (مغلقة الحجز - جاري التوزيع)';
+                        actionBtnHtml = `
+                        <div class="flex flex-wrap justify-between items-center gap-1 pt-2 mt-1 border-t border-slate-200/60">
+                            <span class="text-[10px] font-black ${liveB.isOpen ? 'text-emerald-600' : 'text-amber-600'}">${statusLabel}</span>
+                            <div class="flex gap-1">
+                                <button onclick="event.stopPropagation(); openLedgerEntryBox('waste', '${src.label}')" class="bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 px-2 py-1 rounded-lg text-[10px] font-black transition-all">+ هالك</button>
+                                <button onclick="event.stopPropagation(); archiveBatch('${liveB.id}')" class="bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm transition-all">
+                                    <i class="fa-solid fa-box-archive mr-0.5"></i> إغلاق وأرشفة
                                 </button>
-                            </div>`;
-                        }
-                    } else {
-                        balanceHtml = `
-                        <div class="grid grid-cols-2 gap-1.5 text-[10px] font-black bg-white p-2 rounded-xl border border-slate-200/70">
-                            <div class="text-emerald-700">✅ محصل: ${src.collectedRevenue.toLocaleString()} ج (${src.completedCount})</div>
-                            <div class="text-blue-600 text-left">⏳ قيد التحصيل: ${src.pendingRevenue.toLocaleString()} ج (${src.activeCount})</div>
+                            </div>
+                        </div>`;
+                    } else if (archB) {
+                        actionBtnHtml = `
+                        <div class="flex justify-between items-center pt-2 mt-1 border-t border-slate-200/60">
+                            <span class="text-[10px] font-black text-slate-400">📦 دفعة مؤرشفة</span>
+                            <button onclick="event.stopPropagation(); openArchiveReport('${archB.id}')" class="bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm transition-all">
+                                تقرير الأرشيف / استعادة
+                            </button>
                         </div>`;
                     }
+                } else {
+                    balanceHtml = `
+                    <div class="grid grid-cols-2 gap-1.5 text-center bg-slate-50 p-2 rounded-xl border border-slate-200/80">
+                        <div class="bg-emerald-50 border border-emerald-200/80 p-1.5 rounded-lg">
+                            <span class="block text-[9px] font-black text-emerald-700">🟢 تم تسليمه وتحصيله</span>
+                            <span class="text-xs font-black text-emerald-800 block mt-0.5">${src.collectedRevenue.toLocaleString()} ج (${src.completedCount} طلب)</span>
+                        </div>
+                        <div class="bg-amber-50 border border-amber-200/80 p-1.5 rounded-lg">
+                            <span class="block text-[9px] font-black text-amber-800">🟠 محجوز قيد التسليم</span>
+                            <span class="text-xs font-black text-amber-700 block mt-0.5">${src.pendingRevenue.toLocaleString()} ج (${src.activeCount} طلب)</span>
+                        </div>
+                    </div>`;
+                }
 
-                    return `
-                    <div onclick="updateDashState('sourceFilter', '${src.filterKey}')" class="p-4 rounded-2xl ${borderClass} cursor-pointer transition-all shadow-sm flex flex-col justify-between gap-2">
-                        <div class="flex justify-between items-start">
-                            <span class="font-black text-slate-800 text-xs flex items-center gap-1.5">
-                                <i class="fa-solid ${src.isBatch ? 'fa-layer-group text-teal-600' : 'fa-bolt text-amber-500'}"></i>
-                                ${src.label}
-                            </span>
-                            <div class="text-left">
-                                <span class="text-base font-black text-brand-primary block">${src.totalBatchSales.toLocaleString()} ج</span>
-                                <span class="text-[9px] font-bold text-slate-400 block">إجمالي الدفعة (${src.totalValidCount} طلب)</span>
+                return `
+                <div data-bname="${src.label}" onclick="updateDashState('sourceFilter', '${src.filterKey}')" class="${isArchivedCard ? 'sm-archived-batch-card' : ''} p-4 rounded-2xl ${borderClass} cursor-pointer transition-all shadow-sm flex flex-col justify-between gap-2">
+                    <div class="flex justify-between items-start">
+                        <span class="font-black text-slate-800 text-xs flex items-center gap-1.5">
+                            <i class="fa-solid ${src.isBatch ? 'fa-layer-group text-teal-600' : 'fa-bolt text-amber-500'}"></i>
+                            ${src.label}
+                        </span>
+                        <div class="text-left">
+                            <span class="text-sm font-black text-emerald-700 block">المحصّل: ${src.collectedRevenue.toLocaleString()} ج</span>
+                        </div>
+                    </div>
+                    ${balanceHtml}
+                    ${actionBtnHtml}
+                </div>`;
+            };
+
+            // فصل الدفعات النشطة الحالية عن الدفعات المؤرشفة القديمة لمنع طول العمود
+            const allSourcesList = Object.values(sourcesSummary);
+            const activeLiveSources = allSourcesList.filter(src => {
+                const isLiveBatch = src.isBatch && Boolean(liveBatchByName[src.label]);
+                const isNormalImmediate = !src.isBatch && src.hasOrderInSelectedPeriod;
+                const isCurrentlySelected = window.dashState.sourceFilter === src.filterKey;
+                return isLiveBatch || isNormalImmediate || isCurrentlySelected;
+            }).sort((a, b) => b.collectedRevenue - a.collectedRevenue);
+
+            const archivedOldSources = allSourcesList.filter(src => {
+                const isLiveBatch = src.isBatch && Boolean(liveBatchByName[src.label]);
+                const isCurrentlySelected = window.dashState.sourceFilter === src.filterKey;
+                return src.isBatch && !isLiveBatch && !isCurrentlySelected;
+            }).sort((a, b) => b.totalBatchSales - a.totalBatchSales);
+
+            let finalBatchesSectionHtml = '';
+
+            if (activeLiveSources.length === 0) {
+                finalBatchesSectionHtml += `<div class="col-span-full text-center py-5 text-slate-400 text-xs font-bold bg-slate-50 rounded-2xl border border-dashed border-slate-200">لا توجد دفعات نشطة مفتوحة حالياً. يمكنك فتح أرشيف الدفعات بالأسفل لمراجعة أي دفعة سابقة.</div>`;
+            } else {
+                finalBatchesSectionHtml += activeLiveSources.map(src => buildSingleBatchCardHtml(src, false)).join('');
+            }
+
+            // درج أرشيف الدفعات السابقة المطوي (لا يأخذ مساحة إلا عند فتحه)
+            if (archivedOldSources.length > 0) {
+                const totalArchivedRev = archivedOldSources.reduce((sum, s) => sum + s.collectedRevenue, 0);
+                const isDrawerOpen = window.dashState.showArchivedDrawer === true;
+
+                finalBatchesSectionHtml += `
+                <div class="col-span-full mt-2 pt-3 border-t border-slate-200/80">
+                    <button type="button" onclick="toggleDashArchiveDrawer()" class="w-full bg-slate-900 hover:bg-slate-800 text-white p-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-2 transition-all shadow-sm">
+                        <div class="flex items-center gap-2.5">
+                            <span class="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center text-sm"><i class="fa-solid fa-box-archive"></i></span>
+                            <div class="text-right">
+                                <span class="text-xs font-black block">📂 أرشيف الدفعات المغلقة السابقة (${archivedOldSources.length} دفعة مؤرشفة)</span>
+                                <span class="text-[10px] text-slate-300 font-bold">إجمالي تحصيلها المعتمد: ${totalArchivedRev.toLocaleString()} ج.م — اضغط لفتح أو طيّ الأرشيف</span>
                             </div>
                         </div>
-                        ${balanceHtml}
-                        <div class="flex flex-wrap justify-between items-center text-[10px] font-bold text-slate-500 pt-1">
-                            <span>منتجات صافي: ${src.productsSubTotal.toLocaleString()} ج</span>
-                            <span class="text-red-600">🎁 خصومات: ${src.discounts.toLocaleString()} ج</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[11px] font-black text-amber-300 bg-white/10 px-3 py-1 rounded-xl">عرض / إخفاء</span>
+                            <i id="sm-archived-drawer-arrow" class="fa-solid fa-chevron-down text-amber-300 transition-transform duration-200" style="transform: ${isDrawerOpen ? 'rotate(180deg)' : 'rotate(0deg)'};"></i>
                         </div>
-                        ${actionBtnHtml}
-                    </div>`;
-                }).join('');
+                    </button>
+
+                    <div id="sm-archived-batches-drawer" class="${isDrawerOpen ? '' : 'hidden'} mt-3 bg-slate-100/80 p-4 rounded-2xl border border-slate-200 space-y-3">
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                            <span class="text-xs font-black text-slate-700"><i class="fa-solid fa-clock-rotate-left text-teal-600 ml-1"></i> سجل الدفعات المؤرشفة (اضغط على أي دفعة لعرض طلباتها):</span>
+                            <input type="search" oninput="filterArchivedBatchCards(this.value)" placeholder="🔍 ابحث باسم الدفعة في الأرشيف..." class="w-full sm:w-64 bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold outline-none focus:border-brand-primary">
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[420px] overflow-y-auto custom-scroll pr-1">
+                            ${archivedOldSources.map(src => buildSingleBatchCardHtml(src, true)).join('')}
+                        </div>
+                    </div>
+                </div>`;
             }
+
+            batchesCont.innerHTML = finalBatchesSectionHtml;
         }
 
-        // 11. رسم جرد الأصناف المباعة
+        // 11. رسم جرد الأصناف المباعة (يعرض الكميات المسلّمة فعلياً بوضوح + المحجوز تحتها)
         const itemsGrid = document.getElementById('sm-dash-items-grid');
         if (itemsGrid) {
-            const sortedItems = Object.keys(itemsSoldMap).sort((a, b) => itemsSoldMap[b].revenue - itemsSoldMap[a].revenue);
+            const getItemModeQty = (info) => isPendingMode ? info.pendingQty : (isAllMode ? info.qty : info.completedQty);
+            const getItemModeRev = (info) => isPendingMode ? info.pendingRev : (isAllMode ? info.revenue : info.completedRev);
+
+            const sortedItems = Object.keys(itemsSoldMap)
+                .filter(k => getItemModeQty(itemsSoldMap[k]) > 0 || itemsSoldMap[k].qty > 0)
+                .sort((a, b) => getItemModeRev(itemsSoldMap[b]) - getItemModeRev(itemsSoldMap[a]));
+
             if (sortedItems.length === 0) {
-                itemsGrid.innerHTML = `<div class="col-span-full text-center py-6 text-slate-400 text-xs font-bold">لا توجد أصناف مسجلة في هذه الفترة.</div>`;
+                itemsGrid.innerHTML = `<div class="col-span-full text-center py-6 text-slate-400 text-xs font-bold">لا توجد أصناف مسجلة في هذا الوضع للفترة المحددة.</div>`;
             } else {
                 itemsGrid.innerHTML = sortedItems.map(itemName => {
                     const info = itemsSoldMap[itemName];
-                    const avgP = info.qty > 0 ? Math.round(info.revenue / info.qty) : 0;
+                    const shownQ = getItemModeQty(info);
+                    const shownR = getItemModeRev(info);
+                    const avgP = shownQ > 0 ? Math.round(shownR / shownQ) : 0;
+
                     return `
-                    <div class="bg-slate-50 border border-slate-200/70 p-3.5 rounded-2xl text-center shadow-sm flex flex-col justify-between">
+                    <div class="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl text-center shadow-sm flex flex-col justify-between">
                         <span class="text-[11px] font-black text-slate-700 mb-1 leading-snug flex flex-col items-center justify-center gap-1">
                             <span>${itemName}</span>
                             ${info.type === 'egg' ? '<span class="bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded text-[9px]">(بيض 🥚)</span>' :
                               info.type === 'chick' ? '<span class="bg-blue-50 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded text-[9px]">(كتاكيت 🐣)</span>' :
                               '<span class="bg-emerald-50 text-emerald-600 border border-emerald-200 px-1.5 py-0.5 rounded text-[9px]">(لحم 🥩)</span>'}
                         </span>
-                        <div class="my-1">
-                            <span class="text-2xl font-black text-brand-primary">${Number(info.qty.toFixed(2))}</span>
-                            <span class="text-[10px] font-bold text-slate-400 block">${info.unitLabel} (بـ ${avgP} ج)</span>
+                        <div class="my-1.5">
+                            <span class="text-2xl font-black text-brand-primary">${Number(shownQ.toFixed(2))}</span>
+                            <span class="text-[10px] font-bold text-slate-400 block">${info.unitLabel} ${avgP > 0 ? `(بـ ${avgP} ج)` : ''}</span>
                         </div>
-                        <span class="bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-2 py-0.5 rounded-lg text-[11px] font-black">
-                            ${Math.round(info.revenue).toLocaleString()} ج
+                        <span class="bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-2 py-0.5 rounded-lg text-[11px] font-black mb-1.5">
+                            ${Math.round(shownR).toLocaleString()} ج
                         </span>
+                        <div class="text-[9px] font-black text-slate-500 bg-white px-2 py-1 rounded-lg border border-slate-200/60 flex justify-between">
+                            <span class="text-emerald-700">✅ مسلّم: ${Number(info.completedQty.toFixed(1))}</span>
+                            <span class="text-amber-600">⏳ محجوز: ${Number(info.pendingQty.toFixed(1))}</span>
+                        </div>
                     </div>`;
                 }).join('');
             }
         }
+
 
         // 12. رسم جدول سجل الطلبات التفصيلي
         const tbody = document.getElementById('sm-dash-orders-tbody');
