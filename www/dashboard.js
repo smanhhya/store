@@ -67,9 +67,9 @@
         return { type: 'meat', unitLabel: 'طبق/جوز', isMeat: true };
     };
 
-    // تدقيق حسابات الطلب الواحد (يضمن صحة الأرقام حتى للطلبات القديمة أو المعدلة)
+    // تدقيق حسابات الطلب الواحد (صافي حساب المالك بدون مصاريف التوصيل الخاصة بالمناديب)
     window.getAccurateOrderFinancials = function (o) {
-        if (!o) return { subtotal: 0, delivery: 0, discount: 0, total: 0, implicitDiscount: 0 };
+        if (!o) return { subtotal: 0, delivery: 0, driverDelivery: 0, discount: 0, total: 0, implicitDiscount: 0 };
         let itemsCalcSum = 0;
         let implicitDisc = 0;
 
@@ -86,27 +86,28 @@
             });
         }
 
-        const delivery = Number(o.deliveryFee) || 0;
+        const driverDelivery = Number(o.deliveryFee) || 0;
         const discount = Number(o.discount) || 0;
         const rawTotal = Number(o.total);
         const rawSub = Number(o.subtotal);
 
         const subtotal = !isNaN(rawSub) && rawSub > 0
             ? rawSub
-            : (itemsCalcSum > 0 ? itemsCalcSum : Math.max(0, (rawTotal || 0) - delivery + discount));
+            : (itemsCalcSum > 0 ? itemsCalcSum : Math.max(0, (rawTotal || 0) - driverDelivery + discount));
 
-        const total = !isNaN(rawTotal) && rawTotal >= 0
-            ? rawTotal
-            : Math.max(0, subtotal + delivery - discount);
+        // الصافي الحقيقي للمالك = قيمة المنتجات ناقص الخصم فقط (بدون التوصيل نهائياً)
+        const netOwnerTotal = Math.max(0, Math.round(subtotal - discount));
 
         return {
             subtotal: Math.round(subtotal),
-            delivery: Math.round(delivery),
+            delivery: 0,
+            driverDelivery: Math.round(driverDelivery),
             discount: Math.round(discount),
-            total: Math.round(total),
+            total: netOwnerTotal,
             implicitDiscount: Math.round(implicitDisc)
         };
     };
+
 
     // ربط ذكي للطلب بالدفعة الخاصة به حتى لو كان يحمل batchId فقط أو تم أرشفة الدفعة
     window.resolveOrderBatchName = function (o) {
@@ -485,20 +486,175 @@
     };
 
     // =========================================================================
-    // 🧾 ثالثاً: محرك المصروفات وسجل الهالك والبايظ والخزنة (Ledger & Waste)
+    // 🧾 ثالثاً: المحرك المحاسبي الشامل (الخزنة الذكية + ديون عليا + الثوابت الشهرية + الجرد السنوي)
     // =========================================================================
 
+    const defaultAccountingConfig = {
+        fiscalResetMs: 0, // نقطة بداية الحسابات بعد آخر جرد سنوي/تصفير
+        activeFiscalTitle: 'الحسابات الحالية (منذ آخر جرد)',
+        viewingArchiveId: 'CURRENT', // 'CURRENT' أو معرف جرد سابق مثل 'fy_2026'
+        fixedMonthly: {
+            rent: 0,        // إيجار شهري ثابت
+            electricity: 0, // كهرباء
+            water: 0,       // مياه
+            labor: 0,       // عمالة / أجرتك الشهرية
+            otherFixed: 0,  // مصاريف ثابتة أخرى
+            dueTiming: 'start', // 'start' (أول الشهر) | 'end' (آخر الشهر)
+            autoApprove: false, // تنزيل تلقائي أم تنبيه بالاعتماد
+            lastAppliedMonth: '' // مثال: '2026-11'
+        },
+        annualArchives: {} // أرشيف الجرد السنوي (مثل: جرد سنة 2026)
+    };
+
+    window.storeAccountingConfig = JSON.parse(JSON.stringify(defaultAccountingConfig));
+
+    // تحميل السجلات المالية وإعدادات الثوابت والجرد السنوي
     window.loadLedgerRecordsSafe = async function () {
+        try {
+            const cachedCfg = localStorage.getItem('sman_accounting_cfg');
+            if (cachedCfg) {
+                const parsed = JSON.parse(cachedCfg);
+                window.storeAccountingConfig = {
+                    ...defaultAccountingConfig,
+                    ...parsed,
+                    fixedMonthly: { ...defaultAccountingConfig.fixedMonthly, ...(parsed.fixedMonthly || {}) },
+                    annualArchives: parsed.annualArchives || {}
+                };
+            }
+        } catch (e) {}
+
         if (typeof db === 'undefined') return;
         try {
-            const doc = await db.collection('inventory').doc('ledger_records').get();
-            if (doc.exists) {
-                window.storeLedgerRecords = doc.data() || {};
+            const [ledgerDoc, cfgDoc] = await Promise.all([
+                db.collection('inventory').doc('ledger_records').get(),
+                db.collection('inventory').doc('accounting_config').get()
+            ]);
+
+            if (ledgerDoc.exists) {
+                window.storeLedgerRecords = ledgerDoc.data() || {};
             }
+            if (cfgDoc.exists) {
+                const cData = cfgDoc.data() || {};
+                window.storeAccountingConfig = {
+                    ...defaultAccountingConfig,
+                    ...cData,
+                    fixedMonthly: { ...defaultAccountingConfig.fixedMonthly, ...(cData.fixedMonthly || {}) },
+                    annualArchives: cData.annualArchives || {}
+                };
+                try { localStorage.setItem('sman_accounting_cfg', JSON.stringify(window.storeAccountingConfig)); } catch (e) {}
+            }
+
+            // فحص المصاريف الشهرية الثابتة فور التحميل
+            await window.checkAndProcessMonthlyFixedExpenses(false);
             window.renderSmartDashboard();
         } catch (e) {
-            console.log('Ledger load info:', e);
+            console.log('Ledger & Config load info:', e);
         }
+    };
+
+    async function persistAccountingConfig() {
+        try {
+            localStorage.setItem('sman_accounting_cfg', JSON.stringify(window.storeAccountingConfig));
+        } catch (e) {}
+        if (typeof db !== 'undefined') {
+            await db.collection('inventory').doc('accounting_config').set(window.storeAccountingConfig, { merge: true }).catch(() => {});
+        }
+    }
+
+    // فحص هل الطلب أو السجل المالي يقع بعد تاريخ آخر تصفير/جرد سنوي
+    window.isAfterFiscalReset = function (timestampMs) {
+        const resetMs = Number(window.storeAccountingConfig?.fiscalResetMs) || 0;
+        if (resetMs <= 0) return true;
+        if (!timestampMs || timestampMs <= 0) return false;
+        return timestampMs >= resetMs;
+    };
+
+    // حساب السيولة الحية المتاحة الآن في (خزنة الكاش) و(محفظة الأونلاين) منذ آخر جرد
+    window.getLiveAvailableSafeBalances = function () {
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const ledgerList = Object.values(window.storeLedgerRecords || {});
+        let cashIn = 0, onlineIn = 0;
+        let cashOut = 0, onlineOut = 0;
+
+        ordersList.forEach(o => {
+            if (!o || o.status !== 'completed') return;
+            const oMs = (o.completedAt && typeof o.completedAt.toMillis === 'function')
+                ? o.completedAt.toMillis()
+                : (o.createdAt && typeof o.createdAt.toMillis === 'function' ? o.createdAt.toMillis() : (o.completedAtStr ? new Date(o.completedAtStr).getTime() : 0));
+            if (!window.isAfterFiscalReset(oMs)) return;
+
+            const fin = window.getAccurateOrderFinancials(o);
+            if (o.paymentMethod === 'online') onlineIn += fin.total;
+            else cashIn += fin.total;
+        });
+
+        ledgerList.forEach(r => {
+            if (!r || !window.isAfterFiscalReset(r.createdAtMs)) return;
+            if (r.type === 'expense' || r.type === 'fixed_monthly') {
+                if (r.cashPaid !== undefined || r.onlinePaid !== undefined) {
+                    cashOut += Number(r.cashPaid) || 0;
+                    onlineOut += Number(r.onlinePaid) || 0;
+                } else {
+                    if (r.paymentSource === 'online') onlineOut += Number(r.amount) || 0;
+                    else cashOut += Number(r.amount) || 0;
+                }
+            } else if (r.type === 'payable_debt') {
+                // في الديون عليا: لا نخصم من الخزنة إلا ما تم سداده فعلياً (لمنع التكرار)
+                cashOut += Number(r.paidCash) || 0;
+                onlineOut += Number(r.paidOnline) || 0;
+            }
+        });
+
+        return {
+            netCash: Math.round(cashIn - cashOut),
+            netOnline: Math.round(onlineIn - onlineOut),
+            cashIn, onlineIn, cashOut, onlineOut
+        };
+    };
+
+    // دالة التوزيع الذكي للدفع: تسحب من الكاش أولاً، فإذا لم يكفِ تسحب الباقي تلقائياً من الأونلاين!
+    window.allocateSmartPaymentSplit = function (amountNeeded, preferredSource = 'auto') {
+        const amt = Math.round(Number(amountNeeded) || 0);
+        if (amt <= 0) return { cashPaid: 0, onlinePaid: 0, shortfallDebt: 0, summaryText: '' };
+
+        const safes = window.getLiveAvailableSafeBalances();
+        const availCash = Math.max(0, safes.netCash);
+        const availOnline = Math.max(0, safes.netOnline);
+
+        if (preferredSource === 'online') {
+            if (availOnline >= amt) {
+                return { cashPaid: 0, onlinePaid: amt, shortfallDebt: 0, summaryText: `خُصم ${amt} ج من الأونلاين` };
+            }
+            const fromOnline = availOnline;
+            const rem = amt - fromOnline;
+            const fromCash = Math.min(availCash, rem);
+            const shortfall = rem - fromCash;
+            return {
+                cashPaid: fromCash,
+                onlinePaid: fromOnline,
+                shortfallDebt: shortfall,
+                summaryText: `خُصم ${fromOnline} ج أونلاين + ${fromCash} ج كاش`
+            };
+        }
+
+        // الوضع الافتراضي الذكي: يسحب من الكاش أولاً، وإذا لم يكفِ يكمل من الأونلاين تلقائياً
+        if (availCash >= amt) {
+            return { cashPaid: amt, onlinePaid: 0, shortfallDebt: 0, summaryText: `خُصم ${amt} ج من الكاش` };
+        }
+
+        const fromCash = availCash;
+        const remAfterCash = amt - fromCash;
+        const fromOnline = Math.min(availOnline, remAfterCash);
+        const shortfall = remAfterCash - fromOnline;
+
+        return {
+            cashPaid: fromCash,
+            onlinePaid: fromOnline,
+            shortfallDebt: shortfall,
+            summaryText: fromCash > 0
+                ? `خُصم ${fromCash} ج من الكاش + ${fromOnline} ج تلقائياً من الأونلاين`
+                : `الكاش صفر — خُصم ${fromOnline} ج تلقائياً من محفظة الأونلاين`
+        };
     };
 
     window.quickToggleStoreOpenStatus = async function () {
@@ -520,6 +676,7 @@
         }
     };
 
+    // فتح فورم تسجيل (مصروف / دين عليا / هالك)
     window.openLedgerEntryBox = function (mode, prefillBatchName = '') {
         window.updateDashState('activeSubTab', 'ledger_waste');
         const box = document.getElementById('sm-ledger-form-box');
@@ -531,16 +688,22 @@
 
         const expWrap = document.getElementById('lg-expense-fields');
         const wasteWrap = document.getElementById('lg-waste-fields');
+        const debtWrap = document.getElementById('lg-debt-fields');
         const formTitle = document.getElementById('lg-form-title');
 
+        if (expWrap) expWrap.classList.add('hidden');
+        if (wasteWrap) wasteWrap.classList.add('hidden');
+        if (debtWrap) debtWrap.classList.add('hidden');
+
         if (mode === 'waste') {
-            formTitle.innerHTML = '<i class="fa-solid fa-triangle-exclamation text-rose-500 mr-1.5"></i> تسجيل هالك / بايظ / استهلاك بيت / تعويض';
-            expWrap.classList.add('hidden');
-            wasteWrap.classList.remove('hidden');
+            if (formTitle) formTitle.innerHTML = '<i class="fa-solid fa-triangle-exclamation text-rose-400 mr-1.5"></i> تسجيل هالك / بايظ / استهلاك بيت';
+            if (wasteWrap) wasteWrap.classList.remove('hidden');
+        } else if (mode === 'payable_debt') {
+            if (formTitle) formTitle.innerHTML = '<i class="fa-solid fa-file-invoice-dollar text-purple-400 mr-1.5"></i> تسجيل (ديون عليا) — شراء آجل بدون سيولة حالية';
+            if (debtWrap) debtWrap.classList.remove('hidden');
         } else {
-            formTitle.innerHTML = '<i class="fa-solid fa-money-bill-transfer text-amber-500 mr-1.5"></i> تسجيل مصروف تشغيل أو سحب نقدي';
-            wasteWrap.classList.add('hidden');
-            expWrap.classList.remove('hidden');
+            if (formTitle) formTitle.innerHTML = '<i class="fa-solid fa-money-bill-transfer text-amber-400 mr-1.5"></i> تسجيل مشتريات / مصروف (يسحب من الكاش ثم الأونلاين تلقائياً)';
+            if (expWrap) expWrap.classList.remove('hidden');
         }
 
         const batchSel = document.getElementById('lg-batch-name');
@@ -551,6 +714,7 @@
         box.scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
 
+    // حفظ العملية المالية (مصروف ذكي / دين عليا بدون تكرار / هالك)
     window.submitLedgerRecord = async function () {
         const mode = document.getElementById('lg-entry-type')?.value || 'expense';
         const batchName = document.getElementById('lg-batch-name')?.value || '';
@@ -568,16 +732,98 @@
             createdAtMs: nowMs
         };
 
+        const extraRecordsToSave = {};
+
         if (mode === 'expense') {
             const category = document.getElementById('lg-exp-category')?.value || 'علف وتسمين';
-            const amount = Number(document.getElementById('lg-exp-amount')?.value) || 0;
-            const paySource = document.getElementById('lg-exp-source')?.value || 'cash';
+            const amount = Math.round(Number(document.getElementById('lg-exp-amount')?.value) || 0);
+            const paySource = document.getElementById('lg-exp-source')?.value || 'auto';
 
-            if (amount <= 0) return alert('برجاء إدخال مبلغ المصروف بشكل صحيح!');
+            if (amount <= 0) return alert('برجاء إدخال المبلغ بشكل صحيح!');
 
+            // إذا اختار المستخدم أنه اشترى بالأجل (على الحساب) من داخل نافذة المصروف
+            if (paySource === 'credit_debt') {
+                const credName = prompt('اكتب اسم التاجر / الشخص صاحب الدين (عشان تعرف مين اللي ليه فلوس):', category);
+                if (credName === null) return;
+                recordObj.type = 'payable_debt';
+                recordObj.creditorName = credName.trim() || 'مورد / دائن';
+                recordObj.category = category;
+                recordObj.amount = amount;
+                recordObj.paidCash = 0;
+                recordObj.paidOnline = 0;
+                recordObj.remainingDebt = amount;
+                recordObj.status = 'unpaid';
+            } else {
+                const split = window.allocateSmartPaymentSplit(amount, paySource);
+
+                if (split.shortfallDebt > 0) {
+                    const paidNow = split.cashPaid + split.onlinePaid;
+                    const confirmDebt = confirm(
+                        `⚠️ السيولة المتاحة في الخزنة الآن (${split.cashPaid} ج كاش + ${split.onlinePaid} ج أونلاين = ${paidNow} ج) لا تكفي المبلغ الكلي (${amount} ج)!\n\n` +
+                        `هل تريد سحب الموجود (${paidNow} ج) وتسجيل المبلغ المتبقي (${split.shortfallDebt} ج) تلقائياً في بند (ديون عليا)؟`
+                    );
+                    if (!confirmDebt) return;
+
+                    const credName = prompt(`اكتب اسم صاحب الدين المتبقي (${split.shortfallDebt} ج):`, category) || category;
+
+                    if (paidNow > 0) {
+                        recordObj.category = category;
+                        recordObj.amount = paidNow;
+                        recordObj.cashPaid = split.cashPaid;
+                        recordObj.onlinePaid = split.onlinePaid;
+                        recordObj.paymentSource = split.onlinePaid > 0 && split.cashPaid > 0 ? 'split_cash_online' : (split.onlinePaid > 0 ? 'online' : 'cash');
+                        recordObj.notes = (notes ? notes + ' | ' : '') + split.summaryText;
+                    }
+
+                    const debtId = 'rec_debt_' + (Date.now() + 1);
+                    const debtRec = {
+                        id: debtId,
+                        type: 'payable_debt',
+                        creditorName: credName.trim(),
+                        category: category,
+                        batchName: batchName,
+                        amount: split.shortfallDebt,
+                        paidCash: 0,
+                        paidOnline: 0,
+                        remainingDebt: split.shortfallDebt,
+                        status: 'unpaid',
+                        notes: `باقي شراء ${category} (إجمالي الفاتورة كان ${amount} ج دُفع منها ${paidNow} ج)`,
+                        dateStr: todayStr,
+                        createdAtMs: nowMs + 1
+                    };
+
+                    if (paidNow > 0) {
+                        extraRecordsToSave[debtId] = debtRec;
+                    } else {
+                        recordObj = debtRec;
+                    }
+                } else {
+                    recordObj.category = category;
+                    recordObj.amount = amount;
+                    recordObj.cashPaid = split.cashPaid;
+                    recordObj.onlinePaid = split.onlinePaid;
+                    recordObj.paymentSource = split.onlinePaid > 0 && split.cashPaid > 0 ? 'split_cash_online' : (split.onlinePaid > 0 ? 'online' : 'cash');
+                    if (split.onlinePaid > 0 && paySource !== 'online') {
+                        recordObj.notes = (notes ? notes + ' | ' : '') + split.summaryText;
+                    }
+                }
+            }
+        } else if (mode === 'payable_debt') {
+            const creditorName = (document.getElementById('lg-debt-creditor')?.value || '').trim();
+            const category = document.getElementById('lg-debt-category')?.value || 'شراء علف / مستلزمات بالأجل';
+            const amount = Math.round(Number(document.getElementById('lg-debt-amount')?.value) || 0);
+
+            if (!creditorName) return alert('برجاء كتابة اسم الشخص أو التاجر اللي ليه الفلوس!');
+            if (amount <= 0) return alert('برجاء إدخال مبلغ الدين بشكل صحيح!');
+
+            recordObj.type = 'payable_debt';
+            recordObj.creditorName = creditorName;
             recordObj.category = category;
             recordObj.amount = amount;
-            recordObj.paymentSource = paySource;
+            recordObj.paidCash = 0;
+            recordObj.paidOnline = 0;
+            recordObj.remainingDebt = amount;
+            recordObj.status = 'unpaid';
         } else {
             const wasteKind = document.getElementById('lg-waste-kind')?.value || 'هالك تربية / نافق';
             const prodId = document.getElementById('lg-waste-product')?.value || '';
@@ -612,22 +858,245 @@
         }
 
         try {
-            window.storeLedgerRecords[recId] = recordObj;
-            await db.collection('inventory').doc('ledger_records').set({
-                [recId]: recordObj
-            }, { merge: true });
+            const payloadToSave = { [recordObj.id]: recordObj, ...extraRecordsToSave };
+            Object.assign(window.storeLedgerRecords, payloadToSave);
 
-            if (document.getElementById('lg-exp-amount')) document.getElementById('lg-exp-amount').value = '';
-            if (document.getElementById('lg-waste-qty')) document.getElementById('lg-waste-qty').value = '';
-            if (document.getElementById('lg-waste-cost')) document.getElementById('lg-waste-cost').value = '';
-            if (document.getElementById('lg-notes')) document.getElementById('lg-notes').value = '';
+            if (typeof db !== 'undefined') {
+                await db.collection('inventory').doc('ledger_records').set(payloadToSave, { merge: true });
+            }
+
+            ['lg-exp-amount', 'lg-waste-qty', 'lg-waste-cost', 'lg-debt-creditor', 'lg-debt-amount', 'lg-notes'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
             document.getElementById('sm-ledger-form-box')?.classList.add('hidden');
 
             window.renderSmartDashboard();
-            window.showToast(mode === 'waste' ? '✅ تم تسجيل الهالك/الاستهلاك وتحديث الحسابات' : '✅ تم تسجيل المصروف وخصمه من صافي الربح');
+            window.showToast('✅ تم الحفظ وتحديث الحسابات والخزنة بنجاح');
         } catch (e) {
             alert('حدث خطأ أثناء حفظ السجل: ' + (e.message || e));
         }
+    };
+
+    // سداد دين عليا (كلي أو جزئي) من الخزنة بدون تكراره كمصروف مرة ثانية!
+    window.settleOwnerDebtRecord = async function (recId) {
+        const rec = window.storeLedgerRecords[recId];
+        if (!rec || rec.type !== 'payable_debt') return;
+
+        const rem = Number(rec.remainingDebt !== undefined ? rec.remainingDebt : rec.amount) || 0;
+        if (rem <= 0) return alert('هذا الدين مسدد بالكامل بالفعل!');
+
+        const payStr = prompt(
+            `💵 سداد دين لصاحب الحق: (${rec.creditorName})\n` +
+            `الغرض: ${rec.category}\n` +
+            `المبلغ المتبقي عليك حالياً: ${rem} ج.م\n\n` +
+            `اكتب المبلغ الذي ستسدده الآن (سيتم سحبه من الكاش، وإذا لم يكفِ سيُسحب الباقي من الأونلاين تلقائياً، ولن يُضاف كمصروف مكرر):`,
+            String(rem)
+        );
+        if (payStr === null) return;
+        const payAmt = Math.round(Number(payStr) || 0);
+        if (payAmt <= 0 || payAmt > rem) return alert('برجاء إدخال مبلغ سداد صحيح لا يتخطى المتبقي!');
+
+        const split = window.allocateSmartPaymentSplit(payAmt, 'auto');
+        if (split.shortfallDebt > 0) {
+            return alert(`⚠️ رصيد الخزنة الحالي (كاش + أونلاين) لا يكفي لسداد هذا المبلغ! المتاح حالياً: ${split.cashPaid + split.onlinePaid} ج.م.`);
+        }
+
+        rec.paidCash = (Number(rec.paidCash) || 0) + split.cashPaid;
+        rec.paidOnline = (Number(rec.paidOnline) || 0) + split.onlinePaid;
+        rec.remainingDebt = Math.max(0, rem - payAmt);
+        rec.status = rec.remainingDebt === 0 ? 'paid' : 'partial';
+        rec.lastPaidDate = new Date().toLocaleDateString('ar-EG');
+
+        try {
+            window.storeLedgerRecords[recId] = rec;
+            if (typeof db !== 'undefined') {
+                await db.collection('inventory').doc('ledger_records').set({ [recId]: rec }, { merge: true });
+            }
+            window.renderSmartDashboard();
+            window.showToast(`✅ تم سداد ${payAmt} ج لـ (${rec.creditorName}) — (${split.summaryText})`);
+        } catch (e) {
+            alert('حدث خطأ أثناء تسجيل السداد!');
+        }
+    };
+
+    // حفظ إعدادات المصاريف الثابتة الشهرية (إيجار، كهرباء، مياه، عمالة/أجرتي)
+    window.saveFixedMonthlyExpensesConfig = async function () {
+        const fm = window.storeAccountingConfig.fixedMonthly || {};
+        fm.rent = Math.max(0, Number(document.getElementById('fm-rent')?.value) || 0);
+        fm.electricity = Math.max(0, Number(document.getElementById('fm-electricity')?.value) || 0);
+        fm.water = Math.max(0, Number(document.getElementById('fm-water')?.value) || 0);
+        fm.labor = Math.max(0, Number(document.getElementById('fm-labor')?.value) || 0);
+        fm.otherFixed = Math.max(0, Number(document.getElementById('fm-other')?.value) || 0);
+        fm.dueTiming = document.getElementById('fm-timing')?.value || 'start';
+        fm.autoApprove = document.getElementById('fm-auto-approve')?.checked || false;
+
+        window.storeAccountingConfig.fixedMonthly = fm;
+        await persistAccountingConfig();
+        await window.checkAndProcessMonthlyFixedExpenses(false);
+        window.renderSmartDashboard();
+        window.showToast('✅ تم حفظ جدول المصاريف الثابتة الشهرية بنجاح!');
+    };
+
+    // فحص وتنبيه (أو اعتماد) المصاريف الثابتة الشهرية
+    window.checkAndProcessMonthlyFixedExpenses = async function (forceManualApply = false) {
+        const fm = window.storeAccountingConfig?.fixedMonthly;
+        if (!fm) return false;
+
+        const totalFixed = (Number(fm.rent) || 0) + (Number(fm.electricity) || 0) + (Number(fm.water) || 0) + (Number(fm.labor) || 0) + (Number(fm.otherFixed) || 0);
+        if (totalFixed <= 0) return false;
+
+        const nowObj = new Date();
+        const curMonthKey = `${nowObj.getFullYear()}-${String(nowObj.getMonth() + 1).padStart(2, '0')}`;
+
+        if (!forceManualApply && fm.lastAppliedMonth === curMonthKey) {
+            return false;
+        }
+
+        const dayOfMonth = nowObj.getDate();
+        const isDueNow = (fm.dueTiming === 'start' && dayOfMonth >= 1) || (fm.dueTiming === 'end' && dayOfMonth >= 25);
+
+        if (!forceManualApply && (!isDueNow || !fm.autoApprove)) {
+            // لا نخصمها تلقائياً، بل نترك شريط الإشعار الذكي يظهر للمستخدم في أعلى اللوحة ليعتمدها بضغطة زر
+            return false;
+        }
+
+        if (forceManualApply && fm.lastAppliedMonth === curMonthKey) {
+            if (!confirm(`تم إدراج المصاريف الثابتة لشهر (${curMonthKey}) من قبل. هل تريد إدراجها مرة أخرى؟`)) return false;
+        }
+
+        const detailsArr = [];
+        if (fm.rent > 0) detailsArr.push(`إيجار: ${fm.rent}ج`);
+        if (fm.electricity > 0) detailsArr.push(`كهرباء: ${fm.electricity}ج`);
+        if (fm.water > 0) detailsArr.push(`مياه: ${fm.water}ج`);
+        if (fm.labor > 0) detailsArr.push(`عمالة/أجرتي: ${fm.labor}ج`);
+        if (fm.otherFixed > 0) detailsArr.push(`ثوابت أخرى: ${fm.otherFixed}ج`);
+
+        const split = window.allocateSmartPaymentSplit(totalFixed, 'auto');
+        const paidNow = split.cashPaid + split.onlinePaid;
+        const recId = 'rec_fixed_' + curMonthKey + '_' + Date.now();
+        const todayStr = nowObj.toLocaleDateString('en-US');
+
+        const payload = {};
+
+        if (paidNow > 0) {
+            payload[recId] = {
+                id: recId,
+                type: 'expense',
+                isFixedMonthly: true,
+                category: `📅 مصاريف ثابتة (${curMonthKey})`,
+                batchName: '',
+                amount: paidNow,
+                cashPaid: split.cashPaid,
+                onlinePaid: split.onlinePaid,
+                paymentSource: split.onlinePaid > 0 && split.cashPaid > 0 ? 'split_cash_online' : (split.onlinePaid > 0 ? 'online' : 'cash'),
+                notes: `${detailsArr.join(' + ')} | ${split.summaryText}`,
+                dateStr: todayStr,
+                createdAtMs: Date.now()
+            };
+        }
+
+        // إذا كانت السيولة لا تكفي للمصاريف الثابتة، يسجل الباقي كالتزام في (ديون عليا)
+        if (split.shortfallDebt > 0) {
+            const debtId = 'rec_fixed_debt_' + curMonthKey + '_' + (Date.now() + 1);
+            payload[debtId] = {
+                id: debtId,
+                type: 'payable_debt',
+                creditorName: `التزامات شهرية ثابتة (${curMonthKey})`,
+                category: 'إيجار / كهرباء / مياه / عمالة',
+                batchName: '',
+                amount: split.shortfallDebt,
+                paidCash: 0,
+                paidOnline: 0,
+                remainingDebt: split.shortfallDebt,
+                status: 'unpaid',
+                notes: `متبقي من المصاريف الثابتة لشهر ${curMonthKey} (${detailsArr.join(' + ')})`,
+                dateStr: todayStr,
+                createdAtMs: Date.now() + 1
+            };
+        }
+
+        Object.assign(window.storeLedgerRecords, payload);
+        fm.lastAppliedMonth = curMonthKey;
+        window.storeAccountingConfig.fixedMonthly = fm;
+
+        if (typeof db !== 'undefined') {
+            await Promise.all([
+                db.collection('inventory').doc('ledger_records').set(payload, { merge: true }),
+                persistAccountingConfig()
+            ]);
+        }
+
+        window.renderSmartDashboard();
+        window.showToast(`✅ تم اعتماد المصاريف الثابتة لشهر (${curMonthKey}) بإجمالي ${totalFixed.toLocaleString()} ج!`);
+        return true;
+    };
+
+    // 🔄 محرك الجرد السنوي وتصفير السيستم لبداية جديدة مع حفظ القديم في بند (سنة 2026)
+    window.executeAnnualInventoryReset = async function () {
+        const defaultTitle = `جرد سنة ${new Date().getFullYear()}`;
+        const archiveTitle = prompt(
+            `🔄 الجرد السنوي وتصفير الحسابات لبداية جديدة:\n\n` +
+            `سيقوم السيستم بحفظ كل الأموال التي دخلت وخرجت والمبيعات والمصروفات الحالية في ملف أرشيف محفوظ، ثم يصفر الخزنة والحسابات الحالية (0 ج) لتبدأ من الصفر على نظافة دون ضياع أي طلب أو عميل قديم.\n\n` +
+            `اكتب اسم ملف الجرد لحفظ الحسابات الحالية فيه:`,
+            defaultTitle
+        );
+        if (!archiveTitle || !archiveTitle.trim()) return;
+
+        if (!confirm(`⚠️ تأكيد نهائي:\nهل تريد حفظ الحسابات الحالية في بند (${archiveTitle.trim()}) وتصفير السيستم ليبدأ العد من الصفر الآن؟`)) return;
+
+        // أخذ لقطة كاملة للأرقام الحالية قبل التصفير
+        const safes = window.getLiveAvailableSafeBalances();
+        const totalIn = safes.cashIn + safes.onlineIn;
+        const totalOut = safes.cashOut + safes.onlineOut;
+        const netSafeBalance = safes.netCash + safes.netOnline;
+
+        const archId = 'fy_' + Date.now();
+        const resetNowMs = Date.now();
+
+        const snapshotObj = {
+            id: archId,
+            title: archiveTitle.trim(),
+            closedAtMs: resetNowMs,
+            closedDateStr: new Date(resetNowMs).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' }),
+            previousResetMs: window.storeAccountingConfig.fiscalResetMs || 0,
+            totalSalesIn: totalIn,
+            cashIn: safes.cashIn,
+            onlineIn: safes.onlineIn,
+            totalExpensesOut: totalOut,
+            cashOut: safes.cashOut,
+            onlineOut: safes.onlineOut,
+            finalNetCash: safes.netCash,
+            finalNetOnline: safes.netOnline,
+            finalTotalProfit: netSafeBalance
+        };
+
+        if (!window.storeAccountingConfig.annualArchives) {
+            window.storeAccountingConfig.annualArchives = {};
+        }
+        window.storeAccountingConfig.annualArchives[archId] = snapshotObj;
+        window.storeAccountingConfig.fiscalResetMs = resetNowMs;
+        window.storeAccountingConfig.viewingArchiveId = 'CURRENT';
+
+        await persistAccountingConfig();
+        window.renderSmartDashboard();
+        alert(`🎉 تم عمل الجرد السنوي بنجاح!\n\n- تم حفظ كل حساباتك السابقة في بند: (${snapshotObj.title}).\n- تم تصفير الخزنة والمبيعات والمصاريف الحالية إلى (0 ج) لتبدأ حساباتك الجديدة من الصفر!`);
+    };
+
+    // التبديل بين عرض الحسابات الحالية بعد التصفير أو عرض جرد سنة سابقة (مثل: سنه 2026)
+    window.switchFiscalArchiveView = function (viewId) {
+        window.storeAccountingConfig.viewingArchiveId = viewId || 'CURRENT';
+        window.renderSmartDashboard();
+    };
+
+    // استعادة السيستم لإلغاء التصفير في حال أراد المستخدم دمج القديم والجديد مرة أخرى
+    window.cancelFiscalResetAndRestoreAll = async function () {
+        if (!confirm('هل تريد إلغاء نقطة التصفير وإظهار كل الحسابات التاريخية المجمعة منذ بداية المشروع؟')) return;
+        window.storeAccountingConfig.fiscalResetMs = 0;
+        window.storeAccountingConfig.viewingArchiveId = 'CURRENT';
+        await persistAccountingConfig();
+        window.renderSmartDashboard();
+        window.showToast('↩️ تمت استعادة عرض كل الحسابات التاريخية');
     };
 
     window.deleteLedgerRecord = async function (recId) {
@@ -643,6 +1112,7 @@
             alert('خطأ أثناء الحذف!');
         }
     };
+
 
     // =========================================================================
     // 🎨 رابعاً: بناء الهيكل البصري الفائق للوحة القيادة
