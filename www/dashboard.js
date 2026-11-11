@@ -3012,8 +3012,262 @@
 
 
     // =========================================================================
-    // 🔌 سابعاً: ترقية نافذة الفريزر والتحديد الجماعي والربط التلقائي
+    // 🔌 سابعاً: حماية الطلبات من الأرشفة التلقائية + استعادة أي طلب منفرد + الفريزر
     // =========================================================================
+
+    // 1. دالة استعادة طلب واحد من الأرشيف وإرجاعه لشاشة الطلبات الحية (قسم مكتمل) وخصمه من الدفعة المؤرشفة
+    window.restoreSingleOrderFromArchive = async function (orderId, arId = '', clearBatchInfo = true) {
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const o = ordersList.find(x => x.id === orderId);
+        if (!o) return alert('لم يتم العثور على هذا الطلب!');
+
+        const archList = Array.isArray(window.archivedBatchesData)
+            ? window.archivedBatchesData
+            : (typeof archivedBatchesData !== 'undefined' && Array.isArray(archivedBatchesData) ? archivedBatchesData : []);
+
+        // البحث عن الدفعة المؤرشفة التي دخل فيها الطلب
+        const a = archList.find(x => x && (x.id === arId || (o.batchId && x.originalBatchId === o.batchId) || (o.batchName && x.batchName === o.batchName)));
+
+        const confirmMsg = clearBatchInfo
+            ? `↩️ هل تريد استعادة طلب العميل (${o.customerName}) إلى شاشة الطلبات الحية (قسم مكتمل) كطلب فوري بدون دفعة، وإلغاء أرشفته؟`
+            : `↩️ هل تريد استعادة طلب العميل (${o.customerName}) إلى شاشة الطلبات الحية (قسم مكتمل)؟`;
+        if (!confirm(confirmMsg)) return;
+
+        try {
+            const orderUpdate = {
+                isArchived: firebase.firestore.FieldValue.delete()
+            };
+            if (clearBatchInfo) {
+                orderUpdate.batchId = '';
+                orderUpdate.batchName = '';
+            }
+
+            if (typeof db !== 'undefined') {
+                await db.collection('orders').doc(orderId).update(orderUpdate);
+            }
+
+            // خصم حساب الطلب من تقرير الدفعة المؤرشفة إذا كان محسوباً فيها
+            if (a && o.status === 'completed') {
+                const oRev = Number(o.total) || 0;
+                const oDel = Number(o.deliveryFee) || 0;
+                const oDisc = Number(o.discount) || 0;
+
+                a.totalRevenue = Math.max(0, (Number(a.totalRevenue) || 0) - oRev);
+                a.totalDelivery = Math.max(0, (Number(a.totalDelivery) || 0) - oDel);
+                a.totalDiscount = Math.max(0, (Number(a.totalDiscount) || 0) - oDisc);
+                a.ordersCount = Math.max(0, (Number(a.ordersCount) || 0) - 1);
+
+                if (o.zone && a.zonesSummary && a.zonesSummary[o.zone]) {
+                    a.zonesSummary[o.zone] = Math.max(0, a.zonesSummary[o.zone] - 1);
+                    if (a.zonesSummary[o.zone] === 0) delete a.zonesSummary[o.zone];
+                }
+                if (o.items && Array.isArray(o.items) && a.itemsSummary) {
+                    o.items.forEach(i => {
+                        if (a.itemsSummary[i.name] !== undefined) {
+                            a.itemsSummary[i.name] = Math.max(0, a.itemsSummary[i.name] - (Number(i.quantity) || 0));
+                            if (a.itemsSummary[i.name] === 0) delete a.itemsSummary[i.name];
+                        }
+                    });
+                }
+
+                if (typeof db !== 'undefined') {
+                    await db.collection('inventory').doc('archived_batches').set({ [a.id]: a }, { merge: true }).catch(() => {});
+                    await db.collection('archived_batches').doc(a.id).set(a, { merge: true }).catch(() => {});
+                }
+            }
+
+            // تحديث الذاكرة الحية فوراً ليظهر الطلب في قسم (مكتمل)
+            o.isArchived = false;
+            if (clearBatchInfo) {
+                o.batchId = '';
+                o.batchName = '';
+            }
+            if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
+                globalOrdersMap[orderId].isArchived = false;
+                if (clearBatchInfo) {
+                    globalOrdersMap[orderId].batchId = '';
+                    globalOrdersMap[orderId].batchName = '';
+                }
+            }
+
+            const reportModal = document.getElementById('archive-report-modal');
+            if (arId && reportModal && !reportModal.classList.contains('hidden')) {
+                window.openArchiveReport(arId);
+            }
+            if (typeof window.renderArchiveUI === 'function') window.renderArchiveUI();
+            if (typeof window.renderOrdersList === 'function') window.renderOrdersList();
+            window.renderSmartDashboard();
+
+            window.showToast('✅ تمت استعادة الطلب إلى شاشة (الطلبات الحية -> مكتمل) بنجاح!');
+        } catch (e) {
+            console.error('Restore single order error:', e);
+            alert('حدث خطأ أثناء استعادة الطلب: ' + (e.message || e));
+        }
+    };
+
+    // 2. ترقية نافذة تقرير الدفعة المؤرشفة لعرض كل الطلبات بداخلها + زر استعادة لأي طلب منفرد
+    function installEnhancedArchiveReportModal() {
+        window.openArchiveReport = function (arId) {
+            const archList = Array.isArray(window.archivedBatchesData)
+                ? window.archivedBatchesData
+                : (typeof archivedBatchesData !== 'undefined' && Array.isArray(archivedBatchesData) ? archivedBatchesData : []);
+
+            const a = archList.find(x => x && x.id === arId);
+            if (!a) return alert('لم يتم العثور على بيانات هذا الأرشيف!');
+
+            const titleEl = document.getElementById('ar-title');
+            if (titleEl) titleEl.innerText = a.batchName || 'دفعة مؤرشفة';
+
+            const itemsHtml = Object.keys(a.itemsSummary || {}).sort((k1, k2) => a.itemsSummary[k2] - a.itemsSummary[k1]).map(k => {
+                if ((a.itemsSummary[k] || 0) <= 0) return '';
+                return `<div class="bg-slate-50 border border-slate-100 p-3 rounded-xl text-center shadow-sm"><span class="block text-[10px] font-bold text-slate-500 mb-1 truncate">${k}</span><span class="text-lg font-black text-brand-primary">${a.itemsSummary[k]}</span></div>`;
+            }).join('');
+
+            const zonesHtml = Object.keys(a.zonesSummary || {}).sort((k1, k2) => a.zonesSummary[k2] - a.zonesSummary[k1]).map(k => {
+                if ((a.zonesSummary[k] || 0) <= 0) return '';
+                return `<span class="bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-black border border-indigo-100 shadow-sm">${k} <span class="bg-white text-indigo-500 px-1.5 py-0.5 rounded ml-1">${a.zonesSummary[k]}</span></span>`;
+            }).join(' ');
+
+            const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+            const batchArchivedOrders = ordersList.filter(o => {
+                if (!o || !o.isArchived) return false;
+                const matchById = (a.originalBatchId && o.batchId === a.originalBatchId) || (o.batchId === a.id);
+                const matchByName = (a.batchName && window.resolveOrderBatchName(o) === a.batchName.trim());
+                const matchOrphan = (!o.batchId || o.batchId === '') && (!o.batchName || o.batchName === '' || o.batchName === 'undefined');
+                return matchById || matchByName || matchOrphan;
+            });
+
+            const ordersRowsHtml = batchArchivedOrders.map(o => {
+                const fin = window.getAccurateOrderFinancials(o);
+                const itemsBadges = (o.items && Array.isArray(o.items))
+                    ? o.items.map(i => `<span class="bg-white border border-slate-200 text-slate-700 px-2 py-0.5 rounded text-[10px] font-bold">${i.quantity}x ${i.name}</span>`).join(' ')
+                    : '-';
+                const isOrphan = (!o.batchId || o.batchId === '');
+
+                return `
+                <div class="bg-slate-50 p-3.5 rounded-xl border ${isOrphan ? 'border-2 border-amber-400 bg-amber-50/50' : 'border-slate-200'} flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="font-black text-slate-800 text-xs">${o.customerName || 'عميل'}</span>
+                            <span class="text-[10px] font-bold text-slate-400" dir="ltr">${o.customerPhone || ''}</span>
+                            <span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-[10px] font-black">صافي: ${fin.total} ج</span>
+                            ${isOrphan ? '<span class="bg-amber-300 text-slate-950 px-2 py-0.5 rounded text-[9px] font-black">⚠️ دخل الأرشيف بدون دفعة</span>' : ''}
+                        </div>
+                        <div class="text-[10px] font-bold text-slate-500 mt-1">${o.zone || ''} ${o.customerAddress ? ' - ' + o.customerAddress : ''} • ${o.orderDate || ''}</div>
+                        <div class="flex flex-wrap gap-1 mt-1.5">${itemsBadges}</div>
+                    </div>
+                    <div class="flex flex-wrap gap-1.5 w-full sm:w-auto justify-end shrink-0">
+                        <button type="button" onclick="restoreSingleOrderFromArchive('${o.id}', '${a.id}', true)" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition-all flex items-center gap-1">
+                            <i class="fa-solid fa-rotate-left"></i> استعادة للحي (بدون دفعة)
+                        </button>
+                        <button type="button" onclick="restoreSingleOrderFromArchive('${o.id}', '${a.id}', false)" class="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition-all flex items-center gap-1">
+                            <i class="fa-solid fa-arrow-up-from-bracket"></i> استعادة مع الدفعة
+                        </button>
+                    </div>
+                </div>`;
+            }).join('');
+
+            const html = `
+            <div id="print-archive-area">
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                    <div class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm text-center">
+                        <p class="text-[10px] font-bold text-slate-500 mb-1">الطلبات المسلمة</p>
+                        <p class="text-2xl font-black text-blue-600">${a.ordersCount || 0}</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm text-center">
+                        <p class="text-[10px] font-bold text-slate-500 mb-1">الخصومات</p>
+                        <p class="text-2xl font-black text-red-500">${(a.totalDiscount || 0).toLocaleString()} ج</p>
+                    </div>
+                    <div class="bg-emerald-50 p-4 rounded-xl border border-emerald-100 shadow-sm text-center col-span-2 md:col-span-1">
+                        <p class="text-[10px] font-bold text-emerald-600 mb-1">الصافي المعتمد</p>
+                        <p class="text-2xl font-black text-emerald-700">${(a.totalRevenue || 0).toLocaleString()} ج</p>
+                    </div>
+                </div>
+                
+                <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-6">
+                    <h4 class="text-xs font-black text-slate-800 mb-4 pb-2 border-b border-slate-50"><i class="fa-solid fa-boxes-packing text-brand-primary mr-1"></i> إجمالي مبيعات الأصناف في هذه الدفعة</h4>
+                    <div class="grid grid-cols-3 md:grid-cols-6 gap-3">${itemsHtml || '<span class="text-xs text-slate-400">لا توجد بيانات</span>'}</div>
+                </div>
+
+                <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-6">
+                    <h4 class="text-xs font-black text-slate-800 mb-4 pb-2 border-b border-slate-50"><i class="fa-solid fa-map-location-dot text-indigo-500 mr-1"></i> التوزيع الجغرافي</h4>
+                    <div class="flex flex-wrap gap-2">${zonesHtml || '<span class="text-xs text-slate-400">لا توجد بيانات</span>'}</div>
+                </div>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border-2 border-amber-200 shadow-sm">
+                <div class="mb-3 pb-2 border-b border-slate-100">
+                    <h4 class="text-xs font-black text-slate-800"><i class="fa-solid fa-rotate-left text-amber-500 mr-1"></i> الطلبات الموجودة داخل الأرشيف (${batchArchivedOrders.length} طلب) — استعادة طلب منفرد</h4>
+                    <p class="text-[10px] font-bold text-slate-400 mt-0.5">اضغط (استعادة للحي بدون دفعة) على أي طلب دخل هنا بالخطأ ليعود فوراً إلى شاشة الطلبات الحية (قسم مكتمل).</p>
+                </div>
+                <div class="space-y-2.5 max-h-80 overflow-y-auto custom-scroll pr-1">
+                    ${ordersRowsHtml || '<div class="text-center py-6 text-xs font-bold text-slate-400">لا توجد طلبات مؤرشفة حالياً.</div>'}
+                </div>
+            </div>`;
+
+            const contentEl = document.getElementById('archive-report-content');
+            if (contentEl) contentEl.innerHTML = html;
+            const unarchBtn = document.getElementById('btn-unarchive');
+            if (unarchBtn) unarchBtn.onclick = () => { window.unarchiveBatch(arId); };
+            if (typeof openModal === 'function') openModal('archive-report-modal');
+        };
+    }
+
+    // 3. حارس صارم يمنع ذهاب أي طلب للأرشيف تلقائياً عند تحويل حالته إلى (مكتمل) إلا بأمر يدوي صريح منك
+    function installStrictAntiAutoArchiveGuard() {
+        if (typeof window.updateOrderStatus === 'function' && !window.updateOrderStatus._antiAutoArchiveGuarded) {
+            const _origUpdateStatus = window.updateOrderStatus;
+            const guardedUpdate = async function (id, newStatus) {
+                const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+                const ord = ordersList.find(x => x.id === id);
+                const wasArchivedBefore = ord ? Boolean(ord.isArchived) : false;
+                const origBatchId = ord ? (ord.batchId || '') : '';
+                const origBatchName = ord ? (ord.batchName || '') : '';
+
+                // نعطل مؤقتاً مصفوفة الأرشيف أثناء تنفيذ دالة الاكتمال حتى لا يلتقطها الكود القديم في index.html أو orders.js
+                let savedGlobalArch = [];
+                try {
+                    if (typeof archivedBatchesData !== 'undefined') {
+                        savedGlobalArch = archivedBatchesData;
+                        archivedBatchesData = [];
+                    }
+                } catch (e) {}
+
+                try {
+                    await _origUpdateStatus.apply(this, arguments);
+                } finally {
+                    try {
+                        if (savedGlobalArch.length > 0) {
+                            archivedBatchesData = savedGlobalArch;
+                        }
+                    } catch (e) {}
+                }
+
+                // إذا لم يكن الطلب مؤرشفاً من قبل، نضمن بقاءه في الشاشة الحية وعدم دخوله في أي دفعة بالخطأ
+                if (ord && !wasArchivedBefore && ord.isArchived) {
+                    ord.isArchived = false;
+                    ord.batchId = origBatchId;
+                    ord.batchName = origBatchName;
+                    if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) {
+                        globalOrdersMap[id].isArchived = false;
+                        globalOrdersMap[id].batchId = origBatchId;
+                        globalOrdersMap[id].batchName = origBatchName;
+                    }
+                    if (typeof db !== 'undefined') {
+                        await db.collection('orders').doc(id).update({
+                            isArchived: firebase.firestore.FieldValue.delete(),
+                            batchId: origBatchId,
+                            batchName: origBatchName
+                        }).catch(() => {});
+                    }
+                    if (typeof window.renderOrdersList === 'function') window.renderOrdersList();
+                }
+                window.renderSmartDashboard();
+            };
+            guardedUpdate._antiAutoArchiveGuarded = true;
+            window.updateOrderStatus = guardedUpdate;
+        }
+    }
 
     // ترقية نافذة الفريزر لمنع ظهور أي رقم سالب وإضافة زر التصفير الفوري
     const _origOpenFreezerModal = window.openFreezerModal;
@@ -3035,7 +3289,6 @@
         }
     };
 
-    // حماية التحديد الجماعي (bulkChangeStatus) ليسجل تاريخ الاكتمال ويمنع نزول الفريزر للسالب
     const _origBulkChangeStatus = window.bulkChangeStatus;
     if (typeof _origBulkChangeStatus === 'function') {
         window.bulkChangeStatus = async function (newStatus) {
@@ -3046,12 +3299,16 @@
 
     function bootSmartEngine() {
         window.initSmartDashboardLayout();
+        installEnhancedArchiveReportModal();
+        installStrictAntiAutoArchiveGuard();
         setTimeout(() => {
+            installEnhancedArchiveReportModal();
+            installStrictAntiAutoArchiveGuard();
             window.sanitizeFreezerNegativeValues(false);
             window.loadAllArchivedBatchesSafe();
             window.loadLedgerRecordsSafe();
             window.renderSmartDashboard();
-        }, 450);
+        }, 550);
     }
 
     if (document.readyState === 'loading') {
@@ -3081,7 +3338,10 @@
         window.switchTab = function (tabId, btnElement, isFromBackButton) {
             _origSwitchTab(tabId, btnElement, isFromBackButton);
             if (tabId === 'dashboard') window.renderSmartDashboard();
-            if (tabId === 'archive') window.renderArchiveUI();
+            if (tabId === 'archive') {
+                installEnhancedArchiveReportModal();
+                window.renderArchiveUI();
+            }
         };
     }
 })();
