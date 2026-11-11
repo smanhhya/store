@@ -5436,18 +5436,57 @@ window.deleteProductUI = async (id) => {
             }).join('');
         };
 
-        // فتح التقرير التفصيلي للدفعة المؤرشفة
+        // فتح التقرير التفصيلي للدفعة المؤرشفة + إمكانية استعادة أي طلب منفرد للطلبات الحية
         window.openArchiveReport = (arId) => {
             let a = archivedBatchesData.find(x => x.id === arId); if(!a) return;
             document.getElementById('ar-title').innerText = a.batchName;
             
-            let itemsHtml = Object.keys(a.itemsSummary || {}).sort((k1, k2) => a.itemsSummary[k2] - a.itemsSummary[k1]).map(k => 
-                `<div class="bg-slate-50 border border-slate-100 p-3 rounded-xl text-center shadow-sm"><span class="block text-[10px] font-bold text-slate-500 mb-1 truncate">${k}</span><span class="text-lg font-black text-brand-primary">${a.itemsSummary[k]}</span></div>`
-            ).join('');
+            let itemsHtml = Object.keys(a.itemsSummary || {}).sort((k1, k2) => a.itemsSummary[k2] - a.itemsSummary[k1]).map(k => {
+                if ((a.itemsSummary[k] || 0) <= 0) return '';
+                return `<div class="bg-slate-50 border border-slate-100 p-3 rounded-xl text-center shadow-sm"><span class="block text-[10px] font-bold text-slate-500 mb-1 truncate">${k}</span><span class="text-lg font-black text-brand-primary">${a.itemsSummary[k]}</span></div>`;
+            }).join('');
 
-            let zonesHtml = Object.keys(a.zonesSummary || {}).sort((k1, k2) => a.zonesSummary[k2] - a.zonesSummary[k1]).map(k => 
-                `<span class="bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-black border border-indigo-100 shadow-sm">${k} <span class="bg-white text-indigo-500 px-1.5 py-0.5 rounded ml-1">${a.zonesSummary[k]}</span></span>`
-            ).join(' ');
+            let zonesHtml = Object.keys(a.zonesSummary || {}).sort((k1, k2) => a.zonesSummary[k2] - a.zonesSummary[k1]).map(k => {
+                if ((a.zonesSummary[k] || 0) <= 0) return '';
+                return `<span class="bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-black border border-indigo-100 shadow-sm">${k} <span class="bg-white text-indigo-500 px-1.5 py-0.5 rounded ml-1">${a.zonesSummary[k]}</span></span>`;
+            }).join(' ');
+
+            // جلب الطلبات المؤرشفة المرتبطة بهذه الدفعة (أو التي دخلت الأرشيف بدون دفعة بالخطأ)
+            let batchArchivedOrders = (allOrdersRaw || []).filter(o => {
+                if (!o || !o.isArchived) return false;
+                let matchById = (a.originalBatchId && o.batchId === a.originalBatchId) || (o.batchId === a.id);
+                let matchByName = (a.batchName && o.batchName === a.batchName);
+                let matchOrphan = (!o.batchId || o.batchId === '') && (!o.batchName || o.batchName === '');
+                return matchById || matchByName || matchOrphan;
+            });
+
+            let ordersRowsHtml = batchArchivedOrders.map(o => {
+                let itemsBadges = (o.items && Array.isArray(o.items))
+                    ? o.items.map(i => `<span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[10px] font-bold">${i.quantity}x ${i.name}</span>`).join(' ')
+                    : '-';
+                let isOrphan = (!o.batchId || o.batchId === '');
+                return `
+                <div class="bg-slate-50 p-3.5 rounded-xl border ${isOrphan ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200'} flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="font-black text-slate-800 text-xs">${o.customerName || 'عميل'}</span>
+                            <span class="text-[10px] font-bold text-slate-400" dir="ltr">${o.customerPhone || ''}</span>
+                            <span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-[10px] font-black">${o.total || 0} ج</span>
+                            ${isOrphan ? '<span class="bg-amber-200 text-amber-900 px-2 py-0.5 rounded text-[9px] font-black">⚠️ أُرشف بدون دفعة</span>' : ''}
+                        </div>
+                        <div class="text-[10px] font-bold text-slate-500 mt-1">${o.zone || ''} ${o.customerAddress ? ' - ' + o.customerAddress : ''} • ${o.orderDate || ''}</div>
+                        <div class="flex flex-wrap gap-1 mt-1.5">${itemsBadges}</div>
+                    </div>
+                    <div class="flex flex-wrap gap-1.5 w-full sm:w-auto justify-end shrink-0">
+                        <button onclick="restoreSingleOrderFromArchive('${o.id}', '${a.id}', true)" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition-all flex items-center gap-1" title="إرجاع الطلب لشاشة الطلبات الحية كطلب عادي بدون دفعة وخصمه من هذا الأرشيف">
+                            <i class="fa-solid fa-rotate-left"></i> استعادة للحي (بدون دفعة)
+                        </button>
+                        <button onclick="restoreSingleOrderFromArchive('${o.id}', '${a.id}', false)" class="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition-all flex items-center gap-1" title="إرجاع الطلب للطلبات الحية مع الاحتفاظ باسم الدفعة">
+                            <i class="fa-solid fa-arrow-up-from-bracket"></i> استعادة للحي
+                        </button>
+                    </div>
+                </div>`;
+            }).join('');
 
             let html = `
             <div id="print-archive-area">
@@ -5475,17 +5514,110 @@ window.deleteProductUI = async (id) => {
                     <div class="grid grid-cols-3 md:grid-cols-6 gap-3">${itemsHtml || '<span class="text-xs text-slate-400">لا توجد بيانات</span>'}</div>
                 </div>
 
-                <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-6">
                     <h4 class="text-xs font-black text-slate-800 mb-4 pb-2 border-b border-slate-50"><i class="fa-solid fa-map-location-dot text-indigo-500 mr-1"></i> التوزيع الجغرافي التاريخي</h4>
                     <div class="flex flex-wrap gap-2">${zonesHtml || '<span class="text-xs text-slate-400">لا توجد بيانات</span>'}</div>
+                </div>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <div class="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
+                    <div>
+                        <h4 class="text-xs font-black text-slate-800"><i class="fa-solid fa-clock-rotate-left text-amber-500 mr-1"></i> الطلبات المؤرشفة داخل هذه الدفعة (${batchArchivedOrders.length} طلب)</h4>
+                        <p class="text-[10px] font-bold text-slate-400 mt-0.5">يمكنك استعادة أي طلب منفرد إلى شاشة (الطلبات الحية) وخصم قيمته من هذا الأرشيف بضغطة زر.</p>
+                    </div>
+                </div>
+                <div class="space-y-2.5 max-h-80 overflow-y-auto custom-scroll pr-1">
+                    ${ordersRowsHtml || '<div class="text-center py-6 text-xs font-bold text-slate-400">لا توجد طلبات مؤرشفة مرتبطة حالياً.</div>'}
                 </div>
             </div>`;
             
             document.getElementById('archive-report-content').innerHTML = html;
             document.getElementById('btn-unarchive').onclick = () => { unarchiveBatch(arId); };
             openModal('archive-report-modal');
-
         };
+
+        // دالة استعادة طلب واحد من الأرشيف وإرجاعه للطلبات الحية وخصم حسابه من الدفعة المؤرشفة
+        window.restoreSingleOrderFromArchive = async (orderId, arId, clearBatchInfo = true) => {
+            let o = (allOrdersRaw || []).find(x => x.id === orderId);
+            let a = (archivedBatchesData || []).find(x => x.id === arId);
+            if (!o) return alert("لم يتم العثور على هذا الطلب!");
+
+            let msg = clearBatchInfo
+                ? `↩️ هل تريد استعادة طلب العميل (${o.customerName}) إلى شاشة الطلبات الحية (قسم مكتمل) كطلب عادي بدون دفعة، وخصم حسابه (${o.total} ج) من أرشيف هذه الدفعة؟`
+                : `↩️ هل تريد استعادة طلب العميل (${o.customerName}) إلى شاشة الطلبات الحية؟`;
+            if (!confirm(msg)) return;
+
+            try {
+                let orderUpdate = {
+                    isArchived: firebase.firestore.FieldValue.delete()
+                };
+                if (clearBatchInfo) {
+                    orderUpdate.batchId = '';
+                    orderUpdate.batchName = '';
+                }
+
+                await db.collection('orders').doc(orderId).update(orderUpdate);
+
+                // تحديث بيانات الدفعة المؤرشفة بخصم أرقام هذا الطلب منها إذا كان مكتملاً
+                if (a && o.status === 'completed') {
+                    let oRev = Number(o.total) || 0;
+                    let oDel = Number(o.deliveryFee) || 0;
+                    let oDisc = Number(o.discount) || 0;
+
+                    a.totalRevenue = Math.max(0, (Number(a.totalRevenue) || 0) - oRev);
+                    a.totalDelivery = Math.max(0, (Number(a.totalDelivery) || 0) - oDel);
+                    a.totalDiscount = Math.max(0, (Number(a.totalDiscount) || 0) - oDisc);
+                    a.ordersCount = Math.max(0, (Number(a.ordersCount) || 0) - 1);
+
+                    if (o.zone && a.zonesSummary && a.zonesSummary[o.zone]) {
+                        a.zonesSummary[o.zone] = Math.max(0, a.zonesSummary[o.zone] - 1);
+                        if (a.zonesSummary[o.zone] === 0) delete a.zonesSummary[o.zone];
+                    }
+                    if (o.items && Array.isArray(o.items) && a.itemsSummary) {
+                        o.items.forEach(i => {
+                            if (a.itemsSummary[i.name] !== undefined) {
+                                a.itemsSummary[i.name] = Math.max(0, a.itemsSummary[i.name] - (Number(i.quantity) || 0));
+                                if (a.itemsSummary[i.name] === 0) delete a.itemsSummary[i.name];
+                            }
+                        });
+                    }
+
+                    // حفظ الأرقام المعدلة في كلتا مجموعتي الأرشيف لضمان التطابق 100%
+                    await db.collection('archived_batches').doc(a.id).set(a, { merge: true }).catch(() => {});
+                    await db.collection('inventory').doc('archived_batches').set({ [a.id]: a }, { merge: true }).catch(() => {});
+                }
+
+                // تحديث الذاكرة الحية فوراً
+                o.isArchived = false;
+                if (clearBatchInfo) {
+                    o.batchId = '';
+                    o.batchName = '';
+                }
+                if (globalOrdersMap && globalOrdersMap[orderId]) {
+                    globalOrdersMap[orderId].isArchived = false;
+                    if (clearBatchInfo) {
+                        globalOrdersMap[orderId].batchId = '';
+                        globalOrdersMap[orderId].batchName = '';
+                    }
+                }
+
+                openArchiveReport(arId);
+                if (typeof renderArchiveUI === 'function') renderArchiveUI();
+                if (typeof renderOrdersList === 'function') renderOrdersList();
+                if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
+
+                if (typeof window.showQuickAppToast === 'function') {
+                    window.showQuickAppToast("✅ تمت استعادة الطلب إلى شاشة الطلبات الحية بنجاح!");
+                } else {
+                    alert("✅ تمت استعادة الطلب إلى شاشة الطلبات الحية (قسم مكتمل) بنجاح!");
+                }
+            } catch (e) {
+                console.error(e);
+                alert("حدث خطأ أثناء استعادة الطلب: " + (e.message || e));
+            }
+        };
+
 
         window.printArchiveReport = () => {
             let content = document.getElementById('print-archive-area').innerHTML;
@@ -6222,44 +6354,6 @@ window.deleteProductUI = async (id) => {
                     updateData.completedAtStr = new Date().toLocaleDateString('en-US');
                     updateData.completedTimeDisplay = new Date().toLocaleString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' });
                     updateData.completedAt = firebase.firestore.FieldValue.serverTimestamp();
-                    
-                    // ✨ السحر الجديد: الأرشفة التلقائية لو الدفعة بتاعته كانت متأرشفة مسبقاً
-                    let targetArchive = archivedBatchesData.find(a => a.originalBatchId === o.batchId);
-                    if (targetArchive) {
-                        updateData.isArchived = true;
-                        o.isArchived = true;
-                        if(globalOrdersMap[id]) globalOrdersMap[id].isArchived = true;
-                        
-                        let oRev = Number(o.total) || 0;
-                        let oDel = Number(o.deliveryFee) || 0;
-                        let oDisc = Number(o.discount) || 0;
-                        
-                        let archiveUpdate = {
-                            totalRevenue: firebase.firestore.FieldValue.increment(oRev),
-                            totalDelivery: firebase.firestore.FieldValue.increment(oDel),
-                            totalDiscount: firebase.firestore.FieldValue.increment(oDisc),
-                            ordersCount: firebase.firestore.FieldValue.increment(1)
-                        };
-                        if (o.zone) archiveUpdate[`zonesSummary.${o.zone}`] = firebase.firestore.FieldValue.increment(1);
-                        if (o.items && Array.isArray(o.items)) {
-                            o.items.forEach(i => {
-                                archiveUpdate[`itemsSummary.${i.name}`] = firebase.firestore.FieldValue.increment(i.quantity);
-                            });
-                        }
-                        
-                        atomicBatch.update(db.collection('archived_batches').doc(targetArchive.id), archiveUpdate);
-                        
-                        // تحديث الذاكرة فوراً عشان تظهر في التقرير
-                        targetArchive.totalRevenue += oRev;
-                        targetArchive.totalDelivery += oDel;
-                        targetArchive.totalDiscount += oDisc;
-                        targetArchive.ordersCount += 1;
-                        if(o.zone) targetArchive.zonesSummary[o.zone] = (targetArchive.zonesSummary[o.zone] || 0) + 1;
-                        if(o.items) o.items.forEach(i => { targetArchive.itemsSummary[i.name] = (targetArchive.itemsSummary[i.name] || 0) + i.quantity; });
-                        
-                        setTimeout(() => alert(`✨ تم اكتشاف أن هذا الطلب ينتمي لدفعة مغلقة ومؤرشفة (${targetArchive.batchName}).
-تم تحويله للأرشيف وتحديث أرباح التقرير الختامي للدفعة تلقائياً!`), 800);
-                    }
 
                     // 🎁 تحديث محفظة نقاط العميل بناءً على قيمة المنتجات فقط (Subtotal) 🎁
                     let ptsPer100 = storeSettings.pointsPer100 || 5;
