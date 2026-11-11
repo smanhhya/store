@@ -67,7 +67,7 @@
         return { type: 'meat', unitLabel: 'طبق/جوز', isMeat: true };
     };
 
-    // تدقيق حسابات الطلب الواحد (حساب صافي المنتجات فقط بدون التوصيل لأن التوصيل يخص المندوب)
+    // تدقيق حسابات الطلب الواحد (يضمن صحة الأرقام حتى للطلبات القديمة أو المعدلة)
     window.getAccurateOrderFinancials = function (o) {
         if (!o) return { subtotal: 0, delivery: 0, discount: 0, total: 0, implicitDiscount: 0 };
         let itemsCalcSum = 0;
@@ -95,19 +95,18 @@
             ? rawSub
             : (itemsCalcSum > 0 ? itemsCalcSum : Math.max(0, (rawTotal || 0) - delivery + discount));
 
-        // الصافي الحقيقي لصاحب المتجر = قيمة المنتجات ناقص الخصم فقط (بدون التوصيل نهائياً)
-        const netProductsOnly = Math.max(0, Math.round(subtotal - discount));
+        const total = !isNaN(rawTotal) && rawTotal >= 0
+            ? rawTotal
+            : Math.max(0, subtotal + delivery - discount);
 
         return {
             subtotal: Math.round(subtotal),
-            delivery: 0,
-            driverDeliveryFee: Math.round(delivery),
+            delivery: Math.round(delivery),
             discount: Math.round(discount),
-            total: netProductsOnly,
+            total: Math.round(total),
             implicitDiscount: Math.round(implicitDisc)
         };
     };
-
 
     // ربط ذكي للطلب بالدفعة الخاصة به حتى لو كان يحمل batchId فقط أو تم أرشفة الدفعة
     window.resolveOrderBatchName = function (o) {
@@ -486,178 +485,19 @@
     };
 
     // =========================================================================
-    // 🧾 ثالثاً: محرك المصروفات، الثوابت الشهرية، ديون الموردين، والجرد السنوي
+    // 🧾 ثالثاً: محرك المصروفات وسجل الهالك والبايظ والخزنة (Ledger & Waste)
     // =========================================================================
-
-    window.storeDashMeta = {
-        activeResetTimestampMs: 0,
-        activeResetTitle: '',
-        fixedMonthly: {
-            rent: 0,
-            electricity: 0,
-            water: 0,
-            labor: 0,
-            other: 0,
-            timing: 'start', // 'start' (أول الشهر) | 'end' (آخر الشهر)
-            autoApply: false,
-            appliedMonths: {}
-        },
-        snapshots: {}
-    };
-
-    function getCurrentYearMonthKey() {
-        const d = new Date();
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    }
 
     window.loadLedgerRecordsSafe = async function () {
         if (typeof db === 'undefined') return;
         try {
-            const [ledgerDoc, metaDoc] = await Promise.all([
-                db.collection('inventory').doc('ledger_records').get(),
-                db.collection('inventory').doc('dashboard_meta').get()
-            ]);
-
-            if (ledgerDoc.exists) {
-                window.storeLedgerRecords = ledgerDoc.data() || {};
-            }
-            if (metaDoc.exists) {
-                const mData = metaDoc.data() || {};
-                window.storeDashMeta = {
-                    activeResetTimestampMs: Number(mData.activeResetTimestampMs) || 0,
-                    activeResetTitle: mData.activeResetTitle || '',
-                    fixedMonthly: {
-                        rent: 0, electricity: 0, water: 0, labor: 0, other: 0,
-                        timing: 'start', autoApply: false, appliedMonths: {},
-                        ...(mData.fixedMonthly || {})
-                    },
-                    snapshots: mData.snapshots || {}
-                };
-            }
-
-            await window.checkAndAutoApplyMonthlyFixedExpenses();
-            window.populateFixedExpensesInputs();
-            window.renderSmartDashboard();
-        } catch (e) {
-            console.log('Ledger & Meta load info:', e);
-        }
-    };
-
-    window.populateFixedExpensesInputs = function () {
-        const fm = window.storeDashMeta.fixedMonthly || {};
-        const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || 0; };
-        setVal('fm-rent', fm.rent);
-        setVal('fm-elec', fm.electricity);
-        setVal('fm-water', fm.water);
-        setVal('fm-labor', fm.labor);
-        setVal('fm-other', fm.other);
-        const timingEl = document.getElementById('fm-timing');
-        if (timingEl) timingEl.value = fm.timing || 'start';
-        const autoEl = document.getElementById('fm-auto-apply');
-        if (autoEl) autoEl.checked = Boolean(fm.autoApply);
-    };
-
-    // حفظ إعدادات المصاريف الثابتة الشهرية (إيجار / كهرباء / مياه / عمال)
-    window.saveFixedMonthlyConfig = async function () {
-        const fm = window.storeDashMeta.fixedMonthly || {};
-        fm.rent = Math.max(0, Number(document.getElementById('fm-rent')?.value) || 0);
-        fm.electricity = Math.max(0, Number(document.getElementById('fm-elec')?.value) || 0);
-        fm.water = Math.max(0, Number(document.getElementById('fm-water')?.value) || 0);
-        fm.labor = Math.max(0, Number(document.getElementById('fm-labor')?.value) || 0);
-        fm.other = Math.max(0, Number(document.getElementById('fm-other')?.value) || 0);
-        fm.timing = document.getElementById('fm-timing')?.value || 'start';
-        fm.autoApply = Boolean(document.getElementById('fm-auto-apply')?.checked);
-
-        window.storeDashMeta.fixedMonthly = fm;
-        try {
-            if (typeof db !== 'undefined') {
-                await db.collection('inventory').doc('dashboard_meta').set({
-                    fixedMonthly: fm
-                }, { merge: true });
-            }
-            await window.checkAndAutoApplyMonthlyFixedExpenses();
-            window.renderSmartDashboard();
-            window.showToast('✅ تم حفظ ثوابت الشهر (الإيجار والكهرباء والمياه والعمال)');
-        } catch (e) {
-            alert('خطأ أثناء حفظ المصاريف الثابتة!');
-        }
-    };
-
-    // فحص وتنزيل المصاريف الشهرية الثابتة تلقائياً أو إظهار المنبه
-    window.checkAndAutoApplyMonthlyFixedExpenses = async function () {
-        const fm = window.storeDashMeta.fixedMonthly || {};
-        const totalFixed = (Number(fm.rent) || 0) + (Number(fm.electricity) || 0) + (Number(fm.water) || 0) + (Number(fm.labor) || 0) + (Number(fm.other) || 0);
-        if (totalFixed <= 0) return;
-
-        const ymKey = getCurrentYearMonthKey();
-        if (fm.appliedMonths && fm.appliedMonths[ymKey]) return;
-
-        const todayDay = new Date().getDate();
-        const isTimeReached = (fm.timing === 'start') ? (todayDay >= 1) : (todayDay >= 25);
-
-        if (fm.autoApply && isTimeReached) {
-            await window.applyFixedMonthlyExpensesForCurrentMonth(true);
-        }
-    };
-
-    // اعتماد وتنزيل المصاريف الثابتة للشهر الحالي بضغطة زر واحدة
-    window.applyFixedMonthlyExpensesForCurrentMonth = async function (silent = false) {
-        const fm = window.storeDashMeta.fixedMonthly || {};
-        const items = [
-            { name: 'إيجار شهري ثابت', val: Number(fm.rent) || 0 },
-            { name: 'فاتورة كهرباء شهرية', val: Number(fm.electricity) || 0 },
-            { name: 'فاتورة مياه شهرية', val: Number(fm.water) || 0 },
-            { name: 'رواتب وعمالة شهرية', val: Number(fm.labor) || 0 },
-            { name: 'نثريات شهرية ثابتة', val: Number(fm.other) || 0 }
-        ].filter(x => x.val > 0);
-
-        if (items.length === 0) {
-            if (!silent) alert('برجاء كتابة مبالغ المصاريف الثابتة (إيجار/كهرباء/عمال) وحفظها أولاً!');
-            return;
-        }
-
-        const ymKey = getCurrentYearMonthKey();
-        if (fm.appliedMonths && fm.appliedMonths[ymKey]) {
-            if (!silent && !confirm('تم تنزيل المصاريف الثابتة لهذا الشهر من قبل. هل تريد تنزيلها مرة أخرى؟')) return;
-        }
-
-        const nowMs = Date.now();
-        const todayStr = new Date().toLocaleDateString('en-US');
-        const newRecs = {};
-
-        items.forEach((itm, idx) => {
-            const rId = `rec_fixed_${ymKey}_${nowMs}_${idx}`;
-            const obj = {
-                id: rId,
-                type: 'expense',
-                isFixedMonthly: true,
-                category: itm.name,
-                amount: itm.val,
-                paymentSource: 'cash',
-                batchName: '',
-                notes: `مصاريف ثابتة لشهر ${ymKey}`,
-                dateStr: todayStr,
-                createdAtMs: nowMs + idx
-            };
-            window.storeLedgerRecords[rId] = obj;
-            newRecs[rId] = obj;
-        });
-
-        if (!fm.appliedMonths) fm.appliedMonths = {};
-        fm.appliedMonths[ymKey] = true;
-        window.storeDashMeta.fixedMonthly = fm;
-
-        try {
-            if (typeof db !== 'undefined') {
-                await Promise.all([
-                    db.collection('inventory').doc('ledger_records').set(newRecs, { merge: true }),
-                    db.collection('inventory').doc('dashboard_meta').set({ fixedMonthly: fm }, { merge: true })
-                ]);
+            const doc = await db.collection('inventory').doc('ledger_records').get();
+            if (doc.exists) {
+                window.storeLedgerRecords = doc.data() || {};
             }
             window.renderSmartDashboard();
-            window.showToast(`✅ تم تنزيل المصاريف الثابتة لشهر (${ymKey}) بنجاح!`);
         } catch (e) {
-            if (!silent) alert('حدث خطأ أثناء تنزيل المصاريف الثابتة!');
+            console.log('Ledger load info:', e);
         }
     };
 
@@ -674,13 +514,12 @@
             }
             await db.collection('inventory').doc('settings').set({ storeOpen: newState }, { merge: true });
             window.renderSmartDashboard();
-            window.showToast(newState ? '🟢 المتجر مفتوح الآن' : '🔴 تم إغلاق المتجر مؤقتاً');
+            window.showToast(newState ? '🟢 المتجر مفتوح الآن ويستقبل الطلبات' : '🔴 تم إغلاق المتجر مؤقتاً');
         } catch (e) {
             alert('حدث خطأ أثناء تحديث حالة المتجر!');
         }
     };
 
-    // فتح فورم تسجيل (مصروف نقدي / دين عليّ لمورد / هالك وبايظ)
     window.openLedgerEntryBox = function (mode, prefillBatchName = '') {
         window.updateDashState('activeSubTab', 'ledger_waste');
         const box = document.getElementById('sm-ledger-form-box');
@@ -691,29 +530,24 @@
         if (typeInput) typeInput.value = mode;
 
         const expWrap = document.getElementById('lg-expense-fields');
-        const debtWrap = document.getElementById('lg-supplier-debt-fields');
         const wasteWrap = document.getElementById('lg-waste-fields');
         const formTitle = document.getElementById('lg-form-title');
 
-        expWrap?.classList.add('hidden');
-        debtWrap?.classList.add('hidden');
-        wasteWrap?.classList.add('hidden');
-
         if (mode === 'waste') {
-            formTitle.innerHTML = '<i class="fa-solid fa-triangle-exclamation text-rose-400 ml-1"></i> تسجيل هالك / بايظ / استهلاك بيت';
-            wasteWrap?.classList.remove('hidden');
-        } else if (mode === 'supplier_debt') {
-            formTitle.innerHTML = '<i class="fa-solid fa-file-invoice-dollar text-purple-400 ml-1"></i> تسجيل دين عليّ (شراء بالأجل بدون سيولة حالية)';
-            debtWrap?.classList.remove('hidden');
+            formTitle.innerHTML = '<i class="fa-solid fa-triangle-exclamation text-rose-500 mr-1.5"></i> تسجيل هالك / بايظ / استهلاك بيت / تعويض';
+            expWrap.classList.add('hidden');
+            wasteWrap.classList.remove('hidden');
         } else {
-            formTitle.innerHTML = '<i class="fa-solid fa-money-bill-transfer text-amber-400 ml-1"></i> تسجيل مصروف مدفوع (يسحب تلقائياً من الأونلاين لو الكاش لا يكفي)';
-            expWrap?.classList.remove('hidden');
+            formTitle.innerHTML = '<i class="fa-solid fa-money-bill-transfer text-amber-500 mr-1.5"></i> تسجيل مصروف تشغيل أو سحب نقدي';
+            wasteWrap.classList.add('hidden');
+            expWrap.classList.remove('hidden');
         }
 
         const batchSel = document.getElementById('lg-batch-name');
         if (batchSel && prefillBatchName) {
             batchSel.value = prefillBatchName;
         }
+
         box.scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
 
@@ -738,35 +572,25 @@
             const category = document.getElementById('lg-exp-category')?.value || 'علف وتسمين';
             const amount = Number(document.getElementById('lg-exp-amount')?.value) || 0;
             const paySource = document.getElementById('lg-exp-source')?.value || 'cash';
+
             if (amount <= 0) return alert('برجاء إدخال مبلغ المصروف بشكل صحيح!');
 
             recordObj.category = category;
             recordObj.amount = amount;
             recordObj.paymentSource = paySource;
-        } else if (mode === 'supplier_debt') {
-            const creditorName = (document.getElementById('lg-debt-creditor')?.value || '').trim();
-            const category = document.getElementById('lg-debt-category')?.value || 'شراء علف بالأجل';
-            const amount = Number(document.getElementById('lg-debt-amount')?.value) || 0;
-
-            if (!creditorName) return alert('برجاء كتابة اسم صاحب الدين (التاجر / المورد / العامل)!');
-            if (amount <= 0) return alert('برجاء كتابة مبلغ الدين بشكل صحيح!');
-
-            recordObj.creditorName = creditorName;
-            recordObj.category = category;
-            recordObj.amount = amount;
-            recordObj.paidAmount = 0;
-            recordObj.isPaid = false;
-            recordObj.paymentsHistory = [];
         } else {
             const wasteKind = document.getElementById('lg-waste-kind')?.value || 'هالك تربية / نافق';
             const prodId = document.getElementById('lg-waste-product')?.value || '';
             const qty = Number(document.getElementById('lg-waste-qty')?.value) || 0;
             const deductFz = document.getElementById('lg-waste-deduct-fz')?.checked || false;
+
             const estCostInput = document.getElementById('lg-waste-cost')?.value;
             let estCost = Number(estCostInput) || 0;
 
-            if (qty <= 0) return alert('برجاء إدخال العدد أو الكمية!');
+            if (qty <= 0) return alert('برجاء إدخال العدد أو الكمية (أجواز / أطباق)!');
+
             const prodName = (prodId && typeof storeProducts !== 'undefined' && storeProducts[prodId]) ? storeProducts[prodId].name : 'سمان عام';
+
             if (!estCostInput && prodId) {
                 estCost = window.getProductRealPrice(prodId) * qty;
             }
@@ -789,57 +613,20 @@
 
         try {
             window.storeLedgerRecords[recId] = recordObj;
-            await db.collection('inventory').doc('ledger_records').set({ [recId]: recordObj }, { merge: true });
+            await db.collection('inventory').doc('ledger_records').set({
+                [recId]: recordObj
+            }, { merge: true });
 
-            ['lg-exp-amount', 'lg-debt-creditor', 'lg-debt-amount', 'lg-waste-qty', 'lg-waste-cost', 'lg-notes'].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.value = '';
-            });
+            if (document.getElementById('lg-exp-amount')) document.getElementById('lg-exp-amount').value = '';
+            if (document.getElementById('lg-waste-qty')) document.getElementById('lg-waste-qty').value = '';
+            if (document.getElementById('lg-waste-cost')) document.getElementById('lg-waste-cost').value = '';
+            if (document.getElementById('lg-notes')) document.getElementById('lg-notes').value = '';
             document.getElementById('sm-ledger-form-box')?.classList.add('hidden');
 
             window.renderSmartDashboard();
-            window.showToast(mode === 'supplier_debt' ? '📕 تم تسجيل الدين عليك بدون خصمه من السيولة الحالية' : '✅ تم الحفظ وتحديث الحسابات');
+            window.showToast(mode === 'waste' ? '✅ تم تسجيل الهالك/الاستهلاك وتحديث الحسابات' : '✅ تم تسجيل المصروف وخصمه من صافي الربح');
         } catch (e) {
             alert('حدث خطأ أثناء حفظ السجل: ' + (e.message || e));
-        }
-    };
-
-    // سداد دين لمورد (كلي أو جزئي) يخصم من الخزنة دون تكرار المصروف مرتين!
-    window.settleSupplierDebtRecord = async function (recId) {
-        const rec = window.storeLedgerRecords[recId];
-        if (!rec || rec.type !== 'supplier_debt') return;
-
-        const totalDebt = Number(rec.amount) || 0;
-        const alreadyPaid = Number(rec.paidAmount) || 0;
-        const remaining = Math.max(0, totalDebt - alreadyPaid);
-        if (remaining <= 0) return alert('هذا الدين مسدد بالكامل بالفعل!');
-
-        const payStr = prompt(`💵 سداد دين لصاحب الحق: (${rec.creditorName})\nإجمالي الدين: ${totalDebt} ج | المتبقي حالياً: ${remaining} ج\n\nاكتب المبلغ الذي ستسدده الآن (سيتم سحبه من الكاش، ولو الكاش لا يكفي يسحب الباقي من الأونلاين تلقائياً):`, String(remaining));
-        if (payStr === null || payStr.trim() === '') return;
-
-        const payNow = Number(payStr);
-        if (isNaN(payNow) || payNow <= 0 || payNow > remaining) {
-            return alert('برجاء إدخال مبلغ صحيح لا يتجاوز المتبقي من الدين!');
-        }
-
-        const newPaidTotal = alreadyPaid + payNow;
-        rec.paidAmount = newPaidTotal;
-        rec.isPaid = (newPaidTotal >= totalDebt);
-        if (!Array.isArray(rec.paymentsHistory)) rec.paymentsHistory = [];
-        rec.paymentsHistory.push({
-            amount: payNow,
-            source: 'cash',
-            dateStr: new Date().toLocaleDateString('en-US'),
-            paidAtMs: Date.now()
-        });
-
-        try {
-            window.storeLedgerRecords[recId] = rec;
-            await db.collection('inventory').doc('ledger_records').set({ [recId]: rec }, { merge: true });
-            window.renderSmartDashboard();
-            window.showToast(rec.isPaid ? `✅ تم سداد دين (${rec.creditorName}) بالكامل!` : `✅ تم سداد ${payNow} ج من دين (${rec.creditorName})`);
-        } catch (e) {
-            alert('حدث خطأ أثناء تسجيل السداد!');
         }
     };
 
@@ -857,84 +644,15 @@
         }
     };
 
-    // 🔄 نظام الجرد السنوي / الدوري وتصفير السيستم مع حفظ القديم في أرشيف (مثل جرد سنة 2026)
-    window.createAnnualInventoryReset = async function () {
-        const curYear = new Date().getFullYear();
-        const defaultName = `جرد سنة ${curYear} (حتى ${new Date().toLocaleDateString('ar-EG')})`;
-        const snapTitle = prompt(
-            `🔄 إغلاق جرد وتصفير السيستم لبداية دورة حسابات جديدة من الصفر:\n\n` +
-            `• سيتم حفظ كل الأموال التي دخلت وخرجت والديون السابقة في ملف أرشيف مستقل.\n` +
-            `• ستبدأ الخزنة والمبيعات والمصروفات أمامك من (0 ج) اعتباراً من هذه اللحظة.\n` +
-            `• لن يتم مسح أي طلب أو عميل من السيستم نهائياً.\n\n` +
-            `اكتب اسم ملف الجرد لحفظ الحسابات السابقة فيه:`,
-            defaultName
-        );
-        if (!snapTitle || snapTitle.trim() === '') return;
-
-        const nowMs = Date.now();
-        const snapId = 'snap_' + nowMs;
-
-        // تجميع أرقام الفترة الحالية قبل التصفير لحفظها في الأرشيف
-        const curSummary = window._lastComputedDashSummary || {
-            collectedSales: 0, totalExpenses: 0, netProfit: 0, cashSafe: 0, onlineSafe: 0, unpaidSupplierDebts: 0
-        };
-
-        const snapObj = {
-            id: snapId,
-            title: snapTitle.trim(),
-            closedAtMs: nowMs,
-            closedDateStr: new Date().toLocaleString('ar-EG'),
-            previousResetMs: window.storeDashMeta.activeResetTimestampMs || 0,
-            summary: curSummary
-        };
-
-        if (!window.storeDashMeta.snapshots) window.storeDashMeta.snapshots = {};
-        window.storeDashMeta.snapshots[snapId] = snapObj;
-        window.storeDashMeta.activeResetTimestampMs = nowMs;
-        window.storeDashMeta.activeResetTitle = snapTitle.trim();
-
-        try {
-            if (typeof db !== 'undefined') {
-                await db.collection('inventory').doc('dashboard_meta').set({
-                    activeResetTimestampMs: nowMs,
-                    activeResetTitle: snapTitle.trim(),
-                    snapshots: window.storeDashMeta.snapshots
-                }, { merge: true });
-            }
-            window.renderSmartDashboard();
-            alert(`🎉 تم حفظ الحسابات السابقة في (${snapTitle.trim()}) وتصفير عدادات لوحة القيادة والخزنة لتبدأ من الصفر الآن!`);
-        } catch (e) {
-            alert('حدث خطأ أثناء حفظ الجرد السنوي!');
-        }
-    };
-
-    // إلغاء التصفير وإظهار كل الحسابات القديمة لو أراد المالك مراجعتها كاملة
-    window.cancelAnnualInventoryReset = async function () {
-        if (!confirm('↩️ هل تريد إلغاء نقطة التصفير الحالية وإظهار جميع الحسابات القديمة منذ بداية المشروع؟ (سيظل سجل الجرد محفوظاً أيضاً)')) return;
-        window.storeDashMeta.activeResetTimestampMs = 0;
-        window.storeDashMeta.activeResetTitle = '';
-        try {
-            if (typeof db !== 'undefined') {
-                await db.collection('inventory').doc('dashboard_meta').set({
-                    activeResetTimestampMs: 0,
-                    activeResetTitle: ''
-                }, { merge: true });
-            }
-            window.renderSmartDashboard();
-            window.showToast('↩️ تم إظهار كافة الحسابات التاريخية بنجاح');
-        } catch (e) {
-            alert('خطأ أثناء استعادة العرض الشامل!');
-        }
-    };
-
     // =========================================================================
-    // 🎨 رابعاً: الهيكل البصري المدمج (أيقونات صغيرة + صفحتان منظمتان بدون زحمة)
+    // 🎨 رابعاً: بناء الهيكل البصري الفائق للوحة القيادة
     // =========================================================================
 
     window.initSmartDashboardLayout = function () {
         const dashView = document.getElementById('view-dashboard');
         if (!dashView || document.getElementById('smart-dashboard-root')) return;
 
+        // الحفاظ الكامل على كشاف الطوارئ في أعلى لوحة القيادة
         const emergencySearchEl = dashView.firstElementChild;
         dashView.innerHTML = '';
         if (emergencySearchEl) {
@@ -943,229 +661,318 @@
 
         const root = document.createElement('div');
         root.id = 'smart-dashboard-root';
-        root.className = 'space-y-4 pb-16';
+        root.className = 'space-y-6 pb-16';
 
         root.innerHTML = `
-            <!-- 🔔 منبه المصاريف الشهرية الثابتة (يظهر تلقائياً لو لم تُنزل ثوابت الشهر الحالي) -->
-            <div id="sm-fixed-expenses-alert" class="hidden bg-rose-600 text-white px-4 py-3 rounded-2xl shadow-md flex flex-wrap items-center justify-between gap-2"></div>
-
-            <!-- 📌 شريط نقطة الجرد والتصفير النشطة (يظهر عند تصفير السيستم) -->
-            <div id="sm-active-reset-banner" class="hidden bg-indigo-950 text-indigo-100 px-4 py-2.5 rounded-2xl border border-indigo-700 flex flex-wrap items-center justify-between gap-2 text-xs font-bold"></div>
-
-            <!-- ⚡ 1. الهيدر المدمج + التبديل بين الصفحتين الرئيسيتين -->
-            <div class="bg-slate-900 text-white p-3.5 rounded-2xl shadow-md flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
-                <div class="flex items-center gap-2.5">
-                    <div class="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-300 text-xs shrink-0">
-                        <i class="fa-solid fa-calculator"></i>
+            <!-- ⚡ 1. شريط صلاحيات القائد السريعة (Super-Admin Command Bar) -->
+            <div class="bg-gradient-to-l from-slate-900 via-slate-800 to-emerald-950 text-white p-4 rounded-[1.5rem] shadow-lg flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-300 text-lg shrink-0">
+                        <i class="fa-solid fa-bolt-lightning"></i>
                     </div>
                     <div>
-                        <div class="flex flex-wrap items-center gap-1.5">
-                            <h3 class="text-xs sm:text-sm font-black text-white">الوحدة الحسابية الصافية (بدون التوصيل)</h3>
-                            <span id="dash-active-period-badge" class="bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full text-[10px] font-black">هذا الشهر</span>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h3 class="text-sm sm:text-base font-black text-white">غرفة القيادة المركزية والحسابات الدقيقة</h3>
+                            <span id="dash-active-period-badge" class="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2.5 py-0.5 rounded-full text-[11px] font-black">هذا الشهر</span>
                         </div>
+                        <p class="text-[11px] text-slate-300 font-bold mt-0.5">حسابات شاملة للدفعات (المباع الكلي + المحصل + قيد التحصيل)، وفريزر محمي من السالب، وفصل دقيق للسمان والكتاكيت والبيض.</p>
                     </div>
                 </div>
 
-                <!-- التبديل بين الصفحتين لمنع الزحمة -->
-                <div class="flex flex-wrap items-center gap-1.5 w-full lg:w-auto">
-                    <button onclick="updateDashState('activeSubTab', 'overview')" id="sm-subtab-overview" class="sm-subtab-btn flex-1 lg:flex-none bg-emerald-500 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm transition-all">
-                        📄 1. الحسابات الصافية والدفعات
+                <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                    <button onclick="quickToggleStoreOpenStatus()" id="sm-cmd-store-status" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3.5 py-2 rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1.5">
+                        <i class="fa-solid fa-power-off"></i> <span>المتجر مفتوح</span>
                     </button>
-                    <button onclick="updateDashState('activeSubTab', 'ledger_waste')" id="sm-subtab-ledger_waste" class="sm-subtab-btn flex-1 lg:flex-none bg-white/10 text-white hover:bg-white/20 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all">
-                        📄 2. الثوابت والديون والجرد السنوي (<span id="sm-my-debts-badge">0 ج دين</span>)
+                    <button onclick="openFreezerModal()" class="bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border border-cyan-400/30 px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5">
+                        <i class="fa-solid fa-snowflake"></i> الفريزر (<span id="sm-cmd-freezer-total">0 طبق | 0 ج</span>)
                     </button>
-                    <button onclick="updateDashState('activeSubTab', 'vip_zones')" id="sm-subtab-vip_zones" class="sm-subtab-btn bg-white/10 text-amber-300 hover:bg-white/20 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all" title="العملاء الغائبين والمناطق">
-                        <i class="fa-solid fa-crown"></i>
+                    <button onclick="openLedgerEntryBox('expense')" class="bg-amber-500 hover:bg-amber-400 text-slate-950 px-3.5 py-2 rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1.5">
+                        <i class="fa-solid fa-plus"></i> تسجيل مصروف/سحب
                     </button>
-                    <button onclick="openFreezerModal()" class="bg-cyan-500/20 text-cyan-200 border border-cyan-400/30 px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1">
-                        <i class="fa-solid fa-snowflake text-[10px]"></i> <span id="sm-cmd-freezer-total">0</span>
+                    <button onclick="openLedgerEntryBox('waste')" class="bg-rose-500 hover:bg-rose-400 text-white px-3.5 py-2 rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1.5">
+                        <i class="fa-solid fa-triangle-exclamation"></i> تسجيل هالك/بايظ
                     </button>
-                    <button onclick="quickToggleStoreOpenStatus()" id="sm-cmd-store-status" class="bg-emerald-500 text-slate-950 px-2.5 py-1.5 rounded-xl text-[11px] font-black">
-                        <span>مفتوح</span>
+                    <button onclick="printSmartDashboardReport()" class="bg-white/10 hover:bg-white/20 text-white border border-white/15 px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5">
+                        <i class="fa-solid fa-print text-amber-300"></i> طباعة التقرير
                     </button>
                 </div>
             </div>
 
-            <!-- 🎛️ 2. شريط الفلترة الزمنية المدمج -->
-            <div class="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm flex flex-wrap items-center justify-between gap-2">
-                <div class="flex flex-wrap items-center gap-1">
-                    <button onclick="updateDashState('period', 'this_month')" id="d-period-this_month" class="dash-period-btn bg-brand-primary text-white px-2.5 py-1.5 rounded-lg text-[11px] font-black">هذا الشهر</button>
-                    <button onclick="updateDashState('period', 'last_month')" id="d-period-last_month" class="dash-period-btn bg-slate-100 text-slate-600 px-2.5 py-1.5 rounded-lg text-[11px] font-black">الشهر الماضي</button>
-                    <button onclick="updateDashState('period', 'pick_month')" id="d-period-pick_month" class="dash-period-btn bg-slate-100 text-slate-600 px-2.5 py-1.5 rounded-lg text-[11px] font-black">شهر محدد</button>
-                    <button onclick="updateDashState('period', 'today')" id="d-period-today" class="dash-period-btn bg-slate-100 text-slate-600 px-2.5 py-1.5 rounded-lg text-[11px] font-black">اليوم</button>
-                    <button onclick="updateDashState('period', 'custom')" id="d-period-custom" class="dash-period-btn bg-slate-100 text-slate-600 px-2.5 py-1.5 rounded-lg text-[11px] font-black">فترة</button>
-                    <button onclick="updateDashState('period', 'all_time')" id="d-period-all_time" class="dash-period-btn bg-slate-100 text-slate-600 px-2.5 py-1.5 rounded-lg text-[11px] font-black">الكل</button>
+            <!-- 🎛️ 2. شريط الفلترة الزمنية وفلترة الدفعات + أقسام اللوحة -->
+            <div class="bg-white p-4 sm:p-5 rounded-[1.5rem] border border-slate-200/80 shadow-soft space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                        <button onclick="updateDashState('period', 'this_month')" id="d-period-this_month" class="dash-period-btn bg-brand-primary text-white px-3.5 py-2 rounded-xl text-xs font-black shadow-sm transition-all">📅 هذا الشهر</button>
+                        <button onclick="updateDashState('period', 'last_month')" id="d-period-last_month" class="dash-period-btn bg-slate-100 text-slate-600 hover:bg-slate-200 px-3.5 py-2 rounded-xl text-xs font-black transition-all">⏪ الشهر الماضي</button>
+                        <button onclick="updateDashState('period', 'pick_month')" id="d-period-pick_month" class="dash-period-btn bg-slate-100 text-slate-600 hover:bg-slate-200 px-3.5 py-2 rounded-xl text-xs font-black transition-all">🗓️ شهر محدد</button>
+                        <button onclick="updateDashState('period', 'today')" id="d-period-today" class="dash-period-btn bg-slate-100 text-slate-600 hover:bg-slate-200 px-3.5 py-2 rounded-xl text-xs font-black transition-all">☀️ اليوم فقط</button>
+                        <button onclick="updateDashState('period', 'custom')" id="d-period-custom" class="dash-period-btn bg-slate-100 text-slate-600 hover:bg-slate-200 px-3.5 py-2 rounded-xl text-xs font-black transition-all">📆 فترة مخصصة</button>
+                        <button onclick="updateDashState('period', 'all_time')" id="d-period-all_time" class="dash-period-btn bg-slate-100 text-slate-600 hover:bg-slate-200 px-3.5 py-2 rounded-xl text-xs font-black transition-all">🌍 كل الأوقات</button>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                        <select id="dash-source-select" onchange="updateDashState('sourceFilter', this.value)" class="flex-1 md:flex-none border-2 border-teal-500/30 bg-teal-50/40 rounded-xl px-3 py-2 text-xs font-black text-teal-900 outline-none focus:border-teal-600">
+                            <option value="all">📦 كل المبيعات (دفعات + فوري)</option>
+                            <option value="batches_only">🏷️ طلبات الدفعات فقط</option>
+                            <option value="normal_only">❄️ الطلبات الفورية فقط</option>
+                        </select>
+
+                        <select id="dash-date-basis" onchange="updateDashState('dateBasis', this.value)" class="border border-slate-200 bg-slate-50 rounded-xl px-3 py-2 text-xs font-black text-slate-700 outline-none">
+                            <option value="effective">حسب: تاريخ التسليم</option>
+                            <option value="created">حسب: تاريخ الطلب</option>
+                        </select>
+                    </div>
                 </div>
 
-                <div class="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
-                    <select id="dash-source-select" onchange="updateDashState('sourceFilter', this.value)" class="flex-1 sm:flex-none border border-teal-500/40 bg-teal-50/40 rounded-lg px-2.5 py-1.5 text-[11px] font-black text-teal-900 outline-none">
-                        <option value="all">📦 كل المبيعات</option>
-                    </select>
-                    <select id="dash-date-basis" onchange="updateDashState('dateBasis', this.value)" class="border border-slate-200 bg-slate-50 rounded-lg px-2 py-1.5 text-[11px] font-black text-slate-700 outline-none">
-                        <option value="effective">بتاريخ التسليم</option>
-                        <option value="created">بتاريخ الحجز</option>
-                    </select>
-                    <button onclick="printSmartDashboardReport()" class="bg-slate-800 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-black" title="طباعة التقرير"><i class="fa-solid fa-print text-amber-300"></i></button>
-                </div>
-
-                <div id="dash-extra-date-controls" class="hidden w-full pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2">
+                <!-- خيارات التاريخ المخصص أو الشهر -->
+                <div id="dash-extra-date-controls" class="hidden pt-2 border-t border-slate-100 flex flex-wrap items-center gap-3">
                     <div id="dash-month-picker-wrap" class="hidden flex items-center gap-2">
-                        <input type="month" id="dash-month-input" value="${defaultMonthStr}" onchange="updateDashState('selectedMonth', this.value)" class="border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-black bg-white">
+                        <label class="text-xs font-black text-slate-600">اختر الشهر والسنة:</label>
+                        <input type="month" id="dash-month-input" value="${defaultMonthStr}" onchange="updateDashState('selectedMonth', this.value)" class="border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-black bg-white outline-none">
                     </div>
                     <div id="dash-custom-range-wrap" class="hidden flex flex-wrap items-center gap-2">
-                        <input type="date" id="dash-date-from" onchange="updateDashState('dateFrom', this.value)" class="border border-slate-300 rounded-lg px-2 py-1 text-xs font-black">
-                        <input type="date" id="dash-date-to" onchange="updateDashState('dateTo', this.value)" class="border border-slate-300 rounded-lg px-2 py-1 text-xs font-black">
+                        <label class="text-xs font-black text-slate-600">من:</label>
+                        <input type="date" id="dash-date-from" onchange="updateDashState('dateFrom', this.value)" class="border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-black bg-white outline-none">
+                        <label class="text-xs font-black text-slate-600">إلى:</label>
+                        <input type="date" id="dash-date-to" onchange="updateDashState('dateTo', this.value)" class="border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-black bg-white outline-none">
+                    </div>
+                </div>
+
+                <!-- تبويبات التنقل السريع داخل لوحة القيادة -->
+                <div class="pt-3 border-t border-slate-100 flex flex-wrap gap-2">
+                    <button onclick="updateDashState('activeSubTab', 'overview')" id="sm-subtab-overview" class="sm-subtab-btn bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-black shadow-sm transition-all">
+                        <i class="fa-solid fa-chart-line text-emerald-400 mr-1"></i> الملخص المالي والدفعات والأصناف
+                    </button>
+                    <button onclick="updateDashState('activeSubTab', 'ledger_waste')" id="sm-subtab-ledger_waste" class="sm-subtab-btn bg-slate-100 text-slate-700 hover:bg-slate-200 px-4 py-2 rounded-xl text-xs font-black transition-all">
+                        <i class="fa-solid fa-scale-balanced text-rose-500 mr-1"></i> الخزنة والمصروفات وميزان الهالك والبايظ
+                    </button>
+                    <button onclick="updateDashState('activeSubTab', 'vip_zones')" id="sm-subtab-vip_zones" class="sm-subtab-btn bg-slate-100 text-slate-700 hover:bg-slate-200 px-4 py-2 rounded-xl text-xs font-black transition-all">
+                        <i class="fa-solid fa-crown text-amber-500 mr-1"></i> رادار العملاء الغائبين (VIP) وربحية المناطق
+                    </button>
+                </div>
+            </div>
+
+            <!-- 🏦 3. شريط الخزن والمحافظ الـ 4 اللحظية (يظهر دائماً) -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div class="bg-gradient-to-br from-emerald-900 to-brand-dark text-white p-4 rounded-2xl shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-[10px] font-bold text-emerald-200">💵 صافي كاش الدرج (للمسلم بعد المصروف)</p>
+                        <h4 id="sm-safe-net-cash" class="text-xl font-black text-white mt-0.5">0 ج</h4>
+                    </div>
+                    <i class="fa-solid fa-cash-register text-2xl text-emerald-400/70"></i>
+                </div>
+                <div class="bg-white p-4 rounded-2xl border border-emerald-200 shadow-sm flex items-center justify-between">
+                    <div>
+                        <p class="text-[10px] font-black text-emerald-700">💳 محفظة الأونلاين (فودافون/إنستا)</p>
+                        <h4 id="sm-safe-net-online" class="text-xl font-black text-emerald-600 mt-0.5">0 ج</h4>
+                    </div>
+                    <i class="fa-solid fa-mobile-screen-button text-2xl text-emerald-500/60"></i>
+                </div>
+                <div onclick="switchTab('radar', document.querySelector('button[onclick*=\\'radar\\']'))" class="bg-white p-4 rounded-2xl border border-amber-200 shadow-sm flex items-center justify-between cursor-pointer hover:border-amber-400 transition-all">
+                    <div>
+                        <p class="text-[10px] font-black text-amber-700">🛵 كاش في الشارع مع المناديب الآن</p>
+                        <h4 id="sm-safe-street-cash" class="text-xl font-black text-amber-600 mt-0.5">0 ج</h4>
+                    </div>
+                    <i class="fa-solid fa-motorcycle text-2xl text-amber-500/60"></i>
+                </div>
+                <div onclick="switchTab('debts', document.querySelector('button[onclick*=\\'debts\\']'))" class="bg-white p-4 rounded-2xl border border-red-200 shadow-sm flex items-center justify-between cursor-pointer hover:border-red-400 transition-all">
+                    <div>
+                        <p class="text-[10px] font-black text-red-700">📕 إجمالي ديون لك في السوق</p>
+                        <h4 id="sm-safe-market-debt" class="text-xl font-black text-red-600 mt-0.5">0 ج</h4>
+                    </div>
+                    <i class="fa-solid fa-hand-holding-dollar text-2xl text-red-500/60"></i>
+                </div>
+            </div>
+
+            <!-- ⚖️ شريط تحديد وضع الحساب المحاسبي (منع خلط المستلم بالمحجوز) -->
+            <div class="bg-white p-3.5 rounded-2xl border-2 border-emerald-500/20 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                    <span class="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-sm shrink-0"><i class="fa-solid fa-calculator"></i></span>
+                    <div>
+                        <h4 class="text-xs font-black text-slate-800">معيار عرض الأرقام في الكروت والأصناف:</h4>
+                        <p id="sm-calc-mode-hint" class="text-[10px] font-bold text-emerald-700">الوضع الحالي: يعرض فقط الطلبات التي تم تسليمها وتحصيل فلوسها فعلياً (بدون خلط مع المحجوز)</p>
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-1.5 w-full sm:w-auto bg-slate-100 p-1 rounded-xl border border-slate-200">
+                    <button type="button" onclick="setDashAccountingMode('completed')" id="sm-cm-completed" class="sm-cm-btn flex-1 sm:flex-none bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-black shadow-sm transition-all">✅ المسلّم والمحصّل فعلياً</button>
+                    <button type="button" onclick="setDashAccountingMode('pending')" id="sm-cm-pending" class="sm-cm-btn flex-1 sm:flex-none text-slate-600 hover:bg-white px-3 py-1.5 rounded-lg text-[11px] font-black transition-all">⏳ المحجوز قيد التسليم فقط</button>
+                    <button type="button" onclick="setDashAccountingMode('all')" id="sm-cm-all" class="sm-cm-btn flex-1 sm:flex-none text-slate-600 hover:bg-white px-3 py-1.5 rounded-lg text-[11px] font-black transition-all">📊 الشامل (مسلّم + محجوز)</button>
+                </div>
+            </div>
+
+            <!-- 💰 4. الكروت المالية الـ 6 (مفصولة ومنظمة محاسبياً 100%) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- 1. الصافي المحصل الفعلي (شامل التوصيل) -->
+                <div class="bg-white p-5 rounded-[1.5rem] border-2 border-emerald-500/30 shadow-soft">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <p id="sm-lbl-card1-title" class="text-xs font-black text-emerald-800">✅ إجمالي التحصيل الفعلي (تم تسليمه)</p>
+                            <h3 id="sm-dash-total-revenue" class="text-3xl font-black text-emerald-600 mt-1">0 <span class="text-sm">ج</span></h3>
+                        </div>
+                        <div class="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-lg"><i class="fa-solid fa-wallet"></i></div>
+                    </div>
+                    <div id="sm-dash-payment-split" class="text-[11px] font-black text-emerald-900 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200/70 mb-1.5 flex justify-between">
+                        <span>💵 كاش: 0 ج</span>
+                        <span>💳 أونلاين: 0 ج</span>
+                    </div>
+                    <div id="sm-dash-collected-vs-pending" class="text-[10px] font-bold text-slate-500 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200/60 flex justify-between">
+                        <span>عدد الطلبات: 0</span>
+                        <span>متوسط الفاتورة: 0 ج</span>
+                    </div>
+                </div>
+
+                <!-- 2. صافي مبيعات المنتجات (بدون توصيل) -->
+                <div class="bg-white p-5 rounded-[1.5rem] border border-slate-200 shadow-soft">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <p id="sm-lbl-card2-title" class="text-xs font-black text-slate-600">🥩 صافي قيمة المنتجات المسلّمة (بدون توصيل)</p>
+                            <h3 id="sm-dash-products-revenue" class="text-3xl font-black text-brand-primary mt-1">0 <span class="text-sm">ج</span></h3>
+                        </div>
+                        <div class="w-11 h-11 rounded-2xl bg-emerald-50 text-brand-primary flex items-center justify-center text-lg"><i class="fa-solid fa-sack-dollar"></i></div>
+                    </div>
+                    <div id="sm-dash-avg-order" class="text-[11px] font-black text-slate-700 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200/70 mb-1.5 flex justify-between">
+                        <span>🥩 0 طبق سمان</span>
+                        <span>متوسط السعر: 0 ج</span>
+                    </div>
+                    <div id="sm-dash-products-sub-split" class="text-[10px] font-bold text-slate-500 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200/60 flex justify-between">
+                        <span>✅ مسلّم: 0 ج</span>
+                        <span>⏳ محجوز: 0 ج</span>
+                    </div>
+                </div>
+
+                <!-- 3. صافي الربح الحقيقي بعد المصروفات والهالك -->
+                <div onclick="updateDashState('activeSubTab', 'ledger_waste')" class="bg-white p-5 rounded-[1.5rem] border-2 border-teal-500/40 shadow-soft cursor-pointer hover:border-teal-600 transition-all">
+                    <div class="flex justify-between items-start mb-3">
+                        <div>
+                            <p id="sm-lbl-card3-title" class="text-xs font-black text-teal-800">💎 صافي الربح الفعلي (بعد المصروف والهالك)</p>
+                            <h3 id="sm-dash-true-net-profit" class="text-3xl font-black text-teal-700 mt-1">0 <span class="text-sm">ج</span></h3>
+                        </div>
+                        <div class="w-11 h-11 rounded-2xl bg-teal-100 text-teal-700 flex items-center justify-center text-lg"><i class="fa-solid fa-gem"></i></div>
+                    </div>
+                    <div id="sm-dash-expenses-summary" class="text-[11px] font-black text-teal-900 bg-teal-50 px-3 py-1.5 rounded-xl border border-teal-200 flex justify-between">
+                        <span>مصروفات: 0 ج</span>
+                        <span>هالك/بايظ: 0 وحدة (0 ج)</span>
+                    </div>
+                </div>
+
+                <!-- 4. كارت مستقل للحجوزات المنتظرة تحت التحصيل (غير مخلوط مع المسلّم) -->
+                <div onclick="setDashAccountingMode('pending')" class="bg-amber-50/40 p-5 rounded-[1.5rem] border-2 border-amber-300/80 shadow-soft cursor-pointer hover:border-amber-500 transition-all">
+                    <div class="flex justify-between items-start mb-3">
+                        <div>
+                            <p class="text-xs font-black text-amber-900">⏳ حجوزات منتظرة (قيد التجهيز والطريق)</p>
+                            <h3 id="sm-dash-completed-count" class="text-2xl font-black text-amber-600 mt-1">0 <span class="text-xs">ج منتظر</span></h3>
+                        </div>
+                        <div class="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center text-base"><i class="fa-solid fa-hourglass-half"></i></div>
+                    </div>
+                    <div id="sm-dash-pipeline-info" class="text-[11px] font-black text-amber-900 bg-white px-3 py-1.5 rounded-xl border border-amber-200 flex justify-between">
+                        <span>📦 محجوز: 0 طلب</span>
+                        <span class="text-slate-400">❌ ملغي: 0</span>
+                    </div>
+                </div>
+
+                <!-- 5. إجمالي الخصومات والواجب -->
+                <div onclick="updateDashState('activeSubTab', 'overview'); updateDashState('tableSubFilter', 'discounted'); document.getElementById('sm-dash-orders-section').scrollIntoView({behavior:'smooth'});" class="bg-white p-5 rounded-[1.5rem] border border-red-200 shadow-soft cursor-pointer hover:border-red-400 transition-all">
+                    <div class="flex justify-between items-start mb-3">
+                        <div>
+                            <p class="text-xs font-black text-red-600">🎁 الخصومات والواجب (للمعروض)</p>
+                            <h3 id="sm-dash-discounts-total" class="text-2xl font-black text-red-600 mt-1">0 <span class="text-sm">ج</span></h3>
+                        </div>
+                        <div class="w-10 h-10 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center text-base"><i class="fa-solid fa-tags"></i></div>
+                    </div>
+                    <div id="sm-dash-discounts-breakdown" class="text-[11px] font-black text-red-800 bg-red-50 px-3 py-1.5 rounded-xl border border-red-100 flex justify-between">
+                        <span>خصم فواتير: 0 ج</span>
+                        <span>فروق أسعار: 0 ج</span>
+                    </div>
+                </div>
+
+                <!-- 6. إيراد التوصيل والآجل -->
+                <div class="bg-white p-5 rounded-[1.5rem] border border-indigo-100 shadow-soft">
+                    <div class="flex justify-between items-start mb-3">
+                        <div>
+                            <p class="text-xs font-black text-slate-500">🚚 إيراد التوصيل والآجل المسجل</p>
+                            <h3 id="sm-dash-delivery-revenue" class="text-2xl font-black text-indigo-600 mt-1">0 <span class="text-sm">ج توصيل</span></h3>
+                        </div>
+                        <div class="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-base"><i class="fa-solid fa-truck-fast"></i></div>
+                    </div>
+                    <div id="sm-dash-free-delivery-info" class="text-[11px] font-black text-indigo-800 bg-indigo-50/60 px-3 py-1.5 rounded-xl border border-indigo-100 flex justify-between">
+                        <span>توصيل مجاني: 0 طلب</span>
+                        <span id="sm-dash-debt-total" class="text-rose-600">آجل الفترة: 0 ج</span>
                     </div>
                 </div>
             </div>
 
-            <!-- 🏦 3. شريط السيولة الذكية والمحافظ (أيقونات صغيرة ومريحة + تغطية تلقائية بين الكاش والأونلاين) -->
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-                <div class="bg-emerald-950 text-white p-3 rounded-2xl shadow-sm flex items-center justify-between">
-                    <div>
-                        <p class="text-[10px] font-bold text-emerald-300">💵 صافي الكاش + 💳 الأونلاين المتاح</p>
-                        <h4 id="sm-safe-net-cash" class="text-base sm:text-lg font-black text-white mt-0.5">0 ج</h4>
-                        <span id="sm-safe-auto-cover-note" class="text-[9px] text-amber-300 font-bold block"></span>
-                    </div>
-                    <div class="w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-300 text-sm shrink-0"><i class="fa-solid fa-wallet"></i></div>
-                </div>
 
-                <div class="bg-white p-3 rounded-2xl border border-emerald-200 shadow-sm flex items-center justify-between">
-                    <div>
-                        <p class="text-[10px] font-black text-slate-500">تفصيل السيولة بعد المصاريف</p>
-                        <h4 id="sm-safe-net-online" class="text-xs sm:text-sm font-black text-emerald-700 mt-0.5">كاش: 0 | أونلاين: 0</h4>
-                    </div>
-                    <div class="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 text-sm shrink-0"><i class="fa-solid fa-coins"></i></div>
+            <!-- 📊 5. شريط متوسطات الدفعات التاريخي (خاص بلحوم السمان فقط) -->
+            <div class="bg-white p-5 rounded-[1.5rem] border border-slate-200/80 shadow-soft">
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <i class="fa-solid fa-gauge-high text-brand-primary"></i> مؤشر متوسطات الدفعات ومقياس الكفاءة (محسوب على أطباق السمان المذبوح فقط)
+                    </h4>
+                    <span class="text-[10px] font-bold text-slate-400">معزول عن أعداد البيض والكتاكيت</span>
                 </div>
-
-                <div onclick="updateDashState('activeSubTab', 'ledger_waste')" class="bg-purple-50/70 p-3 rounded-2xl border border-purple-200 shadow-sm flex items-center justify-between cursor-pointer hover:border-purple-400">
-                    <div>
-                        <p class="text-[10px] font-black text-purple-800">📕 ديون عليّ للموردين (أجل)</p>
-                        <h4 id="sm-safe-supplier-debt" class="text-base sm:text-lg font-black text-purple-700 mt-0.5">0 ج</h4>
-                    </div>
-                    <div class="w-8 h-8 rounded-xl bg-purple-100 flex items-center justify-center text-purple-600 text-sm shrink-0"><i class="fa-solid fa-file-invoice-dollar"></i></div>
-                </div>
-
-                <div onclick="switchTab('debts', document.querySelector('button[onclick*=\\'debts\\']'))" class="bg-white p-3 rounded-2xl border border-red-200 shadow-sm flex items-center justify-between cursor-pointer hover:border-red-400">
-                    <div>
-                        <p class="text-[10px] font-black text-red-700">📗 ديون لي عند العملاء بالسوق</p>
-                        <h4 id="sm-safe-market-debt" class="text-base sm:text-lg font-black text-red-600 mt-0.5">0 ج</h4>
-                        <span id="sm-safe-street-cash" class="text-[9px] text-amber-600 font-black block"></span>
-                    </div>
-                    <div class="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center text-red-500 text-sm shrink-0"><i class="fa-solid fa-hand-holding-dollar"></i></div>
-                </div>
+                <div id="sm-dash-benchmarks-bar" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
             </div>
 
             <!-- ========================================================= -->
-            <!-- 📄 الصفحة الأولى (Overview): الحسابات الصافية والدفعات والأصناف -->
+            <!-- القسم الأول (Overview): مقارنة الدفعات + جرد الأصناف + الجدول -->
             <!-- ========================================================= -->
-            <div id="sm-panel-overview" class="space-y-4">
-                <!-- شريط معيار الحساب المدمج -->
-                <div class="bg-white px-3.5 py-2.5 rounded-2xl border border-slate-200 flex flex-wrap items-center justify-between gap-2">
-                    <span id="sm-calc-mode-hint" class="text-[11px] font-black text-emerald-800">✅ المعروض حالياً: المبيعات المسلّمة والمحصّلة فعلياً (صافي السمان بدون توصيل)</span>
-                    <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
-                        <button type="button" onclick="setDashAccountingMode('completed')" id="sm-cm-completed" class="sm-cm-btn bg-emerald-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black">✅ المسلّم فعلياً</button>
-                        <button type="button" onclick="setDashAccountingMode('pending')" id="sm-cm-pending" class="sm-cm-btn text-slate-600 px-2.5 py-1 rounded-lg text-[10px] font-black">⏳ المحجوز فقط</button>
-                        <button type="button" onclick="setDashAccountingMode('all')" id="sm-cm-all" class="sm-cm-btn text-slate-600 px-2.5 py-1 rounded-lg text-[10px] font-black">📊 الشامل</button>
+            <div id="sm-panel-overview" class="space-y-6">
+                <!-- تفصيل وأرشفة الدفعات وميزان كل دفعة -->
+                <div class="bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4 pb-2 border-b border-slate-100">
+                        <div>
+                            <h4 class="text-sm font-black text-slate-800"><i class="fa-solid fa-layer-group text-teal-600 mr-1.5"></i> الحساب الكامل للدفعات (إجمالي مبيعات الدفعة الكلي + المحصل + المتبقي + الميزان)</h4>
+                            <p class="text-[10px] font-bold text-slate-400 mt-0.5">يعرض لك كارت كل دفعة إجمالي مبيعاتها الكلي بالكامل دون قصّ الطلبات التي حُجزت في نهاية الشهر السابق.</p>
+                        </div>
+                        <button onclick="updateDashState('sourceFilter', 'all')" id="sm-reset-batch-filter" class="hidden text-xs font-black bg-red-50 text-red-600 px-3 py-1 rounded-lg border border-red-200 hover:bg-red-600 hover:text-white transition-colors">إلغاء فلتر الدفعة ✕</button>
                     </div>
+                    <div id="sm-dash-batches-breakdown" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
                 </div>
 
-                <!-- الكروت الـ 4 المدمجة والواضحة (بدون أي كارت للتوصيل!) -->
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                    <!-- 1. صافي مبيعات السمان المستلمة -->
-                    <div class="bg-white p-3.5 rounded-2xl border-2 border-emerald-500/30 shadow-sm">
-                        <div class="flex justify-between items-center mb-1.5">
-                            <span id="sm-lbl-card1-title" class="text-[11px] font-black text-emerald-800">✅ صافي المبيعات المسلّمة</span>
-                            <span class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center text-xs"><i class="fa-solid fa-sack-dollar"></i></span>
-                        </div>
-                        <h3 id="sm-dash-total-revenue" class="text-xl sm:text-2xl font-black text-emerald-700">0 ج</h3>
-                        <div id="sm-dash-payment-split" class="text-[10px] font-black text-slate-600 mt-1.5 pt-1.5 border-t border-slate-100 flex justify-between"></div>
-                        <div id="sm-dash-avg-order" class="text-[9px] font-bold text-emerald-700 mt-1 flex justify-between"></div>
-                    </div>
-
-                    <!-- 2. إجمالي التكاليف والمصاريف (الثابتة + المتغيرة + الهالك) -->
-                    <div onclick="updateDashState('activeSubTab', 'ledger_waste')" class="bg-white p-3.5 rounded-2xl border border-rose-200 shadow-sm cursor-pointer hover:border-rose-400">
-                        <div class="flex justify-between items-center mb-1.5">
-                            <span class="text-[11px] font-black text-rose-700">💸 إجمالي المصاريف والتكاليف</span>
-                            <span class="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center text-xs"><i class="fa-solid fa-receipt"></i></span>
-                        </div>
-                        <h3 id="sm-dash-products-revenue" class="text-xl sm:text-2xl font-black text-rose-600">0 ج</h3>
-                        <div id="sm-dash-expenses-summary" class="text-[10px] font-black text-slate-600 mt-1.5 pt-1.5 border-t border-slate-100 flex justify-between"></div>
-                        <div id="sm-dash-discounts-breakdown" class="text-[9px] font-bold text-rose-600 mt-1 flex justify-between"></div>
-                    </div>
-
-                    <!-- 3. صافي الربح الحقيقي في جيبك -->
-                    <div class="bg-white p-3.5 rounded-2xl border-2 border-teal-500/40 shadow-sm">
-                        <div class="flex justify-between items-center mb-1.5">
-                            <span id="sm-lbl-card3-title" class="text-[11px] font-black text-teal-800">💎 الصافي الحقيقي (بعد المصروف)</span>
-                            <span class="w-7 h-7 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center text-xs"><i class="fa-solid fa-gem"></i></span>
-                        </div>
-                        <h3 id="sm-dash-true-net-profit" class="text-xl sm:text-2xl font-black text-teal-700">0 ج</h3>
-                        <div id="sm-dash-collected-vs-pending" class="text-[10px] font-black text-slate-600 mt-1.5 pt-1.5 border-t border-slate-100 flex justify-between"></div>
-                        <div id="sm-dash-discounts-total" class="text-[9px] font-bold text-slate-500 mt-1"></div>
-                    </div>
-
-                    <!-- 4. الحجوزات المنتظرة (مفصولة تماماً عن المسلّم) -->
-                    <div onclick="setDashAccountingMode('pending')" class="bg-amber-50/50 p-3.5 rounded-2xl border border-amber-300 shadow-sm cursor-pointer hover:border-amber-500">
-                        <div class="flex justify-between items-center mb-1.5">
-                            <span class="text-[11px] font-black text-amber-900">⏳ محجوز لم يُسلّم بعد</span>
-                            <span class="w-7 h-7 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center text-xs"><i class="fa-solid fa-clock"></i></span>
-                        </div>
-                        <h3 id="sm-dash-completed-count" class="text-xl sm:text-2xl font-black text-amber-600">0 ج</h3>
-                        <div id="sm-dash-pipeline-info" class="text-[10px] font-black text-amber-900 mt-1.5 pt-1.5 border-t border-amber-200/60 flex justify-between"></div>
-                        <div id="sm-dash-products-sub-split" class="text-[9px] font-bold text-slate-500 mt-1 flex justify-between"></div>
-                    </div>
+                <!-- جرد الأصناف المباعة في الفترة -->
+                <div class="bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft">
+                    <h4 class="text-sm font-black text-slate-800 mb-4 pb-2 border-b border-slate-100">
+                        <i class="fa-solid fa-boxes-packing text-brand-primary mr-1.5"></i> جرد الأصناف المباعة في الفترة (الكمية الكلية + الإيراد + متوسط سعر الوحدة)
+                    </h4>
+                    <div id="sm-dash-items-grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3"></div>
                 </div>
 
-                <!-- عناصر مخفية للتوافق -->
-                <div class="hidden"><span id="sm-dash-delivery-revenue"></span><span id="sm-dash-free-delivery-info"></span><span id="sm-dash-debt-total"></span><span id="sm-lbl-card2-title"></span></div>
+                <!-- جدول سجل الطلبات التفصيلي للفترة -->
+                <div id="sm-dash-orders-section" class="bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft space-y-4">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 pb-3 border-b border-slate-100">
+                        <div>
+                            <h4 class="text-sm font-black text-slate-800"><i class="fa-solid fa-list-check text-indigo-500 mr-1.5"></i> السجل التفصيلي لطلبات الفترة / الدفعة</h4>
+                            <p class="text-[11px] font-bold text-slate-400 mt-0.5">يعرض كل تفاصيل المبيعات والخصومات للطلبات المفلترة.</p>
+                        </div>
 
-                <!-- كروت الدفعات النشطة + درج الأرشيف المطوي -->
-                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
-                    <div class="flex justify-between items-center mb-3 pb-2 border-b border-slate-100">
-                        <h4 class="text-xs font-black text-slate-800"><i class="fa-solid fa-layer-group text-teal-600 ml-1"></i> حسابات الدفعات النشطة (صافي السمان بدون توصيل: المسلّم vs المحجوز)</h4>
-                        <button onclick="updateDashState('sourceFilter', 'all')" id="sm-reset-batch-filter" class="hidden text-[10px] font-black bg-red-50 text-red-600 px-2.5 py-1 rounded-lg border border-red-200">إلغاء الفلتر ✕</button>
-                    </div>
-                    <div id="sm-dash-batches-breakdown" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
-                </div>
-
-                <!-- جرد الأصناف المدمج -->
-                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
-                    <div class="flex flex-wrap justify-between items-center gap-2 mb-3 pb-2 border-b border-slate-100">
-                        <h4 class="text-xs font-black text-slate-800"><i class="fa-solid fa-boxes-packing text-brand-primary ml-1"></i> جرد الأصناف (الكميات المسلّمة والمحجوزة)</h4>
-                        <div id="sm-dash-benchmarks-bar" class="flex flex-wrap gap-2 text-[10px] font-black"></div>
-                    </div>
-                    <div id="sm-dash-items-grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5"></div>
-                </div>
-
-                <!-- جدول الطلبات الصافي (بدون عمود التوصيل) -->
-                <div id="sm-dash-orders-section" class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm space-y-3">
-                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 pb-2 border-b border-slate-100">
-                        <h4 class="text-xs font-black text-slate-800"><i class="fa-solid fa-list-check text-indigo-500 ml-1"></i> سجل طلبات الفترة (صافي المنتجات بدون التوصيل)</h4>
-                        <div class="flex flex-wrap items-center gap-1">
-                            <button onclick="updateDashState('tableSubFilter', 'completed')" id="sm-tf-completed" class="sm-tf-btn bg-slate-800 text-white px-2.5 py-1 rounded-lg text-[10px] font-black">✅ المسلّم فقط</button>
-                            <button onclick="updateDashState('tableSubFilter', 'all_active')" id="sm-tf-all_active" class="sm-tf-btn bg-slate-100 text-slate-600 px-2.5 py-1 rounded-lg text-[10px] font-black">⏳ المحجوز فقط</button>
-                            <button onclick="updateDashState('tableSubFilter', 'all_valid')" id="sm-tf-all_valid" class="sm-tf-btn bg-slate-100 text-slate-600 px-2.5 py-1 rounded-lg text-[10px] font-black">📦 الكل</button>
-                            <button onclick="updateDashState('tableSubFilter', 'discounted')" id="sm-tf-discounted" class="sm-tf-btn bg-slate-100 text-slate-600 px-2.5 py-1 rounded-lg text-[10px] font-black">🎁 بخصم</button>
-                            <button onclick="updateDashState('tableSubFilter', 'debt')" id="sm-tf-debt" class="sm-tf-btn bg-slate-100 text-slate-600 px-2.5 py-1 rounded-lg text-[10px] font-black">📕 آجل عميل</button>
-                            <button onclick="updateDashState('tableSubFilter', 'canceled')" id="sm-tf-canceled" class="sm-tf-btn bg-slate-100 text-slate-600 px-2.5 py-1 rounded-lg text-[10px] font-black">❌ ملغي</button>
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <button onclick="updateDashState('tableSubFilter', 'all_valid')" id="sm-tf-all_valid" class="sm-tf-btn bg-slate-800 text-white px-3 py-1.5 rounded-xl text-[11px] font-black">📦 كل المباع (مكتمل + حي)</button>
+                            <button onclick="updateDashState('tableSubFilter', 'completed')" id="sm-tf-completed" class="sm-tf-btn bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl text-[11px] font-black">✅ المكتمل فقط</button>
+                            <button onclick="updateDashState('tableSubFilter', 'all_active')" id="sm-tf-all_active" class="sm-tf-btn bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl text-[11px] font-black">⏳ قيد التحصيل فقط</button>
+                            <button onclick="updateDashState('tableSubFilter', 'discounted')" id="sm-tf-discounted" class="sm-tf-btn bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl text-[11px] font-black">🎁 بها خصم/واجب</button>
+                            <button onclick="updateDashState('tableSubFilter', 'debt')" id="sm-tf-debt" class="sm-tf-btn bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl text-[11px] font-black">📕 عليها آجل</button>
+                            <button onclick="updateDashState('tableSubFilter', 'canceled')" id="sm-tf-canceled" class="sm-tf-btn bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl text-[11px] font-black">❌ الملغي</button>
                         </div>
                     </div>
 
-                    <input type="search" id="sm-dash-table-search" oninput="updateDashState('tableSearch', this.value)" placeholder="🔍 ابحث في الجدول (اسم، رقم، منطقة، صنف)..." class="w-full md:w-80 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold outline-none">
+                    <div class="relative w-full md:w-96">
+                        <i class="fa-solid fa-search absolute right-3.5 top-3 text-slate-400 text-xs"></i>
+                        <input type="search" id="sm-dash-table-search" oninput="updateDashState('tableSearch', this.value)" placeholder="ابحث داخل الجدول (اسم، رقم، منطقة، صنف)..." class="w-full pr-9 pl-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold outline-none focus:bg-white focus:border-brand-primary">
+                    </div>
 
-                    <div class="overflow-x-auto custom-scroll max-h-[420px]">
+                    <div class="overflow-x-auto custom-scroll max-h-[520px]">
                         <table class="w-full text-right text-xs whitespace-nowrap">
                             <thead class="bg-slate-50 text-slate-600 sticky top-0 z-10 border-b border-slate-200">
                                 <tr>
-                                    <th class="py-2.5 px-3 font-black">العميل والمنطقة</th>
-                                    <th class="py-2.5 px-3 font-black text-center">الدفعة / الحالة</th>
-                                    <th class="py-2.5 px-3 font-black text-center">الأصناف</th>
-                                    <th class="py-2.5 px-3 font-black text-center">قيمة السمان</th>
-                                    <th class="py-2.5 px-3 font-black text-center text-red-600">الخصم</th>
-                                    <th class="py-2.5 px-3 font-black text-center">صافي المحصّل</th>
-                                    <th class="py-2.5 px-3 font-black text-center">التاريخ</th>
-                                    <th class="py-2.5 px-3 font-black text-center">إجراء</th>
+                                    <th class="py-3 px-4 font-black">العميل والمنطقة</th>
+                                    <th class="py-3 px-4 font-black text-center">الدفعة / الحالة</th>
+                                    <th class="py-3 px-4 font-black text-center">الأصناف</th>
+                                    <th class="py-3 px-4 font-black text-center">المنتجات</th>
+                                    <th class="py-3 px-4 font-black text-center">التوصيل</th>
+                                    <th class="py-3 px-4 font-black text-center text-red-600">الخصم / الواجب</th>
+                                    <th class="py-3 px-4 font-black text-center">الصافي النهائي</th>
+                                    <th class="py-3 px-4 font-black text-center">التاريخ</th>
+                                    <th class="py-3 px-4 font-black text-center">إجراء</th>
                                 </tr>
                             </thead>
                             <tbody id="sm-dash-orders-tbody" class="divide-y divide-slate-100"></tbody>
@@ -1175,117 +982,152 @@
             </div>
 
             <!-- ========================================================= -->
-            <!-- 📄 الصفحة الثانية (Ledger, Fixed, Debts & Annual Reset) -->
+            <!-- القسم الثاني (Ledger & Waste): المصروفات وميزان الهالك والبايظ -->
             <!-- ========================================================= -->
-            <div id="sm-panel-ledger_waste" class="hidden space-y-4">
-
-                <!-- 1. أزرار الإجراءات السريعة (مصروف نقدي / دين عليّ لمورد / هالك / جرد وتصفير) -->
-                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-2">
+            <div id="sm-panel-ledger_waste" class="hidden space-y-6">
+                <div class="bg-white p-5 rounded-[1.5rem] border border-slate-200/80 shadow-soft flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
-                        <h4 class="text-xs sm:text-sm font-black text-slate-800">💼 إدارة المصاريف الثابتة، الديون اللي عليّ، والجرد السنوي</h4>
-                        <p class="text-[10px] font-bold text-slate-400">عند دفع أي مصروف بالكاش وعدم كفاية الدرج، يسحب السيستم الباقي من الأونلاين أوتوماتيك.</p>
+                        <h4 class="text-base font-black text-slate-800"><i class="fa-solid fa-scale-balanced text-rose-500 mr-1.5"></i> إدارة المصروفات وسجل الهالك والبايظ واستهلاك البيت</h4>
+                        <p class="text-xs font-bold text-slate-400 mt-0.5">سجل مصاريف العلف والذبح والتغليف، أو سجل أي سمان نافق/بايظ أو مسحوب للبيت لخصمه من الفريزر وحساب صافي ربحك بدقة.</p>
                     </div>
-                    <div class="flex flex-wrap gap-1.5">
-                        <button onclick="openLedgerEntryBox('expense')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-2 rounded-xl text-[11px] font-black shadow-sm">+ مصروف مدفوع</button>
-                        <button onclick="openLedgerEntryBox('supplier_debt')" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-xl text-[11px] font-black shadow-sm">📕 + دين عليّ (شراء بالأجل)</button>
-                        <button onclick="openLedgerEntryBox('waste')" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-xl text-[11px] font-black shadow-sm">+ هالك / بايظ</button>
-                        <button onclick="createAnnualInventoryReset()" class="bg-slate-900 hover:bg-slate-800 text-amber-300 px-3 py-2 rounded-xl text-[11px] font-black shadow-sm">🔄 جرد سنوي وتصفير السيستم</button>
+                    <div class="flex gap-2 w-full sm:w-auto">
+                        <button onclick="openLedgerEntryBox('expense')" class="flex-1 sm:flex-none bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-xl text-xs font-black shadow-sm">+ إضافة مصروف / سحب</button>
+                        <button onclick="openLedgerEntryBox('waste')" class="flex-1 sm:flex-none bg-rose-600 hover:bg-rose-700 text-white px-4 py-2.5 rounded-xl text-xs font-black shadow-sm">+ تسجيل هالك / بايظ / بيت</button>
                     </div>
                 </div>
 
-                <!-- 2. فورم الإدخال الموحد (يفتح عند الضغط على أحد الأزرار) -->
-                <div id="sm-ledger-form-box" class="hidden bg-slate-900 text-white p-4 rounded-2xl shadow-xl space-y-3">
-                    <div class="flex justify-between items-center pb-2 border-b border-white/10">
-                        <h4 id="lg-form-title" class="font-black text-xs text-amber-400">تسجيل عملية جديدة</h4>
-                        <button onclick="document.getElementById('sm-ledger-form-box').classList.add('hidden')" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+                <div id="sm-ledger-form-box" class="hidden bg-slate-900 text-white p-6 rounded-[1.5rem] shadow-xl space-y-4">
+                    <div class="flex justify-between items-center pb-3 border-b border-white/10">
+                        <h4 id="lg-form-title" class="font-black text-sm text-amber-400">تسجيل عملية جديدة</h4>
+                        <button onclick="document.getElementById('sm-ledger-form-box').classList.add('hidden')" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
                     </div>
                     <input type="hidden" id="lg-entry-type" value="expense">
 
-                    <!-- أ) حقول المصروف المدفوع -->
-                    <div id="lg-expense-fields" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div id="lg-expense-fields" class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
-                            <label class="text-[10px] font-bold text-slate-300 block mb-1">بند المصروف</label>
-                            <select id="lg-exp-category" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs font-black text-white outline-none">
+                            <label class="text-[11px] font-bold text-slate-300 block mb-1">بند المصروف / السحب</label>
+                            <select id="lg-exp-category" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs font-black text-white outline-none">
                                 <option value="علف وتسمين">🌾 علف وتسمين</option>
                                 <option value="كتاكيت / بيض تفريخ">🐣 كتاكيت / بيض تفريخ</option>
                                 <option value="أجرة ذبح وتنظيف">🔪 أجرة ذبح وتنظيف</option>
                                 <option value="أطباق وأكياس واستيكرات">📦 أطباق وأكياس واستيكرات</option>
-                                <option value="إيجار / كهرباء / مياه / عمال">🏠 إيجار / كهرباء / مياه / عمال</option>
+                                <option value="كهرباء وتدفئة ومياه">⚡ كهرباء وتدفئة ومياه</option>
                                 <option value="أدوية وفيتامينات">💊 أدوية وفيتامينات</option>
-                                <option value="سحب شخصي / مصروف بيت">👤 سحب شخصي / مصروف بيت</option>
+                                <option value="سحب شخصي / مصروف بيت">🏠 سحب شخصي / مصروف بيت</option>
                                 <option value="مصروفات أخرى">📝 مصروفات أخرى</option>
                             </select>
                         </div>
                         <div>
-                            <label class="text-[10px] font-bold text-slate-300 block mb-1">المبلغ بالجنيه *</label>
-                            <input type="number" id="lg-exp-amount" placeholder="مثال: 500" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs font-black text-amber-400 outline-none">
+                            <label class="text-[11px] font-bold text-slate-300 block mb-1">المبلغ بالجنيه *</label>
+                            <input type="number" id="lg-exp-amount" placeholder="مثال: 500" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs font-black text-amber-400 outline-none">
                         </div>
                         <div>
-                            <label class="text-[10px] font-bold text-slate-300 block mb-1">طريقة الدفع (يكمل من الأونلاين تلقائياً)</label>
-                            <select id="lg-exp-source" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs font-black text-white outline-none">
-                                <option value="cash">💵 كاش (ولو نقص يسحب أونلاين تلقائياً)</option>
+                            <label class="text-[11px] font-bold text-slate-300 block mb-1">مخصوم من خزنة</label>
+                            <select id="lg-exp-source" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs font-black text-white outline-none">
+                                <option value="cash">💵 خزنة الكاش (الدرج)</option>
                                 <option value="online">💳 محفظة الأونلاين</option>
                             </select>
                         </div>
                     </div>
 
-                    <!-- ب) حقول "دين عليّ لمورد (شراء بالأجل بدون سيولة)" -->
-                    <div id="lg-supplier-debt-fields" class="hidden grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div id="lg-waste-fields" class="hidden grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div>
-                            <label class="text-[10px] font-bold text-purple-300 block mb-1">اسم الدائن / التاجر / العامل *</label>
-                            <input type="text" id="lg-debt-creditor" placeholder="مثال: الحاج أحمد (تاجر العلف)" class="w-full bg-slate-800 border border-purple-500/50 rounded-xl p-2 text-xs font-black text-white outline-none">
-                        </div>
-                        <div>
-                            <label class="text-[10px] font-bold text-purple-300 block mb-1">ماذا اشتريت بالدين؟</label>
-                            <select id="lg-debt-category" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs font-black text-white outline-none">
-                                <option value="شراء علف بالأجل">🌾 شراء علف بالأجل</option>
-                                <option value="شراء كتاكيت / بيض بالأجل">🐣 شراء كتاكيت / بيض بالأجل</option>
-                                <option value="أطباق وتغليف بالأجل">📦 أطباق وتغليف بالأجل</option>
-                                <option value="أجرة عمال / ذبح مؤجلة">👷 أجرة عمال / ذبح مؤجلة</option>
-                                <option value="إيجار / كهرباء مؤجلة">🏠 إيجار / كهرباء مؤجلة</option>
-                                <option value="سلفة / دين نقدي للشغل">💰 سلفة / دين للشغل</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="text-[10px] font-bold text-purple-300 block mb-1">مبلغ الدين الكلي بالجنيه *</label>
-                            <input type="number" id="lg-debt-amount" placeholder="مثال: 2000" class="w-full bg-slate-800 border border-purple-500/50 rounded-xl p-2 text-xs font-black text-purple-300 outline-none">
-                        </div>
-                    </div>
-
-                    <!-- ج) حقول الهالك والبايظ -->
-                    <div id="lg-waste-fields" class="hidden grid grid-cols-1 md:grid-cols-4 gap-3">
-                        <div>
-                            <label class="text-[10px] font-bold text-slate-300 block mb-1">نوع الهالك</label>
-                            <select id="lg-waste-kind" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs font-black text-rose-300 outline-none">
-                                <option value="هالك تربية / نافق">🐤 هالك تربية / نافق</option>
-                                <option value="بايظ فريزر / تالف">❄️ بايظ في الفريزر</option>
-                                <option value="استهلاك بيتي / هدايا">🏠 استهلاك بيت / هدية</option>
+                            <label class="text-[11px] font-bold text-slate-300 block mb-1">نوع الهالك / السحب</label>
+                            <select id="lg-waste-kind" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs font-black text-rose-300 outline-none">
+                                <option value="هالك تربية / نافق">🐤 هالك تربية / نافق قبل الذبح</option>
+                                <option value="تالف ذبح / فرزة تانية">🔪 تالف ذبح / كسر</option>
+                                <option value="بايظ فريزر / تالف تخزين">❄️ بايظ في الفريزر / تالف تخزين</option>
+                                <option value="استهلاك بيتي / هدايا">🏠 استهلاك بيت / هدية مجانية</option>
                                 <option value="تعويض عميل">🤝 تعويض لعميل</option>
                             </select>
                         </div>
                         <div>
-                            <label class="text-[10px] font-bold text-slate-300 block mb-1">الصنف</label>
-                            <select id="lg-waste-product" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs font-black text-white outline-none"></select>
+                            <label class="text-[11px] font-bold text-slate-300 block mb-1">الصنف (اختياري)</label>
+                            <select id="lg-waste-product" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs font-black text-white outline-none"></select>
                         </div>
                         <div>
-                            <label class="text-[10px] font-bold text-slate-300 block mb-1">العدد *</label>
-                            <input type="number" id="lg-waste-qty" placeholder="مثال: 2" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs font-black text-rose-400 outline-none">
+                            <label class="text-[11px] font-bold text-slate-300 block mb-1">العدد (جوز / طبق) *</label>
+                            <input type="number" id="lg-waste-qty" placeholder="مثال: 3" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs font-black text-rose-400 outline-none">
                         </div>
                         <div>
-                            <label class="text-[10px] font-bold text-slate-300 block mb-1">التكلفة (اختياري)</label>
-                            <input type="number" id="lg-waste-cost" placeholder="يحسب تلقائياً" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs font-black text-white outline-none">
+                            <label class="text-[11px] font-bold text-slate-300 block mb-1">التكلفة التقديرية بالـ ج (اختياري)</label>
+                            <input type="number" id="lg-waste-cost" placeholder="يحسب تلقائياً لو تركته فارغاً" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs font-black text-white outline-none">
                         </div>
                         <div class="md:col-span-4">
-                            <label class="inline-flex items-center gap-2 cursor-pointer text-[11px] font-black text-cyan-300">
-                                <input type="checkbox" id="lg-waste-deduct-fz" class="w-4 h-4 accent-cyan-400 rounded"> خصم من رصيد الفريزر الحالي ❄️
+                            <label class="inline-flex items-center gap-2 cursor-pointer bg-white/5 px-3 py-2 rounded-xl border border-white/10 text-xs font-black text-cyan-300">
+                                <input type="checkbox" id="lg-waste-deduct-fz" class="w-4 h-4 accent-cyan-400 rounded">
+                                خصم هذا العدد أوتوماتيك من رصيد مخزن الفريزر الحالي (دون نزول تحت الصفر) ❄️
                             </label>
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
-                        <select id="lg-batch-name" class="bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs font-black text-white outline-none"></select>
-                        <input type="text" id="lg-notes" placeholder="ملاحظة إضافية (اختياري)..." class="bg-slate-800 border border-slate-700 rounded-xl p-2 text-xs font-bold text-white outline-none">
-                        <button onclick="submitLedgerRecord()" class="bg-emerald-500 hover:bg-emerald-400 text-slate-9
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                        <div>
+                            <label class="text-[11px] font-bold text-slate-300 block mb-1">ربط بدفعة معينة (اختياري)</label>
+                            <select id="lg-batch-name" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs font-black text-white outline-none"></select>
+                        </div>
+                        <div>
+                            <label class="text-[11px] font-bold text-slate-300 block mb-1">ملاحظات وتفاصيل إضافية</label>
+                            <input type="text" id="lg-notes" placeholder="اكتب أي تفاصيل..." class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs font-bold text-white outline-none">
+                        </div>
+                        <div class="flex items-end">
+                            <button onclick="submitLedgerRecord()" class="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-2.5 rounded-xl text-xs shadow-lg transition-all">💾 حفظ وتسميع في الحسابات</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft">
+                    <h4 class="text-sm font-black text-slate-800 mb-4 pb-2 border-b border-slate-100">📋 سجل المصروفات والهالك المسجل في الفترة المحددة</h4>
+                    <div class="overflow-x-auto custom-scroll max-h-[450px]">
+                        <table class="w-full text-right text-xs whitespace-nowrap">
+                            <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
+                                <tr>
+                                    <th class="py-3 px-4 font-black">النوع والبند</th>
+                                    <th class="py-3 px-4 font-black text-center">الدفعة المرتبطة</th>
+                                    <th class="py-3 px-4 font-black text-center">الكمية / الصنف</th>
+                                    <th class="py-3 px-4 font-black text-center">المبلغ / التكلفة</th>
+                                    <th class="py-3 px-4 font-black">ملاحظات</th>
+                                    <th class="py-3 px-4 font-black text-center">التاريخ</th>
+                                    <th class="py-3 px-4 font-black text-center">حذف</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sm-ledger-records-tbody" class="divide-y divide-slate-100"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========================================================= -->
+            <!-- القسم الثالث (VIP & Zones): رادار الغائبين وربحية المناطق -->
+            <!-- ========================================================= -->
+            <div id="sm-panel-vip_zones" class="hidden space-y-6">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-[1.5rem] border border-amber-200/80 shadow-soft flex flex-col">
+                        <div class="mb-4 pb-3 border-b border-slate-100">
+                            <h4 class="text-sm font-black text-slate-800 flex items-center gap-2">
+                                <i class="fa-solid fa-user-clock text-amber-500"></i> رادار استرجاع كبار العملاء الغائبين (VIP Churn Radar)
+                            </h4>
+                            <p class="text-[11px] font-bold text-slate-400 mt-0.5">عملاء مميزون اشتروا منك سابقاً ولم يطلبوا منذ أكثر من 14 يوماً — راسلهم بضغطة زر لتنشيط المبيعات.</p>
+                        </div>
+                        <div id="sm-vip-churn-list" class="space-y-2.5 max-h-[450px] overflow-y-auto custom-scroll pr-1"></div>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-[1.5rem] border border-indigo-100 shadow-soft flex flex-col">
+                        <div class="mb-4 pb-3 border-b border-slate-100">
+                            <h4 class="text-sm font-black text-slate-800 flex items-center gap-2">
+                                <i class="fa-solid fa-map-location-dot text-indigo-600"></i> ترتيب ربحية المناطق وأداء المناديب في الفترة
+                            </h4>
+                            <p class="text-[11px] font-bold text-slate-400 mt-0.5">يكشف لك أكثر المناطق شراءً وأعلى المناديب إنجازاً في الشهر المحدد.</p>
+                        </div>
+                        <div id="sm-zones-profit-list" class="space-y-2.5 max-h-[450px] overflow-y-auto custom-scroll pr-1"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        dashView.appendChild(root);
+    };
+
     // =========================================================================
     // 📅 خامساً: دوال الفلترة الزمنية
     // =========================================================================
