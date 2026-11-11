@@ -1839,8 +1839,23 @@
     };
 
     // =========================================================================
-    // 🔄 سادساً: الريندر الرئيسي الشامل والمضبوط حسابياً 100%
+    // 🔄 سادساً: الريندر الرئيسي الشامل والمضبوط حسابياً 100% (بدون توصيل + خزنة ذكية + ديون عليا + جرد سنوي)
     // =========================================================================
+
+    function getOrderEffectiveTimestampMs(o) {
+        if (!o) return 0;
+        if (o.completedAt && typeof o.completedAt.toMillis === 'function') return o.completedAt.toMillis();
+        if (o.createdAt && typeof o.createdAt.toMillis === 'function') return o.createdAt.toMillis();
+        if (o.completedAtStr) {
+            const t = new Date(o.completedAtStr).getTime();
+            if (!isNaN(t)) return t;
+        }
+        if (o.orderDate) {
+            const t = new Date(o.orderDate).getTime();
+            if (!isNaN(t)) return t;
+        }
+        return 0;
+    }
 
     window.renderSmartDashboard = function () {
         window.initSmartDashboardLayout();
@@ -1853,19 +1868,83 @@
         const freezerObj = (typeof storeFreezer !== 'undefined' && storeFreezer) ? storeFreezer : {};
         const custArr = (typeof customersData !== 'undefined' && Array.isArray(customersData)) ? customersData : [];
         const ledgerRecordsArr = Object.values(window.storeLedgerRecords || {});
+        const accCfg = window.storeAccountingConfig || { fiscalResetMs: 0, fixedMonthly: {}, annualArchives: {} };
 
         const setElHtml = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
 
-        // 1. تحديث حالة المتجر + حساب الفريزر الفعلي (مع منع أي رقم سالب واستخدام السعر الحقيقي)
+        // 0. فحص وتعبئة المصاريف الثابتة الشهرية + إظهار الإشعار الذكي أول أو آخر الشهر
+        const fm = accCfg.fixedMonthly || {};
+        const setInputIfNotFocused = (id, val) => {
+            const el = document.getElementById(id);
+            if (el && document.activeElement !== el) el.value = val || '';
+        };
+        setInputIfNotFocused('fm-rent', fm.rent || '');
+        setInputIfNotFocused('fm-electricity', fm.electricity || '');
+        setInputIfNotFocused('fm-water', fm.water || '');
+        setInputIfNotFocused('fm-labor', fm.labor || '');
+        setInputIfNotFocused('fm-other', fm.otherFixed || '');
+        const fmTimingEl = document.getElementById('fm-timing');
+        if (fmTimingEl && document.activeElement !== fmTimingEl) fmTimingEl.value = fm.dueTiming || 'start';
+        const fmAutoEl = document.getElementById('fm-auto-approve');
+        if (fmAutoEl) fmAutoEl.checked = Boolean(fm.autoApprove);
+
+        const totalFixedMonthlyAmt = (Number(fm.rent) || 0) + (Number(fm.electricity) || 0) + (Number(fm.water) || 0) + (Number(fm.labor) || 0) + (Number(fm.otherFixed) || 0);
+        setElHtml('fm-status-badge', `إجمالي الثوابت: ${totalFixedMonthlyAmt.toLocaleString()} ج/شهر`);
+
+        const nowObj = new Date();
+        const curMonthKey = `${nowObj.getFullYear()}-${String(nowObj.getMonth() + 1).padStart(2, '0')}`;
+        const isFixedDueNow = (fm.dueTiming === 'end' ? nowObj.getDate() >= 25 : nowObj.getDate() >= 1);
+        const fixedBanner = document.getElementById('sm-fixed-monthly-alert-banner');
+        if (fixedBanner) {
+            if (totalFixedMonthlyAmt > 0 && fm.lastAppliedMonth !== curMonthKey && isFixedDueNow) {
+                fixedBanner.classList.remove('hidden');
+                fixedBanner.innerHTML = `
+                    <div class="flex items-center gap-2 text-xs font-black">
+                        <i class="fa-solid fa-bell animate-bounce text-base"></i>
+                        <span>🔔 تذكير المصاريف الأساسية لشهر (${curMonthKey}): إجمالي (إيجار + كهرباء + مياه + عمالة) = <strong>${totalFixedMonthlyAmt.toLocaleString()} ج.م</strong> لم يُخصم بعد!</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <button type="button" onclick="checkAndProcessMonthlyFixedExpenses(true)" class="bg-slate-900 hover:bg-slate-800 text-amber-300 px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm">⚡ اعتماد وخصم الآن</button>
+                        <button type="button" onclick="updateDashState('activeSubTab', 'ledger_waste')" class="bg-white/60 hover:bg-white text-slate-900 px-2.5 py-1.5 rounded-xl text-[10px] font-black">تعديل الثوابت</button>
+                    </div>
+                `;
+            } else {
+                fixedBanner.classList.add('hidden');
+            }
+        }
+
+        // شريط الجرد السنوي إذا كان هناك تصفير مفعل
+        const restoreFiscalBtn = document.getElementById('sm-btn-restore-fiscal');
+        if (restoreFiscalBtn) {
+            restoreFiscalBtn.classList.toggle('hidden', !(Number(accCfg.fiscalResetMs) > 0));
+        }
+        const fiscalBanner = document.getElementById('sm-fiscal-archive-banner');
+        if (fiscalBanner) {
+            if (Number(accCfg.fiscalResetMs) > 0) {
+                const resetDateFormatted = new Date(Number(accCfg.fiscalResetMs)).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' });
+                fiscalBanner.classList.remove('hidden');
+                fiscalBanner.innerHTML = `
+                    <div class="text-[11px] font-black flex items-center gap-2">
+                        <i class="fa-solid fa-circle-check text-emerald-400"></i>
+                        <span>أنت تعمل الآن في دورة محاسبية جديدة بدأت من الصفر بتاريخ (${resetDateFormatted}) — جميع الحسابات الأقدم محفوظة في أرشيف الجرد السنوي بالصفحة الثانية.</span>
+                    </div>
+                    <button type="button" onclick="updateDashState('activeSubTab', 'ledger_waste')" class="bg-white/10 hover:bg-white/20 text-amber-300 px-2.5 py-1 rounded-lg text-[10px] font-black">📁 عرض أرشيف السنين</button>
+                `;
+            } else {
+                fiscalBanner.classList.add('hidden');
+            }
+        }
+
+        // 1. تحديث حالة المتجر + حساب الفريزر الفعلي
         const storeBtn = document.getElementById('sm-cmd-store-status');
         if (storeBtn && typeof storeSettings !== 'undefined') {
             const isOpen = storeSettings.storeOpen !== false;
             storeBtn.className = isOpen
-                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3.5 py-2 rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1.5'
-                : 'bg-red-500 hover:bg-red-400 text-white px-3.5 py-2 rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1.5';
+                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1'
+                : 'bg-red-500 hover:bg-red-400 text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1';
             storeBtn.innerHTML = isOpen
-                ? '<i class="fa-solid fa-circle-check"></i> <span>المتجر مفتوح</span>'
-                : '<i class="fa-solid fa-lock"></i> <span>المتجر مغلق</span>';
+                ? '<i class="fa-solid fa-circle-check text-[10px]"></i> <span>المتجر مفتوح</span>'
+                : '<i class="fa-solid fa-lock text-[10px]"></i> <span>المتجر مغلق</span>';
         }
 
         let totalFreezerMeatUnits = 0;
@@ -1875,7 +1954,6 @@
         Object.keys(freezerObj).forEach(pId => {
             const rawQty = Number(freezerObj[pId]) || 0;
             if (rawQty < 0) hasNegativeInFreezer = true;
-            // منع أي رقم سالب من تشويه رصيد الفريزر
             const safeQty = Math.max(0, rawQty);
             if (safeQty > 0) {
                 const cls = window.classifyOrderItem({ id: pId, name: prodsObj[pId]?.name || '' });
@@ -1915,21 +1993,6 @@
         });
 
         const sourceSelect = document.getElementById('dash-source-select');
-        if (sourceSelect) {
-            const currentVal = window.dashState.sourceFilter;
-            let optionsHtml = `
-                <option value="all">📦 كل المبيعات (دفعات + فوري)</option>
-                <option value="batches_only">🏷️ طلبات الدفعات فقط</option>
-                <option value="normal_only">❄️ الطلبات الفورية فقط</option>
-            `;
-            Array.from(batchNamesSet).forEach(bName => {
-                const valKey = 'batch:' + bName;
-                optionsHtml += `<option value="${valKey}" ${currentVal === valKey ? 'selected' : ''}>📌 دفعة: ${bName}</option>`;
-            });
-            sourceSelect.innerHTML = optionsHtml;
-            sourceSelect.value = currentVal;
-        }
-
         const lgBatchSel = document.getElementById('lg-batch-name');
         if (lgBatchSel) {
             const curB = lgBatchSel.value;
@@ -1956,7 +2019,7 @@
         const periodBadge = document.getElementById('dash-active-period-badge');
         if (periodBadge) {
             if (isSpecificBatchSelected) {
-                periodBadge.innerText = `📌 كل حسابات دفعة: ${selectedBatchNameTarget}`;
+                periodBadge.innerText = `📌 دفعة: ${selectedBatchNameTarget}`;
             } else {
                 const pNames = {
                     'this_month': 'هذا الشهر (' + new Date().toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' }) + ')',
@@ -1964,22 +2027,29 @@
                     'pick_month': 'شهر: ' + (window.dashState.selectedMonth || ''),
                     'today': 'اليوم فقط',
                     'custom': 'فترة مخصصة',
-                    'all_time': 'كل الأوقات (شامل)'
+                    'all_time': 'منذ آخر جرد'
                 };
                 periodBadge.innerText = pNames[window.dashState.period] || 'هذا الشهر';
             }
         }
 
-        // 3. حساب الهالك والمصروفات لكل دفعة وللفترة
+        // 3. فلترة السجلات المالية بعد تاريخ الجرد السنوي (إن وجد) وحساب المصروفات والديون عليا والهالك
+        const activeFiscalLedgerArr = ledgerRecordsArr.filter(rec => rec && window.isAfterFiscalReset(rec.createdAtMs));
+
         const wasteByBatchName = {};
         const expensesByBatchName = {};
-        ledgerRecordsArr.forEach(rec => {
-            if (!rec) return;
+        let totalOwnerPayableDebtNow = 0; // إجمالي الديون اللي عليا غير المسددة حتى الآن
+
+        activeFiscalLedgerArr.forEach(rec => {
             if (rec.type === 'waste' && rec.batchName) {
                 wasteByBatchName[rec.batchName.trim()] = (wasteByBatchName[rec.batchName.trim()] || 0) + (Number(rec.qty) || 0);
             }
-            if (rec.type === 'expense' && rec.batchName) {
+            if ((rec.type === 'expense' || rec.type === 'payable_debt') && rec.batchName) {
                 expensesByBatchName[rec.batchName.trim()] = (expensesByBatchName[rec.batchName.trim()] || 0) + (Number(rec.amount) || 0);
+            }
+            if (rec.type === 'payable_debt') {
+                const rem = Number(rec.remainingDebt !== undefined ? rec.remainingDebt : rec.amount) || 0;
+                if (rem > 0) totalOwnerPayableDebtNow += rem;
             }
         });
 
@@ -1994,38 +2064,52 @@
             return true;
         };
 
-        const periodLedgerRecords = ledgerRecordsArr.filter(rec => {
-            if (!rec) return false;
+        const periodLedgerRecords = activeFiscalLedgerArr.filter(rec => {
             if (isSpecificBatchSelected) return filterRecordBySource(rec);
             const dObj = rec.createdAtMs ? new Date(rec.createdAtMs) : (rec.dateStr ? new Date(rec.dateStr) : null);
             return isTimestampInSelectedPeriod(dObj) && filterRecordBySource(rec);
         });
 
-        let periodExpensesCash = 0, periodExpensesOnline = 0, periodWasteUnits = 0, periodWasteCost = 0;
+        let periodExpensesCash = 0, periodExpensesOnline = 0;
+        let periodDirectExpensesTotal = 0; // مصاريف مدفوعة
+        let periodIncurredDebtsTotal = 0;  // مشتريات آجلة (ديون عليا) في الفترة — تُحسب مرة واحدة في التكلفة
+        let periodWasteUnits = 0, periodWasteCost = 0;
+
         periodLedgerRecords.forEach(rec => {
-            if (rec.type === 'expense') {
-                if (rec.paymentSource === 'online') periodExpensesOnline += Number(rec.amount) || 0;
-                else periodExpensesCash += Number(rec.amount) || 0;
+            if (rec.type === 'expense' || rec.type === 'fixed_monthly') {
+                const amt = Number(rec.amount) || 0;
+                periodDirectExpensesTotal += amt;
+                if (rec.cashPaid !== undefined || rec.onlinePaid !== undefined) {
+                    periodExpensesCash += Number(rec.cashPaid) || 0;
+                    periodExpensesOnline += Number(rec.onlinePaid) || 0;
+                } else {
+                    if (rec.paymentSource === 'online') periodExpensesOnline += amt;
+                    else periodExpensesCash += amt;
+                }
+            } else if (rec.type === 'payable_debt') {
+                // المشتريات الآجلة تُحسب كتكلفة في الفترة مرة واحدة، ولا يُخصم من الخزنة إلا ما تم سداده فعلياً
+                periodIncurredDebtsTotal += Number(rec.amount) || 0;
+                periodExpensesCash += Number(rec.paidCash) || 0;
+                periodExpensesOnline += Number(rec.paidOnline) || 0;
             } else if (rec.type === 'waste') {
                 periodWasteUnits += Number(rec.qty) || 0;
                 periodWasteCost += Number(rec.amount) || 0;
             }
         });
-        const totalPeriodExpenses = periodExpensesCash + periodExpensesOnline;
 
-        // 4. 🎯 الحل الجذري لحساب الدفعات (الدفعة وحدة محاسبية متكاملة لا تُقصّ بين الشهور!)
-        // نجمع كل طلبات الدفعة الكلية (المكتملة + الحية) حتى تظهر الـ 20,000 ج كاملة وتحتها تفصيل (المحصل + قيد التحصيل)
+        // إجمالي مصروفات والتزامات الفترة (دون تكرار سداد الدين مرتين)
+        const totalPeriodExpensesAndDebts = periodDirectExpensesTotal + periodIncurredDebtsTotal;
+
+        // 4. تجميع حسابات الدفعات (صافي المنتجات فقط بدون التوصيل، مع احترام نقطة الجرد السنوي)
         const sourcesSummary = {};
+        const activeFiscalOrdersList = ordersList.filter(o => o && o.status !== 'trash' && window.isAfterFiscalReset(getOrderEffectiveTimestampMs(o)));
 
-        ordersList.forEach(o => {
-            if (!o || o.status === 'trash') return;
+        activeFiscalOrdersList.forEach(o => {
             const resolvedBName = window.resolveOrderBatchName(o);
             const hasBatch = Boolean(resolvedBName);
 
-            // بالنسبة للطلبات الفورية (بدون دفعة)، تُفلتر حسب الفترة المختارة فقط
             if (!hasBatch && !isSpecificBatchSelected && !isOrderInSelectedPeriod(o)) return;
 
-            // بالنسبة للدفعات: نظهر كل دفعة لها نشاط في الفترة المختارة (أو هي دفعة حية حالياً)، ولكن نحسب أرقام الدفعة كاملة دون قصّ!
             const bLabel = hasBatch ? resolvedBName : '❄️ طلبات فورية (بدون دفعة)';
             const filterKey = hasBatch ? ('batch:' + bLabel) : 'normal_only';
 
@@ -2039,13 +2123,13 @@
                     completedCount: 0,
                     activeCount: 0,
                     totalValidCount: 0,
-                    soldMeatUnits: 0,     // أطباق سمان فقط (مكتمل + حي)
+                    soldMeatUnits: 0,
                     completedMeatUnits: 0,
                     soldChickUnits: 0,
                     soldEggUnits: 0,
-                    totalBatchSales: 0,   // إجمالي مبيعات الدفعة الكلي (مثلاً 20,000 ج)
-                    collectedRevenue: 0,  // المحصل فعلياً للمكتمل (مثلاً 7,000 ج)
-                    pendingRevenue: 0,    // قيد التحصيل للحي (مثلاً 13,000 ج)
+                    totalBatchSales: 0,
+                    collectedRevenue: 0,
+                    pendingRevenue: 0,
                     productsSubTotal: 0,
                     discounts: 0
                 };
@@ -2089,22 +2173,8 @@
             }
         });
 
-        // دمج بيانات أي دفعة مؤرشفة إذا كانت طلباتها القديمة غير محملة أو مؤرشفة بتقرير ثابت
-        archivedArr.forEach(a => {
-            if (!a || !a.batchName) return;
-            const bLabel = a.batchName.trim();
-            const archRev = Number(a.totalRevenue) || 0;
-            if (sourcesSummary[bLabel] && archRev > sourcesSummary[bLabel].totalBatchSales) {
-                sourcesSummary[bLabel].totalBatchSales = archRev;
-                sourcesSummary[bLabel].collectedRevenue = archRev;
-                sourcesSummary[bLabel].completedCount = Math.max(sourcesSummary[bLabel].completedCount, Number(a.ordersCount) || 0);
-            }
-        });
-
-        // 5. فلترة الطلبات للكروت العلوية والجدول:
-        // إذا اختار المستخدم دفعة محددة، نعرض كل طلبات تلك الدفعة بالكامل دون قصّها بتاريخ الشهر!
-        const finalPeriodOrders = ordersList.filter(o => {
-            if (!o || o.status === 'trash') return false;
+        // 5. فلترة الطلبات للكروت العلوية والجدول
+        const finalPeriodOrders = activeFiscalOrdersList.filter(o => {
             const resolvedBName = window.resolveOrderBatchName(o);
             const hasBatch = Boolean(resolvedBName);
             const sf = window.dashState.sourceFilter;
@@ -2119,11 +2189,9 @@
             return true;
         });
 
-        // تهيئة وضع الحساب الافتراضي (المسلّم الفعلي فقط لمنع اللخبطة) وحالة درج الأرشيف
         if (!window.dashState.calcMode) window.dashState.calcMode = 'completed';
         if (window.dashState.showArchivedDrawer === undefined) window.dashState.showArchivedDrawer = false;
 
-        // دالة التبديل بين أوضاع الحساب الثلاثة (مسلّم فقط / محجوز فقط / شامل)
         if (typeof window.setDashAccountingMode !== 'function') {
             window.setDashAccountingMode = function (mode) {
                 window.dashState.calcMode = mode;
@@ -2132,11 +2200,11 @@
                 else window.dashState.tableSubFilter = 'all_valid';
 
                 document.querySelectorAll('.sm-tf-btn').forEach(btn => {
-                    btn.className = 'sm-tf-btn bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all';
+                    btn.className = 'sm-tf-btn bg-slate-100 text-slate-600 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all';
                 });
                 const activeTf = document.getElementById('sm-tf-' + window.dashState.tableSubFilter);
                 if (activeTf) {
-                    activeTf.className = 'sm-tf-btn bg-slate-800 text-white px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm transition-all';
+                    activeTf.className = 'sm-tf-btn bg-slate-800 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm transition-all';
                 }
                 window.renderSmartDashboard();
             };
@@ -2158,34 +2226,18 @@
             };
         }
 
-        // تحديث أزرار وضع الحساب بصرياً
         const currentCalcMode = window.dashState.calcMode || 'completed';
         ['completed', 'pending', 'all'].forEach(m => {
             const btn = document.getElementById('sm-cm-' + m);
             if (!btn) return;
             if (m === currentCalcMode) {
                 const activeColor = m === 'completed' ? 'bg-emerald-600 text-white' : (m === 'pending' ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-white');
-                btn.className = `sm-cm-btn flex-1 sm:flex-none ${activeColor} px-3 py-1.5 rounded-lg text-[11px] font-black shadow-sm transition-all`;
+                btn.className = `sm-cm-btn ${activeColor} px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm transition-all`;
             } else {
-                btn.className = 'sm-cm-btn flex-1 sm:flex-none text-slate-600 hover:bg-white px-3 py-1.5 rounded-lg text-[11px] font-black transition-all';
+                btn.className = 'sm-cm-btn text-slate-600 hover:bg-white px-2.5 py-1 rounded-lg text-[10px] font-black transition-all';
             }
         });
 
-        const modeHintEl = document.getElementById('sm-calc-mode-hint');
-        if (modeHintEl) {
-            if (currentCalcMode === 'completed') {
-                modeHintEl.className = 'text-[10px] font-bold text-emerald-700';
-                modeHintEl.innerText = '✅ الوضع الدقيق (الافتراضي): الكروت وصافي الربح والأصناف تعرض فقط ما تم تسليمه وتحصيله فعلياً.';
-            } else if (currentCalcMode === 'pending') {
-                modeHintEl.className = 'text-[10px] font-bold text-amber-700';
-                modeHintEl.innerText = '⏳ وضع الحجوزات: الكروت والأصناف تعرض فقط الطلبات المحجوزة التي لم تُسلّم بعد.';
-            } else {
-                modeHintEl.className = 'text-[10px] font-bold text-slate-600';
-                modeHintEl.innerText = '📊 الوضع الشامل: يجمع المسلّم الفعلي + المحجوز قيد التسليم معاً.';
-            }
-        }
-
-        // تنظيم القائمة المنسدلة للدفعات إلى مجموعتين (الدفعات النشطة الحالية + أرشيف الدفعات السابقة)
         if (sourceSelect) {
             const currentVal = window.dashState.sourceFilter;
             const liveNamesArr = Array.from(batchNamesSet).filter(n => Boolean(liveBatchByName[n]));
@@ -2216,21 +2268,16 @@
             sourceSelect.value = currentVal;
         }
 
-        // 6. الحسابات المالية الدقيقة المفصولة (المسلّم الفعلي vs المحجوز قيد التسليم)
+        // 6. الحسابات المالية الدقيقة (صافي المنتجات بدون التوصيل نهائياً)
         let completedCount = 0, activeCount = 0, canceledCount = 0;
         let completedRevenue = 0, activeExpectedRev = 0;
         let cashCompletedRev = 0, onlineCompletedRev = 0;
         let cashPendingRev = 0, onlinePendingRev = 0;
 
-        let completedProductsSub = 0, activeProductsSub = 0;
-        let completedDeliveryRev = 0, activeDeliveryRev = 0;
-        let completedFreeDelCount = 0, activeFreeDelCount = 0;
-
         let completedDirectDisc = 0, completedImplicitDisc = 0, completedDiscOrders = 0;
         let activeDirectDisc = 0, activeImplicitDisc = 0, activeDiscOrders = 0;
         let completedDebtTotal = 0, activeDebtTotal = 0;
 
-        // فصل كميات الأصناف حسب الحالة (مسلّم فعلي / محجوز / شامل)
         let compMeatUnits = 0, compChickUnits = 0, compEggUnits = 0, compMeatRev = 0;
         let pendMeatUnits = 0, pendChickUnits = 0, pendEggUnits = 0, pendMeatRev = 0;
 
@@ -2262,10 +2309,7 @@
             if (isComp) {
                 completedCount++;
                 completedRevenue += fin.total;
-                completedProductsSub += fin.subtotal;
-                completedDeliveryRev += fin.delivery;
                 if (oDebt > 0) completedDebtTotal += oDebt;
-                if (fin.delivery === 0 && fin.total > 0) completedFreeDelCount++;
 
                 if (o.paymentMethod === 'online') onlineCompletedRev += fin.total;
                 else cashCompletedRev += fin.total;
@@ -2284,10 +2328,7 @@
             } else {
                 activeCount++;
                 activeExpectedRev += fin.total;
-                activeProductsSub += fin.subtotal;
-                activeDeliveryRev += fin.delivery;
                 if (oDebt > 0) activeDebtTotal += oDebt;
-                if (fin.delivery === 0 && fin.total > 0) activeFreeDelCount++;
 
                 if (o.paymentMethod === 'online') onlinePendingRev += fin.total;
                 else cashPendingRev += fin.total;
@@ -2337,7 +2378,6 @@
             }
         });
 
-        // تحديد الأرقام المعروضة في الكروت بناءً على وضع الحساب المختار (الافتراضي: المسلّم الفعلي فقط)
         const isPendingMode = (currentCalcMode === 'pending');
         const isAllMode = (currentCalcMode === 'all');
 
@@ -2345,9 +2385,6 @@
         const shownTotalRev = isPendingMode ? activeExpectedRev : (isAllMode ? (completedRevenue + activeExpectedRev) : completedRevenue);
         const shownCashRev = isPendingMode ? cashPendingRev : (isAllMode ? (cashCompletedRev + cashPendingRev) : cashCompletedRev);
         const shownOnlineRev = isPendingMode ? onlinePendingRev : (isAllMode ? (onlineCompletedRev + onlinePendingRev) : onlineCompletedRev);
-        const shownProductsSub = isPendingMode ? activeProductsSub : (isAllMode ? (completedProductsSub + activeProductsSub) : completedProductsSub);
-        const shownDeliveryRev = isPendingMode ? activeDeliveryRev : (isAllMode ? (completedDeliveryRev + activeDeliveryRev) : completedDeliveryRev);
-        const shownFreeDelCount = isPendingMode ? activeFreeDelCount : (isAllMode ? (completedFreeDelCount + activeFreeDelCount) : completedFreeDelCount);
         const shownDirectDisc = isPendingMode ? activeDirectDisc : (isAllMode ? (completedDirectDisc + activeDirectDisc) : completedDirectDisc);
         const shownImplicitDisc = isPendingMode ? activeImplicitDisc : (isAllMode ? (completedImplicitDisc + activeImplicitDisc) : completedImplicitDisc);
         const shownDiscOrders = isPendingMode ? activeDiscOrders : (isAllMode ? (completedDiscOrders + activeDiscOrders) : completedDiscOrders);
@@ -2361,67 +2398,62 @@
         const shownAllDiscounts = shownDirectDisc + shownImplicitDisc;
         const avgOrderVal = shownOrdersCount > 0 ? Math.round(shownTotalRev / shownOrdersCount) : 0;
 
-        // صافي الربح الحقيقي يُحسب من المنتجات المسلّمة فعلياً (أو المعروضة) ناقص المصروفات والهالك
-        const trueNetProfit = shownProductsSub - totalPeriodExpenses - periodWasteCost;
+        // صافي الربح الحقيقي = صافي مبيعات المنتجات ناقص (المصاريف + الديون عليا + الهالك) بدون تكرار
+        const trueNetProfit = shownTotalRev - totalPeriodExpensesAndDebts - periodWasteCost;
 
-        // 7. حساب الخزن الـ 4 اللحظية (مبنية دائماً على الكاش الفعلي بالدرج)
+        // 7. تحديث كبسولات الخزنة والديون الـ 5 العلوية (مع التغطية التلقائية بين الكاش والأونلاين)
         let streetCashNow = 0;
-        ordersList.forEach(o => {
+        activeFiscalOrdersList.forEach(o => {
             if (o && o.status === 'dispatched' && o.paymentMethod !== 'online') {
                 streetCashNow += window.getAccurateOrderFinancials(o).total;
             }
         });
         const totalMarketDebtNow = custArr.reduce((s, c) => s + (Number(c.debt) || 0), 0);
-        const netSafeCash = cashCompletedRev - periodExpensesCash;
-        const netSafeOnline = onlineCompletedRev - periodExpensesOnline;
 
-        setElHtml('sm-safe-net-cash', `${netSafeCash.toLocaleString()} ج`);
-        setElHtml('sm-safe-net-online', `${netSafeOnline.toLocaleString()} ج`);
+        // إذا سُحب مصروف أكبر من الكاش المتاح في الفترة، يتم تغطية العجز تلقائياً من الأونلاين
+        let rawNetCash = cashCompletedRev - periodExpensesCash;
+        let rawNetOnline = onlineCompletedRev - periodExpensesOnline;
+        if (rawNetCash < 0 && rawNetOnline > 0) {
+            const coverFromOnline = Math.min(rawNetOnline, Math.abs(rawNetCash));
+            rawNetCash += coverFromOnline;
+            rawNetOnline -= coverFromOnline;
+        }
+
+        setElHtml('sm-safe-net-cash', `${rawNetCash.toLocaleString()} ج`);
+        setElHtml('sm-safe-net-online', `${rawNetOnline.toLocaleString()} ج`);
+        setElHtml('sm-safe-owner-debt', `${totalOwnerPayableDebtNow.toLocaleString()} ج`);
         setElHtml('sm-safe-street-cash', `${streetCashNow.toLocaleString()} ج`);
         setElHtml('sm-safe-market-debt', `${totalMarketDebtNow.toLocaleString()} ج`);
 
-        // 8. تحديث الكروت المالية الـ 6 بأرقام صافية لا تخلط المستلم بالمحجوز
-        const modeTitleLabel = isPendingMode ? '⏳ المحجوز قيد التحصيل' : (isAllMode ? '📊 الإجمالي الشامل (مسلّم + محجوز)' : '✅ المحصّل الفعلي (المسلّم فقط)');
-        setElHtml('sm-lbl-card1-title', `${modeTitleLabel}`);
-        setElHtml('sm-dash-total-revenue', `${shownTotalRev.toLocaleString()} <span class="text-sm font-bold text-slate-400">ج</span>`);
+        // 8. تحديث الكروت المالية الـ 4 الصافية (بدون توصيل)
+        const modeTitleLabel = isPendingMode ? '⏳ قيمة المنتجات المحجوزة' : (isAllMode ? '📊 إجمالي المنتجات الشامل' : '✅ صافي المبيعات المسلّمة');
+        setElHtml('sm-lbl-card1-title', modeTitleLabel);
+        setElHtml('sm-dash-total-revenue', `${shownTotalRev.toLocaleString()} <span class="text-xs font-bold text-slate-400">ج</span>`);
+        setElHtml('sm-dash-products-revenue', `${shownTotalRev.toLocaleString()} ج`);
         setElHtml('sm-dash-payment-split', `<span>💵 كاش: ${shownCashRev.toLocaleString()} ج</span><span>💳 أونلاين: ${shownOnlineRev.toLocaleString()} ج</span>`);
-        setElHtml('sm-dash-collected-vs-pending', `
-            <span>📦 عدد الطلبات: <strong>${shownOrdersCount} طلب</strong></span>
-            <span>متوسط الفاتورة: <strong>${avgOrderVal.toLocaleString()} ج</strong></span>
-        `);
 
-        setElHtml('sm-lbl-card2-title', isPendingMode ? '🥩 قيمة المنتجات المحجوزة (بدون توصيل)' : (isAllMode ? '🥩 إجمالي المنتجات الشامل (بدون توصيل)' : '🥩 صافي قيمة المنتجات المسلّمة (بدون توصيل)'));
-        setElHtml('sm-dash-products-revenue', `${shownProductsSub.toLocaleString()} <span class="text-sm font-bold text-slate-400">ج</span>`);
-
-        let unitsBadge = `🥩 ${Number(shownMeatUnits.toFixed(1))} طبق سمان`;
-        if (shownChickUnits > 0) unitsBadge += ` | 🐣 ${Number(shownChickUnits.toFixed(0))} كتكوت`;
-        if (shownEggUnits > 0) unitsBadge += ` | 🥚 ${Number(shownEggUnits.toFixed(0))} بيض`;
+        let unitsBadge = `🥩 ${Number(shownMeatUnits.toFixed(1))} طبق`;
+        if (shownChickUnits > 0) unitsBadge += ` • 🐣 ${Number(shownChickUnits.toFixed(0))}`;
+        if (shownEggUnits > 0) unitsBadge += ` • 🥚 ${Number(shownEggUnits.toFixed(0))}`;
         const avgMeatUnitPrice = shownMeatUnits > 0 ? Math.round(shownMeatRev / shownMeatUnits) : 0;
 
-        setElHtml('sm-dash-avg-order', `<span class="text-[10px] font-black">${unitsBadge}</span><span>متوسط الطبق: ${avgMeatUnitPrice} ج</span>`);
-        setElHtml('sm-dash-products-sub-split', `
-            <span class="text-emerald-700">✅ منتجات مسلّمة: ${completedProductsSub.toLocaleString()} ج</span>
-            <span class="text-amber-700">⏳ منتجات محجوزة: ${activeProductsSub.toLocaleString()} ج</span>
-        `);
+        setElHtml('sm-dash-avg-order', `<span>${unitsBadge} (${shownOrdersCount} طلب)</span><span>متوسط: ${avgOrderVal} ج</span>`);
 
-        const profitMargin = shownProductsSub > 0 ? ((trueNetProfit / shownProductsSub) * 100).toFixed(1) : 0;
+        const profitMargin = shownTotalRev > 0 ? ((trueNetProfit / shownTotalRev) * 100).toFixed(1) : 0;
         const marginBadge = trueNetProfit >= 0
-            ? `<span class="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-lg border border-emerald-200 ml-1">هامش ${profitMargin}%</span>`
-            : `<span class="text-xs bg-rose-50 text-rose-700 px-2 py-0.5 rounded-lg border border-rose-200 ml-1">عجز</span>`;
-        setElHtml('sm-dash-true-net-profit', `${trueNetProfit.toLocaleString()} <span class="text-sm font-bold">ج</span> ${marginBadge}`);
-        setElHtml('sm-dash-expenses-summary', `<span>مصروفات: ${totalPeriodExpenses.toLocaleString()} ج</span><span>هالك/بايظ: ${periodWasteUnits} (${periodWasteCost.toLocaleString()} ج)</span>`);
+            ? `<span class="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200 mr-1">${profitMargin}%</span>`
+            : `<span class="text-[10px] bg-rose-50 text-rose-700 px-1.5 py-0.5 rounded border border-rose-200 mr-1">عجز</span>`;
+        setElHtml('sm-dash-true-net-profit', `${trueNetProfit.toLocaleString()} <span class="text-xs font-bold">ج</span> ${marginBadge}`);
+        setElHtml('sm-dash-expenses-summary', `<span>مصاريف/التزام: ${totalPeriodExpensesAndDebts.toLocaleString()} ج</span><span>هالك: ${periodWasteCost.toLocaleString()} ج</span>`);
 
-        // الكارت رقم 4 المخصص للحجوزات المنتظرة تحت التحصيل
-        setElHtml('sm-dash-completed-count', `${activeExpectedRev.toLocaleString()} <span class="text-xs font-bold text-amber-800">ج قيد التحصيل (${activeCount} طلب)</span>`);
-        setElHtml('sm-dash-pipeline-info', `<span class="text-emerald-700">✅ تم تسليمه: ${completedCount} طلب (${completedRevenue.toLocaleString()} ج)</span><span class="text-slate-400">❌ ملغي: ${canceledCount}</span>`);
+        setElHtml('sm-dash-completed-count', `${activeExpectedRev.toLocaleString()} <span class="text-xs font-bold text-amber-800">ج (${activeCount} طلب)</span>`);
+        setElHtml('sm-dash-pipeline-info', `<span class="text-emerald-700">✅ سُلّم: ${completedCount} (${completedRevenue.toLocaleString()} ج)</span><span class="text-slate-400">❌ ملغي: ${canceledCount}</span>`);
 
-        setElHtml('sm-dash-discounts-total', `${shownAllDiscounts.toLocaleString()} <span class="text-sm font-bold text-red-400">ج</span> <span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">في ${shownDiscOrders} طلب</span>`);
-        setElHtml('sm-dash-discounts-breakdown', `<span>خصم فواتير: ${shownDirectDisc.toLocaleString()} ج</span><span>واجب/فرق سعر: ${shownImplicitDisc.toLocaleString()} ج</span>`);
+        setElHtml('sm-dash-discounts-total', `${shownAllDiscounts.toLocaleString()} <span class="text-xs font-bold text-red-400">ج (${shownDiscOrders} طلب)</span>`);
+        setElHtml('sm-dash-discounts-breakdown', `<span>خصم: ${shownDirectDisc.toLocaleString()} ج</span><span>واجب: ${shownImplicitDisc.toLocaleString()} ج</span>`);
+        setElHtml('sm-dash-debt-total', `آجل العملاء: ${shownDebtTotal.toLocaleString()} ج`);
 
-        setElHtml('sm-dash-delivery-revenue', `${shownDeliveryRev.toLocaleString()} <span class="text-sm font-bold text-slate-400">ج توصيل</span>`);
-        setElHtml('sm-dash-free-delivery-info', `<span>توصيل مجاني: ${shownFreeDelCount} طلب</span><span class="text-rose-600">آجل: ${shownDebtTotal.toLocaleString()} ج</span>`);
-
-        // 9. شريط متوسطات الدفعات التاريخي (مبني على أطباق السمان المذبوح فقط)
+        // 9. شريط متوسطات الدفعات المدمج
         const visibleBatchesList = Object.values(sourcesSummary).filter(s => s.isBatch && s.hasOrderInSelectedPeriod && s.totalValidCount > 0);
         const batchesCount = visibleBatchesList.length;
         const avgMeatUnitsPerBatch = batchesCount > 0 ? Math.round(visibleBatchesList.reduce((s, b) => s + b.completedMeatUnits, 0) / batchesCount) : 0;
@@ -2429,32 +2461,32 @@
         const wasteRatio = (shownMeatUnits + periodWasteUnits) > 0 ? ((periodWasteUnits / (shownMeatUnits + periodWasteUnits)) * 100).toFixed(1) : '0.0';
 
         setElHtml('sm-dash-benchmarks-bar', `
-            <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/70 text-center">
-                <span class="text-[10px] font-bold text-slate-400 block">متوسط المسلّم بالدفعة</span>
-                <span class="text-lg font-black text-slate-800">${avgMeatUnitsPerBatch} <span class="text-xs text-brand-primary">طبق سمان</span></span>
+            <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-200/70 text-center">
+                <span class="text-[9px] font-bold text-slate-400 block">متوسط المسلّم بالدفعة</span>
+                <span class="text-sm font-black text-slate-800">${avgMeatUnitsPerBatch} <span class="text-[10px] text-brand-primary">طبق</span></span>
             </div>
-            <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/70 text-center">
-                <span class="text-[10px] font-bold text-slate-400 block">متوسط تحصيل الدفعة الفعلي</span>
-                <span class="text-lg font-black text-emerald-700">${avgRevPerBatch.toLocaleString()} <span class="text-xs">ج</span></span>
+            <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-200/70 text-center">
+                <span class="text-[9px] font-bold text-slate-400 block">متوسط صافي الدفعة</span>
+                <span class="text-sm font-black text-emerald-700">${avgRevPerBatch.toLocaleString()} <span class="text-[10px]">ج</span></span>
             </div>
-            <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/70 text-center">
-                <span class="text-[10px] font-bold text-slate-400 block">متوسط سعر بيع طبق السمان</span>
-                <span class="text-lg font-black text-indigo-600">${avgMeatUnitPrice} <span class="text-xs">ج/طبق</span></span>
+            <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-200/70 text-center">
+                <span class="text-[9px] font-bold text-slate-400 block">متوسط سعر الطبق</span>
+                <span class="text-sm font-black text-indigo-600">${avgMeatUnitPrice} <span class="text-[10px]">ج</span></span>
             </div>
-            <div class="bg-rose-50/60 p-3.5 rounded-2xl border border-rose-200/70 text-center">
-                <span class="text-[10px] font-black text-rose-700 block">نسبة الهالك والفاقد المسجل</span>
-                <span class="text-lg font-black text-rose-600">${wasteRatio}% <span class="text-xs">(${periodWasteUnits} وحدة)</span></span>
+            <div class="bg-rose-50/60 p-2.5 rounded-xl border border-rose-200/70 text-center">
+                <span class="text-[9px] font-black text-rose-700 block">نسبة الهالك المسجل</span>
+                <span class="text-sm font-black text-rose-600">${wasteRatio}% <span class="text-[10px]">(${periodWasteUnits})</span></span>
             </div>
         `);
 
-        // 10. رسم كروت الدفعات: عرض الدفعات النشطة فقط في الواجهة + جمع الأرشيف في درج مطوي ذكي
+        // 10. رسم كروت الدفعات النشطة + درج الأرشيف المطوي
         const batchesCont = document.getElementById('sm-dash-batches-breakdown');
         if (batchesCont) {
             const buildSingleBatchCardHtml = (src, isArchivedCard = false) => {
                 const isSelected = window.dashState.sourceFilter === src.filterKey;
                 const borderClass = isSelected
                     ? 'border-2 border-brand-primary bg-emerald-50/40 ring-2 ring-brand-primary/10'
-                    : (isArchivedCard ? 'border border-slate-200 bg-white hover:border-teal-400' : 'border-2 border-teal-500/30 bg-white hover:border-teal-500');
+                    : (isArchivedCard ? 'border border-slate-200 bg-white hover:border-teal-400' : 'border border-teal-500/30 bg-white hover:border-teal-500');
 
                 let balanceHtml = '';
                 let actionBtnHtml = '';
@@ -2486,85 +2518,77 @@
                     const totalShrinkage = loggedWaste + autoDiff;
 
                     balanceHtml = `
-                    <!-- جدول الـ 3 خانات المفصولة (المسلّم vs المحجوز vs الإجمالي) -->
-                    <div class="grid grid-cols-3 gap-1.5 text-center bg-slate-50 p-2 rounded-xl border border-slate-200/80">
-                        <div class="bg-emerald-50 border border-emerald-200/80 p-1.5 rounded-lg">
-                            <span class="block text-[9px] font-black text-emerald-700">🟢 تم تسليمه وتحصيله</span>
-                            <span class="text-xs font-black text-emerald-800 block mt-0.5">${src.collectedRevenue.toLocaleString()} ج</span>
-                            <span class="text-[9px] font-bold text-emerald-600">${src.completedCount} طلب (${Number(src.completedMeatUnits.toFixed(1))} طبق)</span>
+                    <div class="grid grid-cols-3 gap-1 text-center bg-slate-50 p-1.5 rounded-xl border border-slate-200/80">
+                        <div class="bg-emerald-50 border border-emerald-200/80 p-1 rounded-lg">
+                            <span class="block text-[8px] font-black text-emerald-700">🟢 مسلّم صافي</span>
+                            <span class="text-[11px] font-black text-emerald-800 block">${src.collectedRevenue.toLocaleString()} ج</span>
+                            <span class="text-[8px] font-bold text-emerald-600">${src.completedCount} طلب (${Number(src.completedMeatUnits.toFixed(1))})</span>
                         </div>
-                        <div class="bg-amber-50 border border-amber-200/80 p-1.5 rounded-lg">
-                            <span class="block text-[9px] font-black text-amber-800">🟠 محجوز لم يُسلّم</span>
-                            <span class="text-xs font-black text-amber-700 block mt-0.5">${src.pendingRevenue.toLocaleString()} ج</span>
-                            <span class="text-[9px] font-bold text-amber-600">${src.activeCount} طلب (${pendingMeatUnits} طبق)</span>
+                        <div class="bg-amber-50 border border-amber-200/80 p-1 rounded-lg">
+                            <span class="block text-[8px] font-black text-amber-800">🟠 محجوز</span>
+                            <span class="text-[11px] font-black text-amber-700 block">${src.pendingRevenue.toLocaleString()} ج</span>
+                            <span class="text-[8px] font-bold text-amber-600">${src.activeCount} طلب (${pendingMeatUnits})</span>
                         </div>
-                        <div class="bg-white border border-slate-200 p-1.5 rounded-lg">
-                            <span class="block text-[9px] font-black text-slate-500">⚪ إجمالي الدفعة</span>
-                            <span class="text-xs font-black text-slate-800 block mt-0.5">${src.totalBatchSales.toLocaleString()} ج</span>
-                            <span class="text-[9px] font-bold text-slate-500">${src.totalValidCount} طلب (${Number(src.soldMeatUnits.toFixed(1))} طبق)</span>
+                        <div class="bg-white border border-slate-200 p-1 rounded-lg">
+                            <span class="block text-[8px] font-black text-slate-500">⚪ الإجمالي</span>
+                            <span class="text-[11px] font-black text-slate-800 block">${src.totalBatchSales.toLocaleString()} ج</span>
+                            <span class="text-[8px] font-bold text-slate-500">${src.totalValidCount} طلب (${Number(src.soldMeatUnits.toFixed(1))})</span>
                         </div>
                     </div>
-                    <div class="grid grid-cols-4 gap-1 text-center bg-slate-50/70 p-1.5 rounded-xl border border-slate-200/60 text-[10px] font-black">
-                        <div><span class="text-slate-400 block text-[8px]">العدد الكلي</span><span class="text-slate-700">${actualTarget || '-'}</span></div>
-                        <div><span class="text-slate-400 block text-[8px]">المذبوح</span><span class="text-indigo-600">${meatSlaughteredTotal || '-'}</span></div>
-                        <div><span class="text-slate-400 block text-[8px]">المسلّم فعلياً</span><span class="text-emerald-600">${Number(src.completedMeatUnits.toFixed(1))}</span></div>
-                        <div><span class="text-rose-400 block text-[8px]">هالك/فاقد</span><span class="text-rose-600">${totalShrinkage}</span></div>
+                    <div class="grid grid-cols-4 gap-1 text-center bg-slate-50/70 p-1 rounded-lg border border-slate-200/60 text-[9px] font-black">
+                        <div><span class="text-slate-400 block text-[8px]">العدد</span><span class="text-slate-700">${actualTarget || '-'}</span></div>
+                        <div><span class="text-slate-400 block text-[8px]">مذبوح</span><span class="text-indigo-600">${meatSlaughteredTotal || '-'}</span></div>
+                        <div><span class="text-slate-400 block text-[8px]">مسلّم</span><span class="text-emerald-600">${Number(src.completedMeatUnits.toFixed(1))}</span></div>
+                        <div><span class="text-rose-400 block text-[8px]">هالك</span><span class="text-rose-600">${totalShrinkage}</span></div>
                     </div>
-                    ${batchExp > 0 ? `<div class="text-[10px] font-black text-teal-800 bg-teal-50 px-2.5 py-1 rounded-lg flex justify-between"><span>مصاريف الدفعة: ${batchExp.toLocaleString()} ج</span><span>صافي المحصّل: ${(src.collectedRevenue - batchExp).toLocaleString()} ج</span></div>` : ''}
+                    ${batchExp > 0 ? `<div class="text-[9px] font-black text-teal-800 bg-teal-50 px-2 py-1 rounded flex justify-between"><span>تكلفة مسجلة: ${batchExp.toLocaleString()} ج</span><span>صافيها: ${(src.collectedRevenue - batchExp).toLocaleString()} ج</span></div>` : ''}
                     `;
 
                     if (liveB) {
-                        const statusLabel = liveB.isOpen ? '🟢 نشطة ومفتوحة للحجز' : '🟠 نشطة (مغلقة الحجز - جاري التوزيع)';
+                        const statusLabel = liveB.isOpen ? '🟢 مفتوحة' : '🟠 جاري التوزيع';
                         actionBtnHtml = `
-                        <div class="flex flex-wrap justify-between items-center gap-1 pt-2 mt-1 border-t border-slate-200/60">
-                            <span class="text-[10px] font-black ${liveB.isOpen ? 'text-emerald-600' : 'text-amber-600'}">${statusLabel}</span>
+                        <div class="flex justify-between items-center pt-1.5 border-t border-slate-100">
+                            <span class="text-[9px] font-black ${liveB.isOpen ? 'text-emerald-600' : 'text-amber-600'}">${statusLabel}</span>
                             <div class="flex gap-1">
-                                <button onclick="event.stopPropagation(); openLedgerEntryBox('waste', '${src.label}')" class="bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 px-2 py-1 rounded-lg text-[10px] font-black transition-all">+ هالك</button>
-                                <button onclick="event.stopPropagation(); archiveBatch('${liveB.id}')" class="bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm transition-all">
-                                    <i class="fa-solid fa-box-archive mr-0.5"></i> إغلاق وأرشفة
-                                </button>
+                                <button onclick="event.stopPropagation(); openLedgerEntryBox('waste', '${src.label}')" class="bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 px-2 py-0.5 rounded text-[9px] font-black">+ هالك</button>
+                                <button onclick="event.stopPropagation(); archiveBatch('${liveB.id}')" class="bg-amber-500 hover:bg-amber-600 text-white px-2 py-0.5 rounded text-[9px] font-black">أرشفة</button>
                             </div>
                         </div>`;
                     } else if (archB) {
                         actionBtnHtml = `
-                        <div class="flex justify-between items-center pt-2 mt-1 border-t border-slate-200/60">
-                            <span class="text-[10px] font-black text-slate-400">📦 دفعة مؤرشفة</span>
-                            <button onclick="event.stopPropagation(); openArchiveReport('${archB.id}')" class="bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm transition-all">
-                                تقرير الأرشيف / استعادة
-                            </button>
+                        <div class="flex justify-between items-center pt-1.5 border-t border-slate-100">
+                            <span class="text-[9px] font-black text-slate-400">📦 مؤرشفة</span>
+                            <button onclick="event.stopPropagation(); openArchiveReport('${archB.id}')" class="bg-slate-800 text-white px-2 py-0.5 rounded text-[9px] font-black">التقرير</button>
                         </div>`;
                     }
                 } else {
                     balanceHtml = `
-                    <div class="grid grid-cols-2 gap-1.5 text-center bg-slate-50 p-2 rounded-xl border border-slate-200/80">
-                        <div class="bg-emerald-50 border border-emerald-200/80 p-1.5 rounded-lg">
-                            <span class="block text-[9px] font-black text-emerald-700">🟢 تم تسليمه وتحصيله</span>
-                            <span class="text-xs font-black text-emerald-800 block mt-0.5">${src.collectedRevenue.toLocaleString()} ج (${src.completedCount} طلب)</span>
+                    <div class="grid grid-cols-2 gap-1 text-center bg-slate-50 p-1.5 rounded-xl border border-slate-200/80">
+                        <div class="bg-emerald-50 p-1 rounded-lg">
+                            <span class="block text-[8px] font-black text-emerald-700">🟢 مسلّم</span>
+                            <span class="text-[11px] font-black text-emerald-800 block">${src.collectedRevenue.toLocaleString()} ج (${src.completedCount})</span>
                         </div>
-                        <div class="bg-amber-50 border border-amber-200/80 p-1.5 rounded-lg">
-                            <span class="block text-[9px] font-black text-amber-800">🟠 محجوز قيد التسليم</span>
-                            <span class="text-xs font-black text-amber-700 block mt-0.5">${src.pendingRevenue.toLocaleString()} ج (${src.activeCount} طلب)</span>
+                        <div class="bg-amber-50 p-1 rounded-lg">
+                            <span class="block text-[8px] font-black text-amber-800">🟠 محجوز</span>
+                            <span class="text-[11px] font-black text-amber-700 block">${src.pendingRevenue.toLocaleString()} ج (${src.activeCount})</span>
                         </div>
                     </div>`;
                 }
 
                 return `
-                <div data-bname="${src.label}" onclick="updateDashState('sourceFilter', '${src.filterKey}')" class="${isArchivedCard ? 'sm-archived-batch-card' : ''} p-4 rounded-2xl ${borderClass} cursor-pointer transition-all shadow-sm flex flex-col justify-between gap-2">
-                    <div class="flex justify-between items-start">
-                        <span class="font-black text-slate-800 text-xs flex items-center gap-1.5">
-                            <i class="fa-solid ${src.isBatch ? 'fa-layer-group text-teal-600' : 'fa-bolt text-amber-500'}"></i>
+                <div data-bname="${src.label}" onclick="updateDashState('sourceFilter', '${src.filterKey}')" class="${isArchivedCard ? 'sm-archived-batch-card' : ''} p-3.5 rounded-2xl ${borderClass} cursor-pointer transition-all shadow-sm flex flex-col justify-between gap-2">
+                    <div class="flex justify-between items-center">
+                        <span class="font-black text-slate-800 text-xs flex items-center gap-1">
+                            <i class="fa-solid ${src.isBatch ? 'fa-layer-group text-teal-600' : 'fa-bolt text-amber-500'} text-[10px]"></i>
                             ${src.label}
                         </span>
-                        <div class="text-left">
-                            <span class="text-sm font-black text-emerald-700 block">المحصّل: ${src.collectedRevenue.toLocaleString()} ج</span>
-                        </div>
+                        <span class="text-xs font-black text-emerald-700">${src.collectedRevenue.toLocaleString()} ج</span>
                     </div>
                     ${balanceHtml}
                     ${actionBtnHtml}
                 </div>`;
             };
 
-            // فصل الدفعات النشطة الحالية عن الدفعات المؤرشفة القديمة لمنع طول العمود
             const allSourcesList = Object.values(sourcesSummary);
             const activeLiveSources = allSourcesList.filter(src => {
                 const isLiveBatch = src.isBatch && Boolean(liveBatchByName[src.label]);
@@ -2582,38 +2606,24 @@
             let finalBatchesSectionHtml = '';
 
             if (activeLiveSources.length === 0) {
-                finalBatchesSectionHtml += `<div class="col-span-full text-center py-5 text-slate-400 text-xs font-bold bg-slate-50 rounded-2xl border border-dashed border-slate-200">لا توجد دفعات نشطة مفتوحة حالياً. يمكنك فتح أرشيف الدفعات بالأسفل لمراجعة أي دفعة سابقة.</div>`;
+                finalBatchesSectionHtml += `<div class="col-span-full text-center py-4 text-slate-400 text-xs font-bold bg-slate-50 rounded-xl border border-dashed border-slate-200">لا توجد دفعات نشطة حالياً في هذه الدورة.</div>`;
             } else {
                 finalBatchesSectionHtml += activeLiveSources.map(src => buildSingleBatchCardHtml(src, false)).join('');
             }
 
-            // درج أرشيف الدفعات السابقة المطوي (لا يأخذ مساحة إلا عند فتحه)
             if (archivedOldSources.length > 0) {
                 const totalArchivedRev = archivedOldSources.reduce((sum, s) => sum + s.collectedRevenue, 0);
                 const isDrawerOpen = window.dashState.showArchivedDrawer === true;
 
                 finalBatchesSectionHtml += `
-                <div class="col-span-full mt-2 pt-3 border-t border-slate-200/80">
-                    <button type="button" onclick="toggleDashArchiveDrawer()" class="w-full bg-slate-900 hover:bg-slate-800 text-white p-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-2 transition-all shadow-sm">
-                        <div class="flex items-center gap-2.5">
-                            <span class="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center text-sm"><i class="fa-solid fa-box-archive"></i></span>
-                            <div class="text-right">
-                                <span class="text-xs font-black block">📂 أرشيف الدفعات المغلقة السابقة (${archivedOldSources.length} دفعة مؤرشفة)</span>
-                                <span class="text-[10px] text-slate-300 font-bold">إجمالي تحصيلها المعتمد: ${totalArchivedRev.toLocaleString()} ج.م — اضغط لفتح أو طيّ الأرشيف</span>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-[11px] font-black text-amber-300 bg-white/10 px-3 py-1 rounded-xl">عرض / إخفاء</span>
-                            <i id="sm-archived-drawer-arrow" class="fa-solid fa-chevron-down text-amber-300 transition-transform duration-200" style="transform: ${isDrawerOpen ? 'rotate(180deg)' : 'rotate(0deg)'};"></i>
-                        </div>
+                <div class="col-span-full mt-1 pt-2 border-t border-slate-100">
+                    <button type="button" onclick="toggleDashArchiveDrawer()" class="w-full bg-slate-900 hover:bg-slate-800 text-white p-2.5 rounded-xl flex items-center justify-between gap-2 transition-all">
+                        <span class="text-[11px] font-black"><i class="fa-solid fa-box-archive text-amber-300 ml-1"></i> أرشيف الدفعات السابقة (${archivedOldSources.length} دفعة — إجمالي صافيها: ${totalArchivedRev.toLocaleString()} ج)</span>
+                        <i id="sm-archived-drawer-arrow" class="fa-solid fa-chevron-down text-amber-300 text-xs transition-transform duration-200" style="transform: ${isDrawerOpen ? 'rotate(180deg)' : 'rotate(0deg)'};"></i>
                     </button>
-
-                    <div id="sm-archived-batches-drawer" class="${isDrawerOpen ? '' : 'hidden'} mt-3 bg-slate-100/80 p-4 rounded-2xl border border-slate-200 space-y-3">
-                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                            <span class="text-xs font-black text-slate-700"><i class="fa-solid fa-clock-rotate-left text-teal-600 ml-1"></i> سجل الدفعات المؤرشفة (اضغط على أي دفعة لعرض طلباتها):</span>
-                            <input type="search" oninput="filterArchivedBatchCards(this.value)" placeholder="🔍 ابحث باسم الدفعة في الأرشيف..." class="w-full sm:w-64 bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold outline-none focus:border-brand-primary">
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[420px] overflow-y-auto custom-scroll pr-1">
+                    <div id="sm-archived-batches-drawer" class="${isDrawerOpen ? '' : 'hidden'} mt-2 bg-slate-100/80 p-3 rounded-xl border border-slate-200 space-y-2.5">
+                        <input type="search" oninput="filterArchivedBatchCards(this.value)" placeholder="🔍 ابحث باسم الدفعة في الأرشيف..." class="w-full sm:w-64 bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold outline-none">
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-[340px] overflow-y-auto custom-scroll pr-1">
                             ${archivedOldSources.map(src => buildSingleBatchCardHtml(src, true)).join('')}
                         </div>
                     </div>
@@ -2623,7 +2633,7 @@
             batchesCont.innerHTML = finalBatchesSectionHtml;
         }
 
-        // 11. رسم جرد الأصناف المباعة (يعرض الكميات المسلّمة فعلياً بوضوح + المحجوز تحتها)
+        // 11. رسم جرد الأصناف المباعة (مصغر ونظيف)
         const itemsGrid = document.getElementById('sm-dash-items-grid');
         if (itemsGrid) {
             const getItemModeQty = (info) => isPendingMode ? info.pendingQty : (isAllMode ? info.qty : info.completedQty);
@@ -2634,7 +2644,7 @@
                 .sort((a, b) => getItemModeRev(itemsSoldMap[b]) - getItemModeRev(itemsSoldMap[a]));
 
             if (sortedItems.length === 0) {
-                itemsGrid.innerHTML = `<div class="col-span-full text-center py-6 text-slate-400 text-xs font-bold">لا توجد أصناف مسجلة في هذا الوضع للفترة المحددة.</div>`;
+                itemsGrid.innerHTML = `<div class="col-span-full text-center py-4 text-slate-400 text-xs font-bold">لا توجد أصناف مسجلة في هذا الوضع.</div>`;
             } else {
                 itemsGrid.innerHTML = sortedItems.map(itemName => {
                     const info = itemsSoldMap[itemName];
@@ -2643,31 +2653,25 @@
                     const avgP = shownQ > 0 ? Math.round(shownR / shownQ) : 0;
 
                     return `
-                    <div class="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl text-center shadow-sm flex flex-col justify-between">
-                        <span class="text-[11px] font-black text-slate-700 mb-1 leading-snug flex flex-col items-center justify-center gap-1">
-                            <span>${itemName}</span>
-                            ${info.type === 'egg' ? '<span class="bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded text-[9px]">(بيض 🥚)</span>' :
-                              info.type === 'chick' ? '<span class="bg-blue-50 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded text-[9px]">(كتاكيت 🐣)</span>' :
-                              '<span class="bg-emerald-50 text-emerald-600 border border-emerald-200 px-1.5 py-0.5 rounded text-[9px]">(لحم 🥩)</span>'}
-                        </span>
-                        <div class="my-1.5">
-                            <span class="text-2xl font-black text-brand-primary">${Number(shownQ.toFixed(2))}</span>
-                            <span class="text-[10px] font-bold text-slate-400 block">${info.unitLabel} ${avgP > 0 ? `(بـ ${avgP} ج)` : ''}</span>
+                    <div class="bg-slate-50 border border-slate-200/80 p-2.5 rounded-xl text-center shadow-sm flex flex-col justify-between">
+                        <span class="text-[10px] font-black text-slate-700 truncate" title="${itemName}">${itemName}</span>
+                        <div class="my-1">
+                            <span class="text-xl font-black text-brand-primary">${Number(shownQ.toFixed(2))}</span>
+                            <span class="text-[9px] font-bold text-slate-400 block">${info.unitLabel} ${avgP > 0 ? `(${avgP}ج)` : ''}</span>
                         </div>
-                        <span class="bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-2 py-0.5 rounded-lg text-[11px] font-black mb-1.5">
+                        <span class="bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-1.5 py-0.5 rounded text-[10px] font-black mb-1">
                             ${Math.round(shownR).toLocaleString()} ج
                         </span>
-                        <div class="text-[9px] font-black text-slate-500 bg-white px-2 py-1 rounded-lg border border-slate-200/60 flex justify-between">
-                            <span class="text-emerald-700">✅ مسلّم: ${Number(info.completedQty.toFixed(1))}</span>
-                            <span class="text-amber-600">⏳ محجوز: ${Number(info.pendingQty.toFixed(1))}</span>
+                        <div class="text-[8px] font-black text-slate-500 bg-white px-1.5 py-0.5 rounded border border-slate-200/50 flex justify-between">
+                            <span class="text-emerald-700">✅ ${Number(info.completedQty.toFixed(1))}</span>
+                            <span class="text-amber-600">⏳ ${Number(info.pendingQty.toFixed(1))}</span>
                         </div>
                     </div>`;
                 }).join('');
             }
         }
 
-
-        // 12. رسم جدول سجل الطلبات التفصيلي
+        // 12. رسم جدول سجل الطلبات التفصيلي (8 أعمدة صافية بدون عمود التوصيل)
         const tbody = document.getElementById('sm-dash-orders-tbody');
         if (tbody) {
             const subFilter = window.dashState.tableSubFilter;
@@ -2693,93 +2697,170 @@
             });
 
             if (tableOrders.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="9" class="text-center py-10 text-slate-400 font-bold">لا توجد طلبات مطابقة لهذا الفلتر في الفترة المحددة.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-400 font-bold">لا توجد طلبات مطابقة لهذا الفلتر.</td></tr>`;
             } else {
                 tbody.innerHTML = tableOrders.map(o => {
                     const fin = window.getAccurateOrderFinancials(o);
                     const itemsBadges = (o.items && Array.isArray(o.items))
-                        ? o.items.map(i => `<span class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-0.5 rounded text-[10px] font-bold inline-block m-0.5">${i.quantity}x ${i.name} (${i.price}ج)</span>`).join('')
+                        ? o.items.map(i => `<span class="bg-slate-100 text-slate-700 border border-slate-200 px-1.5 py-0.5 rounded text-[9px] font-bold inline-block m-0.5">${i.quantity}x ${i.name} (${i.price}ج)</span>`).join('')
                         : '-';
 
                     const totalD = fin.discount + fin.implicitDiscount;
                     let discBadge = '<span class="text-slate-300">-</span>';
                     if (totalD > 0) {
-                        discBadge = `<span class="bg-red-50 text-red-600 border border-red-200 px-2 py-0.5 rounded-lg font-black text-[11px]">-${totalD} ج</span>`;
-                        if (fin.implicitDiscount > 0 && fin.discount > 0) {
-                            discBadge += `<span class="block text-[9px] text-red-400 mt-0.5">(${fin.discount} فاتورة + ${fin.implicitDiscount} واجب)</span>`;
-                        } else if (fin.implicitDiscount > 0) {
-                            discBadge += `<span class="block text-[9px] text-amber-600 mt-0.5">(فرق سعر قديم/واجب)</span>`;
-                        }
+                        discBadge = `<span class="bg-red-50 text-red-600 border border-red-200 px-1.5 py-0.5 rounded font-black text-[10px]">-${totalD} ج</span>`;
                     }
 
                     const resolvedBName = window.resolveOrderBatchName(o);
                     const batchLabel = resolvedBName
-                        ? `<span class="bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded-lg text-[10px] font-black block mb-0.5">${resolvedBName}</span>`
-                        : `<span class="bg-slate-100 text-slate-500 px-2 py-0.5 rounded-lg text-[10px] font-bold block mb-0.5">فوري</span>`;
+                        ? `<span class="bg-teal-50 text-teal-700 px-1.5 py-0.5 rounded text-[9px] font-black block mb-0.5">${resolvedBName}</span>`
+                        : `<span class="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded text-[9px] font-bold block mb-0.5">فوري</span>`;
 
                     const statusBadge = o.status === 'completed'
-                        ? `<span class="text-[9px] bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded font-black">✅ مكتمل</span>`
-                        : (o.status === 'canceled' ? `<span class="text-[9px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded font-black">❌ ملغي</span>` : `<span class="text-[9px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-black">⏳ قيد التسليم</span>`);
+                        ? `<span class="text-[8px] bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded font-black">✅ مكتمل</span>`
+                        : (o.status === 'canceled' ? `<span class="text-[8px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded font-black">❌ ملغي</span>` : `<span class="text-[8px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-black">⏳ محجوز</span>`);
 
                     const dObj = parseOrderDateObj(o, window.dashState.dateBasis);
-                    const dateFormatted = dObj ? dObj.toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' }) : (o.orderDate || '-');
+                    const dateFormatted = dObj ? dObj.toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' }) : (o.orderDate || '-');
 
                     const payBadge = o.paymentMethod === 'online'
-                        ? `<span class="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-black block mt-0.5">أونلاين</span>`
-                        : `<span class="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold block mt-0.5">كاش</span>`;
+                        ? `<span class="text-[8px] bg-emerald-100 text-emerald-700 px-1 rounded font-black block">أونلاين</span>`
+                        : `<span class="text-[8px] bg-slate-100 text-slate-500 px-1 rounded font-bold block">كاش</span>`;
 
                     return `
                     <tr class="hover:bg-slate-50/80 transition-colors">
-                        <td class="py-3 px-4">
+                        <td class="py-2.5 px-3">
                             <div onclick="openCustomerCard('${o.customerPhone}')" class="font-black text-slate-800 cursor-pointer hover:text-brand-primary">${o.customerName || 'بدون اسم'}</div>
-                            <div class="text-[10px] text-slate-400 font-bold" dir="ltr">${o.customerPhone || ''} • ${o.zone || ''}</div>
+                            <div class="text-[9px] text-slate-400 font-bold" dir="ltr">${o.customerPhone || ''} • ${o.zone || ''}</div>
                         </td>
-                        <td class="py-3 px-4 text-center">${batchLabel}${statusBadge}</td>
-                        <td class="py-3 px-4 text-center whitespace-normal min-w-[220px]">${itemsBadges}</td>
-                        <td class="py-3 px-4 text-center font-bold text-slate-700">${fin.subtotal} ج</td>
-                        <td class="py-3 px-4 text-center font-bold text-indigo-600">${fin.delivery} ج</td>
-                        <td class="py-3 px-4 text-center">${discBadge}</td>
-                        <td class="py-3 px-4 text-center">
-                            <span class="font-black text-brand-primary text-sm">${fin.total} ج</span>
+                        <td class="py-2.5 px-3 text-center">${batchLabel}${statusBadge}</td>
+                        <td class="py-2.5 px-3 text-center whitespace-normal min-w-[180px]">${itemsBadges}</td>
+                        <td class="py-2.5 px-3 text-center font-bold text-slate-700">${fin.subtotal} ج</td>
+                        <td class="py-2.5 px-3 text-center">${discBadge}</td>
+                        <td class="py-2.5 px-3 text-center">
+                            <span class="font-black text-brand-primary text-xs">${fin.total} ج</span>
                             ${payBadge}
                         </td>
-                        <td class="py-3 px-4 text-center text-[11px] font-bold text-slate-500">${dateFormatted}</td>
-                        <td class="py-3 px-4 text-center">
-                            <button onclick="openEditOrderModal('${o.id}')" class="bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm">فتح</button>
+                        <td class="py-2.5 px-3 text-center text-[10px] font-bold text-slate-500">${dateFormatted}</td>
+                        <td class="py-2.5 px-3 text-center">
+                            <button onclick="openEditOrderModal('${o.id}')" class="bg-slate-800 hover:bg-slate-900 text-white px-2 py-1 rounded text-[9px] font-black">فتح</button>
                         </td>
                     </tr>`;
                 }).join('');
             }
         }
 
-        // 13. رسم جدول سجل المصروفات والهالك
+        // 13-أ. رسم جدول (الديون اللي عليا - Payable Debts) وأصحابها وزر سدادها بدون تكرار
+        const debtsTbody = document.getElementById('sm-payable-debts-tbody');
+        setElHtml('sm-payable-debts-total-badge', `إجمالي المتبقي عليا: ${totalOwnerPayableDebtNow.toLocaleString()} ج`);
+
+        if (debtsTbody) {
+            const allPayableDebts = activeFiscalLedgerArr
+                .filter(r => r && r.type === 'payable_debt')
+                .sort((a, b) => (b.remainingDebt || 0) - (a.remainingDebt || 0));
+
+            if (allPayableDebts.length === 0) {
+                debtsTbody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-400 font-bold">الحمد لله.. لا توجد أي ديون مسجلة عليك حالياً.</td></tr>`;
+            } else {
+                debtsTbody.innerHTML = allPayableDebts.map(r => {
+                    const origAmt = Number(r.amount) || 0;
+                    const paidAmt = (Number(r.paidCash) || 0) + (Number(r.paidOnline) || 0);
+                    const remAmt = Number(r.remainingDebt !== undefined ? r.remainingDebt : (origAmt - paidAmt)) || 0;
+                    const dStr = r.createdAtMs ? new Date(r.createdAtMs).toLocaleDateString('ar-EG') : (r.dateStr || '-');
+
+                    return `
+                    <tr class="hover:bg-purple-50/30 transition-colors ${remAmt === 0 ? 'opacity-60 bg-slate-50' : ''}">
+                        <td class="py-2.5 px-3 font-black text-purple-950">
+                            👤 ${r.creditorName || 'دائن / مورد'}
+                            ${remAmt === 0 ? '<span class="bg-emerald-100 text-emerald-700 text-[9px] px-1.5 py-0.5 rounded mr-1">خالص ✅</span>' : ''}
+                        </td>
+                        <td class="py-2.5 px-3 font-bold text-slate-600">${r.category || '-'}${r.batchName ? ' • <span class="text-teal-700">' + r.batchName + '</span>' : ''}</td>
+                        <td class="py-2.5 px-3 text-center font-black text-slate-700">${origAmt.toLocaleString()} ج</td>
+                        <td class="py-2.5 px-3 text-center font-black text-emerald-600">${paidAmt.toLocaleString()} ج</td>
+                        <td class="py-2.5 px-3 text-center">
+                            <span class="px-2 py-0.5 rounded-lg font-black ${remAmt > 0 ? 'bg-purple-100 text-purple-800 border border-purple-200' : 'text-slate-400'}">${remAmt.toLocaleString()} ج</span>
+                        </td>
+                        <td class="py-2.5 px-3 text-center text-[10px] font-bold text-slate-400">${dStr}</td>
+                        <td class="py-2.5 px-3 text-center space-x-1 space-x-reverse">
+                            ${remAmt > 0 ? `<button onclick="settleOwnerDebtRecord('${r.id}')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm">💵 سداد</button>` : ''}
+                            <button onclick="deleteLedgerRecord('${r.id}')" class="text-red-500 hover:bg-red-50 px-1.5 py-1 rounded text-[10px] font-black"><i class="fa-solid fa-trash"></i></button>
+                        </td>
+                    </tr>`;
+                }).join('');
+            }
+        }
+
+        // 13-ب. رسم جدول سجل المصروفات والهالك
         const ledgerTbody = document.getElementById('sm-ledger-records-tbody');
         if (ledgerTbody) {
-            const sortedRecs = [...periodLedgerRecords].sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+            const sortedRecs = periodLedgerRecords
+                .filter(r => r && r.type !== 'payable_debt')
+                .sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+
             if (sortedRecs.length === 0) {
-                ledgerTbody.innerHTML = `<tr><td colspan="7" class="text-center py-10 text-slate-400 font-bold">لا توجد مصروفات أو سجلات هالك مسجلة في هذه الفترة.</td></tr>`;
+                ledgerTbody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-400 font-bold">لا توجد مصروفات أو سجلات هالك مسجلة في هذه الفترة.</td></tr>`;
             } else {
                 ledgerTbody.innerHTML = sortedRecs.map(r => {
                     const isWaste = r.type === 'waste';
                     const typeBadge = isWaste
-                        ? `<span class="bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 rounded-lg font-black">⚠️ ${r.category || 'هالك/بايظ'}</span>`
-                        : `<span class="bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-1 rounded-lg font-black">💸 ${r.category || 'مصروف'}</span>`;
-                    const qtyStr = isWaste ? `${r.qty || 0} × ${r.productName || 'سمان'}` : (r.paymentSource === 'online' ? '💳 محفظة أونلاين' : '💵 خزنة الكاش');
+                        ? `<span class="bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-lg font-black">⚠️ ${r.category || 'هالك'}</span>`
+                        : `<span class="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-lg font-black">💸 ${r.category || 'مصروف'}</span>`;
+
+                    let sourceText = '';
+                    if (isWaste) {
+                        sourceText = `${r.qty || 0} × ${r.productName || 'سمان'}`;
+                    } else if (r.cashPaid !== undefined || r.onlinePaid !== undefined) {
+                        const cP = Number(r.cashPaid) || 0;
+                        const oP = Number(r.onlinePaid) || 0;
+                        if (cP > 0 && oP > 0) sourceText = `💵 ${cP}ج كاش + 💳 ${oP}ج أونلاين`;
+                        else if (oP > 0) sourceText = `💳 محفظة الأونلاين (${oP}ج)`;
+                        else sourceText = `💵 خزنة الكاش (${cP}ج)`;
+                    } else {
+                        sourceText = r.paymentSource === 'online' ? '💳 محفظة الأونلاين' : '💵 خزنة الكاش';
+                    }
+
                     const dStr = r.createdAtMs ? new Date(r.createdAtMs).toLocaleDateString('ar-EG') : (r.dateStr || '-');
 
                     return `
                     <tr class="hover:bg-slate-50 transition-colors">
-                        <td class="py-3 px-4">${typeBadge}</td>
-                        <td class="py-3 px-4 text-center font-bold text-teal-700">${r.batchName || 'عام'}</td>
-                        <td class="py-3 px-4 text-center font-black text-slate-700">${qtyStr}</td>
-                        <td class="py-3 px-4 text-center font-black ${isWaste ? 'text-rose-600' : 'text-amber-700'}">${(Number(r.amount) || 0).toLocaleString()} ج</td>
-                        <td class="py-3 px-4 font-bold text-slate-500">${r.notes || '-'}</td>
-                        <td class="py-3 px-4 text-center text-slate-400 font-bold">${dStr}</td>
-                        <td class="py-3 px-4 text-center">
-                            <button onclick="deleteLedgerRecord('${r.id}')" class="text-red-500 hover:bg-red-50 px-2 py-1 rounded-lg font-black"><i class="fa-solid fa-trash"></i></button>
+                        <td class="py-2.5 px-3">${typeBadge}</td>
+                        <td class="py-2.5 px-3 text-center font-bold text-teal-700">${r.batchName || 'عام'}</td>
+                        <td class="py-2.5 px-3 text-center font-black text-slate-700">${sourceText}</td>
+                        <td class="py-2.5 px-3 text-center font-black ${isWaste ? 'text-rose-600' : 'text-amber-700'}">${(Number(r.amount) || 0).toLocaleString()} ج</td>
+                        <td class="py-2.5 px-3 font-bold text-slate-500">${r.notes || '-'}</td>
+                        <td class="py-2.5 px-3 text-center text-slate-400 font-bold">${dStr}</td>
+                        <td class="py-2.5 px-3 text-center">
+                            <button onclick="deleteLedgerRecord('${r.id}')" class="text-red-500 hover:bg-red-50 px-1.5 py-1 rounded font-black"><i class="fa-solid fa-trash"></i></button>
                         </td>
                     </tr>`;
                 }).join('');
+            }
+        }
+
+        // 13-ج. رسم كروت أرشيف الجرد السنوي المحفوظة (مثل: جرد سنة 2026)
+        const annualCont = document.getElementById('sm-annual-archives-list');
+        if (annualCont) {
+            const archivesList = Object.values(accCfg.annualArchives || {}).sort((a, b) => (b.closedAtMs || 0) - (a.closedAtMs || 0));
+            if (archivesList.length === 0) {
+                annualCont.innerHTML = `<div class="col-span-full text-center py-3 text-slate-400 text-xs font-bold bg-white/5 rounded-xl border border-white/10">لا يوجد أرشيف جرد سنوي محفوظ حتى الآن. عند الضغط على (عمل جرد سنوي وتصفير السيستم) سيُحفظ الجرد هنا باسم السنة.</div>`;
+            } else {
+                annualCont.innerHTML = archivesList.map(arch => `
+                    <div class="bg-white/10 border border-white/15 p-3.5 rounded-xl flex flex-col justify-between gap-2">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h5 class="font-black text-xs text-amber-300">📁 ${arch.title || 'جرد سنوي'}</h5>
+                                <span class="text-[9px] text-slate-300 font-bold">تاريخ الإغلاق: ${arch.closedDateStr || '-'}</span>
+                            </div>
+                            <span class="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2 py-0.5 rounded text-[10px] font-black">الصافي: ${(Number(arch.finalTotalProfit) || 0).toLocaleString()} ج</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-1.5 text-[10px] font-bold bg-slate-900/60 p-2 rounded-lg">
+                            <span class="text-emerald-300">إجمالي الداخل: ${(Number(arch.totalSalesIn) || 0).toLocaleString()} ج</span>
+                            <span class="text-rose-300">إجمالي الخارج: ${(Number(arch.totalExpensesOut) || 0).toLocaleString()} ج</span>
+                            <span class="text-slate-300">كاش صافي: ${(Number(arch.finalNetCash) || 0).toLocaleString()} ج</span>
+                            <span class="text-slate-300">أونلاين صافي: ${(Number(arch.finalNetOnline) || 0).toLocaleString()} ج</span>
+                        </div>
+                    </div>
+                `).join('');
             }
         }
 
@@ -2809,30 +2890,30 @@
             }).sort((a, b) => (Number(b.totalSpent) || 0) - (Number(a.totalSpent) || 0)).slice(0, 30);
 
             if (absentVips.length === 0) {
-                vipCont.innerHTML = `<div class="text-center py-10 text-slate-400 text-xs font-bold">ممتاز! كل عملائك المميزين (VIP) نشطون في الطلبات الأخيرة.</div>`;
+                vipCont.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs font-bold">ممتاز! كل عملائك المميزين (VIP) نشطون.</div>`;
             } else {
                 vipCont.innerHTML = absentVips.map(c => {
                     const p = typeof window.normalizePhone === 'function' ? window.normalizePhone(c.phone) : c.phone;
                     const lastMs = lastOrderMsByPhone[p] || 0;
-                    const daysAgo = lastMs > 0 ? Math.floor((nowMs - lastMs) / (1000 * 60 * 60 * 24)) : 'أرشيف قديم';
+                    const daysAgo = lastMs > 0 ? Math.floor((nowMs - lastMs) / (1000 * 60 * 60 * 24)) : 'قديم';
                     const waPhone = (c.phone || '').startsWith('0') ? '2' + c.phone : c.phone;
                     const waMsg = encodeURIComponent(`أهلاً بحضرتك يا ${c.name || 'فندم'} في سمان ههيا 🌹\nوحشتنا طلباتك! بنفكرك إن دفعة السمان الفريش الجديدة جاهزة، تحب نحجز لحضرتك نصيبك فيها؟`);
 
                     return `
-                    <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/70 flex justify-between items-center gap-3">
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/70 flex justify-between items-center gap-2">
                         <div>
-                            <div onclick="openCustomerCard('${c.phone}')" class="font-black text-slate-800 text-xs cursor-pointer hover:text-brand-primary">${c.name || 'عميل مميز'} <span class="text-amber-600">(${c.ordersCount || 0} طلبات • ${(Number(c.totalSpent) || 0).toLocaleString()} ج)</span></div>
-                            <div class="text-[10px] font-bold text-slate-400 mt-0.5">${c.zone || ''} • غائب منذ: <strong class="text-rose-600">${typeof daysAgo === 'number' ? daysAgo + ' يوم' : daysAgo}</strong></div>
+                            <div onclick="openCustomerCard('${c.phone}')" class="font-black text-slate-800 text-xs cursor-pointer hover:text-brand-primary">${c.name || 'عميل مميز'} <span class="text-amber-600">(${c.ordersCount || 0} طلب)</span></div>
+                            <div class="text-[10px] font-bold text-slate-400">${c.zone || ''} • غائب منذ: <strong class="text-rose-600">${typeof daysAgo === 'number' ? daysAgo + ' يوم' : daysAgo}</strong></div>
                         </div>
-                        <a href="https://wa.me/${waPhone}?text=${waMsg}" target="_blank" class="bg-[#25D366] hover:bg-green-600 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm flex items-center gap-1 shrink-0">
-                            <i class="fa-brands fa-whatsapp text-sm"></i> استرجاع
+                        <a href="https://wa.me/${waPhone}?text=${waMsg}" target="_blank" class="bg-[#25D366] hover:bg-green-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 shrink-0">
+                            <i class="fa-brands fa-whatsapp"></i> استرجاع
                         </a>
                     </div>`;
                 }).join('');
             }
         }
 
-        // 15. رسم تحليل ربحية المناطق والمناديب
+        // 15. رسم تحليل المناطق والمناديب
         const zonesCont = document.getElementById('sm-zones-profit-list');
         if (zonesCont) {
             const sortedZones = Object.values(zoneStatsMap).filter(z => z.count > 0 || z.canceled > 0).sort((a, b) => b.revenue - a.revenue);
@@ -2840,25 +2921,25 @@
 
             let zh = '';
             if (sortedDrivers.length > 0) {
-                zh += `<div class="text-[11px] font-black text-indigo-700 mb-1">🛵 أداء المناديب في الفترة:</div>`;
+                zh += `<div class="text-[11px] font-black text-indigo-700 mb-1">🛵 تسليمات المناديب (صافي المنتجات):</div>`;
                 zh += sortedDrivers.map(d => `
-                    <div class="bg-indigo-50/60 p-3 rounded-xl border border-indigo-100 flex justify-between items-center text-xs font-black">
+                    <div class="bg-indigo-50/60 p-2.5 rounded-xl border border-indigo-100 flex justify-between items-center text-xs font-black">
                         <span class="text-indigo-950">${d.name}</span>
-                        <span class="text-emerald-700">${d.completed} طلب مسلم (${d.revenue.toLocaleString()} ج)</span>
+                        <span class="text-emerald-700">${d.completed} طلب (${d.revenue.toLocaleString()} ج)</span>
                     </div>
                 `).join('');
-                zh += `<div class="my-3 border-t border-slate-100"></div>`;
+                zh += `<div class="my-2 border-t border-slate-100"></div>`;
             }
 
-            zh += `<div class="text-[11px] font-black text-slate-700 mb-1">📍 ترتيب المناطق حسب المبيعات:</div>`;
+            zh += `<div class="text-[11px] font-black text-slate-700 mb-1">📍 ترتيب المناطق (صافي المنتجات):</div>`;
             if (sortedZones.length === 0) {
-                zh += `<div class="text-center py-8 text-slate-400 text-xs font-bold">لا توجد بيانات مناطق في هذه الفترة.</div>`;
+                zh += `<div class="text-center py-6 text-slate-400 text-xs font-bold">لا توجد بيانات مناطق في هذه الفترة.</div>`;
             } else {
                 zh += sortedZones.map(z => `
-                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200/70 flex justify-between items-center text-xs">
+                    <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-200/70 flex justify-between items-center text-xs">
                         <div>
                             <span class="font-black text-slate-800">${z.name}</span>
-                            <span class="text-[10px] font-bold text-slate-400 mr-2">(📦 ${z.count} طلب ${z.canceled > 0 ? '• ❌ ' + z.canceled + ' ملغي' : ''})</span>
+                            <span class="text-[10px] font-bold text-slate-400 mr-1">(${z.count} طلب)</span>
                         </div>
                         <span class="font-black text-brand-primary">${z.revenue.toLocaleString()} ج</span>
                     </div>
@@ -2868,15 +2949,13 @@
         }
     };
 
-    // طباعة التقرير المالي الشامل للفترة
+    // طباعة التقرير المالي الشامل للفترة (بدون عمود التوصيل)
     window.printSmartDashboardReport = function () {
         const periodTitle = document.getElementById('dash-active-period-badge')?.innerText || 'تقرير المبيعات';
         const totalRev = document.getElementById('sm-dash-total-revenue')?.innerText || '0';
-        const prodRev = document.getElementById('sm-dash-products-revenue')?.innerText || '0';
         const netProfit = document.getElementById('sm-dash-true-net-profit')?.innerText || '0';
         const discTotal = document.getElementById('sm-dash-discounts-total')?.innerText || '0';
-        const delRev = document.getElementById('sm-dash-delivery-revenue')?.innerText || '0';
-        const compCount = document.getElementById('sm-dash-completed-count')?.innerText || '0';
+        const ownerDebt = document.getElementById('sm-safe-owner-debt')?.innerText || '0';
         const tableHtml = document.getElementById('sm-dash-orders-tbody')?.innerHTML || '';
 
         const win = window.open('', '_blank', 'width=950,height=820');
@@ -2894,7 +2973,7 @@
                     h2 { text-align: center; margin-bottom: 5px; }
                     p.sub { text-align: center; color: #64748b; font-size: 13px; margin-top: 0; margin-bottom: 20px; }
                     .summary { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
-                    .box { flex: 1; min-width: 130px; border: 1.5px solid #cbd5e1; border-radius: 10px; padding: 10px; text-align: center; }
+                    .box { flex: 1; min-width: 140px; border: 1.5px solid #cbd5e1; border-radius: 10px; padding: 10px; text-align: center; }
                     table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 11px; }
                     th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: right; }
                     th { background: #f1f5f9; font-weight: 900; }
@@ -2902,15 +2981,13 @@
                 </style>
             </head>
             <body>
-                <h2>سمان ههيا — التقرير المالي والتحليلي الشامل</h2>
+                <h2>سمان ههيا — التقرير المحاسبي الصافي (بدون توصيل)</h2>
                 <p class="sub">الفترة: ${periodTitle} | تاريخ الطباعة: ${new Date().toLocaleString('ar-EG')}</p>
                 <div class="summary">
-                    <div class="box"><strong>إجمالي المبيعات</strong><br>${totalRev}</div>
-                    <div class="box"><strong>إيراد المنتجات</strong><br>${prodRev}</div>
+                    <div class="box"><strong>صافي المبيعات</strong><br>${totalRev}</div>
                     <div class="box"><strong>صافي الربح الفعلي</strong><br>${netProfit}</div>
-                    <div class="box"><strong>إجمالي الخصومات</strong><br>${discTotal}</div>
-                    <div class="box"><strong>إيراد التوصيل</strong><br>${delRev}</div>
-                    <div class="box"><strong>الطلبات</strong><br>${compCount}</div>
+                    <div class="box"><strong>الخصومات والواجب</strong><br>${discTotal}</div>
+                    <div class="box"><strong>الديون عليا الحالية</strong><br>${ownerDebt}</div>
                 </div>
                 <table>
                     <thead>
@@ -2918,10 +2995,9 @@
                             <th>العميل والمنطقة</th>
                             <th>الدفعة</th>
                             <th>الأصناف</th>
-                            <th>المنتجات</th>
-                            <th>التوصيل</th>
+                            <th>قيمة المنتجات</th>
                             <th>الخصم</th>
-                            <th>الصافي</th>
+                            <th>صافي المنتجات</th>
                             <th>التاريخ</th>
                         </tr>
                     </thead>
@@ -2933,6 +3009,7 @@
         `);
         win.document.close();
     };
+
 
     // =========================================================================
     // 🔌 سابعاً: ترقية نافذة الفريزر والتحديد الجماعي والربط التلقائي
