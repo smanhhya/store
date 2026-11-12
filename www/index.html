@@ -1924,110 +1924,33 @@
                 renderReconciliationUI();
             }).catch(e => console.log("خطأ في جلب بيانات لوحة الإدارة:", e));
 
-            // 🚀 التعديل الجذري: سحب كل الطلبات من أول يوم شغل بدون أي ليميت (Limit) 🚀
+            // 🚀 سحب الطلبات وتجهيز الخريطة الحية بأقصى سرعة بدون حسابات مكررة 🚀
             db.collection('orders').onSnapshot(snap => {
-
-                // --- 1. الأساسيات اللي السيستم كله قايم عليها (ممنوع المساس بيها) ---
                 let counts = { new: 0, processing: 0, dispatched: 0, deferred: 0, no_answer: 0, completed: 0, canceled: 0 };
                 allOrdersRaw = []; 
                 dispatchOrdersRaw = [];
-                globalOrdersMap = {}; // تفريغ الخريطة عشان نعيد بنائها بالكامل نظيفة
+                globalOrdersMap = {};
 
                 snap.forEach(doc => {
                     let oData = doc.data();
-                    // 💡 السحر هنا: لو المتجر بعت الأوردر بدون اسم الدفعة، الـ CRM هيترجم الكود للاسم أوتوماتيك
                     if (!oData.batchName && oData.batchId && storeBatches[oData.batchId]) {
                         oData.batchName = storeBatches[oData.batchId].name;
                     }
-                    globalOrdersMap[doc.id] = {id: doc.id, ...oData};
-                    globalOrdersMap[doc.id].manuallyUpdated = false; // ريستارت للتحديث اليدوي
+                    globalOrdersMap[doc.id] = { id: doc.id, ...oData, manuallyUpdated: false };
                 });
 
                 let mergedOrders = Object.values(globalOrdersMap);
-
-                // ترتيب الأوردرات من الأحدث للأقدم زي ما السيستم متعود
                 mergedOrders.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-
-                // --- 2. متغيرات لوحة القيادة الجديدة المخصصة لليوم الفعلي ---
-                let todayCompletedOrdersCount = 0;
-                let todayProductsRevenue = 0;
-                let todayDeliveryRevenue = 0;
-                let todayTotalRevenue = 0;
-                let todayItemsSold = {}; 
-                let todayOrdersList = []; // السجل التفصيلي لعملاء اليوم
-
-                const nowStr = new Date().toLocaleDateString('en-US'); 
 
                 mergedOrders.forEach(o => {
                     const stat = o.status || 'new';
-                    
-                    // تغذية الأساسيات (لشاشات الطلبات والتوجيه)
                     allOrdersRaw.push(o);
-                    if (stat === 'processing') dispatchOrdersRaw.push(o); 
-                    if (counts[stat] !== undefined) counts[stat]++;
-
-                    // حسابات لوحة القيادة (مبنية على تاريخ الاكتمال الفعلي)
-                    if (stat === 'completed' && o.completedAtStr === nowStr) {
-                        todayCompletedOrdersCount++;
-                        todayProductsRevenue += Number(o.subtotal) || 0; 
-                        todayDeliveryRevenue += Number(o.deliveryFee) || 0; 
-                        todayTotalRevenue += Number(o.total) || 0;
-                        
-                        // تجميع المنتجات
-                        if(o.items && Array.isArray(o.items)){
-                            o.items.forEach(i => {
-                                todayItemsSold[i.name] = (todayItemsSold[i.name] || 0) + i.quantity;
-                            });
-                        }
-                        
-                        // إضافة الأوردر للقائمة عشان الجدول التفصيلي
-                        todayOrdersList.push(o); 
+                    if (!o.isArchived && stat !== 'trash') {
+                        if (stat === 'processing') dispatchOrdersRaw.push(o);
+                        if (counts[stat] !== undefined) counts[stat]++;
                     }
                 });
 
-                // --- 3. تحديث واجهة لوحة القيادة (Dashboard UI) ---
-                
-                // الكروت العلوية الأربعة (استخدمت if checks كحماية إضافية للأساسيات)
-                let elCompleted = document.getElementById('dash-completed-today');
-                if(elCompleted) elCompleted.innerText = todayCompletedOrdersCount;
-                
-                let elProducts = document.getElementById('dash-products-today');
-                if(elProducts) elProducts.innerHTML = `${todayProductsRevenue.toLocaleString()} <span class="text-sm text-slate-400 font-bold">ج</span>`;
-                
-                let elDelivery = document.getElementById('dash-delivery-today');
-                if(elDelivery) elDelivery.innerHTML = `${todayDeliveryRevenue.toLocaleString()} <span class="text-sm text-slate-400 font-bold">ج</span>`;
-                
-                let elTotal = document.getElementById('dash-total-today');
-                if(elTotal) elTotal.innerHTML = `${todayTotalRevenue.toLocaleString()} <span class="text-sm text-slate-400 font-bold">ج</span>`;
-                
-                // تفصيل المنتجات المجمعة
-                let itemsHtml = Object.keys(todayItemsSold).sort((a,b) => todayItemsSold[b] - todayItemsSold[a]).map(itemName => 
-                    `<div class="bg-slate-50 border border-slate-100 p-3 rounded-xl text-center shadow-sm"><span class="block text-[10px] font-bold text-slate-500 mb-1 truncate">${itemName}</span><span class="text-lg font-black text-brand-primary">${todayItemsSold[itemName]}</span></div>`
-                ).join('');
-                let dashItems = document.getElementById('dash-items-today');
-                if(dashItems) dashItems.innerHTML = itemsHtml || '<div class="col-span-full text-center text-slate-400 text-xs font-bold mt-4">لم يتم تسليم منتجات اليوم حتى الآن.</div>';
-
-                // الجدول التفصيلي (مين استلم إيه النهاردة)
-                let tableBodyHtml = todayOrdersList.map(o => {
-                    let itemsStr = (o.items && Array.isArray(o.items)) ? o.items.map(i => `<span class="bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-[10px] font-bold inline-block m-0.5 border border-emerald-100">${i.quantity}x ${i.name}</span>`).join('') : '-';
-                    return `
-                    <tr class="hover:bg-slate-50 transition-colors">
-                        <td class="py-3 px-4 border-b border-slate-50">
-                            <div class="font-black text-slate-800">${o.customerName || 'بدون اسم'}</div>
-                            <div class="text-[10px] font-bold text-slate-400" dir="ltr">${o.customerPhone || ''}</div>
-                        </td>
-                        <td class="py-3 px-4 border-b border-slate-50 text-center whitespace-normal min-w-[200px] leading-loose">${itemsStr}</td>
-                        <td class="py-3 px-4 border-b border-slate-50 text-center font-bold text-slate-500 text-xs">${o.orderDate || 'غير محدد'}</td>
-                        <td class="py-3 px-4 border-b border-slate-50 text-center font-black text-brand-primary text-base">${o.total} ج</td>
-                    </tr>`;
-                }).join('');
-                
-                let tbodyEl = document.getElementById('dash-today-orders-tbody');
-                if(tbodyEl) {
-                    tbodyEl.innerHTML = tableBodyHtml || `<tr><td colspan="4" class="text-center py-8 text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-xl">لا توجد طلبات تم تسليمها اليوم.</td></tr>`;
-                }
-
-                // --- 4. تحديث الأساسيات (أرقام التبويبات الحية) ---
                 ['new', 'processing', 'dispatched', 'deferred', 'no_answer', 'completed', 'canceled'].forEach(s => { 
                     let b = document.getElementById(`badge-${s}`); 
                     if(b) b.innerText = counts[s] || 0; 
@@ -2036,13 +1959,16 @@
                 scheduleSystemRender();
             });
 
+
             window.refreshCustomersData(); // استدعاء دالة تحديث العملاء والديون
 
         }
 
         // === 4. إدارة الطلبات والرسائل المرنة ===
+        window.ordersRenderLimit = 50;
         window.setOrderTab = (tab) => {
             currentOrderTab = tab;
+            window.ordersRenderLimit = 50;
             document.querySelectorAll('.order-tab').forEach(btn => { 
                 btn.classList.remove('bg-slate-800', 'text-white', 'shadow-sm'); 
                 btn.classList.add('bg-white', 'text-slate-600', 'border', 'border-slate-200'); 
@@ -2566,7 +2492,11 @@
                 window.rebuildTrustCacheIfNeeded();
             }
 
-            container.innerHTML = filtered.map(o => {
+            const limitCount = window.ordersRenderLimit || 50;
+            const visibleOrders = filtered.slice(0, limitCount);
+            const remainingCount = filtered.length - visibleOrders.length;
+
+            let cardsHtml = visibleOrders.map(o => {
                 let d = o.orderDate || (o.createdAt ? new Date(o.createdAt.toMillis()).toLocaleDateString('en-US') : 'غير محدد');
                 
                 let completedDateHtml = '';
@@ -2702,17 +2632,21 @@
                     </div>
                 </div>`;
             }).join('');
+
+            if (remainingCount > 0) {
+                cardsHtml += `
+                <button type="button" onclick="window.ordersRenderLimit = (window.ordersRenderLimit || 50) + 50; renderOrdersList();" class="w-full py-3.5 bg-white hover:bg-emerald-50 text-brand-primary font-black text-xs rounded-2xl border-2 border-dashed border-brand-primary/30 shadow-sm transition-all flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-angles-down"></i> عرض المزيد من الطلبات (متبقي ${remainingCount} طلب)
+                </button>`;
+            }
+
+            container.innerHTML = cardsHtml;
             
             if (openInlineNoteId && openInlineNoteField) {
                 setTimeout(() => { toggleInlineNotes(null, openInlineNoteId, openInlineNoteField, true); }, 50);
             }
         };
-           
 
-        window.openNoteOptions = (id) => {
-            currentOrderNoteId = id;
-            openModal('note-action-modal');
-        };
 
         window.editCurrentNote = async () => {
             closeModal('note-action-modal');
@@ -4741,14 +4675,15 @@ window.deleteProductUI = async (id) => {
             let itemsTotal = 0; 
             Object.keys(storeProducts).forEach(id => { 
                 let q = Number(document.getElementById(`edit-q-${id}`)?.value) || 0; 
-                let existingItem = editingOrderData.items ? editingOrderData.items.find(i => i.id === id) : null;
+                let existingItem = editingOrderData.items ? editingOrderData.items.find(i => i.id === id || i.name === storeProducts[id].name) : null;
                 let price = existingItem ? existingItem.price : (storePrices[id] || storeProducts[id].basePrice || 0); 
-                itemsTotal += (q * price); 
+                itemsTotal += Math.round(q * price); 
             }); 
-            document.getElementById('edit-price').value = itemsTotal; 
+            document.getElementById('edit-price').value = Math.round(itemsTotal); 
             let d = Number(document.getElementById('edit-delivery').value) || 0; let disc = Number(document.getElementById('edit-discount').value) || 0; 
-            let finalTotal = itemsTotal + d - disc; if(finalTotal < 0) finalTotal = 0; document.getElementById('edit-total').value = finalTotal; 
+            let finalTotal = Math.round(itemsTotal + d - disc); if(finalTotal < 0) finalTotal = 0; document.getElementById('edit-total').value = finalTotal; 
         };
+
 
 
 
@@ -5291,25 +5226,34 @@ window.deleteProductUI = async (id) => {
         window.scheduleSystemRender = () => {
             clearTimeout(renderTimeout);
             renderTimeout = setTimeout(() => {
-                renderOrdersList();
-                updateBatchSummary();
-                if(document.getElementById('view-notes').classList.contains('active')) renderNotesUI();
-                if(document.getElementById('view-reconciliation').classList.contains('active')) calculateDriverReconciliation();
+                if (document.getElementById('view-orders')?.classList.contains('active')) {
+                    renderOrdersList();
+                } else {
+                    renderOrdersList();
+                }
+                const analysisModal = document.getElementById('analysis-modal');
+                if (analysisModal && !analysisModal.classList.contains('hidden')) {
+                    updateBatchSummary();
+                }
+                if (document.getElementById('view-notes')?.classList.contains('active')) renderNotesUI();
+                if (document.getElementById('view-reconciliation')?.classList.contains('active')) calculateDriverReconciliation();
+                if (document.getElementById('view-radar')?.classList.contains('active') && typeof renderDriversRadarUI === 'function') renderDriversRadarUI();
             }, 150); 
         };
 
-        // ==========================================
-        // 📦 نظام أرشيف الدفعات والتقارير الختامية 📦
-        // ==========================================
-        let archivedBatchesData = [];
-        
-        // 🛑 استدعاء الأرشيف من قاعدة البيانات (السحب مرة واحدة لتوفير القراءات بحد أقصى)
-        db.collection('archived_batches').orderBy('archivedAt', 'desc').get().then(snap => {
-            archivedBatchesData = [];
-            snap.forEach(doc => archivedBatchesData.push({id: doc.id, ...doc.data()}));
-            renderArchiveUI();
-        }).catch(e => console.log("خطأ في جلب الأرشيف: ", e));
+        // تحديث التحليل التفصيلي فور فتح نافذته
+        const _origOpenModalForAnalysis = openModal;
+        openModal = function(id) {
+            if (id === 'analysis-modal' && typeof updateBatchSummary === 'function') {
+                updateBatchSummary();
+            }
+            _origOpenModalForAnalysis(id);
+        };
 
+        // ==========================================
+        // 📦 نظام أرشيف الدفعات والتقارير الختامية (موحد مع dashboard.js) 📦
+        // ==========================================
+        var archivedBatchesData = window.archivedBatchesData = window.archivedBatchesData || [];
 
         
         // دالة الترحيل للأرشيف
@@ -6505,11 +6449,16 @@ window.deleteProductUI = async (id) => {
             Object.keys(storeProducts).forEach(id => { 
                 let q = Number(document.getElementById(`edit-q-${id}`)?.value) || 0; 
                 if(q > 0) { 
-                    let existingItem = editingOrderData.items ? editingOrderData.items.find(i => i.id === id) : null;
-                    let price = existingItem ? existingItem.price : (storePrices[id] || storeProducts[id].basePrice || 0); 
-                    newItems.push({ id: id, name: storeProducts[id].name, quantity: q, price: price }); newSubtotal += (q * price); 
+                    let existingItem = editingOrderData.items ? editingOrderData.items.find(i => i.id === id || i.name === storeProducts[id].name) : null;
+                    let price = existingItem ? existingItem.price : (storePrices[id] || storeProducts[id].basePrice || 0);
+                    let preservedName = (existingItem && existingItem.quantity === q && existingItem.name) ? existingItem.name : storeProducts[id].name;
+                    let itemObj = { id: id, name: preservedName, quantity: q, price: price };
+                    if (existingItem && existingItem.birdsCount) itemObj.birdsCount = existingItem.birdsCount;
+                    newItems.push(itemObj);
+                    newSubtotal += Math.round(q * price); 
                 } 
             });
+
 
             if(newItems.length === 0) return alert('لا يمكن حفظ طلب فارغ!');
 
@@ -6757,8 +6706,8 @@ window.deleteProductUI = async (id) => {
                 return;
             }
 
-            // تصفية الطلبات الخاصة بهذا المندوب والتي خرجت معه (dispatched أو completed لنفس الوردية)
-            let driverOrders = allOrdersRaw.filter(o => o.driverName === driverName && (o.status === 'dispatched' || o.status === 'completed'));
+            // تصفية الطلبات الخاصة بهذا المندوب والتي لم يتم تقفيل عهدتها بعد
+            let driverOrders = allOrdersRaw.filter(o => o.driverName === driverName && !o.isReconciled && !o.isSupplied && !o.isArchived && (o.status === 'dispatched' || o.status === 'completed'));
 
             if(driverOrders.length === 0) {
                 container.innerHTML = `<div class="text-center py-12 text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-xl bg-white">لا توجد أوردرات مسجلة حالياً للمندوب: <span class="text-slate-800">${driverName}</span></div>`;
@@ -6884,32 +6833,50 @@ window.deleteProductUI = async (id) => {
             btn.disabled = true;
 
             try {
-                let driverOrders = allOrdersRaw.filter(o => o.driverName === driverName && (o.status === 'dispatched' || o.status === 'completed'));
+                let driverOrders = allOrdersRaw.filter(o => o.driverName === driverName && !o.isReconciled && !o.isSupplied && !o.isArchived && (o.status === 'dispatched' || o.status === 'completed'));
                 let batchProcess = db.batch();
                 let nowStr = new Date().toLocaleDateString('en-US');
-                let timeStr = new Date().toLocaleTimeString('ar-EG', {hour: '2-digit', minute:'2-digit'});
+                let timeStr = new Date().toLocaleString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' });
 
                 driverOrders.forEach(o => {
                     let ref = db.collection('orders').doc(o.id);
-                    // تحويل الطلب لحالة "مكتمل" وتثبيت وقت التسليم الفعلي
-                    batchProcess.update(ref, {
+                    let updateObj = {
                         status: 'completed',
-                        completedAtStr: nowStr,
-                        completedTimeDisplay: timeStr,
-                        completedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
+                        isReconciled: true,
+                        isSupplied: true,
+                        reconciledAt: firebase.firestore.FieldValue.serverTimestamp()
+                    };
+                    if (o.status !== 'completed') {
+                        updateObj.completedAtStr = nowStr;
+                        updateObj.completedTimeDisplay = timeStr;
+                        updateObj.completedAt = firebase.firestore.FieldValue.serverTimestamp();
+                    }
+                    batchProcess.update(ref, updateObj);
+
+                    // تحديث الذاكرة الحية فوراً لإخفاء الطلبات المقفلة من عهدة المندوب والرادار
+                    o.status = 'completed';
+                    o.isReconciled = true;
+                    o.isSupplied = true;
+                    if (!o.completedAtStr) o.completedAtStr = nowStr;
+                    if (!o.completedTimeDisplay) o.completedTimeDisplay = timeStr;
+                    if (globalOrdersMap[o.id]) {
+                        globalOrdersMap[o.id].status = 'completed';
+                        globalOrdersMap[o.id].isReconciled = true;
+                        globalOrdersMap[o.id].isSupplied = true;
+                    }
                 });
 
                 await batchProcess.commit();
-                alert(`تم تقفيل عهدة المندوب ${driverName} بنجاح وتحويل الأوردرات إلى (مكتملة) وتسجيلها في حصيلة اليوم! 🎉`);
+                alert(`تم تقفيل عهدة المندوب ${driverName} بنجاح وتحويل الأوردرات إلى (مكتملة) وتوريد النقدية! 🎉`);
                 
-                // إعادة ضبط الشاشة
                 document.getElementById('recon-driver-select').value = "";
                 calculateDriverReconciliation();
+                if (typeof renderDriversRadarUI === 'function') renderDriversRadarUI();
             } catch (e) {
                 console.error(e);
                 alert("حدث خطأ أثناء حفظ التصفية في قاعدة البيانات!");
             }
+
 
             btn.innerHTML = origHtml;
             btn.disabled = false;
@@ -7623,80 +7590,79 @@ window.deleteProductUI = async (id) => {
                 return;
             }
 
-            let btn = document.querySelector('#link-archive-modal button');
-            let origHtml = btn.innerHTML;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الربط والترحيل...';
-            btn.disabled = true;
+            let btn = document.querySelector('#link-archive-modal .bg-indigo-600') || document.querySelector('#link-archive-modal button');
+            let origHtml = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الربط والترحيل...';
+                btn.disabled = true;
+            }
 
             try {
                 let order = allOrdersRaw.find(o => o.id === orderId);
-                let archiveBatchData = archivedBatchesData.find(a => a.id === archiveId);
+                let archList = Array.isArray(window.archivedBatchesData) ? window.archivedBatchesData : archivedBatchesData;
+                let archiveBatchData = archList.find(a => a.id === archiveId);
+                if (!order || !archiveBatchData) throw new Error("لم يتم العثور على الطلب أو الدفعة المؤرشفة");
 
-                let batchProcess = db.batch();
+                let fin = (typeof window.getAccurateOrderFinancials === 'function')
+                    ? window.getAccurateOrderFinancials(order)
+                    : { total: Math.max(0, (Number(order.subtotal) || Number(order.total) || 0) - (Number(order.discount) || 0)), delivery: 0, discount: Number(order.discount) || 0 };
 
-                // 1. تحديث الأوردر نفسه (نقل ملكيته للدفعة الجديدة وإخفاؤه)
-                let orderRef = db.collection('orders').doc(orderId);
-                batchProcess.update(orderRef, {
+                let oRev = fin.total;
+                let oDel = fin.delivery;
+                let oDisc = fin.discount;
+
+                // تحديث كائن الأرشيف محلياً
+                archiveBatchData.totalRevenue = (Number(archiveBatchData.totalRevenue) || 0) + oRev;
+                archiveBatchData.totalDelivery = (Number(archiveBatchData.totalDelivery) || 0) + oDel;
+                archiveBatchData.totalDiscount = (Number(archiveBatchData.totalDiscount) || 0) + oDisc;
+                archiveBatchData.ordersCount = (Number(archiveBatchData.ordersCount) || 0) + 1;
+                if (!archiveBatchData.zonesSummary) archiveBatchData.zonesSummary = {};
+                if (!archiveBatchData.itemsSummary) archiveBatchData.itemsSummary = {};
+                if (order.zone) archiveBatchData.zonesSummary[order.zone] = (archiveBatchData.zonesSummary[order.zone] || 0) + 1;
+                if (order.items && Array.isArray(order.items)) {
+                    order.items.forEach(i => {
+                        archiveBatchData.itemsSummary[i.name] = (archiveBatchData.itemsSummary[i.name] || 0) + (Number(i.quantity) || 0);
+                    });
+                }
+
+                // 1. تحديث الطلب نفسه
+                await db.collection('orders').doc(orderId).update({
                     isArchived: true,
                     batchId: archiveBatchData.originalBatchId || archiveId,
                     batchName: archiveBatchData.batchName
                 });
 
-                // 2. تحديث التقرير الختامي للدفعة المؤرشفة المستهدفة
-                let archiveRef = db.collection('archived_batches').doc(archiveId);
-                let oRev = Number(order.total) || 0;
-                let oDel = Number(order.deliveryFee) || 0;
-                let oDisc = Number(order.discount) || 0;
-                
-                let updatePayload = {
-                    totalRevenue: firebase.firestore.FieldValue.increment(oRev),
-                    totalDelivery: firebase.firestore.FieldValue.increment(oDel),
-                    totalDiscount: firebase.firestore.FieldValue.increment(oDisc),
-                    ordersCount: firebase.firestore.FieldValue.increment(1)
-                };
-                if (order.zone) updatePayload[`zonesSummary.${order.zone}`] = firebase.firestore.FieldValue.increment(1);
-                if (order.items && Array.isArray(order.items)) {
-                    order.items.forEach(i => {
-                        updatePayload[`itemsSummary.${i.name}`] = firebase.firestore.FieldValue.increment(i.quantity);
-                    });
-                }
-                batchProcess.update(archiveRef, updatePayload);
-                
-                await batchProcess.commit();
+                // 2. حفظ الأرشيف المحدث في كلا المسارين لضمان التطابق التام مع dashboard.js
+                await db.collection('inventory').doc('archived_batches').set({ [archiveId]: archiveBatchData }, { merge: true }).catch(() => {});
+                await db.collection('archived_batches').doc(archiveId).set(archiveBatchData, { merge: true }).catch(() => {});
 
                 // 3. التحديث في الذاكرة الحية
-                if (order) {
-                    order.isArchived = true;
-                    order.batchId = archiveBatchData.originalBatchId || archiveId;
-                    order.batchName = archiveBatchData.batchName;
-                    if(globalOrdersMap[order.id]) {
-                        globalOrdersMap[order.id].isArchived = true;
-                        globalOrdersMap[order.id].batchId = order.batchId;
-                        globalOrdersMap[order.id].batchName = order.batchName;
-                    }
+                order.isArchived = true;
+                order.batchId = archiveBatchData.originalBatchId || archiveId;
+                order.batchName = archiveBatchData.batchName;
+                if (globalOrdersMap[order.id]) {
+                    globalOrdersMap[order.id].isArchived = true;
+                    globalOrdersMap[order.id].batchId = order.batchId;
+                    globalOrdersMap[order.id].batchName = order.batchName;
                 }
-                
-                // تحديث بيانات الأرشيف المحلي لتنعكس في الشاشة فوراً
-                archiveBatchData.totalRevenue += oRev;
-                archiveBatchData.totalDelivery += oDel;
-                archiveBatchData.totalDiscount += oDisc;
-                archiveBatchData.ordersCount += 1;
-                if(order.zone) archiveBatchData.zonesSummary[order.zone] = (archiveBatchData.zonesSummary[order.zone] || 0) + 1;
-                if(order.items) order.items.forEach(i => { archiveBatchData.itemsSummary[i.name] = (archiveBatchData.itemsSummary[i.name] || 0) + i.quantity; });
 
                 closeModal('link-archive-modal');
                 renderOrdersList();
-                renderArchiveUI();
+                if (typeof renderArchiveUI === 'function') renderArchiveUI();
+                if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
                 alert("تمت العملية بنجاح! تم نقل الطلب وربطه بتقرير الدفعة المؤرشفة، واختفى من الشاشة الحية. 🔗✅");
 
             } catch (e) {
                 console.error(e);
-                alert("حدث خطأ أثناء الربط!");
+                alert("حدث خطأ أثناء الربط: " + (e.message || e));
             }
 
-            btn.innerHTML = origHtml;
-            btn.disabled = false;
+            if (btn) {
+                btn.innerHTML = origHtml;
+                btn.disabled = false;
+            }
         };
+
         // ==========================================
         // ==========================================
         // 🚀 محرك ترحيل الداتا القديمة والأرشيف للشيت (يُستخدم مرة واحدة) 🚀
