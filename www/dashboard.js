@@ -1949,11 +1949,11 @@
 
         let totalFreezerMeatUnits = 0;
         let totalFreezerValue = 0;
-        let hasNegativeInFreezer = false;
+        let negativeFreezerCount = 0;
 
         Object.keys(freezerObj).forEach(pId => {
             const rawQty = Number(freezerObj[pId]) || 0;
-            if (rawQty < 0) hasNegativeInFreezer = true;
+            if (rawQty < 0) negativeFreezerCount += Math.abs(rawQty);
             const safeQty = Math.max(0, rawQty);
             if (safeQty > 0) {
                 const cls = window.classifyOrderItem({ id: pId, name: prodsObj[pId]?.name || '' });
@@ -1963,11 +1963,8 @@
             }
         });
 
-        if (hasNegativeInFreezer) {
-            window.sanitizeFreezerNegativeValues(false);
-        }
-
-        setElHtml('sm-cmd-freezer-total', `${totalFreezerMeatUnits} طبق | ${totalFreezerValue.toLocaleString()} ج`);
+        const negBadge = negativeFreezerCount > 0 ? ` ⚠️(-${negativeFreezerCount})` : '';
+        setElHtml('sm-cmd-freezer-total', `${totalFreezerMeatUnits} طبق | ${totalFreezerValue.toLocaleString()} ج${negBadge}`);
 
         // 2. بناء قوائم الدفعات الشاملة
         const liveBatchByName = {};
@@ -3046,11 +3043,12 @@
                 await db.collection('orders').doc(orderId).update(orderUpdate);
             }
 
-            // خصم حساب الطلب من تقرير الدفعة المؤرشفة إذا كان محسوباً فيها
+            // خصم حساب الطلب الصافي (بدون التوصيل) من تقرير الدفعة المؤرشفة إذا كان محسوباً فيها
             if (a && o.status === 'completed') {
-                const oRev = Number(o.total) || 0;
-                const oDel = Number(o.deliveryFee) || 0;
-                const oDisc = Number(o.discount) || 0;
+                const fin = window.getAccurateOrderFinancials(o);
+                const oRev = fin.total;
+                const oDel = fin.delivery;
+                const oDisc = fin.discount;
 
                 a.totalRevenue = Math.max(0, (Number(a.totalRevenue) || 0) - oRev);
                 a.totalDelivery = Math.max(0, (Number(a.totalDelivery) || 0) - oDel);
@@ -3269,10 +3267,9 @@
         }
     }
 
-    // ترقية نافذة الفريزر لمنع ظهور أي رقم سالب وإضافة زر التصفير الفوري
+    // ترقية نافذة الفريزر مع الحفاظ على دقة المرتجعات وتوفير زر الإصلاح اليدوي والتصفير الفوري
     const _origOpenFreezerModal = window.openFreezerModal;
     window.openFreezerModal = function () {
-        window.sanitizeFreezerNegativeValues(false);
         if (typeof _origOpenFreezerModal === 'function') {
             _origOpenFreezerModal();
         }
@@ -3282,20 +3279,12 @@
             toolsDiv.id = 'fz-smart-tools-bar';
             toolsDiv.className = 'flex gap-2 mb-3 pb-3 border-b border-slate-200';
             toolsDiv.innerHTML = `
-                <button onclick="sanitizeFreezerNegativeValues(true)" class="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white py-2 px-3 rounded-xl text-[11px] font-black shadow-sm transition-all">✨ إصلاح أي رقم سالب</button>
+                <button onclick="sanitizeFreezerNegativeValues(true)" class="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white py-2 px-3 rounded-xl text-[11px] font-black shadow-sm transition-all">✨ تصفير الأرقام السالبة فقط</button>
                 <button onclick="resetAllFreezerToZero()" class="bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 py-2 px-3 rounded-xl text-[11px] font-black transition-all">🔄 تصفير الكل (0)</button>
             `;
             cont.parentElement.insertBefore(toolsDiv, cont);
         }
     };
-
-    const _origBulkChangeStatus = window.bulkChangeStatus;
-    if (typeof _origBulkChangeStatus === 'function') {
-        window.bulkChangeStatus = async function (newStatus) {
-            await _origBulkChangeStatus(newStatus);
-            await window.sanitizeFreezerNegativeValues(false);
-        };
-    }
 
     function bootSmartEngine() {
         window.initSmartDashboardLayout();
@@ -3304,7 +3293,6 @@
         setTimeout(() => {
             installEnhancedArchiveReportModal();
             installStrictAntiAutoArchiveGuard();
-            window.sanitizeFreezerNegativeValues(false);
             window.loadAllArchivedBatchesSafe();
             window.loadLedgerRecordsSafe();
             window.renderSmartDashboard();
