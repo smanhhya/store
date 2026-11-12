@@ -220,8 +220,8 @@ jobs:
           npx cap add android
           npx cap sync android
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-          sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/g" android/app/build.gradle || true
-          sed -i "s/versionName \"1.0\"/versionName \"1.${{ github.run_number }}\"/g" android/app/build.gradle || true
+          sed -i -E "s/versionCode [0-9]+/versionCode ${{ github.run_number }}/g" android/app/build.gradle || true
+          sed -i -E "s/versionName \"[^\"]+\"/versionName \"1.${{ github.run_number }}\"/g" android/app/build.gradle || true
           cp -f sman-debug.keystore android/app/debug.keystore || true
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
             sed -i 's/networkTimeout=10000/networkTimeout=120000/g' android/gradle/wrapper/gradle-wrapper.properties || true
