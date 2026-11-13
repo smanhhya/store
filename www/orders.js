@@ -584,8 +584,11 @@
         }
 
         const isCompact = window.ordersFilterState.compactMode;
+        const limitCount = window.ordersRenderLimit || 50;
+        const visibleOrders = filtered.slice(0, limitCount);
+        const remainingCount = filtered.length - visibleOrders.length;
 
-        container.innerHTML = filtered.map(o => {
+        let cardsHtml = visibleOrders.map(o => {
             let d = o.orderDate || (o.createdAt ? new Date(o.createdAt.toMillis()).toLocaleDateString('en-US') : 'غير محدد');
             let ageStr = getOrderAgeLabel(o);
             let realBatchTitle = getOrderBatchTitle(o);
@@ -836,10 +839,20 @@
             </div>`;
         }).join('');
 
+        if (remainingCount > 0) {
+            cardsHtml += `
+            <button type="button" onclick="window.ordersRenderLimit = (window.ordersRenderLimit || 50) + 50; renderOrdersList();" class="w-full py-3.5 bg-white hover:bg-emerald-50 text-brand-primary font-black text-xs rounded-2xl border-2 border-dashed border-brand-primary/30 shadow-sm transition-all flex items-center justify-center gap-2">
+                <i class="fa-solid fa-angles-down"></i> عرض المزيد من الطلبات (متبقي ${remainingCount} طلب)
+            </button>`;
+        }
+
+        container.innerHTML = cardsHtml;
+
         if (typeof openInlineNoteId !== 'undefined' && openInlineNoteId && openInlineNoteField) {
             setTimeout(() => { window.toggleInlineNotes(null, openInlineNoteId, openInlineNoteField, true); }, 50);
         }
     };
+
 
     // =========================================================================
     // 🛠️ 7. تطوير نافذتي "إنشاء طلب" (مساعد العميل والنقاط) و"تعديل طلب"
