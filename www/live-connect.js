@@ -945,167 +945,7 @@
     };
 
     // =========================================================================
-    // 🤝 7. توحيد مثلث المناديب (الرادار ⇄ تقفيل العهدة ⇄ الخزنة)
-    // =========================================================================
-    window.renderReconciliationUI = function () {
-        const sel = document.getElementById('recon-driver-select');
-        if (!sel) return;
-        const curVal = sel.value;
-
-        const driversSet = new Set();
-        (storeSettings?.drivers || []).forEach(d => { if (d && d.name) driversSet.add(d.name.trim()); });
-        (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).forEach(o => {
-            if (o && o.driverName && o.driverName.trim()) driversSet.add(o.driverName.trim());
-        });
-
-        let html = `<option value="">-- اختر المندوب لتصفية عهدته --</option>`;
-        Array.from(driversSet).forEach(dName => {
-            html += `<option value="${dName}" ${curVal === dName ? 'selected' : ''}>🛵 ${dName}</option>`;
-        });
-        sel.innerHTML = html;
-        if (curVal) window.calculateDriverReconciliation();
-    };
-
-    window.calculateDriverReconciliation = function () {
-        const sel = document.getElementById('recon-driver-select');
-        const cont = document.getElementById('recon-details-container');
-        const settleBtn = document.getElementById('btn-settle-recon');
-        if (!sel || !cont || !settleBtn) return;
-
-        const dName = sel.value.trim();
-        if (!dName) {
-            cont.innerHTML = `<div class="text-center py-10 text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-xl bg-white">برجاء اختيار مندوب لعرض عهدته.</div>`;
-            settleBtn.classList.add('hidden');
-            return;
-        }
-
-        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
-        const drvOrders = ordersList.filter(o => o && o.status !== 'trash' && !o.isArchived && (o.driverName || '').trim() === dName);
-
-        const inWayOrders = drvOrders.filter(o => o.status === 'dispatched');
-        const unsettledCompleted = drvOrders.filter(o => o.status === 'completed' && !o.isReconciled && !o.isSupplied);
-
-        let totalCashRequired = 0;
-        let totalDeliveryFees = 0;
-        let onlineCount = 0;
-
-        unsettledCompleted.forEach(o => {
-            if (o.paymentMethod === 'online') {
-                onlineCount++;
-            } else {
-                totalCashRequired += Number(o.total) || 0;
-            }
-            totalDeliveryFees += Number(o.deliveryFee) || 0;
-        });
-
-        const netStoreMoney = Math.max(0, totalCashRequired - totalDeliveryFees);
-
-        let listHtml = unsettledCompleted.map(o => `
-            <div class="bg-white p-3.5 rounded-xl border border-slate-200 flex justify-between items-center">
-                <div>
-                    <div class="font-black text-slate-800 text-xs">${o.customerName || 'عميل'} <span class="text-indigo-600">(${o.zone || ''})</span></div>
-                    <div class="text-[10px] font-bold text-slate-400">${(o.items || []).map(i => `${i.quantity}x ${i.name}`).join(' + ')}</div>
-                </div>
-                <div class="text-left">
-                    ${o.paymentMethod === 'online'
-                        ? `<span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-[10px] font-black">خالص أونلاين</span>`
-                        : `<span class="font-black text-brand-primary text-sm">${o.total || 0} ج</span>`}
-                </div>
-            </div>
-        `).join('');
-
-        if (!listHtml) {
-            listHtml = `<div class="text-center py-8 text-slate-400 font-bold bg-white rounded-xl border border-dashed border-slate-200">لا توجد طلبات مسلمة غير مقفلة لهذا المندوب حالياً ✅</div>`;
-        }
-
-        cont.innerHTML = `
-            <div class="space-y-4">
-                ${inWayOrders.length > 0 ? `
-                <div class="bg-amber-50 border border-amber-200 p-3 rounded-xl flex justify-between items-center text-xs font-black text-amber-800">
-                    <span>⚠️ تنبيه: المندوب ما زال معه (${inWayOrders.length}) طلبات في الطريق لم تُسلم بعد</span>
-                    <button onclick="switchTab('radar', document.querySelector('#sidebar button[onclick*=\\'radar\\']'))" class="bg-amber-600 text-white px-2.5 py-1 rounded-lg text-[10px]">فتح الرادار</button>
-                </div>` : ''}
-
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-                    <div class="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
-                        <span class="text-[10px] font-bold text-slate-400 block mb-1">طلبات مسلمة بالعهدة</span>
-                        <span class="text-xl font-black text-slate-800">${unsettledCompleted.length} <span class="text-[10px] text-emerald-600">(${onlineCount} أونلاين)</span></span>
-                    </div>
-                    <div class="bg-amber-50 p-3.5 rounded-2xl border border-amber-200 shadow-sm">
-                        <span class="text-[10px] font-black text-amber-700 block mb-1">إجمالي الكاش مع المندوب</span>
-                        <span class="text-xl font-black text-amber-700">${totalCashRequired.toLocaleString()} ج</span>
-                    </div>
-                    <div class="bg-indigo-50 p-3.5 rounded-2xl border border-indigo-200 shadow-sm">
-                        <span class="text-[10px] font-black text-indigo-700 block mb-1">إجمالي الشحن بالطلبات</span>
-                        <span class="text-xl font-black text-indigo-700">${totalDeliveryFees.toLocaleString()} ج</span>
-                    </div>
-                    <div class="bg-emerald-50 p-3.5 rounded-2xl border border-emerald-200 shadow-sm">
-                        <span class="text-[10px] font-black text-emerald-700 block mb-1">صافي المنتجات للدرج</span>
-                        <span class="text-xl font-black text-emerald-700">${netStoreMoney.toLocaleString()} ج</span>
-                    </div>
-                </div>
-
-                <div class="space-y-2 max-h-80 overflow-y-auto custom-scroll pr-1">${listHtml}</div>
-            </div>
-        `;
-
-        if (unsettledCompleted.length > 0) {
-            settleBtn.classList.remove('hidden');
-            settleBtn.onclick = () => window.settleDriverCustodyUnified(dName, unsettledCompleted, totalCashRequired);
-        } else {
-            settleBtn.classList.add('hidden');
-        }
-    };
-
-    window.settleDriverCustodyUnified = async function (driverName, ordersToSettle, totalCash) {
-        if (!confirm(`تأكيد استلام مبلغ (${totalCash.toLocaleString()} ج) من المندوب (${driverName}) وتقفيل عهدة (${ordersToSettle.length}) طلبات في التقفيل والرادار معاً؟`)) return;
-
-        const btn = document.getElementById('btn-settle-recon');
-        const origHtml = btn ? btn.innerHTML : '';
-        if (btn) {
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري تصفية العهدة وتحديث الرادار...';
-            btn.disabled = true;
-        }
-
-        try {
-            const batch = db.batch();
-            const nowStr = new Date().toLocaleDateString('en-US');
-
-            ordersToSettle.forEach(o => {
-                const ref = db.collection('orders').doc(o.id);
-                batch.update(ref, {
-                    isReconciled: true,
-                    isSupplied: true,
-                    reconciledAtStr: nowStr,
-                    reconciledAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                o.isReconciled = true;
-                o.isSupplied = true;
-                o.reconciledAtStr = nowStr;
-                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[o.id]) {
-                    globalOrdersMap[o.id].isReconciled = true;
-                    globalOrdersMap[o.id].isSupplied = true;
-                }
-            });
-
-            await batch.commit();
-            window.calculateDriverReconciliation();
-            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
-            if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
-            window.updateLiveHeaderAndSidebar();
-            notifyQuickToast(`✅ تم تقفيل عهدة المندوب (${driverName}) وتصفير الرادار بنجاح`);
-        } catch (e) {
-            console.error(e);
-            alert('حدث خطأ أثناء تقفيل عهدة المندوب!');
-        }
-        if (btn) {
-            btn.innerHTML = origHtml;
-            btn.disabled = false;
-        }
-    };
-
-    // =========================================================================
-    // 🔗 8. الربط التلقائي مع دوال النظام الأساسية (Auto-Hooking)
+    // 🔗 7. الربط التلقائي السريع مع دوال النظام (بدون تعارض مع drivers.js أو index.html)
     // =========================================================================
     function hookIntoSystemFunctions() {
         if (typeof window.renderOrdersList === 'function' && !window.renderOrdersList._lcHooked) {
@@ -1126,24 +966,8 @@
             const wrappedRefreshCust = function () {
                 const res = _origRefreshCust.apply(this, arguments);
                 setTimeout(() => {
-                    document.querySelectorAll('#customers-tbody span[title*="عليه فلوس"]').forEach(sp => {
-                        if (!sp.hasAttribute('data-lc-cust-debt')) {
-                            sp.setAttribute('data-lc-cust-debt', '1');
-                            sp.setAttribute('data-lc-trigger', '1');
-                            sp.classList.add('lc-capsule');
-                            const row = sp.closest('tr');
-                            const phoneEl = row ? row.querySelector('div[dir="ltr"]') : null;
-                            const phone = phoneEl ? phoneEl.innerText.trim() : '';
-                            if (phone) {
-                                sp.onclick = (e) => {
-                                    e.stopPropagation();
-                                    window.openDebtCapsulePopover(sp, phone, null);
-                                };
-                            }
-                        }
-                    });
                     window.updateLiveHeaderAndSidebar();
-                }, 400);
+                }, 250);
                 return res;
             };
             wrappedRefreshCust._lcHooked = true;
@@ -1151,144 +975,9 @@
         }
     }
 
-    // =========================================================================
-    // 🔙 10. محرك سجل الصفحات والرجوع للخلف (Android & Browser Back Navigation)
-    // =========================================================================
-    window.smanNavHistory = {
-        stack: [],
-        currentTab: 'orders',
-        isHandlingBack: false
-    };
-
-    function initSmartBackNavigationEngine() {
-        //تتبع التبويب النشط الحالي عند بدء التشغيل
-        const activeView = document.querySelector('.view-section.active');
-        if (activeView && activeView.id) {
-            window.smanNavHistory.currentTab = activeView.id.replace('view-', '');
-        }
-
-        // 1. مراقبة الانتقال بين الصفحات والتبويبات لتسجيلها في سجل الرجوع
-        if (typeof window.switchTab === 'function' && !window.switchTab._backNavHooked) {
-            const _prevSwitch = window.switchTab;
-            const navWrappedSwitch = function (tabId, btnElement, isFromBackButton = false) {
-                const prevTab = window.smanNavHistory.currentTab;
-                if (!isFromBackButton && !window.smanNavHistory.isHandlingBack && prevTab && prevTab !== tabId) {
-                    window.smanNavHistory.stack.push({ type: 'tab', tabId: prevTab });
-                    if (window.smanNavHistory.stack.length > 25) {
-                        window.smanNavHistory.stack.shift();
-                    }
-                    try {
-                        window.history.pushState({ smanTab: tabId }, '', '#' + tabId);
-                    } catch (e) {}
-                }
-                window.smanNavHistory.currentTab = tabId;
-                return _prevSwitch.apply(this, arguments);
-            };
-            navWrappedSwitch._lcHooked = true;
-            navWrappedSwitch._backNavHooked = true;
-            window.switchTab = navWrappedSwitch;
-        }
-
-        // 2. مراقبة فتح النوافذ المنبثقة (Modals) لدعم إغلاقها بزر الرجوع
-        if (typeof window.openModal === 'function' && !window.openModal._backNavHooked) {
-            const _prevOpenModal = window.openModal;
-            const navWrappedOpenModal = function (modalId) {
-                try {
-                    window.history.pushState({ smanModal: modalId }, '', window.location.hash || '#modal');
-                } catch (e) {}
-                return _prevOpenModal.apply(this, arguments);
-            };
-            navWrappedOpenModal._backNavHooked = true;
-            window.openModal = navWrappedOpenModal;
-        }
-
-        // 3. التقاط حدث الرجوع في المتصفح (popstate)
-        window.addEventListener('popstate', function () {
-            if (window.smanNavHistory.isHandlingBack) return;
-            window.handleAndroidBackButton(true);
-        });
-    }
-
-    // الدالة الرئيسية التي يستدعيها زر الرجوع في هاتف الأندرويد
-    window.handleAndroidBackButton = function (fromPopState = false) {
-        window.smanNavHistory.isHandlingBack = true;
-        try {
-            // أولاً: إغلاق أي كبسولة طائرة أو قائمة تنبيهات مفتوحة
-            const pop = document.getElementById('lc-floating-popover');
-            if (pop && !pop.classList.contains('hidden')) {
-                window.closeLivePopover();
-                return 'HANDLED';
-            }
-
-            // ثانياً: إغلاق نافذة استوديو الطابعة إن كانت مفتوحة
-            const printerModal = document.getElementById('deli-waybill-studio-modal');
-            if (printerModal && !printerModal.classList.contains('hidden')) {
-                if (typeof window.closeDeliStudioModal === 'function') window.closeDeliStudioModal();
-                else printerModal.classList.add('hidden');
-                return 'HANDLED';
-            }
-
-            // ثالثاً: إغلاق أي نافذة منبثقة (Modal) مفتوحة حالياً والعودة للصفحة تحتها
-            const openModals = Array.from(document.querySelectorAll('[id$="-modal"]:not(.hidden), .modal-backdrop:not(.hidden)'));
-            if (openModals.length > 0) {
-                const topModal = openModals[openModals.length - 1];
-                if (typeof window.closeModal === 'function' && topModal.id) {
-                    window.closeModal(topModal.id);
-                } else {
-                    topModal.classList.add('hidden');
-                }
-                return 'HANDLED';
-            }
-
-            // رابعاً: إغلاق القائمة الجانبية في الموبايل إن كانت مفتوحة
-            const sidebarOverlay = document.getElementById('sidebar-overlay');
-            if (sidebarOverlay && !sidebarOverlay.classList.contains('hidden')) {
-                if (typeof window.toggleSidebar === 'function') window.toggleSidebar();
-                else sidebarOverlay.classList.add('hidden');
-                return 'HANDLED';
-            }
-
-            // خامساً: الرجوع إلى الصفحة / التبويب السابق الذي كان المستخدم يفتحه
-            while (window.smanNavHistory.stack.length > 0) {
-                const prevEntry = window.smanNavHistory.stack.pop();
-                if (prevEntry && prevEntry.type === 'tab' && prevEntry.tabId !== window.smanNavHistory.currentTab) {
-                    const targetBtn = document.querySelector(`#sidebar button[onclick*="switchTab('${prevEntry.tabId}'"]`);
-                    if (typeof window.switchTab === 'function') {
-                        window.switchTab(prevEntry.tabId, targetBtn, true);
-                        return 'HANDLED';
-                    }
-                }
-            }
-
-            // سادساً: إذا كان المستخدم في أي صفحة فرعية غير (الطلبات الحية) والسجل فارغ، نرجعه لصفحة الطلبات الحية
-            if (window.smanNavHistory.currentTab && window.smanNavHistory.currentTab !== 'orders') {
-                const ordersBtn = document.querySelector(`#sidebar button[onclick*="switchTab('orders'"]`);
-                if (typeof window.switchTab === 'function') {
-                    window.switchTab('orders', ordersBtn, true);
-                    return 'HANDLED';
-                }
-            }
-
-            // سابعاً: إذا كان داخل صفحة الطلبات الحية ومختار تبويب فرعي غير (الكل)، نرجعه لتبويب (الكل)
-            if (window.smanNavHistory.currentTab === 'orders' && typeof currentOrderTab !== 'undefined' && currentOrderTab !== 'all') {
-                if (typeof window.setOrderTab === 'function') {
-                    window.setOrderTab('all');
-                    return 'HANDLED';
-                }
-            }
-
-            return 'AT_ROOT';
-        } finally {
-            setTimeout(() => {
-                window.smanNavHistory.isHandlingBack = false;
-            }, 60);
-        }
-    };
-
     function bootLiveConnect() {
         injectLiveConnectStyles();
         hookIntoSystemFunctions();
-        initSmartBackNavigationEngine();
         window.initLiveHeaderAndSidebarUI();
         window.initZeroClutterOrdersScroll();
         window.enhanceOrderCardsLive();
@@ -1296,8 +985,8 @@
     }
 
     if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', () => setTimeout(bootLiveConnect, 500));
+        window.addEventListener('DOMContentLoaded', () => setTimeout(bootLiveConnect, 450));
     } else {
-        setTimeout(bootLiveConnect, 500);
+        setTimeout(bootLiveConnect, 450);
     }
 })();
