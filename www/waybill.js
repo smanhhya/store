@@ -1,6 +1,15 @@
 // =========================================================================
 // 🖨️ المحرك الأصلي لطابعة البوالص الحرارية (Deli E750W - Native APK Bridge)
 
+// الملف: waybill.js | خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM)
+// مربوط 100% مع الجسر الأصلي داخل الـ APK (window.SmanNativePrinter)
+// يدعم: Bluetooth SPP المباشر + USB OTG المباشر + Android System Print
+// المواصفات: 203 DPI (8 dots/mm) | TSPL BITMAP | Max Width: 108mm
+// =========================================================================
+
+(function () {
+    const DOTS_PER_MM = 8; // 203 DPI = 8 نقاط لكل مليمتر
+
     // 1. الإعدادات الافتراضية المتوافقة مع Deli E750W (مقاس فاتورة سمان ههيا 70×130 مم)
     const defaultDeliConfig = {
         sizePreset: '70x130',    // '70x130' | '100x100' | '100x150' | '80x60' | '70x50' | '50x30' | 'custom'
@@ -89,6 +98,7 @@
             h: Math.min(250, Math.max(20, Number(cfg.heightMm) || 130))
         };
     }
+
 
 
     function notifyPrinterToast(msg) {
