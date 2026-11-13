@@ -536,12 +536,21 @@
         let activeTab = (typeof currentOrderTab !== 'undefined') ? currentOrderTab : 'all';
         let filtered = filteredBase.filter(o => (activeTab === 'all') || (o.status === activeTab));
 
+        const getSafeOrderMs = (ord) => {
+            if (!ord || !ord.createdAt) return 0;
+            if (typeof ord.createdAt.toMillis === 'function') return ord.createdAt.toMillis();
+            if (typeof ord.createdAt.seconds === 'number') return ord.createdAt.seconds * 1000;
+            const parsed = new Date(ord.createdAt).getTime();
+            return isNaN(parsed) ? 0 : parsed;
+        };
+
         let sortDir = (typeof ordersSortDirection !== 'undefined') ? ordersSortDirection : 'desc';
         filtered.sort((a, b) => {
-            let timeA = a.createdAt?.toMillis() || 0;
-            let timeB = b.createdAt?.toMillis() || 0;
+            let timeA = getSafeOrderMs(a);
+            let timeB = getSafeOrderMs(b);
             return sortDir === 'desc' ? (timeB - timeA) : (timeA - timeB);
         });
+
 
         let sumMeat = 0, sumEggs = 0, sumChicks = 0, sumMoney = 0;
         filtered.forEach(o => {
@@ -589,7 +598,8 @@
         const remainingCount = filtered.length - visibleOrders.length;
 
         let cardsHtml = visibleOrders.map(o => {
-            let d = o.orderDate || (o.createdAt ? new Date(o.createdAt.toMillis()).toLocaleDateString('en-US') : 'غير محدد');
+            const safeMs = getSafeOrderMs(o);
+            let d = o.orderDate || (safeMs ? new Date(safeMs).toLocaleDateString('en-US') : 'غير محدد');
             let ageStr = getOrderAgeLabel(o);
             let realBatchTitle = getOrderBatchTitle(o);
 
@@ -693,8 +703,9 @@
                 paymentBadge += ` <span class="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-triangle-exclamation"></i> آجل (${o.debt} ج)</span>`;
             }
 
+            const safeBatchAttr = realBatchTitle.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
             let batchTagHtml = realBatchTitle
-                ? `<span onclick="setOrdersQuickFilter('batch', '${realBatchTitle}')" class="text-[10px] bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-teal-600 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-layer-group"></i> ${realBatchTitle}</span>`
+                ? `<span onclick="setOrdersQuickFilter('batch', '${safeBatchAttr}')" class="text-[10px] bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-teal-600 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-layer-group"></i> ${realBatchTitle}</span>`
                 : '';
 
             let driverBadgeHtml = o.driverName
@@ -707,8 +718,9 @@
                 deliveryWindowBadge = `<span class="text-[10px] bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-regular fa-calendar-check"></i> تسليم: ${winTxt}</span>`;
             }
 
+            const safeCustomTagAttr = (o.customTag || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
             let customTagHtml = o.customTag
-                ? `<span onclick="document.getElementById('search-order').value='${o.customTag}'; renderOrdersList();" class="text-[10px] bg-purple-50 text-purple-600 border border-purple-100 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-purple-500 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-hashtag"></i> ${o.customTag}</span>`
+                ? `<span onclick="document.getElementById('search-order').value='${safeCustomTagAttr}'; renderOrdersList();" class="text-[10px] bg-purple-50 text-purple-600 border border-purple-100 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-purple-500 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-hashtag"></i> ${o.customTag}</span>`
                 : '';
 
             let phone2Html = o.customerPhone2 ? `
@@ -1092,13 +1104,17 @@
                         if (orderSub >= 100) {
                             const earnedPts = Math.floor(orderSub / 100) * ptsPer100;
                             if (earnedPts > 0) {
-                                const cleanPhone = o.customerPhone.startsWith('0') ? o.customerPhone : '0' + o.customerPhone;
-                                dbBatch.set(db.collection('customers').doc(cleanPhone), {
-                                    walletPoints: firebase.firestore.FieldValue.increment(earnedPts)
-                                }, { merge: true });
+                                const normP = window.normalizePhone ? window.normalizePhone(o.customerPhone) : o.customerPhone.toString().trim();
+                                const cleanPhone = normP.startsWith('0') ? normP : '0' + normP;
+                                if (cleanPhone.length >= 10) {
+                                    dbBatch.set(db.collection('customers').doc(cleanPhone), {
+                                        walletPoints: firebase.firestore.FieldValue.increment(earnedPts)
+                                    }, { merge: true });
+                                }
                             }
                         }
                     }
+
                 }
 
                 dbBatch.update(ref, updateData);
