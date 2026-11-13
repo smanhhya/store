@@ -352,25 +352,26 @@
             return;
         }
 
-        tbEl.innerHTML = filtered.map(item => {
+        const custLimit = window.customersRenderLimit || 50;
+        const visibleCusts = filtered.slice(0, custLimit);
+        const remCusts = filtered.length - visibleCusts.length;
+
+        let rowsHtml = visibleCusts.map(item => {
             const c = item.raw;
             const location = (item.zone ? item.zone : '') + (item.address ? ' - ' + item.address : '');
             const stickyHtml = c.stickyNote ? `<div class="text-[10px] text-yellow-900 font-black mt-1 max-w-[230px] truncate mx-auto bg-yellow-200/80 px-2 py-0.5 rounded border border-yellow-400" title="${c.stickyNote}"><i class="fa-solid fa-thumbtack text-yellow-700"></i> ${c.stickyNote}</div>` : '';
             const details = c.notebook ? `<div class="text-[10px] text-amber-600 font-bold mt-1 max-w-[200px] truncate mx-auto bg-amber-50 px-2 py-0.5 rounded" title="${c.notebook}"><i class="fa-solid fa-book"></i> ${c.notebook}</div>` : '';
             const trustBadge = window.getCustomerTrustBadgeHTML ? window.getCustomerTrustBadgeHTML(c) : '';
 
-            // شارة المديونية التفاعلية (تفتح السداد بضغطة واحدة)
             const debtBadgeHtml = item.debt > 0
                 ? `<span onclick="event.stopPropagation(); quickSettleCustomerDebt('${item.phone}', 'choose')" class="cursor-pointer bg-red-600 hover:bg-red-700 text-white px-2 py-0.5 rounded-md text-[10px] font-black inline-flex items-center gap-1 shadow-sm transition-transform hover:scale-105" title="اضغط لتسديد أو تعديل مديونية العميل فوراً">📕 عليه ${item.debt} ج</span>`
                 : '';
 
-            // شارة نقاط المحفظة
             const ptsCash = Math.round(item.walletPoints * pointVal);
             const pointsBadgeHtml = item.walletPoints > 0
                 ? `<span class="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-md text-[9px] font-black">🪙 ${item.walletPoints} نقطة (${ptsCash} ج)</span>`
                 : '';
 
-            // معلومات الحمض النووي (الصنف المفضل + آخر طلب)
             let dnaSubLine = '';
             if (item.favoriteItem || item.lastOrderMs) {
                 const daysAgo = item.lastOrderMs ? Math.floor((nowMs - item.lastOrderMs) / (1000 * 60 * 60 * 24)) : null;
@@ -416,6 +417,19 @@
                 </td>
             </tr>`;
         }).join('');
+
+        if (remCusts > 0) {
+            rowsHtml += `
+            <tr>
+                <td colspan="5" class="p-3 text-center bg-slate-50">
+                    <button type="button" onclick="window.customersRenderLimit = (window.customersRenderLimit || 50) + 50; renderCustomersTableUI();" class="w-full py-2.5 bg-white hover:bg-indigo-50 text-indigo-600 font-black text-xs rounded-xl border border-dashed border-indigo-300 shadow-sm transition-all">
+                        <i class="fa-solid fa-angles-down mr-1"></i> عرض المزيد من العملاء (متبقي ${remCusts} عميل)
+                    </button>
+                </td>
+            </tr>`;
+        }
+
+        tbEl.innerHTML = rowsHtml;
     };
 
     window.filterCustomers = function () {
