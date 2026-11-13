@@ -584,12 +584,8 @@
         }
 
         const isCompact = window.ordersFilterState.compactMode;
-        const limitCount = window.ordersRenderLimit || 50;
-        const visibleOrders = filtered.slice(0, limitCount);
-        const remainingCount = filtered.length - visibleOrders.length;
 
-        let cardsHtml = visibleOrders.map(o => {
-
+        container.innerHTML = filtered.map(o => {
             let d = o.orderDate || (o.createdAt ? new Date(o.createdAt.toMillis()).toLocaleDateString('en-US') : 'غير محدد');
             let ageStr = getOrderAgeLabel(o);
             let realBatchTitle = getOrderBatchTitle(o);
