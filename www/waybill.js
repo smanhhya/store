@@ -1,24 +1,15 @@
 // =========================================================================
 // 🖨️ المحرك الأصلي لطابعة البوالص الحرارية (Deli E750W - Native APK Bridge)
 
-// الملف: waybill.js | خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM)
-// مربوط 100% مع الجسر الأصلي داخل الـ APK (window.SmanNativePrinter)
-// يدعم: Bluetooth SPP المباشر + USB OTG المباشر + Android System Print
-// المواصفات: 203 DPI (8 dots/mm) | TSPL BITMAP | Max Width: 108mm
-// =========================================================================
-
-(function () {
-    const DOTS_PER_MM = 8; // 203 DPI = 8 نقاط لكل مليمتر
-
-    // 1. الإعدادات الافتراضية المتوافقة مع Deli E750W
+    // 1. الإعدادات الافتراضية المتوافقة مع Deli E750W (مقاس فاتورة سمان ههيا 70×130 مم)
     const defaultDeliConfig = {
-        sizePreset: '100x100',   // '100x100' | '100x150' | '80x60' | '70x50' | '50x30' | 'custom'
-        widthMm: 100,
-        heightMm: 100,
+        sizePreset: '70x130',    // '70x130' | '100x100' | '100x150' | '80x60' | '70x50' | '50x30' | 'custom'
+        widthMm: 70,
+        heightMm: 130,
         sensorType: 'gap',       // 'gap' | 'continuous' | 'bmark'
         gapMm: 2,
-        density: 12,             // غمقان الحرارة في TSPL من 1 إلى 15
-        speed: 4,                // السرعة في TSPL من 2 إلى 6
+        density: 13,             // غمقان مثالي لوضوح الخط العربي على Deli E750W
+        speed: 3,                // سرعة متزنة لمنع تقطيع الخطوط الحرارية
         direction: 0,
         fontScale: 'normal',     // 'small' | 'normal' | 'large'
         templateMode: 'shipping',// 'shipping' | 'product_tag'
@@ -27,11 +18,12 @@
         instantPrint: false,     // لو مفعلة يطبع بالبلوتوث فوراً بمجرد الضغط على زر بوليصة في الكارت
         copies: 1,
         showLogo: true,
-        showBarcode: true,
+        showBarcode: false,      // إيقاف الباركود والأكواد افتراضياً لتكون فاتورة شيك وبسيطة
         showItemsPrice: true,
         showWeightInfo: true,
         includeRouteSummary: false,
-        footerText: 'سمان ههيا الفريش - جودة تليق ببيتك 🤍 بالهنا والشفا'
+        cleanInvoiceVersion: 2,
+        footerText: 'بالهنا والشفا من سمان ههيا 🤍 تشرفنا بخدمتكم'
     };
 
     window.deliPrinterConnection = {
@@ -52,10 +44,25 @@
             saved = JSON.parse(localStorage.getItem('sman_waybill_cfg') || '{}');
         } catch (e) {}
         const remoteCfg = (typeof storeSettings !== 'undefined' && storeSettings.waybillConfig) ? storeSettings.waybillConfig : {};
-        return { ...defaultDeliConfig, ...remoteCfg, ...saved };
+        const merged = { ...defaultDeliConfig, ...remoteCfg, ...saved };
+
+        // ترقية تلقائية لمرة واحدة لضبط المقاس على 70×130 مم وإخفاء الباركود القديم
+        if (!merged.cleanInvoiceVersion || merged.cleanInvoiceVersion < 2) {
+            merged.sizePreset = '70x130';
+            merged.widthMm = 70;
+            merged.heightMm = 130;
+            merged.showBarcode = false;
+            merged.cleanInvoiceVersion = 2;
+            if (!merged.footerText || merged.footerText.includes('جودة تليق')) {
+                merged.footerText = 'بالهنا والشفا من سمان ههيا 🤍 تشرفنا بخدمتكم';
+            }
+            try { localStorage.setItem('sman_waybill_cfg', JSON.stringify(merged)); } catch (e) {}
+        }
+        return merged;
     };
 
     function persistWaybillConfig(newCfg) {
+        newCfg.cleanInvoiceVersion = 2;
         try {
             localStorage.setItem('sman_waybill_cfg', JSON.stringify(newCfg));
         } catch (e) {}
@@ -69,6 +76,7 @@
 
     function resolveDimensionsMm(cfg) {
         const presets = {
+            '70x130':  { w: 70,  h: 130 },
             '100x100': { w: 100, h: 100 },
             '100x150': { w: 100, h: 150 },
             '80x60':   { w: 80,  h: 60 },
@@ -77,10 +85,11 @@
         };
         if (presets[cfg.sizePreset]) return presets[cfg.sizePreset];
         return {
-            w: Math.min(108, Math.max(30, Number(cfg.widthMm) || 100)),
-            h: Math.min(250, Math.max(20, Number(cfg.heightMm) || 100))
+            w: Math.min(108, Math.max(30, Number(cfg.widthMm) || 70)),
+            h: Math.min(250, Math.max(20, Number(cfg.heightMm) || 130))
         };
     }
+
 
     function notifyPrinterToast(msg) {
         if (typeof window.showToast === 'function') {
@@ -1395,13 +1404,15 @@
                                 <h4 class="text-xs font-black text-slate-800 border-b border-slate-100 pb-2"><i class="fa-solid fa-ruler-combined text-brand-primary ml-1"></i> اختر مقاساً جاهزاً أو اكتب العرض والطول بالمليمتر بحرية</h4>
                                 
                                 <div class="flex flex-wrap gap-1.5" id="dw-preset-btns-wrap">
-                                    <button type="button" data-preset="100x100" onclick="applyQuickSizePreset('100x100', 100, 100)" class="dw-preset-btn bg-slate-900 text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all">10×10 سم (100×100)</button>
+                                    <button type="button" data-preset="70x130" onclick="applyQuickSizePreset('70x130', 70, 130)" class="dw-preset-btn bg-slate-900 text-white px-3 py-1.5 rounded-xl text-[11px] font-black transition-all">⭐ 7×13 سم (فاتورة 70×130)</button>
+                                    <button type="button" data-preset="100x100" onclick="applyQuickSizePreset('100x100', 100, 100)" class="dw-preset-btn bg-slate-100 text-slate-700 hover:bg-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all">10×10 سم (100×100)</button>
                                     <button type="button" data-preset="100x150" onclick="applyQuickSizePreset('100x150', 100, 150)" class="dw-preset-btn bg-slate-100 text-slate-700 hover:bg-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all">10×15 سم (100×150)</button>
                                     <button type="button" data-preset="80x60" onclick="applyQuickSizePreset('80x60', 80, 60)" class="dw-preset-btn bg-slate-100 text-slate-700 hover:bg-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all">8×6 سم (80×60)</button>
                                     <button type="button" data-preset="70x50" onclick="applyQuickSizePreset('70x50', 70, 50)" class="dw-preset-btn bg-slate-100 text-slate-700 hover:bg-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all">7×5 سم (70×50)</button>
                                     <button type="button" data-preset="50x30" onclick="applyQuickSizePreset('50x30', 50, 30)" class="dw-preset-btn bg-slate-100 text-slate-700 hover:bg-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all">5×3 سم (50×30)</button>
-                                    <input type="hidden" id="dw-size-preset" value="100x100">
+                                    <input type="hidden" id="dw-size-preset" value="70x130">
                                 </div>
+
 
                                 <!-- خانات العرض والطول بالمليمتر ظاهرة دائماً للتعديل الحر -->
                                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
@@ -2735,7 +2746,64 @@
         return canvas;
     };
 
-    // رسم بوليصة الشحن المرنة (تدعم التحكم في كل مربع: إظهار/إخفاء، ترتيب، ارتفاع، عرض، خط، برواز)
+    // دوال مساعدة لرسم خطوط ومربعات حادة 100% بدون أي تشويش رمادي في الطابعة الحرارية
+    function drawSharpHLine(ctx, x, y, w, thickness = 2) {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.max(1, Math.round(thickness)));
+    }
+
+    function drawSharpVLine(ctx, x, y, h, thickness = 2) {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(thickness)), Math.round(h));
+    }
+
+    function drawSharpRectBorder(ctx, x, y, w, h, thickness = 3) {
+        const rx = Math.round(x);
+        const ry = Math.round(y);
+        const rw = Math.round(w);
+        const rh = Math.round(h);
+        const t = Math.max(1, Math.round(thickness));
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(rx, ry, rw, t);               // أعلى
+        ctx.fillRect(rx, ry + rh - t, rw, t);      // أسفل
+        ctx.fillRect(rx, ry, t, rh);               // يسار
+        ctx.fillRect(rx + rw - t, ry, t, rh);      // يمين
+    }
+
+    // تنظيف اسم الصنف وتفاصيل الأوزان ليظهر في الفاتورة بشكل شيك بدون أقواس معقدة أو رموز
+    function formatCleanInvoiceItem(item, prodsObj, showWeightInfo) {
+        let rawName = String(item.name || 'صنف').trim();
+        let subDetail = '';
+
+        // إذا كان الصنف مباعاً بالميزان ويحتوي على تفاصيل مثل: فراخ [2 فرخة = 2.8 كجم] (1400 + 1400 جم)
+        const bracketMatch = rawName.match(/^(.*?)\s*\[(.*?)\]\s*(?:\((.*?)\))?$/);
+        if (bracketMatch) {
+            rawName = bracketMatch[1].trim();
+            const summaryPart = bracketMatch[2].replace('=', '•').trim();
+            subDetail = summaryPart;
+        } else {
+            const pInfo = prodsObj[item.id] || {};
+            if (showWeightInfo !== false && pInfo.weight) {
+                subDetail = pInfo.weight;
+            }
+        }
+
+        // تنسيق الكمية بدون حرف x
+        const rawQty = Number(item.quantity) || 1;
+        let qtyText = Number.isInteger(rawQty) ? String(rawQty) : String(Number(rawQty.toFixed(2)));
+        if (bracketMatch && item.birdsCount) {
+            qtyText = `${item.birdsCount} (${qtyText} ك)`;
+        }
+
+        return {
+            title: rawName,
+            subDetail: subDetail,
+            qtyText: qtyText,
+            lineTotal: Math.round(rawQty * (Number(item.price) || 0))
+        };
+    }
+
+    // رسم فاتورة سمان ههيا الشيك والواضحة جداً (مصممة لمقاس 70×130 مم وتتكيف مع أي مقاس)
     function renderFlexibleShippingWaybill203DPI(order, cfg, indexNum = 1, totalCount = 1, bagIndex = 1, bagsTotal = 1) {
         const dims = resolveDimensionsMm(cfg);
         const W = Math.floor(dims.w * DOTS_PER_MM);
@@ -2748,6 +2816,10 @@
         canvas.height = H;
         const ctx = canvas.getContext('2d');
 
+        // تفعيل الاتجاه العربي الصحيح لمنع تداخل الأرقام والأقواس
+        ctx.direction = 'rtl';
+
+        // خلفية بيضاء نقية 100%
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, W, H);
 
@@ -2757,324 +2829,342 @@
         ctx.translate(offsetX, offsetY);
 
         const padPct = (Number(cfg.paddingPct) || 100) / 100;
-        const pad = Math.max(6, Math.round(Math.min(W, H) * 0.024 * padPct));
+        const pad = Math.max(8, Math.round(Math.min(W, H) * 0.022 * padPct));
         const borderStyle = cfg.borderStyle || 'double';
-        drawCustomFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, borderStyle);
+
+        // رسم الإطار الخارجي بخطوط هندسية حادة لا تقطع في الطابعة الحرارية
+        if (borderStyle === 'double') {
+            drawSharpRectBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, 4);
+            drawSharpRectBorder(ctx, pad + 7, pad + 7, W - (pad + 7) * 2, H - (pad + 7) * 2, 2);
+        } else if (borderStyle !== 'none') {
+            drawSharpRectBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, 4);
+        }
 
         const storeName = (cfg.customStoreTitle || (typeof storeSettings !== 'undefined' && storeSettings.storeName) || 'سمان ههيا').trim();
         const storePhone = (cfg.customStorePhone || (typeof storeSettings !== 'undefined' && storeSettings.storePhone) || '01208027294').trim();
-        const orderShortId = (order.id || '000000').slice(-6).toUpperCase();
-        const barcodeCode = (cfg.customBarcodeText || orderShortId).replace(/[^A-Z0-9\-]/gi, '1') || '100200';
+        const storeSlogan = (typeof storeSettings !== 'undefined' && storeSettings.waybillSlogan)
+            ? storeSettings.waybillSlogan
+            : 'أصل الطعم يبدأ من التربية 🤍 طازج لمائدتك';
         const orderDateStr = order.orderDate || new Date().toLocaleDateString('ar-EG');
-        const batchTitle = (typeof window.resolveOrderBatchName === 'function')
-            ? window.resolveOrderBatchName(order)
-            : ((order.batchName && order.batchName !== 'undefined') ? order.batchName : '');
 
-        const globalScale = Math.min(1.45, Math.max(0.65, (Number(cfg.fontScalePct) || 100) / 100));
-        const baseRef = Math.min(W, Math.round(H * 1.15));
-        const innerMargin = borderStyle === 'double' ? 14 : 10;
-        const innerRight = W - pad - innerMargin;
+        const globalScale = Math.min(1.35, Math.max(0.75, (Number(cfg.fontScalePct) || 100) / 100));
+        const innerMargin = borderStyle === 'double' ? 16 : 12;
         const innerLeft = pad + innerMargin;
+        const innerRight = W - pad - innerMargin;
         const innerWidth = innerRight - innerLeft;
 
-        const itemsList = Array.isArray(order.items) ? order.items : [];
-        let totalUnitsCount = 0;
-        itemsList.forEach(i => { totalUnitsCount += (Number(i.quantity) || 0); });
+        // أحجام خطوط موزونة بدقة لمقاس 70×130 مم (عرض 560 نقطة × طول 1040 نقطة)
+        const fBrand = Math.max(24, Math.round(W * 0.068 * globalScale));
+        const fSlogan = Math.max(14, Math.round(W * 0.033 * globalScale));
+        const fSecTitle = Math.max(17, Math.round(W * 0.041 * globalScale));
+        const fBody = Math.max(16, Math.round(W * 0.038 * globalScale));
+        const fSmall = Math.max(13, Math.round(W * 0.031 * globalScale));
+        const fTotalVal = Math.max(24, Math.round(W * 0.062 * globalScale));
 
-        let curY = pad + innerMargin;
+        let curY = pad + innerMargin + 4;
         const hitRegions = [];
-        const sectionOrder = bcCfg.shippingOrder || ['header', 'customer', 'items', 'cod', 'footer'];
 
-        sectionOrder.forEach(secKey => {
-            // 1. مربع الهيدر والباركود
-            if (secKey === 'header' && boxes.header?.visible !== false) {
-                const b = boxes.header;
-                const hMul = (Number(b.hScale) || 100) / 100;
-                const fMul = ((Number(b.fScale) || 100) / 100) * globalScale;
-                const fTitle = Math.max(15, Math.round(baseRef * 0.040 * fMul));
-                const fSub = Math.max(11, Math.round(baseRef * 0.025 * fMul));
-                const fSmall = Math.max(10, Math.round(baseRef * 0.022 * fMul));
+        // =====================================================================
+        // 1. الهيدر الأنيق (اسم البراند + الجملة الترحيبية + التليفون والتاريخ بدون أكواد شحن)
+        // =====================================================================
+        if (boxes.header?.visible !== false) {
+            const startHeaderY = curY;
+            ctx.fillStyle = '#000000';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
 
-                const startY = curY;
-                let rightY = curY + 4;
-                ctx.fillStyle = '#000000';
-                ctx.textAlign = 'right';
-                ctx.textBaseline = 'top';
+            if (cfg.showLogo !== false) {
+                ctx.font = `900 ${fBrand}px Cairo, Tahoma, sans-serif`;
+                const titleTxt = (boxes.header?.label && boxes.header.label.trim()) ? boxes.header.label.trim() : storeName;
+                ctx.fillText(titleTxt, Math.round(W / 2), curY);
+                curY += fBrand + 6;
 
-                if (cfg.showLogo !== false) {
-                    ctx.font = `900 ${fTitle}px Cairo, Tahoma, sans-serif`;
-                    ctx.fillText((b.label && b.label.trim()) ? b.label.trim() : storeName, innerRight - 6, rightY);
-                    rightY += fTitle + 4;
-                }
-                ctx.font = `900 ${fSub}px Cairo, Tahoma, sans-serif`;
-                ctx.fillText(`تليفون: ${storePhone}`, innerRight - 6, rightY);
-                rightY += fSub + 4;
-                ctx.font = `800 ${fSmall}px Cairo, Tahoma, sans-serif`;
-                ctx.fillText(`التاريخ: ${orderDateStr}${batchTitle ? ' • ' + batchTitle : ''}`, innerRight - 6, rightY);
-                rightY += fSmall + 6;
-
-                let leftY = curY + 4;
-                const leftW = Math.round(innerWidth * 0.42);
-                const leftCenterX = innerLeft + (leftW / 2);
-                const showBagPill = (bagsTotal > 1) || cfg.alwaysShowBagBadge;
-
-                if (cfg.showBarcode !== false) {
-                    const bcH = Math.round((showBagPill ? Math.max(24, H * 0.05) : Math.max(30, H * 0.065)) * hMul);
-                    drawBarcodeOnCanvas(ctx, barcodeCode, leftCenterX, leftY, leftW - 8, bcH);
-                    leftY += bcH + 3;
-                    ctx.textAlign = 'center';
-                    ctx.font = `900 ${Math.round(fSmall * 0.9)}px monospace`;
-                    ctx.fillText(`#${orderShortId} (${indexNum}/${totalCount})`, leftCenterX, leftY);
-                    leftY += fSmall + 3;
-                }
-                if (showBagPill) {
-                    const bagBoxH = Math.max(22, Math.round(H * 0.042 * hMul));
-                    ctx.fillStyle = '#000000';
-                    ctx.fillRect(innerLeft, leftY, leftW, bagBoxH);
-                    ctx.fillStyle = '#FFFFFF';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-                    ctx.fillText(`شنطة ( ${bagIndex} من ${bagsTotal} )`, leftCenterX, leftY + bagBoxH / 2);
-                    ctx.fillStyle = '#000000';
-                    leftY += bagBoxH + 4;
-                }
-
-                const hdrTotalH = Math.round(Math.max(rightY - startY, leftY - startY) * hMul);
-                if (b.style && b.style !== 'none' && b.style !== 'solid') {
-                    drawStyledBoxOnCanvas(ctx, innerLeft, startY, innerWidth, hdrTotalH, b.style);
-                } else {
-                    ctx.lineWidth = 3;
-                    ctx.beginPath();
-                    ctx.moveTo(innerLeft, startY + hdrTotalH);
-                    ctx.lineTo(innerRight, startY + hdrTotalH);
-                    ctx.stroke();
-                }
-                hitRegions.push({ key: 'header', x: innerLeft, y: startY, w: innerWidth, h: hdrTotalH });
-                curY = startY + hdrTotalH + 8;
+                ctx.font = `800 ${fSlogan}px Cairo, Tahoma, sans-serif`;
+                ctx.fillText(storeSlogan, Math.round(W / 2), curY);
+                curY += fSlogan + 10;
             }
 
-            // 2. مربع بيانات العميل والمنطقة والعنوان
-            if (secKey === 'customer' && boxes.customer?.visible !== false) {
-                const b = boxes.customer;
-                const hMul = (Number(b.hScale) || 100) / 100;
-                const fMul = ((Number(b.fScale) || 100) / 100) * globalScale;
-                const boxW = Math.round(innerWidth * ((Number(b.wScale) || 100) / 100));
-                const boxX = innerLeft + Math.round((innerWidth - boxW) / 2);
-                const custBoxH = Math.max(72, Math.round(H * 0.185 * hMul));
+            // شريط رفيع أنيق للتليفون والتاريخ
+            drawSharpHLine(ctx, innerLeft, curY, innerWidth, 2);
+            curY += 7;
 
-                const fBody = Math.max(12, Math.round(baseRef * 0.028 * fMul));
-                const fSub = Math.max(11, Math.round(baseRef * 0.025 * fMul));
-                const fSmall = Math.max(10, Math.round(baseRef * 0.022 * fMul));
+            ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
+            ctx.textAlign = 'right';
+            ctx.fillText(`للتواصل: ${storePhone}`, innerRight - 4, curY);
 
-                const st = drawStyledBoxOnCanvas(ctx, boxX, curY, boxW, custBoxH, b.style || 'solid');
+            ctx.textAlign = 'left';
+            const showBagPill = (bagsTotal > 1) || cfg.alwaysShowBagBadge;
+            const dateAndBagTxt = showBagPill
+                ? `شنطة ${bagIndex}/${bagsTotal} • ${orderDateStr}`
+                : `التاريخ: ${orderDateStr}`;
+            ctx.fillText(dateAndBagTxt, innerLeft + 4, curY);
 
-                const zoneText = `${order.zone || 'توصيل'}`;
-                ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
-                const zoneW = Math.min(Math.round(boxW * 0.38), Math.max(105, ctx.measureText(zoneText).width + 24));
-                const zoneH = Math.round(custBoxH * 0.42);
-                ctx.fillStyle = st.bgFilled ? '#FFFFFF' : '#000000';
-                ctx.fillRect(boxX + 8, curY + 8, zoneW, zoneH);
-                ctx.fillStyle = st.bgFilled ? '#000000' : '#FFFFFF';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(zoneText, boxX + 8 + (zoneW / 2), curY + 8 + (zoneH / 2));
+            curY += fSmall + 8;
+            drawSharpHLine(ctx, innerLeft, curY, innerWidth, 3);
 
-                ctx.fillStyle = st.textColor;
-                ctx.textAlign = 'right';
-                ctx.textBaseline = 'top';
-                ctx.font = `900 ${Math.round(fBody * 1.08)}px Cairo, Tahoma, sans-serif`;
-                const custPrefix = (b.label && b.label.trim()) ? b.label.trim() : 'العميل:';
-                ctx.fillText(`${custPrefix} ${(order.customerName || 'عميل سمان ههيا').slice(0, 26)}`, boxX + boxW - 10, curY + 8);
-
-                ctx.font = `900 ${fSub}px Cairo, Tahoma, sans-serif`;
-                ctx.fillText(`موبايل: ${order.customerPhone || ''}${order.customerPhone2 ? ' | ' + order.customerPhone2 : ''}`, boxX + boxW - 10, curY + 12 + Math.round(fBody * 1.15));
-
-                const addrLineY = curY + Math.round(custBoxH * 0.62);
-                ctx.strokeStyle = st.textColor;
-                ctx.lineWidth = 2;
-                ctx.setLineDash([6, 4]);
-                ctx.beginPath();
-                ctx.moveTo(boxX + 8, addrLineY);
-                ctx.lineTo(boxX + boxW - 8, addrLineY);
-                ctx.stroke();
-                ctx.setLineDash([]);
-
-                const addrClean = `العنوان: ${order.customerAddress || 'استلام حسب المنطقة'}${order.driverName ? ' (المندوب: ' + order.driverName + ')' : ''}`;
-                ctx.font = `800 ${fSmall}px Cairo, Tahoma, sans-serif`;
-                const wrappedAddr = wrapThermalText(ctx, addrClean, boxW - 20);
-                ctx.fillText(wrappedAddr[0] || '', boxX + boxW - 10, addrLineY + 6);
-
-                hitRegions.push({ key: 'customer', x: boxX, y: curY, w: boxW, h: custBoxH });
-                curY += custBoxH + 8;
+            // إذا طلب المستخدم صراحة إظهار الباركود من الإعدادات فقط
+            if (cfg.showBarcode === true) {
+                curY += 6;
+                const orderShortId = (order.id || '100200').slice(-6).toUpperCase();
+                drawBarcodeOnCanvas(ctx, orderShortId, Math.round(W / 2), curY, Math.round(innerWidth * 0.7), 32);
+                curY += 36;
+                drawSharpHLine(ctx, innerLeft, curY, innerWidth, 2);
             }
 
-            // 3. مربع جدول الأصناف
-            if (secKey === 'items' && boxes.items?.visible !== false) {
-                const b = boxes.items;
-                const hMul = (Number(b.hScale) || 100) / 100;
-                const fMul = ((Number(b.fScale) || 100) / 100) * globalScale;
-                const boxW = Math.round(innerWidth * ((Number(b.wScale) || 100) / 100));
-                const boxX = innerLeft + Math.round((innerWidth - boxW) / 2);
+            hitRegions.push({ key: 'header', x: innerLeft, y: startHeaderY, w: innerWidth, h: curY - startHeaderY });
+            curY += 12;
+        }
 
-                const fBody = Math.max(12, Math.round(baseRef * 0.028 * fMul));
-                const fSmall = Math.max(10, Math.round(baseRef * 0.022 * fMul));
-                const thH = Math.max(22, Math.round(H * 0.044 * hMul));
+        // =====================================================================
+        // 2. بطاقة العميل الشيك (بدون ملاحظات الدليفري ولا ملاحظات الإدارة)
+        // =====================================================================
+        if (boxes.customer?.visible !== false) {
+            const startCustY = curY;
+            const custPrefix = (boxes.customer?.label && boxes.customer.label.trim()) ? boxes.customer.label.trim() : 'عميلنا العزيز:';
+            const custNameClean = (order.customerName || 'عميل سمان ههيا').trim();
+            const phonesLine = `${order.customerPhone || ''}${order.customerPhone2 ? ' - ' + order.customerPhone2 : ''}`;
+            const zoneClean = (order.zone || '').trim();
+            const addrClean = (order.customerAddress || '').trim();
+            const fullLocation = [zoneClean, addrClean].filter(Boolean).join(' - ') || 'استلام حسب المنطقة';
 
-                const startItemsY = curY;
-                ctx.fillStyle = '#000000';
-                ctx.fillRect(boxX, curY, boxW, thH);
-                ctx.fillStyle = '#FFFFFF';
-                ctx.textBaseline = 'middle';
+            ctx.font = `800 ${fSmall}px Cairo, Tahoma, sans-serif`;
+            const addrLines = wrapThermalText(ctx, `العنوان: ${fullLocation}`, innerWidth - 24).slice(0, 2);
+
+            const custBoxH = Math.round(18 + (fSecTitle + 8) + (fBody + 8) + (addrLines.length * (fSmall + 6)) + 10);
+            drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, custBoxH, 3);
+
+            let cy = curY + 10;
+
+            // شارة المنطقة في اليسار داخل برواز أبيض نظيف لا يسحب حبر أسود ثقيل
+            if (zoneClean) {
                 ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-                ctx.textAlign = 'right';
-                const tblTitle = (b.label && b.label.trim()) ? b.label.trim() : 'الصنف المطلوب';
-                ctx.fillText(`${tblTitle} (الإجمالي: ${Number(totalUnitsCount.toFixed(1))})`, boxX + boxW - 10, curY + thH / 2);
-
-                const qtyColW = Math.round(boxW * 0.18);
-                const priceColW = cfg.showItemsPrice !== false ? Math.round(boxW * 0.22) : 0;
-                const qtyColCenter = boxX + priceColW + (qtyColW / 2);
-
+                const zW = Math.min(Math.round(innerWidth * 0.36), Math.max(90, Math.round(ctx.measureText(zoneClean).width + 24)));
+                const zH = fSecTitle + 10;
+                drawSharpRectBorder(ctx, innerLeft + 10, cy - 2, zW, zH, 2);
                 ctx.textAlign = 'center';
-                ctx.fillText('الكمية', qtyColCenter, curY + thH / 2);
-                if (cfg.showItemsPrice !== false) {
-                    ctx.fillText('السعر', boxX + (priceColW / 2), curY + thH / 2);
+                ctx.textBaseline = 'middle';
+                ctx.fillText(zoneClean, innerLeft + 10 + Math.round(zW / 2), cy - 2 + Math.round(zH / 2));
+            }
+
+            // اسم العميل
+            ctx.fillStyle = '#000000';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'top';
+            ctx.font = `900 ${fSecTitle}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(`${custPrefix} ${custNameClean.slice(0, 24)}`, innerRight - 12, cy);
+            cy += fSecTitle + 8;
+
+            // رقم الموبايل
+            ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(`موبايل: ${phonesLine}`, innerRight - 12, cy);
+            cy += fBody + 6;
+
+            // خط فاصل رفيع داخل كارت العميل ثم العنوان
+            drawSharpHLine(ctx, innerLeft + 10, cy, innerWidth - 20, 1);
+            cy += 6;
+
+            ctx.font = `800 ${fSmall}px Cairo, Tahoma, sans-serif`;
+            addrLines.forEach(line => {
+                ctx.fillText(line, innerRight - 12, cy);
+                cy += fSmall + 5;
+            });
+
+            hitRegions.push({ key: 'customer', x: innerLeft, y: startCustY, w: innerWidth, h: custBoxH });
+            curY += custBoxH + 12;
+        }
+
+        // =====================================================================
+        // 3. جدول تفاصيل الطلب (فاتورة أنيقة بدون حرف x وبدون تكديس)
+        // =====================================================================
+        const itemsList = Array.isArray(order.items) ? order.items : [];
+        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
+
+        if (boxes.items?.visible !== false) {
+            const startItemsY = curY;
+            const thH = Math.max(32, fBody + 14);
+
+            // رأس الجدول بخلفية بيضاء نظيفة وإطار علوي وسفلي سميك لطباعة حرارية فائقة الوضوح
+            drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, thH, 3);
+
+            const showPrices = cfg.showItemsPrice !== false;
+            const priceColW = showPrices ? Math.round(innerWidth * 0.24) : 0;
+            const qtyColW = Math.round(innerWidth * 0.22);
+            const itemColRight = innerRight - 10;
+            const qtyColCenter = innerLeft + priceColW + Math.round(qtyColW / 2);
+            const priceColCenter = innerLeft + Math.round(priceColW / 2);
+
+            ctx.fillStyle = '#000000';
+            ctx.textBaseline = 'middle';
+            ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
+
+            ctx.textAlign = 'right';
+            const tblTitle = (boxes.items?.label && boxes.items.label.trim()) ? boxes.items.label.trim() : 'الصنف';
+            ctx.fillText(tblTitle, itemColRight, curY + Math.round(thH / 2));
+
+            ctx.textAlign = 'center';
+            ctx.fillText('الكمية', qtyColCenter, curY + Math.round(thH / 2));
+            if (showPrices) {
+                ctx.fillText('الإجمالي', priceColCenter, curY + Math.round(thH / 2));
+            }
+
+            // خطوط رأسية فاصلة في الهيدر
+            drawSharpVLine(ctx, innerLeft + priceColW + qtyColW, curY, thH, 2);
+            if (showPrices) {
+                drawSharpVLine(ctx, innerLeft + priceColW, curY, thH, 2);
+            }
+
+            curY += thH;
+
+            const maxRows = Math.max(1, Math.min(itemsList.length || 1, 7));
+            for (let idx = 0; idx < maxRows; idx++) {
+                const rawItem = itemsList[idx];
+                if (!rawItem) break;
+
+                const formatted = formatCleanInvoiceItem(rawItem, prodsObj, cfg.showWeightInfo);
+                const nameColMaxW = innerWidth - priceColW - qtyColW - 20;
+
+                ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
+                const titleLines = wrapThermalText(ctx, formatted.title, nameColMaxW).slice(0, 2);
+                const hasSub = Boolean(formatted.subDetail);
+
+                const rowH = Math.max(
+                    38,
+                    Math.round((titleLines.length * (fBody + 4)) + (hasSub ? (fSmall + 4) : 0) + 14)
+                );
+
+                // إطار الصف والخطوط الرأسية
+                drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, rowH, 2);
+                drawSharpVLine(ctx, innerLeft + priceColW + qtyColW, curY, rowH, 2);
+                if (showPrices) {
+                    drawSharpVLine(ctx, innerLeft + priceColW, curY, rowH, 2);
                 }
 
-                let rowY = curY + thH;
-                const maxRows = Math.max(1, Math.min(itemsList.length || 1, 6));
-                const rowH = Math.max(22, Math.round(H * 0.050 * hMul));
+                // كتابة اسم الصنف (وتفاصيل الوزن تحته بهدوء إن وجد)
                 ctx.fillStyle = '#000000';
-                ctx.strokeStyle = '#000000';
-                ctx.lineWidth = 2;
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'top';
+                let textY = curY + 7;
+                ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
+                titleLines.forEach(ln => {
+                    ctx.fillText(ln, itemColRight, textY);
+                    textY += fBody + 3;
+                });
 
-                for (let idx = 0; idx < maxRows; idx++) {
-                    const item = itemsList[idx];
-                    if (!item) break;
-                    ctx.strokeRect(boxX, rowY, boxW, rowH);
-                    ctx.beginPath();
-                    ctx.moveTo(boxX + priceColW + qtyColW, rowY);
-                    ctx.lineTo(boxX + priceColW + qtyColW, rowY + rowH);
-                    if (cfg.showItemsPrice !== false) {
-                        ctx.moveTo(boxX + priceColW, rowY);
-                        ctx.lineTo(boxX + priceColW, rowY + rowH);
-                    }
-                    ctx.stroke();
+                if (hasSub) {
+                    ctx.font = `800 ${Math.max(11, fSmall - 1)}px Cairo, Tahoma, sans-serif`;
+                    ctx.fillText(formatted.subDetail, itemColRight, textY);
+                }
 
-                    ctx.textAlign = 'right';
-                    ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-                    ctx.fillText((item.name || 'صنف').slice(0, 36), boxX + boxW - 8, rowY + rowH / 2);
+                // الكمية في المنتصف بدون علامة x
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
+                ctx.fillText(formatted.qtyText, qtyColCenter, curY + Math.round(rowH / 2));
 
-                    ctx.textAlign = 'center';
+                // الإجمالي للسطر
+                if (showPrices) {
                     ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
-                    ctx.fillText(String(item.quantity), qtyColCenter, rowY + rowH / 2);
-
-                    if (cfg.showItemsPrice !== false) {
-                        const linePrice = Math.round((Number(item.quantity) || 0) * (Number(item.price) || 0));
-                        ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-                        ctx.fillText(`${linePrice} ج`, boxX + (priceColW / 2), rowY + rowH / 2);
-                    }
-                    rowY += rowH;
+                    ctx.fillText(`${formatted.lineTotal} ج`, priceColCenter, curY + Math.round(rowH / 2));
                 }
 
-                hitRegions.push({ key: 'items', x: boxX, y: startItemsY, w: boxW, h: rowY - startItemsY });
-                curY = rowY + 8;
+                curY += rowH;
             }
 
-            // 4. مربع التحصيل المالي (COD Box)
-            if (secKey === 'cod' && boxes.cod?.visible !== false) {
-                const b = boxes.cod;
-                const hMul = (Number(b.hScale) || 100) / 100;
-                const fMul = ((Number(b.fScale) || 100) / 100) * globalScale;
-                const boxW = Math.round(innerWidth * ((Number(b.wScale) || 100) / 100));
-                const boxX = innerLeft + Math.round((innerWidth - boxW) / 2);
-                const codBoxH = Math.max(54, Math.round(H * 0.145 * hMul));
-
-                const fTitle = Math.max(15, Math.round(baseRef * 0.040 * fMul));
-                const fBody = Math.max(12, Math.round(baseRef * 0.028 * fMul));
-                const fSmall = Math.max(10, Math.round(baseRef * 0.022 * fMul));
-
-                const isOnline = order.paymentMethod === 'online';
-                const subtotal = Number(order.subtotal) || Number(order.total) || 0;
-                const delivery = Number(order.deliveryFee) || 0;
-                const discount = Number(order.discount) || 0;
-                const total = Number(order.total) || 0;
-
-                drawStyledBoxOnCanvas(ctx, boxX, curY, boxW, codBoxH, b.style === 'dashed' ? 'dashed' : (b.style === 'rounded' ? 'rounded' : 'solid'));
-                const codHeaderH = Math.round(codBoxH * 0.58);
-
-                if (b.style !== 'none') {
-                    ctx.fillStyle = '#000000';
-                    ctx.fillRect(boxX, curY, boxW, codHeaderH);
-                    ctx.fillStyle = '#FFFFFF';
-                } else {
-                    ctx.fillStyle = '#000000';
-                }
-
+            if (itemsList.length > maxRows) {
+                const moreH = fSmall + 12;
+                drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, moreH, 2);
+                ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.textAlign = 'right';
-                ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
-                const codTitle = (b.label && b.label.trim()) ? b.label.trim() : (isOnline ? 'حالة الفاتورة:' : 'المطلوب تحصيله من العميل:');
-                ctx.fillText(codTitle, boxX + boxW - 12, curY + codHeaderH / 2);
+                ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
+                ctx.fillText(`+ ${itemsList.length - maxRows} أصناف إضافية ضمن الطلب`, Math.round(W / 2), curY + Math.round(moreH / 2));
+                curY += moreH;
+            }
 
-                ctx.textAlign = 'left';
-                ctx.font = `900 ${Math.round(fTitle * 1.05)}px Cairo, Tahoma, sans-serif`;
-                ctx.fillText(isOnline ? 'خالص أونلاين (0 ج)' : `${total} ج.م`, boxX + 12, curY + codHeaderH / 2);
+            hitRegions.push({ key: 'items', x: innerLeft, y: startItemsY, w: innerWidth, h: curY - startItemsY });
+            curY += 12;
+        }
 
+        // =====================================================================
+        // 4. ملخص الحساب المالي والصافي المطلوب (بدون كتل سوداء تلطخ الورقة)
+        // =====================================================================
+        if (boxes.cod?.visible !== false) {
+            const startCodY = curY;
+            const isOnline = order.paymentMethod === 'online';
+            const subtotal = Number(order.subtotal) || Number(order.total) || 0;
+            const delivery = Number(order.deliveryFee) || 0;
+            const discount = Number(order.discount) || 0;
+            const total = Number(order.total) || 0;
+            const debt = Number(order.debt) || 0;
+
+            // سطر تفصيل الحساب (المنتجات + التوصيل + الخصم)
+            const breakdownH = fSmall + 16;
+            drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, breakdownH, 2);
+            ctx.fillStyle = '#000000';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
+
+            let breakdownParts = [`المنتجات: ${subtotal} ج`];
+            breakdownParts.push(delivery > 0 ? `التوصيل: ${delivery} ج` : `التوصيل: مجاني`);
+            if (discount > 0) breakdownParts.push(`خصم: -${discount} ج`);
+            if (debt > 0) breakdownParts.push(`باقي حساب: ${debt} ج`);
+
+            ctx.fillText(breakdownParts.join('  •  '), Math.round(W / 2), curY + Math.round(breakdownH / 2));
+            curY += breakdownH + 6;
+
+            // الصندوق الرئيسي للإجمالي النهائي (برواز مزدوج فخم وحاد جداً)
+            const totalBoxH = Math.max(54, fTotalVal + 24);
+            drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, totalBoxH, 4);
+            drawSharpRectBorder(ctx, innerLeft + 5, curY + 5, innerWidth - 10, totalBoxH - 10, 1);
+
+            const codTitle = (boxes.cod?.label && boxes.cod.label.trim())
+                ? boxes.cod.label.trim()
+                : (isOnline ? 'حالة الفاتورة:' : 'الإجمالي المطلوب:');
+
+            ctx.textBaseline = 'middle';
+            ctx.textAlign = 'right';
+            ctx.font = `900 ${fSecTitle}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(codTitle, innerRight - 14, curY + Math.round(totalBoxH / 2));
+
+            ctx.textAlign = 'left';
+            ctx.font = `900 ${fTotalVal}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(isOnline ? 'خالص أونلاين' : `${total} ج.م`, innerLeft + 14, curY + Math.round(totalBoxH / 2));
+
+            curY += totalBoxH;
+            hitRegions.push({ key: 'cod', x: innerLeft, y: startCodY, w: innerWidth, h: curY - startCodY });
+            curY += 10;
+        }
+
+        // =====================================================================
+        // 5. رسالة الختام الدافئة للعميل (توصل بحب وشياكة)
+        // =====================================================================
+        if (boxes.footer?.visible !== false) {
+            const startFooterY = curY;
+
+            if (cfg.showPromoBanner && cfg.promoText && cfg.promoText.trim()) {
+                const pH = fSmall + 14;
+                drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, pH, 2);
                 ctx.fillStyle = '#000000';
                 ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
                 ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-                ctx.fillText(`المنتجات: ${subtotal} ج  •  التوصيل: ${delivery} ج${discount > 0 ? '  •  خصم: ' + discount + ' ج' : ''}`, boxX + boxW / 2, curY + codHeaderH + (codBoxH - codHeaderH) / 2);
-
-                hitRegions.push({ key: 'cod', x: boxX, y: curY, w: boxW, h: codBoxH });
-                curY += codBoxH + 6;
+                ctx.fillText(cfg.promoText.trim().slice(0, 58), Math.round(W / 2), curY + Math.round(pH / 2));
+                curY += pH + 8;
             }
 
-            // 5. مربع الدعاية والملاحظات والفوتر
-            if (secKey === 'footer' && boxes.footer?.visible !== false) {
-                const b = boxes.footer;
-                const hMul = (Number(b.hScale) || 100) / 100;
-                const fMul = ((Number(b.fScale) || 100) / 100) * globalScale;
-                const fSmall = Math.max(10, Math.round(baseRef * 0.022 * fMul));
-                const startFooterY = curY;
+            const footerMsg = (cfg.footerText && cfg.footerText.trim())
+                ? cfg.footerText.trim()
+                : 'بالهنا والشفا من سمان ههيا 🤍 تشرفنا بخدمتكم';
 
-                const notesText = [
-                    order.driverNote ? order.driverNote.split('\n---\n').pop() : '',
-                    (!order.driverNote && order.adminNote) ? order.adminNote.split('\n---\n').pop() : ''
-                ].filter(Boolean).join(' | ');
+            const footerY = Math.max(curY + fSmall, H - pad - innerMargin - 4);
+            ctx.fillStyle = '#000000';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(footerMsg, Math.round(W / 2), footerY);
 
-                if (notesText) {
-                    const nH = Math.max(22, Math.round(H * 0.044 * hMul));
-                    drawStyledBoxOnCanvas(ctx, innerLeft, curY, innerWidth, nH, b.style || 'solid');
-                    ctx.fillStyle = b.style === 'inverted' ? '#FFFFFF' : '#000000';
-                    ctx.textAlign = 'right';
-                    ctx.textBaseline = 'middle';
-                    ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-                    ctx.fillText(`ملاحظة: ${notesText.slice(0, 56)}`, innerRight - 8, curY + nH / 2);
-                    curY += nH + 4;
-                }
-
-                if (cfg.showPromoBanner && cfg.promoText && cfg.promoText.trim()) {
-                    const pH = Math.max(22, Math.round(H * 0.044 * hMul));
-                    drawStyledBoxOnCanvas(ctx, innerLeft, curY, innerWidth, pH, b.style || 'dashed');
-                    ctx.fillStyle = b.style === 'inverted' ? '#FFFFFF' : '#000000';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-                    ctx.fillText(cfg.promoText.trim().slice(0, 68), W / 2, curY + pH / 2);
-                    curY += pH + 4;
-                }
-
-                if (cfg.footerText && cfg.footerText.trim()) {
-                    ctx.fillStyle = '#000000';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'bottom';
-                    ctx.font = `900 ${Math.round(fSmall * 0.9)}px Cairo, Tahoma, sans-serif`;
-                    ctx.fillText(cfg.footerText.trim(), W / 2, H - pad - 4);
-                }
-                hitRegions.push({ key: 'footer', x: innerLeft, y: startFooterY, w: innerWidth, h: Math.max(28, H - startFooterY - pad) });
-            }
-        });
+            hitRegions.push({ key: 'footer', x: innerLeft, y: startFooterY, w: innerWidth, h: Math.max(24, H - startFooterY - pad) });
+        }
 
         window.poultryBatchState.hitRegions = hitRegions;
         ctx.restore();
@@ -3282,9 +3372,16 @@
             sw.className = 'hidden mb-2 flex items-center justify-between bg-slate-900 text-white px-2.5 py-1.5 rounded-xl text-[10px] font-black';
             previewStage.before(sw);
 
+            const toggleAdvBtn = document.createElement('button');
+            toggleAdvBtn.type = 'button';
+            toggleAdvBtn.onclick = () => document.getElementById('dw-interactive-box-controller')?.classList.toggle('hidden');
+            toggleAdvBtn.className = 'mt-2 w-full bg-white hover:bg-slate-100 text-slate-600 border border-slate-300 py-1.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1';
+            toggleAdvBtn.innerHTML = '<i class="fa-solid fa-sliders"></i> تخصيص متقدم للمربعات (اختياري)';
+            previewStage.after(toggleAdvBtn);
+
             const boxCtrl = document.createElement('div');
             boxCtrl.id = 'dw-interactive-box-controller';
-            boxCtrl.className = 'mt-3 bg-slate-900 text-white p-3 rounded-2xl border border-slate-700 space-y-2.5 text-[11px] font-black';
+            boxCtrl.className = 'hidden mt-2 bg-slate-900 text-white p-3 rounded-2xl border border-slate-700 space-y-2.5 text-[11px] font-black';
             const bcCfg = getBoxCustomConfig();
 
             boxCtrl.innerHTML = `
