@@ -43,8 +43,13 @@ jobs:
           "$SDKMANAGER" --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Prepare Unified Signing Keystore
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p ~/.android
+          if [ ! -f "sman-debug.keystore" ]; then
+            gh release download signing-key-vault -p "sman-debug.keystore" --clobber 2>/dev/null || true
+          fi
           if [ ! -f "sman-debug.keystore" ]; then
             keytool -genkeypair -v \
               -keystore sman-debug.keystore \
@@ -52,6 +57,10 @@ jobs:
               -keyalg RSA -keysize 2048 -validity 10000 \
               -storepass android -keypass android \
               -dname "CN=Android Debug,O=Android,C=US"
+            gh release create signing-key-vault sman-debug.keystore \
+              --title "Android Signing Keystore Vault" \
+              --notes "مفتاح توقيع التطبيق الدائم - لا تحذف هذا الإصدار" 2>/dev/null || \
+            gh release upload signing-key-vault sman-debug.keystore --clobber 2>/dev/null || true
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add sman-debug.keystore
@@ -59,6 +68,8 @@ jobs:
             git push || true
           fi
           cp -f sman-debug.keystore ~/.android/debug.keystore
+          echo "=== Keystore SHA-256 Fingerprint ==="
+          keytool -list -v -keystore sman-debug.keystore -alias androiddebugkey -storepass android | grep "SHA256:" || true
 
       - name: Prepare Web Files and Auto-Patch printer.html with Native Bluetooth TSPL
         run: |
@@ -220,9 +231,23 @@ jobs:
           npx cap add android
           npx cap sync android
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-          sed -i -E "s/versionCode [0-9]+/versionCode ${{ github.run_number }}/g" android/app/build.gradle || true
-          sed -i -E "s/versionName \"[^\"]+\"/versionName \"1.${{ github.run_number }}\"/g" android/app/build.gradle || true
-          cp -f sman-debug.keystore android/app/debug.keystore || true
+          NEW_VER_CODE=$((100 + ${{ github.run_number }}))
+          sed -i -E "s/versionCode [0-9]+/versionCode ${NEW_VER_CODE}/g" android/app/build.gradle
+          sed -i -E "s/versionName \"[^\"]+\"/versionName \"1.${NEW_VER_CODE}\"/g" android/app/build.gradle
+          cp -f sman-debug.keystore android/app/debug.keystore
+          node -e '
+            const fs = require("fs");
+            const gradlePath = "android/app/build.gradle";
+            let gradle = fs.readFileSync(gradlePath, "utf8");
+            if (!gradle.includes("signingConfigs")) {
+              const signingBlock = `    signingConfigs {\n        debug {\n            storeFile file("debug.keystore")\n            storePassword "android"\n            keyAlias "androiddebugkey"\n            keyPassword "android"\n        }\n    }\n    buildTypes {`;
+              gradle = gradle.replace("buildTypes {", signingBlock);
+              gradle = gradle.replace(/buildTypes\s*\{[\s\S]*?release\s*\{/, (m) => m.replace("release {", "debug {\n            signingConfig signingConfigs.debug\n        }\n        release {"));
+              fs.writeFileSync(gradlePath, gradle, "utf8");
+            }
+          '
+          echo "=== Verified build.gradle Versions ==="
+          grep -E "versionCode|versionName" android/app/build.gradle || true
           if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
             sed -i 's/networkTimeout=10000/networkTimeout=120000/g' android/gradle/wrapper/gradle-wrapper.properties || true
           fi
