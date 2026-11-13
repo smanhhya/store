@@ -65,27 +65,25 @@
             const oldPrice = p.oldPrice || '';
             const imgSrc = (p.images && p.images.length > 0) ? p.images[0] : '';
 
-            // حساب إحصائيات الأوزان إذا كان الصنف يباع بالوزن
+            // حساب إحصائيات الأوزان إذا كان الصنف يباع بالوزن (يدعم المسافات والأسطر والأرقام العربية والإنجليزية)
             let weightStatsHtml = '';
             if (p.isWeightBased) {
-                const wArr = String(p.weightsList || '')
-                    .split('\n')
-                    .map(w => parseFloat(w.trim()))
-                    .filter(w => !isNaN(w) && w > 0);
+                const wArr = typeof window.parseWeightsArray === 'function'
+                    ? window.parseWeightsArray(p.weightsList)
+                    : String(p.weightsList || '').split(/[\s,،;\n\r\-]+/).map(w => parseFloat(w.trim())).filter(w => !isNaN(w) && w > 0);
                 const totalGrams = wArr.reduce((s, v) => s + v, 0);
                 const totalKg = (totalGrams / 1000).toFixed(2);
                 weightStatsHtml = `
                     <div class="mt-3 bg-indigo-50/70 p-3.5 rounded-xl border border-indigo-200/80">
                         <div class="flex flex-wrap justify-between items-center gap-2 mb-2">
                             <label class="text-[11px] font-black text-indigo-900">
-                                <i class="fa-solid fa-scale-balanced mr-1 text-indigo-600"></i> رصيد الأوزان المتاحة بالجرام (كل وزن في سطر منفصل):
+                                <i class="fa-solid fa-scale-balanced mr-1 text-indigo-600"></i> مصفوفة الأوزان المتاحة بالجرام (جنب بعض بمسافة أو تحت بعض):
                             </label>
                             <div class="flex items-center gap-2 text-[10px] font-black">
-                                <span class="bg-white text-indigo-700 px-2.5 py-1 rounded-lg border border-indigo-200 shadow-sm">العدد المتاح: ${wArr.length} قطعة</span>
-                                <span class="bg-indigo-600 text-white px-2.5 py-1 rounded-lg shadow-sm">إجمالي الوزن: ${totalKg} كجم</span>
+                                <span id="weights-badge-${id}" class="bg-white text-indigo-700 px-2.5 py-1 rounded-lg border border-indigo-200 shadow-sm">المتاح: ${wArr.length} قطعة (${totalKg} كجم)</span>
                             </div>
                         </div>
-                        <textarea onchange="updateProductWeightList('${id}', this.value)" class="w-full border border-indigo-200 rounded-xl p-2.5 text-xs font-black text-slate-800 bg-white outline-none focus:ring-2 focus:ring-indigo-300 custom-scroll" rows="3" placeholder="مثال:\n2200\n2150\n1980">${p.weightsList || ''}</textarea>
+                        <textarea oninput="let arr = window.parseWeightsArray ? window.parseWeightsArray(this.value) : []; storeProducts['${id}'].weightsList = arr.join(' '); storeStock['${id}'] = arr.length; let b = document.getElementById('weights-badge-${id}'); if(b) b.innerText = 'المتاح: ' + arr.length + ' قطعة (' + (arr.reduce((s,v)=>s+v,0)/1000).toFixed(2) + ' كجم)'; if(window.generateDynamicOrderInputs) generateDynamicOrderInputs();" onchange="updateProductWeightList('${id}', this.value)" dir="ltr" class="w-full border border-indigo-200 rounded-xl p-2.5 text-xs font-black text-slate-800 bg-white outline-none focus:ring-2 focus:ring-indigo-300 custom-scroll" rows="3" placeholder="مثال: 1400 1550 1200 أو كل وزن في سطر">${p.weightsList || ''}</textarea>
                     </div>
                 `;
             }
@@ -158,12 +156,11 @@
 
     window.updateProductWeightList = function (prodId, rawVal) {
         if (!storeProducts[prodId]) return;
-        storeProducts[prodId].weightsList = rawVal;
-        const count = String(rawVal || '')
-            .split('\n')
-            .map(w => parseFloat(w.trim()))
-            .filter(w => !isNaN(w) && w > 0).length;
-        storeStock[prodId] = count;
+        const parsedArr = typeof window.parseWeightsArray === 'function'
+            ? window.parseWeightsArray(rawVal)
+            : String(rawVal || '').split(/[\s,،;\n\r\-]+/).map(w => parseFloat(w.trim())).filter(w => !isNaN(w) && w > 0);
+        storeProducts[prodId].weightsList = parsedArr.join(' ');
+        storeStock[prodId] = parsedArr.length;
         window.renderInventoryUI();
         if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
         window.saveAllSettings(true);
@@ -488,58 +485,61 @@
     };
 
     // =========================================================================
-    // 🪙 5. تفعيل نقاط الولاء بأثر رجعي للعملاء القدامى (calculateRetroactivePoints)
+    // 🪙 5. تفعيل نقاط الولاء بأثر رجعي (على الطلبات المكتملة فقط وبدون التوصيل)
     // =========================================================================
     window.calculateRetroactivePoints = async function () {
         const ptsPer100 = parseFloat(document.getElementById('st-pts-per-100')?.value) || storeSettings.pointsPer100 || 5;
-        const custList = (typeof customersData !== 'undefined' && Array.isArray(customersData)) ? customersData : [];
-
-        if (custList.length === 0) return alert('لا يوجد عملاء في الأرشيف حالياً!');
-        if (!confirm(`سيتم حساب نقاط الولاء بأثر رجعي لـ (${custList.length}) عميل بمعدل (${ptsPer100} نقطة لكل 100 ج إنفاق سابق).\nهل تريد المتابعة؟`)) return;
+        if (!confirm(`⚠️ سيتم حساب النقاط على (الطلبات المكتملة فقط) وبناءً على صافي قيمة المنتجات بدون التوصيل (${ptsPer100} نقطة لكل 100 ج).\n\nهل تريد المتابعة؟`)) return;
 
         const btn = document.getElementById('btn-retro-points');
         const origHtml = btn ? btn.innerHTML : '';
         if (btn) {
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الحساب...';
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري حساب الطلبات المكتملة...';
             btn.disabled = true;
         }
 
         try {
-            let batches = [];
-            let curBatch = db.batch();
-            let countInBatch = 0;
-            let updatedCount = 0;
+            const customerSpendingMap = {};
+            (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).forEach(o => {
+                if (!o || o.status !== 'completed' || !o.customerPhone) return;
+                const normPhone = window.normalizePhone ? window.normalizePhone(o.customerPhone) : o.customerPhone.trim();
+                if (!normPhone) return;
+                const orderSubtotal = Number(o.subtotal) || Math.max(0, (Number(o.total) || 0) - (Number(o.deliveryFee) || 0));
+                customerSpendingMap[normPhone] = (customerSpendingMap[normPhone] || 0) + orderSubtotal;
+            });
 
-            custList.forEach(c => {
-                if (!c || !c.phone) return;
-                const spent = Number(c.totalSpent) || 0;
-                if (spent < 100) return;
+            let batchesCommits = [];
+            let dbBatch = db.batch();
+            let count = 0;
+            let updatedCustomers = 0;
 
-                const earnedPoints = Math.floor(spent / 100) * ptsPer100;
-                if (earnedPoints > (Number(c.walletPoints) || 0)) {
-                    const cleanPhone = c.phone.startsWith('0') ? c.phone : '0' + c.phone;
-                    const docRef = db.collection('customers').doc(cleanPhone);
-                    curBatch.set(docRef, { walletPoints: earnedPoints }, { merge: true });
-                    c.walletPoints = earnedPoints;
-                    countInBatch++;
-                    updatedCount++;
-
-                    if (countInBatch >= 400) {
-                        batches.push(curBatch.commit());
-                        curBatch = db.batch();
-                        countInBatch = 0;
+            Object.keys(customerSpendingMap).forEach(phone => {
+                const totalSpent = customerSpendingMap[phone];
+                if (totalSpent >= 100) {
+                    const earnedPoints = Math.floor(totalSpent / 100) * ptsPer100;
+                    if (earnedPoints > 0) {
+                        const cleanPhone = phone.startsWith('0') ? phone : '0' + phone;
+                        const ref = db.collection('customers').doc(cleanPhone);
+                        dbBatch.set(ref, { totalSpent: totalSpent, walletPoints: earnedPoints }, { merge: true });
+                        count++;
+                        updatedCustomers++;
+                        if (count >= 400) {
+                            batchesCommits.push(dbBatch.commit());
+                            dbBatch = db.batch();
+                            count = 0;
+                        }
                     }
                 }
             });
 
-            if (countInBatch > 0) batches.push(curBatch.commit());
-            await Promise.all(batches);
+            if (count > 0) batchesCommits.push(dbBatch.commit());
+            await Promise.all(batchesCommits);
 
             if (typeof window.refreshCustomersData === 'function') window.refreshCustomersData();
-            alert(`تم تفعيل وتحديث رصيد النقاط لـ (${updatedCount}) عميل بنجاح! 🎁`);
+            alert(`🎉 تمت العملية بنجاح! تم تحديث نقاط المحفظة لـ (${updatedCustomers}) عميل بناءً على طلباتهم المكتملة فقط.`);
         } catch (e) {
             console.error(e);
-            alert('حدث خطأ أثناء حساب النقاط بأثر رجعي!');
+            alert('حدث خطأ أثناء حساب النقاط: ' + e.message);
         }
 
         if (btn) {
@@ -549,40 +549,45 @@
     };
 
     // =========================================================================
-    // 📊 6. المزامنة مع Google Sheets، ترحيل الأرشيف، والنسخ الاحتياطي
+    // 📊 6. المزامنة مع Google Sheets (متوافقة 100% مع سكربت كاشف الأرقام للموبايل)
     // =========================================================================
-    const DEFAULT_GSHEET_URL = '';
+    const DEFAULT_GSHEET_URL = 'https://script.google.com/macros/s/AKfycbwp7qhmVx2Uz1ihRdvJ7bDEVsZfejG51116ylcWyVSiDm2OOTOWR_9A4UNDeHKuYgeQQw/exec';
 
-    window.syncOrderToGoogleSheet = async function (orderData, action = 'update') {
+    window.syncOrderToGoogleSheet = async function (orderObj, action = 'update') {
+        if (!orderObj || !orderObj.customerPhone) return;
         const webhookUrl = storeSettings?.googleSheetWebhookUrl || DEFAULT_GSHEET_URL;
-        if (!webhookUrl || !orderData) return;
+        if (!webhookUrl) return;
 
         try {
-            const itemsSummary = Array.isArray(orderData.items)
-                ? orderData.items.map(i => `${i.quantity}x ${i.name}`).join(' + ')
-                : '';
+            let statusAr = 'جديد 🆕';
+            if (orderObj.status === 'processing') statusAr = '⏳ قيد التجهيز';
+            else if (orderObj.status === 'completed') statusAr = '✅ مكتمل';
+            else if (orderObj.status === 'canceled') statusAr = '❌ ملغي';
+            else if (orderObj.status === 'deferred') statusAr = '📅 مؤجل';
+            else if (orderObj.status === 'dispatched') statusAr = '🛵 في الطريق';
+            else if (orderObj.status === 'no_answer') statusAr = '📵 لم يرد';
+            else if (orderObj.status === 'trash') statusAr = '🗑️ محذوف';
+
+            let itemsText = '';
+            if (orderObj.items && Array.isArray(orderObj.items)) {
+                itemsText = orderObj.items.map(i => '▪️ ' + i.quantity + 'x ' + i.name).join('\n');
+            }
+
+            let notesText = '';
+            if (orderObj.adminNote) notesText += '🔒 إداري: ' + orderObj.adminNote + '\n';
+            if (orderObj.driverNote) notesText += '🛵 مندوب: ' + orderObj.driverNote;
 
             const payload = {
-                action: action,
-                id: orderData.id || '',
-                orderDate: orderData.orderDate || new Date().toLocaleDateString('en-US'),
-                customerName: orderData.customerName || '',
-                customerPhone: orderData.customerPhone || '',
-                customerPhone2: orderData.customerPhone2 || '',
-                zone: orderData.zone || '',
-                customerAddress: orderData.customerAddress || '',
-                items: itemsSummary,
-                subtotal: orderData.subtotal || 0,
-                deliveryFee: orderData.deliveryFee || 0,
-                discount: orderData.discount || 0,
-                total: orderData.total || 0,
-                paymentMethod: orderData.paymentMethod || 'cash',
-                debt: orderData.debt || 0,
-                status: orderData.status || 'new',
-                batchName: orderData.batchName || '',
-                driverName: orderData.driverName || '',
-                adminNote: orderData.adminNote || '',
-                driverNote: orderData.driverNote || ''
+                action: action || 'update',
+                phone: orderObj.customerPhone,
+                name: orderObj.customerName || 'بدون اسم',
+                zone: orderObj.zone || '---',
+                status: orderObj.status || 'new',
+                statusAr: statusAr,
+                total: orderObj.total || 0,
+                batch: orderObj.batchName || 'أوردر عادي',
+                details: itemsText || 'لا توجد تفاصيل',
+                notes: notesText.trim()
             };
 
             fetch(webhookUrl, {
@@ -595,6 +600,7 @@
             console.log('Google sheet sync skipped:', e);
         }
     };
+
 
     window.migrateOldOrdersToSheet = async function () {
         const webhookUrl = document.getElementById('st-gsheet-url')?.value.trim() || storeSettings?.googleSheetWebhookUrl;
