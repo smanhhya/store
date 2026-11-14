@@ -6349,7 +6349,7 @@ window.deleteProductUI = async (id) => {
                             if(o.batchId) batchBookedUpdates[i.id] = firebase.firestore.FieldValue.increment(-i.quantity);
                         });
                         if(Object.keys(stockUpdates).length > 0) atomicBatch.set(db.collection('inventory').doc('stock'), stockUpdates, {merge: true});
-                        if(o.batchId && Object.keys(batchBookedUpdates).length > 0) {
+                        if(o.batchId && storeBatches[o.batchId] && Object.keys(batchBookedUpdates).length > 0) {
                             atomicBatch.set(db.collection('inventory').doc('batches'), { [o.batchId]: { booked: batchBookedUpdates } }, {merge: true});
                         }
                     }
@@ -6539,7 +6539,7 @@ window.deleteProductUI = async (id) => {
                         }
                     }
 
-                    if (oldBatchId === newBatchId && oldBatchId) {
+                    if (oldBatchId === newBatchId && oldBatchId && storeBatches[oldBatchId]) {
                         let combinedBatchUpdates = {};
                         new Set([...Object.keys(oldBatchBookedUpdates), ...Object.keys(newBatchBookedUpdates)]).forEach(id => {
                             let netChange = (oldBatchBookedUpdates[id] || 0) + (newBatchBookedUpdates[id] || 0);
@@ -6547,11 +6547,11 @@ window.deleteProductUI = async (id) => {
                         });
                         if(Object.keys(combinedBatchUpdates).length > 0) { atomicBatch.set(db.collection("inventory").doc("batches"), { [oldBatchId]: { booked: combinedBatchUpdates } }, { merge: true }); }
                     } else {
-                        if (oldBatchId) {
+                        if (oldBatchId && storeBatches[oldBatchId]) {
                             let oldFinal = {}; Object.keys(oldBatchBookedUpdates).forEach(id => { if(oldBatchBookedUpdates[id] !== 0) oldFinal[id] = firebase.firestore.FieldValue.increment(oldBatchBookedUpdates[id]); });
                             if(Object.keys(oldFinal).length > 0) atomicBatch.set(db.collection("inventory").doc("batches"), { [oldBatchId]: { booked: oldFinal } }, { merge: true });
                         }
-                        if (newBatchId) {
+                        if (newBatchId && storeBatches[newBatchId]) {
                             let newFinal = {}; Object.keys(newBatchBookedUpdates).forEach(id => { if(newBatchBookedUpdates[id] !== 0) newFinal[id] = firebase.firestore.FieldValue.increment(newBatchBookedUpdates[id]); });
                             if(Object.keys(newFinal).length > 0) atomicBatch.set(db.collection("inventory").doc("batches"), { [newBatchId]: { booked: newFinal } }, { merge: true });
                         }
