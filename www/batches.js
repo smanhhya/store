@@ -226,15 +226,24 @@
 
         let cardsHtml = '';
 
+        let ghostKeysFound = false;
         batchIds.forEach(bId => {
             const b = batchesObj[bId];
-            if (!b || typeof b !== 'object') return;
-            if (!b.name || b.name === 'undefined' || b.name.trim() === '') {
-                b.name = 'دفعة غير مسماة';
-                if (typeof db !== 'undefined') {
-                    db.collection('inventory').doc('batches').update({ [`${bId}.name`]: b.name }).catch(() => {});
-                }
+            if (!b || typeof b !== 'object') {
+                delete batchesObj[bId];
+                ghostKeysFound = true;
+                return;
             }
+            const cleanName = (b.name || '').toString().trim();
+            const hasConfiguredStock = b.stock && Object.values(b.stock).some(v => Number(v) > 0);
+
+            // إذا كانت دفعة شبحية بدون اسم (أو اسمها دفعة غير مسماة بدون كميات متاحة) نحذفها تلقائياً
+            if (!cleanName || cleanName === 'undefined' || (cleanName === 'دفعة غير مسماة' && !hasConfiguredStock)) {
+                delete batchesObj[bId];
+                ghostKeysFound = true;
+                return;
+            }
+
 
             if (b.isOpen) globalOpenBatches++;
 
@@ -1054,6 +1063,62 @@
 
         btn.innerHTML = origHtml;
         btn.disabled = false;
+    };
+
+    // دالة الحذف الجذري للدفعة (تمسحها من الفايربيس والكاش وتفك ارتباط الطلبات القديمة بها)
+    window.deleteBatchUI = async function (bId) {
+        const targetBatch = storeBatches[bId];
+        const batchTitle = targetBatch && targetBatch.name ? targetBatch.name : 'هذه الدفعة';
+
+        if (!confirm(`⚠️ هل أنت متأكد من حذف (${batchTitle}) نهائياً من النظام؟`)) return;
+
+        try {
+            // 1. حذف الدفعة من الذاكرة الحية + تنظيف أي دفعة شبحية أخرى بلا اسم
+            delete storeBatches[bId];
+            Object.keys(storeBatches).forEach(k => {
+                const item = storeBatches[k];
+                if (!item || typeof item !== 'object' || !item.name || item.name === 'undefined' || item.name.trim() === '') {
+                    delete storeBatches[k];
+                }
+            });
+
+            // 2. الكتابة القاطعة بدون merge لمسح المفتاح من جذور الفايربيس حتى لو كان اسمه تالفاً
+            if (typeof db !== 'undefined') {
+                await db.collection('inventory').doc('batches').set(storeBatches);
+
+                // 3. فك ارتباط أي طلبات كانت مربوطة بهذه الدفعة المحذوفة حتى لا تعيد توليدها مستقبلاً
+                const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+                const linkedOrders = ordersList.filter(o => o && o.batchId === bId);
+                for (let i = 0; i < linkedOrders.length; i += 400) {
+                    const chunk = linkedOrders.slice(i, i + 400);
+                    const batchWrite = db.batch();
+                    chunk.forEach(o => {
+                        o.batchId = '';
+                        if (o.batchName === 'دفعة غير مسماة') o.batchName = '';
+                        if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[o.id]) {
+                            globalOrdersMap[o.id].batchId = '';
+                            if (globalOrdersMap[o.id].batchName === 'دفعة غير مسماة') globalOrdersMap[o.id].batchName = '';
+                        }
+                        const upData = { batchId: '' };
+                        if (o.batchName === '') upData.batchName = '';
+                        batchWrite.update(db.collection('orders').doc(o.id), upData);
+                    });
+                    await batchWrite.commit();
+                }
+            }
+
+            window.renderBatchesUI();
+            if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
+            if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
+            if (typeof window.showToast === 'function') {
+                window.showToast(`🗑️ تم حذف (${batchTitle}) نهائياً من النظام!`);
+            } else {
+                alert(`تم حذف (${batchTitle}) نهائياً بنجاح!`);
+            }
+        } catch (e) {
+            console.error('Delete Batch Error:', e);
+            alert('حدث خطأ أثناء الحذف: ' + (e.message || e));
+        }
     };
 
     // إعادة رسم شاشة الدفعات تلقائياً عند تحديث الطلبات لتظل الأرقام حية دائماً
