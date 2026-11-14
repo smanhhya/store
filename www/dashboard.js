@@ -878,35 +878,357 @@
         }
     };
 
-    // سداد دين عليا (كلي أو جزئي) من الخزنة بدون تكراره كمصروف مرة ثانية!
-    window.settleOwnerDebtRecord = async function (recId) {
+    // =========================================================================
+    // 💳 نظام سداد الديون الاحترافي (نافذة كشف حساب الدفعات + من سدد + متى + إلغاء الدفعة الغلط)
+    // =========================================================================
+    function ensureOwnerDebtModalExists() {
+        let modal = document.getElementById('sm-owner-debt-modal');
+        if (modal) return modal;
+
+        modal = document.createElement('div');
+        modal.id = 'sm-owner-debt-modal';
+        modal.className = 'fixed inset-0 bg-slate-900/75 backdrop-blur-sm z-[220] hidden flex items-center justify-center p-3 sm:p-4';
+        modal.innerHTML = `
+            <div class="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh] border border-purple-200">
+                <div class="bg-gradient-to-l from-slate-900 via-purple-950 to-slate-900 text-white p-4 sm:p-5 flex justify-between items-center shrink-0">
+                    <div>
+                        <h3 id="odm-title" class="text-sm sm:text-base font-black text-amber-300 flex items-center gap-2">
+                            <i class="fa-solid fa-file-invoice-dollar"></i> كشف حساب وسداد الدين
+                        </h3>
+                        <p id="odm-subtitle" class="text-[11px] text-purple-200 font-bold mt-0.5"></p>
+                    </div>
+                    <button type="button" onclick="closeModal('sm-owner-debt-modal')" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-red-500 text-white flex items-center justify-center transition-all">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <div class="p-4 sm:p-5 overflow-y-auto custom-scroll space-y-4 bg-slate-50 flex-1">
+                    <!-- ملخص أرقام الدين -->
+                    <div class="grid grid-cols-3 gap-2.5 text-center">
+                        <div class="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                            <span class="text-[10px] font-bold text-slate-400 block">أصل مبلغ الدين</span>
+                            <span id="odm-orig-amt" class="text-base sm:text-lg font-black text-slate-800">0 ج</span>
+                        </div>
+                        <div class="bg-emerald-50 p-3 rounded-2xl border border-emerald-200 shadow-sm">
+                            <span class="text-[10px] font-black text-emerald-700 block">إجمالي المسدد</span>
+                            <span id="odm-paid-amt" class="text-base sm:text-lg font-black text-emerald-600">0 ج</span>
+                        </div>
+                        <div class="bg-purple-50 p-3 rounded-2xl border border-purple-200 shadow-sm">
+                            <span class="text-[10px] font-black text-purple-800 block">المتبقي حالياً</span>
+                            <span id="odm-rem-amt" class="text-base sm:text-lg font-black text-purple-700">0 ج</span>
+                        </div>
+                    </div>
+
+                    <!-- فورم تسجيل دفعة سداد جديدة -->
+                    <div id="odm-pay-form-wrap" class="bg-white p-4 rounded-2xl border-2 border-emerald-500/30 shadow-sm space-y-3">
+                        <h4 class="text-xs font-black text-emerald-800 border-b border-slate-100 pb-2">
+                            <i class="fa-solid fa-hand-holding-dollar ml-1"></i> تسجيل دفعة سداد الآن (تُخصم من الخزنة وتُسجل بالتاريخ والساعة)
+                        </h4>
+                        <input type="hidden" id="odm-rec-id" value="">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-[10px] font-black text-slate-600 block mb-1">المبلغ المسدد الآن (ج.م) *</label>
+                                <input type="number" id="odm-pay-amount" class="w-full border-2 border-emerald-300 rounded-xl p-2 text-sm font-black text-emerald-900 bg-emerald-50/40 text-center outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-black text-slate-600 block mb-1">خصم السداد من أي خزنة؟</label>
+                                <select id="odm-pay-source" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black text-slate-700 bg-slate-50 outline-none">
+                                    <option value="auto">🤖 تلقائي (يسحب من الكاش، ولو مش مكفي يكمل أونلاين)</option>
+                                    <option value="cash">💵 من خزنة الكاش فقط</option>
+                                    <option value="online">💳 من محفظة الأونلاين فقط</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-black text-slate-600 block mb-1">مين اللي سدد / عن طريق مين؟</label>
+                                <input type="text" id="odm-pay-by" placeholder="مثال: د. أحمد / فودافون كاش / المندوب..." class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold text-slate-800 bg-slate-50 outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-black text-slate-600 block mb-1">بيان / ملاحظة السداد</label>
+                                <input type="text" id="odm-pay-note" placeholder="مثال: دفعة أولى من حساب العلف..." class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold text-slate-800 bg-slate-50 outline-none">
+                            </div>
+                        </div>
+                        <button type="button" onclick="confirmOwnerDebtInstallment()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-check-double"></i> تأكيد السداد وحفظ العملية في السجل
+                        </button>
+                    </div>
+
+                    <!-- جدول سجل الدفعات السابقة لهذا الدين -->
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2.5">
+                        <h4 class="text-xs font-black text-slate-800 border-b border-slate-100 pb-2">
+                            <i class="fa-solid fa-clock-rotate-left text-purple-600 ml-1"></i> سجل دفعات السداد السابقة لهذا الدين (متى سُددت ومن سددها)
+                        </h4>
+                        <div id="odm-history-list" class="space-y-2 max-h-56 overflow-y-auto custom-scroll pr-1"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    // فتح نافذة كشف حساب وسداد الدين
+    window.settleOwnerDebtRecord = function (recId) {
         const rec = window.storeLedgerRecords[recId];
         if (!rec || rec.type !== 'payable_debt') return;
 
-        const rem = Number(rec.remainingDebt !== undefined ? rec.remainingDebt : rec.amount) || 0;
-        if (rem <= 0) return alert('هذا الدين مسدد بالكامل بالفعل!');
+        ensureOwnerDebtModalExists();
+        document.getElementById('odm-rec-id').value = recId;
 
-        const payStr = prompt(
-            `💵 سداد دين لصاحب الحق: (${rec.creditorName})\n` +
-            `الغرض: ${rec.category}\n` +
-            `المبلغ المتبقي عليك حالياً: ${rem} ج.م\n\n` +
-            `اكتب المبلغ الذي ستسدده الآن (سيتم سحبه من الكاش، وإذا لم يكفِ سيُسحب الباقي من الأونلاين تلقائياً، ولن يُضاف كمصروف مكرر):`,
-            String(rem)
-        );
-        if (payStr === null) return;
-        const payAmt = Math.round(Number(payStr) || 0);
-        if (payAmt <= 0 || payAmt > rem) return alert('برجاء إدخال مبلغ سداد صحيح لا يتخطى المتبقي!');
+        const origAmt = Number(rec.amount) || 0;
+        const paidCash = Number(rec.paidCash) || 0;
+        const paidOnline = Number(rec.paidOnline) || 0;
+        const totalPaid = paidCash + paidOnline;
+        const rem = Math.max(0, Number(rec.remainingDebt !== undefined ? rec.remainingDebt : (origAmt - totalPaid)) || 0);
 
-        const split = window.allocateSmartPaymentSplit(payAmt, 'auto');
-        if (split.shortfallDebt > 0) {
-            return alert(`⚠️ رصيد الخزنة الحالي (كاش + أونلاين) لا يكفي لسداد هذا المبلغ! المتاح حالياً: ${split.cashPaid + split.onlinePaid} ج.م.`);
+        document.getElementById('odm-title').innerHTML = `<i class="fa-solid fa-file-invoice-dollar"></i> حساب الدائن: ${rec.creditorName || 'مورد / تاجر'}`;
+        document.getElementById('odm-subtitle').innerText = `الغرض: ${rec.category || '-'} | تاريخ تسجيل الدين: ${rec.createdAtMs ? new Date(rec.createdAtMs).toLocaleDateString('ar-EG') : (rec.dateStr || '-')}`;
+
+        document.getElementById('odm-orig-amt').innerText = `${origAmt.toLocaleString()} ج`;
+        document.getElementById('odm-paid-amt').innerText = `${totalPaid.toLocaleString()} ج`;
+        document.getElementById('odm-rem-amt').innerText = `${rem.toLocaleString()} ج`;
+
+        const formWrap = document.getElementById('odm-pay-form-wrap');
+        if (formWrap) {
+            if (rem > 0) {
+                formWrap.classList.remove('hidden');
+                document.getElementById('odm-pay-amount').value = rem;
+                document.getElementById('odm-pay-by').value = 'الإدارة';
+                document.getElementById('odm-pay-note').value = '';
+            } else {
+                formWrap.classList.add('hidden');
+            }
         }
 
-        rec.paidCash = (Number(rec.paidCash) || 0) + split.cashPaid;
-        rec.paidOnline = (Number(rec.paidOnline) || 0) + split.onlinePaid;
-        rec.remainingDebt = Math.max(0, rem - payAmt);
+        // عرض سجل الدفعات (مع دعم الدفعات القديمة التي سُجلت قبل التحديث)
+        let historyArr = Array.isArray(rec.paymentsHistory) ? [...rec.paymentsHistory] : [];
+        if (historyArr.length === 0 && totalPaid > 0) {
+            historyArr.push({
+                id: 'legacy_pay',
+                amount: totalPaid,
+                cashPaid: paidCash,
+                onlinePaid: paidOnline,
+                byWhom: 'الإدارة',
+                note: 'دفعة مسجلة مسبقاً',
+                dateTimeStr: rec.lastPaidDate || rec.dateStr || 'سابقاً',
+                isLegacy: true
+            });
+        }
+
+        const histCont = document.getElementById('odm-history-list');
+        if (histCont) {
+            if (historyArr.length === 0) {
+                histCont.innerHTML = `<div class="text-center py-5 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-xl">لم يتم سداد أي دفعات من هذا الدين حتى الآن.</div>`;
+            } else {
+                histCont.innerHTML = historyArr.slice().reverse().map((p, idx) => {
+                    const srcBadge = (p.cashPaid > 0 && p.onlinePaid > 0)
+                        ? `💵 ${p.cashPaid}ج كاش + 💳 ${p.onlinePaid}ج أونلاين`
+                        : (p.onlinePaid > 0 ? `💳 أونلاين (${p.onlinePaid}ج)` : `💵 كاش (${p.cashPaid || p.amount}ج)`);
+                    return `
+                        <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-wrap justify-between items-center gap-2 text-xs">
+                            <div class="space-y-0.5">
+                                <div class="font-black text-slate-800 flex items-center gap-1.5">
+                                    <span class="bg-emerald-600 text-white px-2 py-0.5 rounded text-[10px]">دفعة: ${Number(p.amount).toLocaleString()} ج</span>
+                                    <span class="text-slate-600">(${srcBadge})</span>
+                                </div>
+                                <div class="text-[10px] font-bold text-slate-500">
+                                    👤 بواسطة: <strong class="text-slate-700">${p.byWhom || 'الإدارة'}</strong>
+                                    ${p.note ? ` • 📝 ${p.note}` : ''}
+                                </div>
+                                <div class="text-[10px] font-bold text-slate-400">🕒 وقت السداد: ${p.dateTimeStr || '-'}</div>
+                            </div>
+                            <button type="button" onclick="revertOwnerDebtInstallment('${recId}', '${p.id}')" class="bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all" title="إلغاء هذه الدفعة وإرجاع مبلغها للخزنة">
+                                ↩️ إلغاء الدفعة
+                            </button>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        if (typeof openModal === 'function') openModal('sm-owner-debt-modal');
+        else document.getElementById('sm-owner-debt-modal')?.classList.remove('hidden');
+    };
+
+    // تنفيذ وحفظ دفعة السداد الجديدة
+    window.confirmOwnerDebtInstallment = async function () {
+        const recId = document.getElementById('odm-rec-id')?.value;
+        const rec = window.storeLedgerRecords[recId];
+        if (!rec || rec.type !== 'payable_debt') return;
+
+        const origAmt = Number(rec.amount) || 0;
+        const curPaid = (Number(rec.paidCash) || 0) + (Number(rec.paidOnline) || 0);
+        const rem = Math.max(0, Number(rec.remainingDebt !== undefined ? rec.remainingDebt : (origAmt - curPaid)) || 0);
+
+        const payAmt = Math.round(Number(document.getElementById('odm-pay-amount')?.value) || 0);
+        const paySource = document.getElementById('odm-pay-source')?.value || 'auto';
+        const payBy = (document.getElementById('odm-pay-by')?.value || 'الإدارة').trim();
+        const payNote = (document.getElementById('odm-pay-note')?.value || '').trim();
+
+        if (payAmt <= 0 || payAmt > rem) {
+            return alert(`برجاء إدخال مبلغ سداد صحيح (بحد أقصى المتبقي: ${rem} ج.م)!`);
+        }
+
+        let cashToDeduct = 0;
+        let onlineToDeduct = 0;
+        let summaryText = '';
+
+        const safes = window.getLiveAvailableSafeBalances();
+        const availCash = Math.max(0, safes.netCash);
+        const availOnline = Math.max(0, safes.netOnline);
+
+        if (paySource === 'cash') {
+            if (availCash < payAmt && !confirm(`⚠️ رصيد الكاش المتاح حالياً (${availCash} ج) أقل من مبلغ السداد (${payAmt} ج).\nهل تريد المتابعة وتسجيل السداد من الكاش على أي حال؟`)) return;
+            cashToDeduct = payAmt;
+            summaryText = `خُصم ${payAmt} ج من الكاش`;
+        } else if (paySource === 'online') {
+            if (availOnline < payAmt && !confirm(`⚠️ رصيد الأونلاين المتاح حالياً (${availOnline} ج) أقل من مبلغ السداد (${payAmt} ج).\nهل تريد المتابعة وتسجيل السداد من الأونلاين على أي حال؟`)) return;
+            onlineToDeduct = payAmt;
+            summaryText = `خُصم ${payAmt} ج من الأونلاين`;
+        } else {
+            const split = window.allocateSmartPaymentSplit(payAmt, 'auto');
+            if (split.shortfallDebt > 0) {
+                if (!confirm(`⚠️ إجمالي السيولة في الخزنة (${availCash + availOnline} ج) أقل من المبلغ (${payAmt} ج).\nهل تريد خصم السداد بالكامل من الكاش على أي حال؟`)) return;
+                cashToDeduct = payAmt;
+                onlineToDeduct = 0;
+                summaryText = `خُصم ${payAmt} ج من الكاش`;
+            } else {
+                cashToDeduct = split.cashPaid;
+                onlineToDeduct = split.onlinePaid;
+                summaryText = split.summaryText;
+            }
+        }
+
+        if (!Array.isArray(rec.paymentsHistory)) {
+            rec.paymentsHistory = [];
+            if (curPaid > 0) {
+                rec.paymentsHistory.push({
+                    id: 'pay_old_' + (Date.now() - 1000),
+                    amount: curPaid,
+                    cashPaid: Number(rec.paidCash) || 0,
+                    onlinePaid: Number(rec.paidOnline) || 0,
+                    byWhom: 'الإدارة',
+                    note: 'دفعة سابقة',
+                    dateTimeStr: rec.lastPaidDate || rec.dateStr || 'سابقاً',
+                    timestamp: rec.createdAtMs || Date.now() - 1000
+                });
+            }
+        }
+
+        const nowMs = Date.now();
+        const dateTimeStr = new Date(nowMs).toLocaleString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+        const newInstallment = {
+            id: 'pay_' + nowMs,
+            amount: payAmt,
+            cashPaid: cashToDeduct,
+            onlinePaid: onlineToDeduct,
+            byWhom: payBy,
+            note: payNote,
+            summaryText: summaryText,
+            dateTimeStr: dateTimeStr,
+            timestamp: nowMs
+        };
+
+        rec.paymentsHistory.push(newInstallment);
+        rec.paidCash = (Number(rec.paidCash) || 0) + cashToDeduct;
+        rec.paidOnline = (Number(rec.paidOnline) || 0) + onlineToDeduct;
+        rec.remainingDebt = Math.max(0, origAmt - (rec.paidCash + rec.paidOnline));
         rec.status = rec.remainingDebt === 0 ? 'paid' : 'partial';
-        rec.lastPaidDate = new Date().toLocaleDateString('ar-EG');
+        rec.lastPaidDate = dateTimeStr;
+
+        try {
+            window.storeLedgerRecords[recId] = rec;
+            if (typeof db !== 'undefined') {
+                await db.collection('inventory').doc('ledger_records').set({ [recId]: rec }, { merge: true });
+            }
+            window.settleOwnerDebtRecord(recId);
+            window.renderSmartDashboard();
+            window.showToast(`✅ تم سداد ${payAmt} ج لـ (${rec.creditorName}) وحفظ الدفعة بالتاريخ والساعة!`);
+        } catch (e) {
+            alert('حدث خطأ أثناء حفظ دفعة السداد!');
+        }
+    };
+
+    // إلغاء دفعة سداد تمت بالخطأ وإرجاع مبلغها للخزنة وإلى المتبقي من الدين
+    window.revertOwnerDebtInstallment = async function (recId, paymentId) {
+        const rec = window.storeLedgerRecords[recId];
+        if (!rec || rec.type !== 'payable_debt') return;
+
+        if (!confirm('↩️ هل تريد إلغاء دفعة السداد هذه وإرجاع مبلغها للخزنة وإلى رصيد الدين المتبقي؟')) return;
+
+        if (paymentId === 'legacy_pay' || !Array.isArray(rec.paymentsHistory) || rec.paymentsHistory.length === 0) {
+            rec.paidCash = 0;
+            rec.paidOnline = 0;
+            rec.remainingDebt = Number(rec.amount) || 0;
+            rec.status = 'unpaid';
+            rec.paymentsHistory = [];
+        } else {
+            rec.paymentsHistory = rec.paymentsHistory.filter(p => p.id !== paymentId);
+            let sumCash = 0, sumOnline = 0;
+            rec.paymentsHistory.forEach(p => {
+                sumCash += Number(p.cashPaid) || 0;
+                sumOnline += Number(p.onlinePaid) || 0;
+            });
+            rec.paidCash = sumCash;
+            rec.paidOnline = sumOnline;
+            rec.remainingDebt = Math.max(0, (Number(rec.amount) || 0) - (sumCash + sumOnline));
+            rec.status = rec.remainingDebt === 0 ? 'paid' : (sumCash + sumOnline > 0 ? 'partial' : 'unpaid');
+        }
+
+        try {
+            window.storeLedgerRecords[recId] = rec;
+            if (typeof db !== 'undefined') {
+                await db.collection('inventory').doc('ledger_records').set({ [recId]: rec }, { merge: true });
+            }
+            window.settleOwnerDebtRecord(recId);
+            window.renderSmartDashboard();
+            window.showToast('↩️ تم إلغاء الدفعة وإرجاع المبلغ للخزنة بنجاح');
+        } catch (e) {
+            alert('حدث خطأ أثناء إلغاء الدفعة!');
+        }
+    };
+
+    // تعديل أي عملية مالية مسجلة (مصروف / هالك / أصل دين)
+    window.editLedgerRecordPrompt = async function (recId) {
+        const rec = window.storeLedgerRecords[recId];
+        if (!rec) return;
+
+        if (rec.type === 'payable_debt') {
+            const newCred = prompt('تعديل اسم صاحب الدين (الدائن):', rec.creditorName || '');
+            if (newCred === null) return;
+            const newCat = prompt('تعديل الغرض / البند:', rec.category || '');
+            if (newCat === null) return;
+            const newAmtStr = prompt('تعديل إجمالي أصل مبلغ الدين (ج.م):', rec.amount || 0);
+            if (newAmtStr === null) return;
+            const newAmt = Math.max(0, Math.round(Number(newAmtStr) || 0));
+            const curPaid = (Number(rec.paidCash) || 0) + (Number(rec.paidOnline) || 0);
+
+            rec.creditorName = newCred.trim() || rec.creditorName;
+            rec.category = newCat.trim() || rec.category;
+            rec.amount = newAmt;
+            rec.remainingDebt = Math.max(0, newAmt - curPaid);
+            rec.status = rec.remainingDebt === 0 ? 'paid' : (curPaid > 0 ? 'partial' : 'unpaid');
+        } else {
+            const newCat = prompt('تعديل اسم البند / الوصف:', rec.category || '');
+            if (newCat === null) return;
+            const newAmtStr = prompt('تعديل المبلغ (ج.م):', rec.amount || 0);
+            if (newAmtStr === null) return;
+            const newAmt = Math.max(0, Math.round(Number(newAmtStr) || 0));
+            const newNotes = prompt('تعديل الملاحظات والتفاصيل:', rec.notes || '');
+            if (newNotes === null) return;
+
+            rec.category = newCat.trim() || rec.category;
+            if (rec.type === 'expense' || rec.type === 'fixed_monthly') {
+                if (rec.onlinePaid > 0 && rec.cashPaid === 0) {
+                    rec.onlinePaid = newAmt;
+                } else {
+                    rec.cashPaid = newAmt;
+                    rec.onlinePaid = 0;
+                }
+            }
+            rec.amount = newAmt;
+            rec.notes = newNotes.trim();
+        }
 
         try {
             window.storeLedgerRecords[recId] = rec;
@@ -914,9 +1236,9 @@
                 await db.collection('inventory').doc('ledger_records').set({ [recId]: rec }, { merge: true });
             }
             window.renderSmartDashboard();
-            window.showToast(`✅ تم سداد ${payAmt} ج لـ (${rec.creditorName}) — (${split.summaryText})`);
+            window.showToast('✏️ تم تعديل العملية وتحديث الحسابات بنجاح!');
         } catch (e) {
-            alert('حدث خطأ أثناء تسجيل السداد!');
+            alert('حدث خطأ أثناء حفظ التعديل!');
         }
     };
 
@@ -957,7 +1279,6 @@
         const isDueNow = (fm.dueTiming === 'start' && dayOfMonth >= 1) || (fm.dueTiming === 'end' && dayOfMonth >= 25);
 
         if (!forceManualApply && (!isDueNow || !fm.autoApprove)) {
-            // لا نخصمها تلقائياً، بل نترك شريط الإشعار الذكي يظهر للمستخدم في أعلى اللوحة ليعتمدها بضغطة زر
             return false;
         }
 
@@ -996,7 +1317,6 @@
             };
         }
 
-        // إذا كانت السيولة لا تكفي للمصاريف الثابتة، يسجل الباقي كالتزام في (ديون عليا)
         if (split.shortfallDebt > 0) {
             const debtId = 'rec_fixed_debt_' + curMonthKey + '_' + (Date.now() + 1);
             payload[debtId] = {
@@ -1032,7 +1352,7 @@
         return true;
     };
 
-    // 🔄 محرك الجرد السنوي وتصفير السيستم لبداية جديدة مع حفظ القديم في بند (سنة 2026)
+    // 🔄 محرك الجرد السنوي وتصفير السيستم لبداية جديدة مع إمكانية حذف أي جرد تم بالخطأ
     window.executeAnnualInventoryReset = async function () {
         const defaultTitle = `جرد سنة ${new Date().getFullYear()}`;
         const archiveTitle = prompt(
@@ -1045,7 +1365,6 @@
 
         if (!confirm(`⚠️ تأكيد نهائي:\nهل تريد حفظ الحسابات الحالية في بند (${archiveTitle.trim()}) وتصفير السيستم ليبدأ العد من الصفر الآن؟`)) return;
 
-        // أخذ لقطة كاملة للأرقام الحالية قبل التصفير
         const safes = window.getLiveAvailableSafeBalances();
         const totalIn = safes.cashIn + safes.onlineIn;
         const totalOut = safes.cashOut + safes.onlineOut;
@@ -1058,7 +1377,7 @@
             id: archId,
             title: archiveTitle.trim(),
             closedAtMs: resetNowMs,
-            closedDateStr: new Date(resetNowMs).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' }),
+            closedDateStr: new Date(resetNowMs).toLocaleString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
             previousResetMs: window.storeAccountingConfig.fiscalResetMs || 0,
             totalSalesIn: totalIn,
             cashIn: safes.cashIn,
@@ -1080,16 +1399,65 @@
 
         await persistAccountingConfig();
         window.renderSmartDashboard();
-        alert(`🎉 تم عمل الجرد السنوي بنجاح!\n\n- تم حفظ كل حساباتك السابقة في بند: (${snapshotObj.title}).\n- تم تصفير الخزنة والمبيعات والمصاريف الحالية إلى (0 ج) لتبدأ حساباتك الجديدة من الصفر!`);
+        alert(`🎉 تم عمل الجرد السنوي بنجاح!\n\n- تم حفظ حساباتك السابقة في بند: (${snapshotObj.title}).\n- إذا كنت قد ضغطت بالخطأ، يمكنك حذف هذا الجرد فوراً من الزر الموجود على الكارت.`);
     };
 
-    // التبديل بين عرض الحسابات الحالية بعد التصفير أو عرض جرد سنة سابقة (مثل: سنه 2026)
+    // حذف كارت جرد سنوي واحد تم إنشاؤه بالخطأ (وإرجاع نقطة التصفير لما قبله تلقائياً)
+    window.deleteSingleAnnualArchive = async function (archId) {
+        const archives = window.storeAccountingConfig?.annualArchives || {};
+        const target = archives[archId];
+        if (!target) return;
+
+        if (!confirm(`🗑️ هل تريد حذف ملف الجرد (${target.title}) الذي تم بالخطأ وإلغاء نقطة التصفير الخاصة به؟`)) return;
+
+        delete window.storeAccountingConfig.annualArchives[archId];
+
+        // إعادة حساب نقطة التصفير من آخر جرد متبقي (أو 0 إن لم يتبقَ أي جرد)
+        const remainingList = Object.values(window.storeAccountingConfig.annualArchives || {}).sort((a, b) => (b.closedAtMs || 0) - (a.closedAtMs || 0));
+        window.storeAccountingConfig.fiscalResetMs = remainingList.length > 0 ? (remainingList[0].closedAtMs || 0) : 0;
+        window.storeAccountingConfig.viewingArchiveId = 'CURRENT';
+
+        if (typeof db !== 'undefined') {
+            await db.collection('inventory').doc('accounting_config').set({
+                fiscalResetMs: window.storeAccountingConfig.fiscalResetMs,
+                annualArchives: window.storeAccountingConfig.annualArchives
+            }, { merge: true }).catch(() => {});
+            await db.collection('inventory').doc('accounting_config').update({
+                [`annualArchives.${archId}`]: firebase.firestore.FieldValue.delete()
+            }).catch(() => {});
+        }
+        try { localStorage.setItem('sman_accounting_cfg', JSON.stringify(window.storeAccountingConfig)); } catch (e) {}
+
+        window.renderSmartDashboard();
+        window.showToast(`🗑️ تم حذف الجرد (${target.title}) واسترجاع الحسابات بنجاح!`);
+    };
+
+    // مسح كل كروت الجرد السنوي التجريبية دفعة واحدة وإرجاع الحسابات كاملة
+    window.clearAllAnnualArchivesAndRestore = async function () {
+        if (!confirm('🧹 هل تريد مسح جميع كروت الجرد السنوي المسجلة بالخطأ واسترجاع كل حسابات السيستم كاملة كما كانت؟')) return;
+
+        window.storeAccountingConfig.fiscalResetMs = 0;
+        window.storeAccountingConfig.viewingArchiveId = 'CURRENT';
+        window.storeAccountingConfig.annualArchives = {};
+
+        if (typeof db !== 'undefined') {
+            await db.collection('inventory').doc('accounting_config').set({
+                fiscalResetMs: 0,
+                viewingArchiveId: 'CURRENT',
+                annualArchives: {}
+            }).catch(() => {});
+        }
+        try { localStorage.setItem('sman_accounting_cfg', JSON.stringify(window.storeAccountingConfig)); } catch (e) {}
+
+        window.renderSmartDashboard();
+        window.showToast('✅ تم مسح كل الجرد التجريبي واستعادة الحسابات بالكامل!');
+    };
+
     window.switchFiscalArchiveView = function (viewId) {
         window.storeAccountingConfig.viewingArchiveId = viewId || 'CURRENT';
         window.renderSmartDashboard();
     };
 
-    // استعادة السيستم لإلغاء التصفير في حال أراد المستخدم دمج القديم والجديد مرة أخرى
     window.cancelFiscalResetAndRestoreAll = async function () {
         if (!confirm('هل تريد إلغاء نقطة التصفير وإظهار كل الحسابات التاريخية المجمعة منذ بداية المشروع؟')) return;
         window.storeAccountingConfig.fiscalResetMs = 0;
@@ -1100,7 +1468,7 @@
     };
 
     window.deleteLedgerRecord = async function (recId) {
-        if (!confirm('هل أنت متأكد من حذف هذا السجل؟')) return;
+        if (!confirm('هل أنت متأكد من حذف هذا السجل نهائياً؟')) return;
         try {
             delete window.storeLedgerRecords[recId];
             await db.collection('inventory').doc('ledger_records').update({
@@ -2747,7 +3115,7 @@
             }
         }
 
-        // 13-أ. رسم جدول (الديون اللي عليا - Payable Debts) وأصحابها وزر سدادها بدون تكرار
+        // 13-أ. رسم جدول (الديون اللي عليا - Payable Debts) مع زر كشف حساب الدفعات والتعديل
         const debtsTbody = document.getElementById('sm-payable-debts-tbody');
         setElHtml('sm-payable-debts-total-badge', `إجمالي المتبقي عليا: ${totalOwnerPayableDebtNow.toLocaleString()} ج`);
 
@@ -2764,40 +3132,97 @@
                     const paidAmt = (Number(r.paidCash) || 0) + (Number(r.paidOnline) || 0);
                     const remAmt = Number(r.remainingDebt !== undefined ? r.remainingDebt : (origAmt - paidAmt)) || 0;
                     const dStr = r.createdAtMs ? new Date(r.createdAtMs).toLocaleDateString('ar-EG') : (r.dateStr || '-');
+                    const paymentsCount = Array.isArray(r.paymentsHistory) ? r.paymentsHistory.length : (paidAmt > 0 ? 1 : 0);
+                    const lastPayInfo = (Array.isArray(r.paymentsHistory) && r.paymentsHistory.length > 0)
+                        ? r.paymentsHistory[r.paymentsHistory.length - 1]
+                        : null;
 
                     return `
-                    <tr class="hover:bg-purple-50/30 transition-colors ${remAmt === 0 ? 'opacity-60 bg-slate-50' : ''}">
+                    <tr class="hover:bg-purple-50/30 transition-colors ${remAmt === 0 ? 'bg-emerald-50/30' : ''}">
                         <td class="py-2.5 px-3 font-black text-purple-950">
-                            👤 ${r.creditorName || 'دائن / مورد'}
-                            ${remAmt === 0 ? '<span class="bg-emerald-100 text-emerald-700 text-[9px] px-1.5 py-0.5 rounded mr-1">خالص ✅</span>' : ''}
+                            <div class="flex items-center gap-1.5">
+                                <span>👤 ${r.creditorName || 'دائن / مورد'}</span>
+                                ${remAmt === 0 ? '<span class="bg-emerald-600 text-white text-[9px] px-2 py-0.5 rounded-full">خالص بالكامل ✅</span>' : ''}
+                            </div>
+                            ${lastPayInfo ? `<div class="text-[9px] font-bold text-emerald-700 mt-0.5">آخر سداد: ${lastPayInfo.amount}ج (${lastPayInfo.byWhom || 'الإدارة'}) - ${lastPayInfo.dateTimeStr || ''}</div>` : ''}
                         </td>
-                        <td class="py-2.5 px-3 font-bold text-slate-600">${r.category || '-'}${r.batchName ? ' • <span class="text-teal-700">' + r.batchName + '</span>' : ''}</td>
+                        <td class="py-2.5 px-3 font-bold text-slate-600">
+                            ${r.category || '-'}${r.batchName ? ' • <span class="text-teal-700">' + r.batchName + '</span>' : ''}
+                            ${r.notes ? `<div class="text-[9px] text-slate-400">${r.notes}</div>` : ''}
+                        </td>
                         <td class="py-2.5 px-3 text-center font-black text-slate-700">${origAmt.toLocaleString()} ج</td>
-                        <td class="py-2.5 px-3 text-center font-black text-emerald-600">${paidAmt.toLocaleString()} ج</td>
                         <td class="py-2.5 px-3 text-center">
-                            <span class="px-2 py-0.5 rounded-lg font-black ${remAmt > 0 ? 'bg-purple-100 text-purple-800 border border-purple-200' : 'text-slate-400'}">${remAmt.toLocaleString()} ج</span>
+                            <span class="font-black text-emerald-600 block">${paidAmt.toLocaleString()} ج</span>
+                            ${paymentsCount > 0 ? `<span onclick="settleOwnerDebtRecord('${r.id}')" class="text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded cursor-pointer hover:bg-emerald-600 hover:text-white">على ${paymentsCount} دفعة (عرض)</span>` : ''}
+                        </td>
+                        <td class="py-2.5 px-3 text-center">
+                            <span class="px-2 py-0.5 rounded-lg font-black ${remAmt > 0 ? 'bg-purple-100 text-purple-800 border border-purple-200' : 'text-emerald-600'}">${remAmt.toLocaleString()} ج</span>
                         </td>
                         <td class="py-2.5 px-3 text-center text-[10px] font-bold text-slate-400">${dStr}</td>
                         <td class="py-2.5 px-3 text-center space-x-1 space-x-reverse">
-                            ${remAmt > 0 ? `<button onclick="settleOwnerDebtRecord('${r.id}')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm">💵 سداد</button>` : ''}
-                            <button onclick="deleteLedgerRecord('${r.id}')" class="text-red-500 hover:bg-red-50 px-1.5 py-1 rounded text-[10px] font-black"><i class="fa-solid fa-trash"></i></button>
+                            <button onclick="settleOwnerDebtRecord('${r.id}')" class="${remAmt > 0 ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-800 hover:bg-slate-900 text-amber-300'} px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm">
+                                ${remAmt > 0 ? '💵 سداد / كشف الدفعات' : '📜 سجل الدفعات'}
+                            </button>
+                            <button onclick="editLedgerRecordPrompt('${r.id}')" class="text-blue-600 hover:bg-blue-50 px-1.5 py-1 rounded text-[10px] font-black" title="تعديل"><i class="fa-solid fa-pen"></i></button>
+                            <button onclick="deleteLedgerRecord('${r.id}')" class="text-red-500 hover:bg-red-50 px-1.5 py-1 rounded text-[10px] font-black" title="حذف"><i class="fa-solid fa-trash"></i></button>
                         </td>
                     </tr>`;
                 }).join('');
             }
         }
 
-        // 13-ب. رسم جدول سجل المصروفات والهالك
+        // 13-ب. رسم السجل الشامل لكل العمليات (مصاريف + دفعات سداد الديون بالتفصيل + هالك)
         const ledgerTbody = document.getElementById('sm-ledger-records-tbody');
         if (ledgerTbody) {
-            const sortedRecs = periodLedgerRecords
-                .filter(r => r && r.type !== 'payable_debt')
-                .sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+            const unifiedOperations = [];
 
-            if (sortedRecs.length === 0) {
-                ledgerTbody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-400 font-bold">لا توجد مصروفات أو سجلات هالك مسجلة في هذه الفترة.</td></tr>`;
-            } else {
-                ledgerTbody.innerHTML = sortedRecs.map(r => {
+            periodLedgerRecords.forEach(r => {
+                if (!r) return;
+                if (r.type === 'payable_debt') {
+                    // 1. سطر تسجيل أصل الدين الآجل
+                    unifiedOperations.push({
+                        rowType: 'debt_created',
+                        recId: r.id,
+                        sortTime: r.createdAtMs || 0,
+                        badgeHtml: `<span class="bg-purple-50 text-purple-800 border border-purple-200 px-2 py-0.5 rounded-lg font-black">🟣 شراء آجل (دين: ${r.creditorName || ''})</span>`,
+                        batchName: r.batchName || 'عام',
+                        sourceText: `آجل على الحساب (متبقي: ${Number(r.remainingDebt ?? r.amount).toLocaleString()}ج)`,
+                        amountText: `${(Number(r.amount) || 0).toLocaleString()} ج`,
+                        amountClass: 'text-purple-700',
+                        detailsText: `${r.category || ''}${r.notes ? ' — ' + r.notes : ''}`,
+                        dateText: r.createdAtMs ? new Date(r.createdAtMs).toLocaleString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : (r.dateStr || '-'),
+                        actionsHtml: `
+                            <button onclick="settleOwnerDebtRecord('${r.id}')" class="text-emerald-600 hover:bg-emerald-50 px-1.5 py-1 rounded font-black" title="كشف الحساب والسداد"><i class="fa-solid fa-file-invoice-dollar"></i></button>
+                            <button onclick="editLedgerRecordPrompt('${r.id}')" class="text-blue-600 hover:bg-blue-50 px-1.5 py-1 rounded font-black" title="تعديل"><i class="fa-solid fa-pen"></i></button>
+                            <button onclick="deleteLedgerRecord('${r.id}')" class="text-red-500 hover:bg-red-50 px-1.5 py-1 rounded font-black" title="حذف"><i class="fa-solid fa-trash"></i></button>
+                        `
+                    });
+
+                    // 2. سطور دفعات السداد التي تمت على هذا الدين (ليكون معروفاً متى سُددت ومن سددها)
+                    if (Array.isArray(r.paymentsHistory)) {
+                        r.paymentsHistory.forEach(p => {
+                            const srcTxt = (p.cashPaid > 0 && p.onlinePaid > 0)
+                                ? `💵 ${p.cashPaid}ج كاش + 💳 ${p.onlinePaid}ج أونلاين`
+                                : (p.onlinePaid > 0 ? `💳 محفظة الأونلاين (${p.onlinePaid}ج)` : `💵 خزنة الكاش (${p.cashPaid || p.amount}ج)`);
+                            unifiedOperations.push({
+                                rowType: 'debt_payment',
+                                recId: r.id,
+                                sortTime: p.timestamp || (r.createdAtMs || 0) + 1,
+                                badgeHtml: `<span class="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-lg font-black">💵 سداد دفعة لـ (${r.creditorName || 'دائن'})</span>`,
+                                batchName: r.batchName || 'عام',
+                                sourceText: srcTxt,
+                                amountText: `${(Number(p.amount) || 0).toLocaleString()} ج`,
+                                amountClass: 'text-emerald-700',
+                                detailsText: `بواسطة: ${p.byWhom || 'الإدارة'} | مقابل: ${r.category || ''}${p.note ? ' — ' + p.note : ''}`,
+                                dateText: p.dateTimeStr || '-',
+                                actionsHtml: `
+                                    <button onclick="settleOwnerDebtRecord('${r.id}')" class="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-black" title="فتح كشف الدفعات">التفاصيل</button>
+                                    <button onclick="revertOwnerDebtInstallment('${r.id}', '${p.id}')" class="text-rose-600 hover:bg-rose-50 px-1.5 py-1 rounded font-black" title="إلغاء هذه الدفعة"><i class="fa-solid fa-rotate-left"></i></button>
+                                `
+                            });
+                        });
+                    }
+                } else {
                     const isWaste = r.type === 'waste';
                     const typeBadge = isWaste
                         ? `<span class="bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-lg font-black">⚠️ ${r.category || 'هالك'}</span>`
@@ -2816,23 +3241,90 @@
                         sourceText = r.paymentSource === 'online' ? '💳 محفظة الأونلاين' : '💵 خزنة الكاش';
                     }
 
-                    const dStr = r.createdAtMs ? new Date(r.createdAtMs).toLocaleDateString('ar-EG') : (r.dateStr || '-');
+                    const dStr = r.createdAtMs ? new Date(r.createdAtMs).toLocaleString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : (r.dateStr || '-');
 
-                    return `
+                    unifiedOperations.push({
+                        rowType: r.type,
+                        recId: r.id,
+                        sortTime: r.createdAtMs || 0,
+                        badgeHtml: typeBadge,
+                        batchName: r.batchName || 'عام',
+                        sourceText: sourceText,
+                        amountText: `${(Number(r.amount) || 0).toLocaleString()} ج`,
+                        amountClass: isWaste ? 'text-rose-600' : 'text-amber-700',
+                        detailsText: r.notes || '-',
+                        dateText: dStr,
+                        actionsHtml: `
+                            <button onclick="editLedgerRecordPrompt('${r.id}')" class="text-blue-600 hover:bg-blue-50 px-1.5 py-1 rounded font-black" title="تعديل"><i class="fa-solid fa-pen"></i></button>
+                            <button onclick="deleteLedgerRecord('${r.id}')" class="text-red-500 hover:bg-red-50 px-1.5 py-1 rounded font-black" title="حذف"><i class="fa-solid fa-trash"></i></button>
+                        `
+                    });
+                }
+            });
+
+            unifiedOperations.sort((a, b) => (b.sortTime || 0) - (a.sortTime || 0));
+
+            if (unifiedOperations.length === 0) {
+                ledgerTbody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-slate-400 font-bold">لا توجد عمليات مسجلة في هذه الفترة.</td></tr>`;
+            } else {
+                ledgerTbody.innerHTML = unifiedOperations.map(op => `
                     <tr class="hover:bg-slate-50 transition-colors">
-                        <td class="py-2.5 px-3">${typeBadge}</td>
-                        <td class="py-2.5 px-3 text-center font-bold text-teal-700">${r.batchName || 'عام'}</td>
-                        <td class="py-2.5 px-3 text-center font-black text-slate-700">${sourceText}</td>
-                        <td class="py-2.5 px-3 text-center font-black ${isWaste ? 'text-rose-600' : 'text-amber-700'}">${(Number(r.amount) || 0).toLocaleString()} ج</td>
-                        <td class="py-2.5 px-3 font-bold text-slate-500">${r.notes || '-'}</td>
-                        <td class="py-2.5 px-3 text-center text-slate-400 font-bold">${dStr}</td>
-                        <td class="py-2.5 px-3 text-center">
-                            <button onclick="deleteLedgerRecord('${r.id}')" class="text-red-500 hover:bg-red-50 px-1.5 py-1 rounded font-black"><i class="fa-solid fa-trash"></i></button>
-                        </td>
-                    </tr>`;
-                }).join('');
+                        <td class="py-2.5 px-3">${op.badgeHtml}</td>
+                        <td class="py-2.5 px-3 text-center font-bold text-teal-700">${op.batchName}</td>
+                        <td class="py-2.5 px-3 text-center font-black text-slate-700">${op.sourceText}</td>
+                        <td class="py-2.5 px-3 text-center font-black ${op.amountClass}">${op.amountText}</td>
+                        <td class="py-2.5 px-3 font-bold text-slate-600 whitespace-normal min-w-[180px]">${op.detailsText}</td>
+                        <td class="py-2.5 px-3 text-center text-slate-400 font-bold text-[10px]">${op.dateText}</td>
+                        <td class="py-2.5 px-3 text-center space-x-1 space-x-reverse">${op.actionsHtml}</td>
+                    </tr>
+                `).join('');
             }
         }
+
+        // 13-ج. رسم كروت أرشيف الجرد السنوي المحفوظة مع أزرار حذف الجرد الغلط أو مسح التجريبي
+        const annualCont = document.getElementById('sm-annual-archives-list');
+        if (annualCont) {
+            const archivesList = Object.values(accCfg.annualArchives || {}).sort((a, b) => (b.closedAtMs || 0) - (a.closedAtMs || 0));
+            if (archivesList.length === 0) {
+                annualCont.innerHTML = `<div class="col-span-full text-center py-3 text-slate-400 text-xs font-bold bg-white/5 rounded-xl border border-white/10">لا يوجد أرشيف جرد سنوي محفوظ حالياً.</div>`;
+            } else {
+                let clearAllHeader = '';
+                if (archivesList.length > 1) {
+                    clearAllHeader = `
+                        <div class="col-span-full flex justify-between items-center bg-rose-500/20 border border-rose-400/40 px-3 py-2 rounded-xl">
+                            <span class="text-xs font-black text-rose-200">⚠️ يوجد (${archivesList.length}) كروت جرد مسجلة — يمكنك حذف أي جرد تم بالخطأ أو مسحها جميعاً واسترجاع الحسابات:</span>
+                            <button type="button" onclick="clearAllAnnualArchivesAndRestore()" class="bg-rose-600 hover:bg-rose-500 text-white px-3 py-1.5 rounded-lg text-[11px] font-black shadow-sm">
+                                🧹 مسح كل الجرد الغلط واسترجاع الحسابات
+                            </button>
+                        </div>
+                    `;
+                }
+
+                annualCont.innerHTML = clearAllHeader + archivesList.map(arch => `
+                    <div class="bg-white/10 border border-white/15 p-3.5 rounded-xl flex flex-col justify-between gap-2.5">
+                        <div class="flex justify-between items-start gap-2">
+                            <div>
+                                <h5 class="font-black text-xs text-amber-300">📁 ${arch.title || 'جرد سنوي'}</h5>
+                                <span class="text-[9px] text-slate-300 font-bold block mt-0.5">🕒 أُغلق: ${arch.closedDateStr || '-'}</span>
+                            </div>
+                            <span class="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2 py-0.5 rounded text-[10px] font-black shrink-0">الصافي: ${(Number(arch.finalTotalProfit) || 0).toLocaleString()} ج</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-1.5 text-[10px] font-bold bg-slate-900/60 p-2 rounded-lg">
+                            <span class="text-emerald-300">الداخل: ${(Number(arch.totalSalesIn) || 0).toLocaleString()} ج</span>
+                            <span class="text-rose-300">الخارج: ${(Number(arch.totalExpensesOut) || 0).toLocaleString()} ج</span>
+                            <span class="text-slate-300">كاش: ${(Number(arch.finalNetCash) || 0).toLocaleString()} ج</span>
+                            <span class="text-slate-300">أونلاين: ${(Number(arch.finalNetOnline) || 0).toLocaleString()} ج</span>
+                        </div>
+                        <div class="flex justify-end pt-1 border-t border-white/10">
+                            <button type="button" onclick="deleteSingleAnnualArchive('${arch.id}')" class="w-full bg-rose-600/80 hover:bg-rose-600 text-white py-1.5 px-3 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1">
+                                <i class="fa-solid fa-trash-can"></i> حذف هذا الجرد (تم بالخطأ) واسترجاع الحسابات
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
 
         // 13-ج. رسم كروت أرشيف الجرد السنوي المحفوظة (مثل: جرد سنة 2026)
         const annualCont = document.getElementById('sm-annual-archives-list');
