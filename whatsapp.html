@@ -245,7 +245,7 @@
                         <button onclick="useTemplate('batch_ready')" class="text-[10px] bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors">🔪 جاهزية الدفعة للتسليم</button>
                         <button onclick="useTemplate('on_way')" class="text-[10px] bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors">🛵 الأوردر مع المندوب</button>
                         <button onclick="useTemplate('followup')" class="text-[10px] bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors">🌹 متابعة بعد الاستلام</button>
-                        <button onclick="useTemplate('promo')" class="text-[10px] bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors">bullhorn عرض دفعة جديدة</button>
+                        <button onclick="useTemplate('promo')" class="text-[10px] bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors"><i class="fa-solid fa-bullhorn"></i> عرض دفعة جديدة</button>
                     </div>
                 </div>
 
@@ -408,6 +408,22 @@
 
                 populateInitialSelectors();
                 checkServerHealth();
+
+                // مراقبة حية لتحديث رابط السيرفر تلقائياً فور تجديده من GitHub Actions كل 5 ساعات
+                db.collection('inventory').doc('settings').onSnapshot(docSnap => {
+                    if (!docSnap.exists) return;
+                    const data = docSnap.data() || {};
+                    storeSettings = Object.assign(storeSettings, data);
+                    if (data.whatsappServerUrl) {
+                        const currentInputUrl = getCleanServerUrl();
+                        const incomingUrl = data.whatsappServerUrl.trim().replace(/\/+$/, '');
+                        if (incomingUrl && incomingUrl !== currentInputUrl) {
+                            document.getElementById('live-server-url').value = incomingUrl;
+                            localStorage.setItem('sman_wa_server_url', incomingUrl);
+                            checkServerHealth();
+                        }
+                    }
+                });
             } catch (e) { console.log(e); }
 
             // الاستماع للطلبات الحية
