@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>سمان ههيا | مركز التحكم في الواتساب (WhatsApp Hub)</title>
+    <meta name="theme-color" content="#064e3b">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            dark: '#064e3b',
+                            primary: '#166534',
+                            wa: '#25D366',
+                            waDark: '#128C7E',
+                            accent: '#f59e0b'
+                        }
+                    },
+                    fontFamily: { cairo: ['Cairo', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { font-family: 'Cairo', sans-serif; background-color: #f1f5f9; -webkit-font-smoothing: antialiased; }
+        .custom-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 10px; }
+        .tab-view { display: none; }
+        .tab-view.active { display: block; animation: fadeIn 0.25s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="text-slate-700 min-h-screen flex flex-col">
+
+    <!-- شاشة تسجيل الدخول -->
+    <div id="login-screen" class="fixed inset-0 bg-slate-900 z-[100] flex items-center justify-center p-4">
+        <div class="bg-white p-8 rounded-[2rem] shadow-2xl w-full max-w-sm text-center relative overflow-hidden">
+            <div class="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-[#25D366] to-brand-primary"></div>
+            <div class="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-100">
+                <i class="fa-brands fa-whatsapp text-5xl text-[#25D366]"></i>
+            </div>
+            <h1 class="text-2xl font-black text-slate-800">واتساب سمان ههيا</h1>
+            <p class="text-xs text-slate-400 font-bold mb-6">منصة الإرسال الذكي المستقلة (24/7)</p>
+            <div class="space-y-3 mb-5">
+                <input type="email" id="login-email" class="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 text-left outline-none focus:border-brand-wa font-bold text-sm" dir="ltr" placeholder="admin@example.com">
+                <input type="password" id="login-password" class="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 text-left outline-none focus:border-brand-wa font-bold text-sm" dir="ltr" placeholder="••••••••">
+            </div>
+            <button onclick="loginApp()" id="login-btn" class="w-full bg-[#25D366] hover:bg-[#1ebd57] text-white font-black py-3.5 rounded-xl transition-all shadow-lg shadow-[#25D366]/30">دخول لمركز الواتساب</button>
+            <p id="login-error" class="hidden text-red-500 text-xs font-bold mt-3 bg-red-50 p-2 rounded-lg"></p>
+        </div>
+    </div>
+
+    <!-- الهيدر العلوي وشريط السيرفر الحي -->
+    <header class="bg-brand-dark text-white shadow-lg sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
+            <div class="flex items-center justify-between w-full lg:w-auto">
+                <div class="flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-2xl bg-[#25D366] text-white flex items-center justify-center text-2xl shadow-md">
+                        <i class="fa-brands fa-whatsapp"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-lg font-black tracking-wide flex items-center gap-2">
+                            واتساب سمان ههيا
+                            <span id="server-status-badge" class="bg-amber-500/20 text-amber-300 border border-amber-400/30 text-[10px] px-2.5 py-0.5 rounded-full font-black">جاري الفحص...</span>
+                        </h1>
+                        <p class="text-[11px] text-emerald-200/80 font-bold">سيستم إرسال مستقل ومرتبط بقاعدة البيانات الحية</p>
+                    </div>
+                </div>
+                <button onclick="openQuickTestModal()" class="lg:hidden bg-[#25D366] text-slate-950 px-3 py-2 rounded-xl text-xs font-black shadow-md">
+                    <i class="fa-solid fa-paper-plane mr-1"></i> تجربة سريعة
+                </button>
+            </div>
+
+            <!-- شريط رابط السيرفر المباشر -->
+            <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto bg-slate-900/60 p-2 rounded-2xl border border-emerald-800/60">
+                <div class="flex items-center gap-1.5 flex-1 min-w-[230px]">
+                    <i class="fa-solid fa-server text-emerald-400 text-xs mr-1"></i>
+                    <input type="url" id="live-server-url" dir="ltr" 
+                        value="https://linked-functionality-polyester-ongoing.trycloudflare.com"
+                        placeholder="https://xxxx.trycloudflare.com"
+                        class="w-full bg-transparent text-xs font-bold text-emerald-300 outline-none border-none placeholder:text-slate-500">
+                </div>
+                <button onclick="saveAndTestServerUrl()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 shadow-sm">
+                    <i class="fa-solid fa-plug-circle-check"></i> حفظ وفحص
+                </button>
+                <button onclick="openQuickTestModal()" class="hidden lg:flex bg-[#25D366] hover:bg-green-400 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all items-center gap-1 shadow-sm">
+                    <i class="fa-solid fa-bolt"></i> تجربة إرسال فورية
+                </button>
+            </div>
+        </div>
+
+        <!-- شريط التبويبات -->
+        <div class="bg-emerald-950/80 border-t border-emerald-900/60 px-4">
+            <div class="max-w-7xl mx-auto flex gap-2 overflow-x-auto custom-scroll py-2">
+                <button onclick="switchWaTab('batches', this)" class="wa-tab active bg-[#25D366] text-slate-950 px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap transition-all flex items-center gap-1.5 shadow-sm">
+                    <i class="fa-solid fa-layer-group"></i> 1. إرسال لدفعة (حجوزات)
+                </button>
+                <button onclick="switchWaTab('orders', this)" class="wa-tab bg-white/5 hover:bg-white/10 text-emerald-100 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5">
+                    <i class="fa-solid fa-bolt text-amber-400"></i> 2. الطلبات الحية والفواتير
+                </button>
+                <button onclick="switchWaTab('drivers', this)" class="wa-tab bg-white/5 hover:bg-white/10 text-emerald-100 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5">
+                    <i class="fa-solid fa-motorcycle text-sky-400"></i> 3. إرسال خط السير للمندوب
+                </button>
+                <button onclick="switchWaTab('customers', this)" class="wa-tab bg-white/5 hover:bg-white/10 text-emerald-100 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5">
+                    <i class="fa-solid fa-users text-purple-400"></i> 4. حملات أرشيف العملاء
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- المحتوى الرئيسي -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- العمود الأيمن: اختيار الجمهور والعملاء (7 أعمدة) -->
+        <div class="lg:col-span-7 space-y-4">
+
+            <!-- تبويب 1: الدفعات -->
+            <div id="tab-batches" class="tab-view active bg-white p-5 rounded-[1.5rem] shadow-sm border border-slate-200/80">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 pb-3 border-b border-slate-100">
+                    <div>
+                        <h2 class="text-base font-black text-slate-800"><i class="fa-solid fa-layer-group text-teal-600 ml-1"></i> إرسال جماعي لعملاء دفعة</h2>
+                        <p class="text-[11px] text-slate-400 font-bold">اختر الدفعة لتظهر لك قائمة جميع الحاجزين بها مع إمكانية استثناء أي عميل.</p>
+                    </div>
+                    <select id="batch-selector" onchange="loadBatchRecipients()" class="w-full sm:w-60 border-2 border-teal-200 bg-teal-50/40 rounded-xl p-2.5 text-xs font-black text-slate-800 outline-none">
+                        <option value="">-- اختر الدفعة --</option>
+                    </select>
+                </div>
+
+                <div class="flex justify-between items-center mb-3 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                    <span class="text-xs font-black text-slate-600">العملاء المحددون للإرسال: <strong id="batch-selected-count" class="text-brand-primary text-sm">0</strong></span>
+                    <div class="flex gap-2">
+                        <button onclick="useTemplate('batch_ready')" class="text-[10px] bg-amber-100 text-amber-800 px-2.5 py-1 rounded-lg font-black hover:bg-amber-200">قالب: موعد تسليم الدفعة</button>
+                        <button onclick="toggleSelectAll('batch-recipients-list')" class="text-[10px] bg-slate-200 text-slate-700 px-3 py-1 rounded-lg font-black hover:bg-slate-300">تحديد / إلغاء الكل</button>
+                    </div>
+                </div>
+
+                <div id="batch-recipients-list" class="space-y-2 max-h-[52vh] overflow-y-auto custom-scroll pr-1">
+                    <div class="text-center py-12 text-slate-400 font-bold text-xs">اختر الدفعة من الأعلى لعرض الحاجزين.</div>
+                </div>
+            </div>
+
+            <!-- تبويب 2: الطلبات الحية -->
+            <div id="tab-orders" class="tab-view bg-white p-5 rounded-[1.5rem] shadow-sm border border-slate-200/80">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 pb-3 border-b border-slate-100">
+                    <div>
+                        <h2 class="text-base font-black text-slate-800"><i class="fa-solid fa-bolt text-amber-500 ml-1"></i> إرسال للطلبات الحية</h2>
+                        <p class="text-[11px] text-slate-400 font-bold">فلتر الطلبات حسب حالتها وأرسل الفاتورة أو إشعار الخروج للتوصيل.</p>
+                    </div>
+                    <select id="orders-status-filter" onchange="loadLiveOrdersRecipients()" class="w-full sm:w-52 border-2 border-amber-200 bg-amber-50/40 rounded-xl p-2.5 text-xs font-black text-slate-800 outline-none">
+                        <option value="new">🆕 طلبات جديدة (لتأكيد الحجز)</option>
+                        <option value="processing">⏳ قيد التجهيز (لإبلاغ العميل)</option>
+                        <option value="dispatched">🛵 في الطريق (خرج مع المندوب)</option>
+                        <option value="no_answer">📵 لم يرد (محاولة تواصل)</option>
+                        <option value="deferred">📅 مؤجل</option>
+                        <option value="completed">✅ مكتمل (رسالة تقييم ومتابعة)</option>
+                        <option value="all">📋 كل الطلبات الحية</option>
+                    </select>
+                </div>
+
+                <div class="flex justify-between items-center mb-3 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                    <span class="text-xs font-black text-slate-600">الطلبات المحددة: <strong id="orders-selected-count" class="text-brand-primary text-sm">0</strong></span>
+                    <button onclick="toggleSelectAll('orders-recipients-list')" class="text-[10px] bg-slate-200 text-slate-700 px-3 py-1 rounded-lg font-black hover:bg-slate-300">تحديد / إلغاء الكل</button>
+                </div>
+
+                <div id="orders-recipients-list" class="space-y-2 max-h-[52vh] overflow-y-auto custom-scroll pr-1"></div>
+            </div>
+
+            <!-- تبويب 3: خط سير المناديب -->
+            <div id="tab-drivers" class="tab-view bg-white p-5 rounded-[1.5rem] shadow-sm border border-slate-200/80">
+                <div class="mb-4 pb-3 border-b border-slate-100">
+                    <h2 class="text-base font-black text-slate-800"><i class="fa-solid fa-motorcycle text-blue-600 ml-1"></i> إرسال خط السير لواتساب المندوب أوتوماتيك</h2>
+                    <p class="text-[11px] text-slate-400 font-bold">اختر المندوب وحدد الطلبات (قيد التجهيز) ليقوم السيرفر بإرسال كشف خط السير كامل لواتساب المندوب مباشرة.</p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                    <div>
+                        <label class="text-[10px] font-black text-slate-500 block mb-1">اختر المندوب المستلم</label>
+                        <select id="wa-driver-select" class="w-full border border-slate-200 bg-slate-50 rounded-xl p-2.5 text-xs font-black text-slate-800 outline-none"></select>
+                    </div>
+                    <div class="flex items-end">
+                        <button onclick="generateDriverRouteToComposer()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-2.5 px-4 rounded-xl text-xs shadow-md transition-all">
+                            <i class="fa-solid fa-file-Contract ml-1"></i> توليد كشف خط السير في صندوق الإرسال
+                        </button>
+                    </div>
+                </div>
+
+                <div id="driver-orders-list" class="space-y-2 max-h-[45vh] overflow-y-auto custom-scroll pr-1"></div>
+            </div>
+
+            <!-- تبويب 4: أرشيف العملاء -->
+            <div id="tab-customers" class="tab-view bg-white p-5 rounded-[1.5rem] shadow-sm border border-slate-200/80">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 pb-3 border-b border-slate-100">
+                    <div>
+                        <h2 class="text-base font-black text-slate-800"><i class="fa-solid fa-users text-purple-600 ml-1"></i> حملات أرشيف العملاء التسويقية</h2>
+                        <p class="text-[11px] text-slate-400 font-bold">اختر شريحة العملاء (VIP أو منطقة محددة) لإرسال عروض فتح الدفعات الجديدة.</p>
+                    </div>
+                    <div class="flex gap-2 w-full sm:w-auto">
+                        <select id="cust-segment-filter" onchange="loadArchiveCustomersRecipients()" class="border border-purple-200 bg-purple-50/40 rounded-xl p-2 text-xs font-black text-slate-800 outline-none">
+                            <option value="vip">💎 عملاء VIP فقط (+3 طلبات)</option>
+                            <option value="active">✅ العملاء النشطين (طلب واحد فأكثر)</option>
+                            <option value="all">👥 كل أرشيف العملاء</option>
+                        </select>
+                        <select id="cust-zone-filter" onchange="loadArchiveCustomersRecipients()" class="border border-slate-200 bg-slate-50 rounded-xl p-2 text-xs font-black text-slate-700 outline-none">
+                            <option value="all">كل المناطق</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex justify-between items-center mb-3 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                    <span class="text-xs font-black text-slate-600">العملاء المحددون: <strong id="customers-selected-count" class="text-brand-primary text-sm">0</strong></span>
+                    <button onclick="toggleSelectAll('customers-recipients-list')" class="text-[10px] bg-slate-200 text-slate-700 px-3 py-1 rounded-lg font-black hover:bg-slate-300">تحديد / إلغاء الكل</button>
+                </div>
+
+                <div id="customers-recipients-list" class="space-y-2 max-h-[52vh] overflow-y-auto custom-scroll pr-1"></div>
+            </div>
+
+        </div>
+
+        <!-- العمود الأيسر: محرر الرسالة الذكي وشاشة الإرسال الحية (5 أعمدة) -->
+        <div class="lg:col-span-5 space-y-4">
+            <div class="bg-white p-5 rounded-[1.5rem] shadow-sm border border-slate-200/80 sticky top-28">
+                <div class="flex justify-between items-center mb-3 pb-2 border-b border-slate-100">
+                    <h3 class="text-base font-black text-slate-800"><i class="fa-solid fa-pen-nib text-[#25D366] ml-1"></i> غرفة صياغة وإرسال الرسالة</h3>
+                    <span id="active-target-label" class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-lg text-[10px] font-black">الهدف: الدفعات</span>
+                </div>
+
+                <!-- قوالب جاهزة سريعة -->
+                <div class="mb-3">
+                    <label class="text-[10px] font-black text-slate-400 block mb-1.5">قوالب سريعة جاهزة (اضغط للكتابة التلقائية):</label>
+                    <div class="flex flex-wrap gap-1.5">
+                        <button onclick="useTemplate('invoice')" class="text-[10px] bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors">🧾 فاتورة وتأكيد طلب</button>
+                        <button onclick="useTemplate('batch_ready')" class="text-[10px] bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors">🔪 جاهزية الدفعة للتسليم</button>
+                        <button onclick="useTemplate('on_way')" class="text-[10px] bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors">🛵 الأوردر مع المندوب</button>
+                        <button onclick="useTemplate('followup')" class="text-[10px] bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors">🌹 متابعة بعد الاستلام</button>
+                        <button onclick="useTemplate('promo')" class="text-[10px] bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 px-2.5 py-1 rounded-lg font-bold transition-colors">bullhorn عرض دفعة جديدة</button>
+                    </div>
+                </div>
+
+                <!-- المتغيرات التلقائية -->
+                <div class="mb-3 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                    <span class="text-[10px] font-bold text-slate-500 block mb-1">اضغط لإدراج متغير ذكي (يتغير باسم وحساب كل عميل تلقائياً):</span>
+                    <div class="flex flex-wrap gap-1">
+                        <button onclick="insertVar('{اسم_العميل}')" class="bg-white border border-slate-200 text-brand-primary px-2 py-0.5 rounded text-[10px] font-black hover:bg-emerald-50">{اسم_العميل}</button>
+                        <button onclick="insertVar('{تفاصيل_الطلبات}')" class="bg-white border border-slate-200 text-brand-primary px-2 py-0.5 rounded text-[10px] font-black hover:bg-emerald-50">{تفاصيل_الطلبات}</button>
+                        <button onclick="insertVar('{الإجمالي_النهائي}')" class="bg-white border border-slate-200 text-brand-primary px-2 py-0.5 rounded text-[10px] font-black hover:bg-emerald-50">{الإجمالي_النهائي}</button>
+                        <button onclick="insertVar('{المنطقة}')" class="bg-white border border-slate-200 text-brand-primary px-2 py-0.5 rounded text-[10px] font-black hover:bg-emerald-50">{المنطقة}</button>
+                        <button onclick="insertVar('{العنوان}')" class="bg-white border border-slate-200 text-brand-primary px-2 py-0.5 rounded text-[10px] font-black hover:bg-emerald-50">{العنوان}</button>
+                        <button onclick="insertVar('{الدفعة}')" class="bg-white border border-slate-200 text-brand-primary px-2 py-0.5 rounded text-[10px] font-black hover:bg-emerald-50">{الدفعة}</button>
+                    </div>
+                </div>
+
+                <textarea id="wa-message-box" rows="6" placeholder="اكتب رسالتك هنا أو اختر قالباً من الأعلى..." class="w-full border-2 border-slate-200 rounded-2xl p-3.5 text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:border-[#25D366] outline-none leading-relaxed resize-none mb-3"></textarea>
+
+                <!-- إعدادات الأمان والفاصل الزمني -->
+                <div class="flex items-center justify-between bg-emerald-50/70 border border-emerald-200/70 px-3 py-2 rounded-xl mb-4">
+                    <span class="text-[11px] font-black text-emerald-900"><i class="fa-solid fa-shield-halved text-emerald-600 ml-1"></i> طريقة الإرسال عبر السيرفر:</span>
+                    <select id="send-mode-select" class="bg-white border border-emerald-200 rounded-lg px-2 py-1 text-[11px] font-black text-emerald-800 outline-none">
+                        <option value="server_queue">🚀 إرسال في خلفية السيرفر دفعة واحدة (الأسرع)</option>
+                        <option value="gradual">⏱️ إرسال متدرج بفاصل 3 ثوانٍ (مراقبة لحظية)</option>
+                    </select>
+                </div>
+
+                <!-- زر الإطلاق -->
+                <button onclick="launchWhatsAppCampaign()" id="btn-launch-campaign" class="w-full bg-[#25D366] hover:bg-[#1ebd57] text-slate-950 font-black py-4 rounded-2xl shadow-lg shadow-[#25D366]/30 transition-all active:scale-95 flex items-center justify-center gap-2 text-base">
+                    <i class="fa-brands fa-whatsapp text-xl"></i> بدء الإرسال عبر السيرفر الآن
+                </button>
+
+                <!-- شاشة متابعة الإرسال الحية (Live Console) -->
+                <div id="campaign-progress-box" class="hidden mt-4 bg-slate-900 text-white p-4 rounded-2xl border border-slate-700 space-y-2">
+                    <div class="flex justify-between items-center text-xs font-black">
+                        <span id="campaign-status-text" class="text-emerald-400">جاري الإرسال...</span>
+                        <span id="campaign-counter-text">0 / 0</span>
+                    </div>
+                    <div class="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                        <div id="campaign-progress-bar" class="h-full bg-[#25D366] transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <div id="campaign-log" class="text-[10px] font-mono text-slate-300 max-h-32 overflow-y-auto custom-scroll space-y-1 pt-1"></div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- نافذة التجربة الفورية لرسالة واحدة -->
+    <div id="quick-test-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden">
+            <div class="p-5 border-b border-slate-100 flex justify-between items-center">
+                <h3 class="text-base font-black text-slate-800"><i class="fa-solid fa-bolt text-[#25D366] ml-1"></i> تجربة إرسال فورية من السيرفر</h3>
+                <button onclick="document.getElementById('quick-test-modal').classList.add('hidden')" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:text-red-500"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="p-5 space-y-4">
+                <div>
+                    <label class="text-xs font-black text-slate-600 block mb-1">رقم الموبايل (للتجربة):</label>
+                    <input type="tel" id="test-phone-input" dir="ltr" placeholder="010..." class="w-full border border-slate-200 rounded-xl p-3 text-sm font-black bg-slate-50 outline-none focus:bg-white focus:border-[#25D366]">
+                </div>
+                <div>
+                    <label class="text-xs font-black text-slate-600 block mb-1">نص الرسالة التجريبية:</label>
+                    <textarea id="test-msg-input" rows="3" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-bold bg-slate-50 outline-none focus:bg-white">تجربة إرسال ناجحة من سيرفر واتساب سمان ههيا الجديد 🚀🦆</textarea>
+                </div>
+                <button onclick="sendSingleTestMessage()" id="btn-send-test" class="w-full bg-[#25D366] hover:bg-[#1ebd57] text-slate-950 font-black py-3.5 rounded-xl shadow-md transition-all">
+                    <i class="fa-solid fa-paper-plane ml-1"></i> إرسال الرسالة التجريبية الآن
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // === 1. إعدادات Firebase (نفس قاعدة بيانات سمان ههيا) ===
+        const firebaseConfig = { 
+            apiKey: "AIzaSyD7ZJP8n8fhMewPfEsTBANn0h9To_q15BY", 
+            authDomain: "sman-ca8f8.firebaseapp.com", 
+            projectId: "sman-ca8f8", 
+            storageBucket: "sman-ca8f8.firebasestorage.app", 
+            messagingSenderId: "538778803310", 
+            appId: "1:538778803310:web:5eeff42bae534375a21a7f" 
+        };
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        let storeSettings = { deliveryZones: [], drivers: [] };
+        let storeBatches = {};
+        let allOrdersRaw = [];
+        let customersData = [];
+        let currentActiveTab = 'batches';
+        let directDriverOverridePhone = null;
+
+        // دالة تنظيف وتوحيد أرقام الموبايل
+        window.normalizePhone = (phone) => {
+            if (!phone) return '';
+            let n = phone.toString()
+                .replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660)
+                .replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0)
+                .replace(/\D/g, '');
+            if (n.length >= 10) {
+                if (n.startsWith('0020')) n = '0' + n.substring(4);
+                else if (n.startsWith('201')) n = '0' + n.substring(2);
+                else if (n.length === 10 && n.startsWith('1')) n = '0' + n;
+            }
+            return n;
+        };
+
+        // === 2. الدخول التلقائي المتوافق مع CRM سمان ههيا ===
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                document.getElementById('login-screen').classList.add('hidden');
+                bootWhatsAppCenter();
+            } else {
+                const savedEmail = localStorage.getItem('sman_owner_email');
+                const savedPass = localStorage.getItem('sman_owner_pass');
+                if (savedEmail && savedPass) {
+                    auth.signInWithEmailAndPassword(savedEmail, savedPass).catch(() => {
+                        document.getElementById('login-screen').classList.remove('hidden');
+                    });
+                }
+            }
+        });
+
+        window.loginApp = () => {
+            const e = document.getElementById('login-email').value.trim();
+            const p = document.getElementById('login-password').value;
+            if (!e || !p) return;
+            const btn = document.getElementById('login-btn');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الدخول...';
+            auth.signInWithEmailAndPassword(e, p).then(() => {
+                localStorage.setItem('sman_owner_email', e);
+                localStorage.setItem('sman_owner_pass', p);
+                localStorage.setItem('sman_trusted_owner_device', '1');
+            }).catch(() => {
+                btn.innerHTML = 'دخول لمركز الواتساب';
+                const err = document.getElementById('login-error');
+                err.innerText = 'بيانات الدخول غير صحيحة!';
+                err.classList.remove('hidden');
+            });
+        };
+
+        // === 3. تحميل البيانات من Firebase وإدارة رابط السيرفر ===
+        async function bootWhatsAppCenter() {
+            // استرجاع رابط السيرفر المحفوظ محلياً أو في السحابة
+            const savedUrl = localStorage.getItem('sman_wa_server_url');
+            if (savedUrl) document.getElementById('live-server-url').value = savedUrl;
+
+            try {
+                const invSnap = await db.collection('inventory').get();
+                invSnap.forEach(doc => {
+                    if (doc.id === 'settings') {
+                        storeSettings = Object.assign(storeSettings, doc.data());
+                        if (storeSettings.whatsappServerUrl) {
+                            document.getElementById('live-server-url').value = storeSettings.whatsappServerUrl;
+                            localStorage.setItem('sman_wa_server_url', storeSettings.whatsappServerUrl);
+                        }
+                    }
+                    if (doc.id === 'batches') storeBatches = doc.data() || {};
+                });
+
+                populateInitialSelectors();
+                checkServerHealth();
+            } catch (e) { console.log(e); }
+
+            // الاستماع للطلبات الحية
+            db.collection('orders').onSnapshot(snap => {
+                allOrdersRaw = [];
+                snap.forEach(doc => {
+                    let d = doc.data();
+                    if (!d.batchName && d.batchId && storeBatches[d.batchId]) {
+                        d.batchName = storeBatches[d.batchId].name;
+                    }
+                    allOrdersRaw.push({ id: doc.id, ...d });
+                });
+                allOrdersRaw.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+                loadBatchRecipients();
+                loadLiveOrdersRecipients();
+                loadDriverOrdersList();
+            });
+
+            // جلب أرشيف العملاء
+            db.collection('customers').get().then(snap => {
+                customersData = [];
+                snap.forEach(doc => customersData.push(doc.data()));
+                customersData.sort((a, b) => (b.ordersCount || 0) - (a.ordersCount || 0));
+                loadArchiveCustomersRecipients();
+            });
+        }
+
+        function getCleanServerUrl() {
+            let url = (document.getElementById('live-server-url').value || '').trim();
+            return url.replace(/\/+$/, ''); // إزالة الشرطة المائلة في آخر الرابط
+        }
+
+        window.saveAndTestServerUrl = async () => {
+            const cleanUrl = getCleanServerUrl();
+            if (!cleanUrl) return alert('الرجاء وضع رابط السيرفر!');
+            localStorage.setItem('sman_wa_server_url', cleanUrl);
+            try {
+                await db.collection('inventory').doc('settings').set({ whatsappServerUrl: cleanUrl }, { merge: true });
+            } catch (e) {}
+            await checkServerHealth(true);
+        };
+
+        async function checkServerHealth(showAlert = false) {
+            const badge = document.getElementById('server-status-badge');
+            const baseUrl = getCleanServerUrl();
+            if (!baseUrl) return;
+
+            badge.className = 'bg-amber-500/20 text-amber-300 border border-amber-400/30 text-[10px] px-2.5 py-0.5 rounded-full font-black';
+            badge.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> فحص السيرفر...';
+
+            try {
+                const res = await fetch(baseUrl + '/', { method: 'GET', mode: 'cors' });
+                if (res.ok) {
+                    badge.className = 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 text-[10px] px-2.5 py-0.5 rounded-full font-black';
+                    badge.innerHTML = '🟢 السيرفر متصل وجاهز';
+                    if (showAlert) alert('✅ السيرفر حي ومتصل بنجاح وتم حفظ الرابط في السحابة!');
+                } else {
+                    throw new Error('Status not OK');
+                }
+            } catch (e) {
+                badge.className = 'bg-red-500/20 text-red-300 border border-red-400/40 text-[10px] px-2.5 py-0.5 rounded-full font-black';
+                badge.innerHTML = '🔴 السيرفر غير مستجيب';
+                if (showAlert) alert('⚠️ لم نتمكن من الوصول للسيرفر. تأكد أن عملية GitHub Actions تعمل وأن الرابط صحيح.');
+            }
+        }
+
+        function populateInitialSelectors() {
+            // الدفعات
+            const bSel = document.getElementById('batch-selector');
+            bSel.innerHTML = '<option value="">-- اختر الدفعة --</option>';
+            Object.keys(storeBatches).reverse().forEach(bId => {
+                if (storeBatches[bId] && storeBatches[bId].name) {
+                    bSel.innerHTML += `<option value="${bId}">${storeBatches[bId].name}</option>`;
+                }
+            });
+
+            // المناديب
+            const dSel = document.getElementById('wa-driver-select');
+            dSel.innerHTML = '<option value="">-- اختر المندوب --</option>';
+            (storeSettings.drivers || []).forEach(d => {
+                dSel.innerHTML += `<option value="${d.phone}" data-name="${d.name}">${d.name} (${d.phone})</option>`;
+            });
+
+            // المناطق
+            const zSel = document.getElementById('cust-zone-filter');
+            zSel.innerHTML = '<option value="all">كل المناطق</option>';
+            (storeSettings.deliveryZones || []).forEach(z => {
+                zSel.innerHTML += `<option value="${z.name}">${z.name}</option>`;
+            });
+        }
+
+        // === 4. التبديل بين الغرف الأربع ===
+        window.switchWaTab = (tabId, btn) => {
+            currentActiveTab = tabId;
+            directDriverOverridePhone = null;
+            document.querySelectorAll('.tab-view').forEach(v => v.classList.remove('active'));
+            document.getElementById('tab-' + tabId).classList.add('active');
+
+            document.querySelectorAll('.wa-tab').forEach(b => {
+                b.className = 'wa-tab bg-white/5 hover:bg-white/10 text-emerald-100 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5';
+            });
+            btn.className = 'wa-tab active bg-[#25D366] text-slate-950 px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap transition-all flex items-center gap-1.5 shadow-sm';
+
+            const labels = {
+                batches: 'الهدف: عملاء الدفعة',
+                orders: 'الهدف: الطلبات الحية',
+                drivers: 'الهدف: واتساب المندوب',
+                customers: 'الهدف: أرشيف العملاء'
+            };
+            document.getElementById('active-target-label').innerText = labels[tabId] || '';
+        };
+
+        // === 5. بناء قوائم المستلمين ===
+        function renderRecipientCard(item, checkboxClass, countUpdaterFn) {
+            const itemsStr = (item.items && Array.isArray(item.items))
+                ? item.items.map(i => `${i.quantity}x ${i.name}`).join(' + ')
+                : (item.ordersCount ? `طلبات سابقة: ${item.ordersCount}` : '');
+
+            return `
+            <label class="flex items-center justify-between p-3 rounded-xl bg-slate-50 hover:bg-emerald-50/50 border border-slate-200/80 cursor-pointer transition-all select-none">
+                <div class="flex items-center gap-3">
+                    <input type="checkbox" class="${checkboxClass} w-4 h-4 accent-[#25D366] rounded" 
+                        data-id="${item.id || ''}"
+                        data-phone="${item.customerPhone || item.phone || ''}"
+                        data-name="${item.customerName || item.name || 'عميل'}"
+                        data-zone="${item.zone || ''}"
+                        data-address="${item.customerAddress || item.address || ''}"
+                        data-total="${item.total || 0}"
+                        data-subtotal="${item.subtotal || 0}"
+                        data-delivery="${item.deliveryFee || 0}"
+                        data-discount="${item.discount || 0}"
+                        data-batch="${item.batchName || ''}"
+                        data-items="${encodeURIComponent(itemsStr)}"
+                        onchange="${countUpdaterFn}()" checked>
+                    <div>
+                        <div class="text-xs font-black text-slate-800">${item.customerName || item.name || 'عميل'} <span class="text-[10px] font-bold text-slate-400 mr-1" dir="ltr">${item.customerPhone || item.phone || ''}</span></div>
+                        <div class="text-[10px] font-bold text-slate-500 mt-0.5">${item.zone || 'بدون منطقة'} ${itemsStr ? ' • ' + itemsStr : ''}</div>
+                    </div>
+                </div>
+                ${item.total ? `<span class="text-xs font-black text-brand-primary bg-white px-2.5 py-1 rounded-lg border border-slate-200">${item.total} ج</span>` : ''}
+            </label>`;
+        }
+
+        window.loadBatchRecipients = () => {
+            const bId = document.getElementById('batch-selector').value;
+            const cont = document.getElementById('batch-recipients-list');
+            if (!bId) {
+                cont.innerHTML = '<div class="text-center py-12 text-slate-400 font-bold text-xs">اختر الدفعة من الأعلى لعرض الحاجزين.</div>';
+                updateSelectedCounter('batch-cb', 'batch-selected-count');
+                return;
+            }
+            const orders = allOrdersRaw.filter(o => o.batchId === bId && o.status !== 'canceled' && o.status !== 'trash');
+            if (orders.length === 0) {
+                cont.innerHTML = '<div class="text-center py-10 text-slate-400 font-bold text-xs">لا توجد حجوزات نشطة في هذه الدفعة.</div>';
+            } else {
+                cont.innerHTML = orders.map(o => renderRecipientCard(o, 'batch-cb', "() => updateSelectedCounter('batch-cb','batch-selected-count')")).join('');
+            }
+            updateSelectedCounter('batch-cb', 'batch-selected-count');
+        };
+
+        window.loadLiveOrdersRecipients = () => {
+            const st = document.getElementById('orders-status-filter').value;
+            const cont = document.getElementById('orders-recipients-list');
+            const orders = allOrdersRaw.filter(o => {
+                if (o.status === 'trash' || o.isArchived) return false;
+                return st === 'all' ? true : o.status === st;
+            });
+            if (orders.length === 0) {
+                cont.innerHTML = '<div class="text-center py-10 text-slate-400 font-bold text-xs">لا توجد طلبات في هذه الحالة حالياً.</div>';
+            } else {
+                cont.innerHTML = orders.slice(0, 100).map(o => renderRecipientCard(o, 'orders-cb', "() => updateSelectedCounter('orders-cb','orders-selected-count')")).join('');
+            }
+            updateSelectedCounter('orders-cb', 'orders-selected-count');
+        };
+
+        window.loadDriverOrdersList = () => {
+            const cont = document.getElementById('driver-orders-list');
+            const orders = allOrdersRaw.filter(o => o.status === 'processing' && !o.isArchived);
+            if (orders.length === 0) {
+                cont.innerHTML = '<div class="text-center py-10 text-slate-400 font-bold text-xs">لا توجد طلبات في قسم (قيد التجهيز) حالياً.</div>';
+            } else {
+                cont.innerHTML = orders.map(o => renderRecipientCard(o, 'driver-order-cb', "() => {}")).join('');
+            }
+        };
+
+        window.loadArchiveCustomersRecipients = () => {
+            const seg = document.getElementById('cust-segment-filter').value;
+            const zone = document.getElementById('cust-zone-filter').value;
+            const cont = document.getElementById('customers-recipients-list');
+
+            const filtered = customersData.filter(c => {
+                if (c.isBlacklisted) return false;
+                if (zone !== 'all' && c.zone !== zone) return false;
+                if (seg === 'vip') return (c.ordersCount || 0) >= 3 || (c.totalSpent || 0) >= 1500;
+                if (seg === 'active') return (c.ordersCount || 0) >= 1;
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                cont.innerHTML = '<div class="text-center py-10 text-slate-400 font-bold text-xs">لا يوجد عملاء يطابقون هذا الفلتر.</div>';
+            } else {
+                cont.innerHTML = filtered.slice(0, 150).map(c => renderRecipientCard(c, 'cust-cb', "() => updateSelectedCounter('cust-cb','customers-selected-count')")).join('');
+            }
+            updateSelectedCounter('cust-cb', 'customers-selected-count');
+        };
+
+        window.updateSelectedCounter = (cbClass, counterId) => {
+            const count = document.querySelectorAll('.' + cbClass + ':checked').length;
+            const el = document.getElementById(counterId);
+            if (el) el.innerText = count;
+        };
+
+        window.toggleSelectAll = (containerId) => {
+            const cbs = Array.from(document.querySelectorAll(`#${containerId} input[type="checkbox"]`));
+            const allChecked = cbs.every(cb => cb.checked);
+            cbs.forEach(cb => cb.checked = !allChecked);
+            updateSelectedCounter('batch-cb', 'batch-selected-count');
+            updateSelectedCounter('orders-cb', 'orders-selected-count');
+            updateSelectedCounter('cust-cb', 'customers-selected-count');
+        };
+
+        // === 6. القوالب الذكية وتجهيز خط السير ===
+        window.insertVar = (variable) => {
+            const box = document.getElementById('wa-message-box');
+            box.value += ' ' + variable + ' ';
+            box.focus();
+        };
+
+        window.useTemplate = (type) => {
+            const box = document.getElementById('wa-message-box');
+            if (type === 'invoice') {
+                box.value = storeSettings.whatsappTemplate || "أهلاً بك يا {اسم_العميل} في سمان ههيا 🌹\nتم تأكيد طلبك بنجاح:\n{تفاصيل_الطلبات}\n📍 المنطقة: {المنطقة}\n💰 الإجمالي النهائي: {الإجمالي_النهائي} ج.م\nشكراً لثقتكم بنا!";
+            } else if (type === 'batch_ready') {
+                box.value = "أهلاً بك يا {اسم_العميل} 🌹\nبخصوص حجزك في ({الدفعة}):\n{تفاصيل_الطلبات}\nالسمان جاهز فريش وسيتم التوزيع والتسليم لك في ({المنطقة})، الإجمالي المطلوب: {الإجمالي_النهائي} ج.م.\nيرجى تأكيد تواجدك لاستلام الأوردر 🛵";
+            } else if (type === 'on_way') {
+                box.value = "أهلاً يا {اسم_العميل} 🛵\nأوردر سمان ههيا الخاص بك خرج الآن مع المندوب وفي الطريق إليك!\nتفاصيل الطلب: {تفاصيل_الطلبات}\nالمطلوب تحصيله: {الإجمالي_النهائي} ج.م\nيرجى إبقاء الهاتف متاحاً.";
+            } else if (type === 'followup') {
+                box.value = "أهلاً يا {اسم_العميل}، يارب تكون بخير 🌹\nاستلمت أوردر سمان ههيا، يهمنا جداً نعرف رأيك في الجودة والنظافة بعد التجربة.. وبالهنا والشفا مقدماً! 🍽️";
+            } else if (type === 'promo') {
+                box.value = "أهلاً بك يا {اسم_العميل} من أسرة سمان ههيا 🦆✨\nفتحنا باب الحجز للدفعة الجديدة الطازجة! الكمية محدودة، لو حابب نحجزلك نصيبك رد علينا بالكمية المطلوبة الآن 🌹";
+            }
+        };
+
+        window.generateDriverRouteToComposer = () => {
+            const sel = document.getElementById('wa-driver-select');
+            const driverPhone = sel.value;
+            if (!driverPhone) return alert('اختر المندوب أولاً!');
+            const driverName = sel.options[sel.selectedIndex].getAttribute('data-name') || 'المندوب';
+
+            const checkedCbs = Array.from(document.querySelectorAll('.driver-order-cb:checked'));
+            if (checkedCbs.length === 0) return alert('حدد طلباً واحداً على الأقل للمندوب!');
+
+            let totalCash = 0;
+            let lines = `*🗺️ خط سير المندوب: ${driverName}*\n📦 عدد الأوردرات: ${checkedCbs.length} طلب\n════════════════════\n\n`;
+
+            checkedCbs.forEach((cb, idx) => {
+                const name = cb.getAttribute('data-name');
+                const phone = cb.getAttribute('data-phone');
+                const zone = cb.getAttribute('data-zone');
+                const addr = cb.getAttribute('data-address');
+                const total = Number(cb.getAttribute('data-total')) || 0;
+                const items = decodeURIComponent(cb.getAttribute('data-items') || '');
+                totalCash += total;
+
+                lines += `*👤 [${idx + 1}] ${name}*\n📞 ${phone}\n📍 ${zone} ${addr ? '- ' + addr : ''}\n🛒 ${items}\n💰 المطلوب: *${total} ج.م*\n────────────────────\n`;
+            });
+
+            lines += `\n💰 *إجمالي التحصيل المطلوب: ${totalCash} ج.م*`;
+            document.getElementById('wa-message-box').value = lines;
+            directDriverOverridePhone = driverPhone;
+            document.getElementById('active-target-label').innerText = `الهدف: المندوب (${driverName})`;
+        };
+
+        // === 7. محرك الإرسال الذكي عبر السيرفر (يدعم /send-bulk-smart و /send-bulk تلقائياً) ===
+        async function postToLiveServer(bulkDataArray) {
+            const baseUrl = getCleanServerUrl();
+            if (!baseUrl) throw new Error('رابط السيرفر غير مكتوب');
+
+            // المحاولة الأولى: مسار /send-bulk-smart (يدعم رسالة مخصصة لكل عميل)
+            try {
+                const resSmart = await fetch(baseUrl + '/send-bulk-smart', {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bulkData: bulkDataArray })
+                });
+                if (resSmart.ok) return true;
+            } catch (e) {}
+
+            // المحاولة الاحتياطية: مسار /send-bulk (إذا كان السيرفر يعمل بالكود الأول)
+            for (const item of bulkDataArray) {
+                let formattedPhone = window.normalizePhone(item.phone);
+                if (formattedPhone.startsWith('0')) formattedPhone = '2' + formattedPhone;
+                const resLegacy = await fetch(baseUrl + '/send-bulk', {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ numbers: [formattedPhone], message: item.message })
+                });
+                if (!resLegacy.ok) throw new Error('Server rejected request');
+            }
+            return true;
+        }
+
+        window.launchWhatsAppCampaign = async () => {
+            const rawTemplate = document.getElementById('wa-message-box').value.trim();
+            if (!rawTemplate) return alert('الرجاء كتابة نص الرسالة أولاً!');
+
+            let bulkData = [];
+
+            if (currentActiveTab === 'drivers' && directDriverOverridePhone) {
+                bulkData.push({ phone: directDriverOverridePhone, name: 'المندوب', message: rawTemplate });
+            } else {
+                const selectorMap = {
+                    batches: '.batch-cb:checked',
+                    orders: '.orders-cb:checked',
+                    drivers: '.driver-order-cb:checked',
+                    customers: '.cust-cb:checked'
+                };
+                const checkedBoxes = Array.from(document.querySelectorAll(selectorMap[currentActiveTab] || ''));
+                if (checkedBoxes.length === 0) return alert('الرجاء تحديد عميل واحد على الأقل من القائمة!');
+
+                checkedBoxes.forEach(cb => {
+                    const phone = window.normalizePhone(cb.getAttribute('data-phone'));
+                    if (phone.length < 10) return;
+
+                    const name = cb.getAttribute('data-name') || 'عميلنا العزيز';
+                    const zone = cb.getAttribute('data-zone') || '';
+                    const address = cb.getAttribute('data-address') || '';
+                    const total = cb.getAttribute('data-total') || '0';
+                    const subtotal = cb.getAttribute('data-subtotal') || '0';
+                    const delivery = cb.getAttribute('data-delivery') || '0';
+                    const discount = cb.getAttribute('data-discount') || '0';
+                    const batchName = cb.getAttribute('data-batch') || '';
+                    const items = decodeURIComponent(cb.getAttribute('data-items') || '');
+
+                    const personalizedMsg = rawTemplate
+                        .replace(/{اسم_العميل}/g, name)
+                        .replace(/{رقم_العميل}/g, phone)
+                        .replace(/{المنطقة}/g, zone)
+                        .replace(/{العنوان}/g, address)
+                        .replace(/{تفاصيل_الطلبات}/g, items)
+                        .replace(/{إجمالي_الطلب}/g, subtotal)
+                        .replace(/{التوصيل}/g, delivery)
+                        .replace(/{الخصم}/g, discount)
+                        .replace(/{الإجمالي_النهائي}/g, total)
+                        .replace(/{الدفعة}/g, batchName);
+
+                    bulkData.push({ phone, name, message: personalizedMsg });
+                });
+            }
+
+            if (bulkData.length === 0) return alert('لا توجد أرقام صالحة للإرسال!');
+            if (!confirm(`🚀 سيتم إرسال (${bulkData.length}) رسالة عبر سيرفر الواتساب المباشر.\nهل أنت متأكد من بدء الإرسال؟`)) return;
+
+            const progBox = document.getElementById('campaign-progress-box');
+            const progBar = document.getElementById('campaign-progress-bar');
+            const statusTxt = document.getElementById('campaign-status-text');
+            const counterTxt = document.getElementById('campaign-counter-text');
+            const logBox = document.getElementById('campaign-log');
+            const sendMode = document.getElementById('send-mode-select').value;
+
+            progBox.classList.remove('hidden');
+            logBox.innerHTML = '';
+            progBar.style.width = '10%';
+
+            try {
+                if (sendMode === 'server_queue') {
+                    statusTxt.innerText = 'جاري تسليم الدفعة للسيرفر...';
+                    counterTxt.innerText = `${bulkData.length} رسالة`;
+                    await postToLiveServer(bulkData);
+                    progBar.style.width = '100%';
+                    statusTxt.innerText = '✅ استلم السيرفر الدفعة ويرسلها في الخلفية الآن!';
+                    logBox.innerHTML = bulkData.map(b => `<div class="text-emerald-400">✔ في طابور السيرفر: ${b.name} (${b.phone})</div>`).join('');
+                } else {
+                    for (let i = 0; i < bulkData.length; i++) {
+                        const item = bulkData[i];
+                        statusTxt.innerText = `جاري الإرسال إلى: ${item.name}`;
+                        counterTxt.innerText = `${i + 1} / ${bulkData.length}`;
+                        await postToLiveServer([item]);
+                        const pct = Math.round(((i + 1) / bulkData.length) * 100);
+                        progBar.style.width = pct + '%';
+                        logBox.innerHTML = `<div class="text-emerald-400">✔ تم الإرسال: ${item.name} (${item.phone})</div>` + logBox.innerHTML;
+                        if (i < bulkData.length - 1) await new Promise(r => setTimeout(r, 3000));
+                    }
+                    statusTxt.innerText = '🎉 اكتملت الحملة بنجاح 100%!';
+                }
+            } catch (err) {
+                statusTxt.innerText = '❌ توقف الإرسال بسبب خطأ في الاتصال بالسيرفر';
+                logBox.innerHTML = `<div class="text-red-400">⚠️ تأكد من أن رابط Cloudflare محدث ويعمل.</div>` + logBox.innerHTML;
+            }
+        };
+
+        // === 8. نافذة التجربة السريعة ===
+        window.openQuickTestModal = () => {
+            document.getElementById('quick-test-modal').classList.remove('hidden');
+        };
+
+        window.sendSingleTestMessage = async () => {
+            const phone = window.normalizePhone(document.getElementById('test-phone-input').value);
+            const msg = document.getElementById('test-msg-input').value.trim();
+            if (!phone || phone.length < 10) return alert('أدخل رقم موبايل صحيح!');
+            if (!msg) return alert('اكتب نص الرسالة!');
+
+            const btn = document.getElementById('btn-send-test');
+            const orig = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال من السيرفر...';
+            btn.disabled = true;
+
+            try {
+                await postToLiveServer([{ phone, name: 'تجربة', message: msg }]);
+                alert('✅ تم إرسال أمر الرسالة التجريبية للسيرفر بنجاح! تفقد هاتفك الآن.');
+                document.getElementById('quick-test-modal').classList.add('hidden');
+            } catch (e) {
+                alert('❌ فشل الاتصال بالسيرفر! تأكد أن السيرفر يعمل في GitHub Actions.');
+            }
+            btn.innerHTML = orig;
+            btn.disabled = false;
+        };
+    </script>
+</body>
+</html>
