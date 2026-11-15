@@ -67,9 +67,9 @@
         return { type: 'meat', unitLabel: 'طبق/جوز', isMeat: true };
     };
 
-    // تدقيق حسابات الطلب الواحد (صافي حساب المالك بدون مصاريف التوصيل الخاصة بالمناديب)
+    // تدقيق حسابات الطلب الواحد (صافي حساب المالك بدون التوصيل + توزيع الكاش والفيزا/المحفظة حسب تقفيل المندوب)
     window.getAccurateOrderFinancials = function (o) {
-        if (!o) return { subtotal: 0, delivery: 0, driverDelivery: 0, discount: 0, total: 0, implicitDiscount: 0 };
+        if (!o) return { subtotal: 0, delivery: 0, driverDelivery: 0, discount: 0, total: 0, implicitDiscount: 0, cashTotal: 0, onlineTotal: 0, paymentMode: 'cash' };
         let itemsCalcSum = 0;
         let implicitDisc = 0;
 
@@ -98,13 +98,51 @@
         // الصافي الحقيقي للمالك = قيمة المنتجات ناقص الخصم فقط (بدون التوصيل نهائياً)
         const netOwnerTotal = Math.max(0, Math.round(subtotal - discount));
 
+        // حساب نصيب (الكاش) ونصيب (الفيزا/المحفظة) بناءً على ما تم تقفيله فعلياً مع المندوب أولاً
+        let cashTotal = netOwnerTotal;
+        let onlineTotal = 0;
+        let paymentMode = o.paymentMethod || 'cash';
+
+        if (o.settledCash !== undefined || o.settledOnline !== undefined) {
+            const sCash = Math.max(0, Number(o.settledCash) || 0);
+            const sOnline = Math.max(0, Number(o.settledOnline) || 0);
+            if (sCash === 0 && sOnline > 0) {
+                cashTotal = 0;
+                onlineTotal = netOwnerTotal;
+                paymentMode = 'online';
+            } else if (sOnline === 0 && sCash > 0) {
+                cashTotal = netOwnerTotal;
+                onlineTotal = 0;
+                paymentMode = 'cash';
+            } else if (sCash > 0 && sOnline > 0) {
+                onlineTotal = Math.min(netOwnerTotal, Math.round(sOnline));
+                cashTotal = Math.max(0, netOwnerTotal - onlineTotal);
+                paymentMode = (cashTotal > 0 && onlineTotal > 0) ? 'split' : (onlineTotal > 0 ? 'online' : 'cash');
+            }
+        } else if (paymentMode === 'online') {
+            cashTotal = 0;
+            onlineTotal = netOwnerTotal;
+        } else if (paymentMode === 'split') {
+            const rawOnline = Math.max(0, Number(o.paidOnline) || 0);
+            onlineTotal = Math.min(netOwnerTotal, Math.round(rawOnline));
+            cashTotal = Math.max(0, netOwnerTotal - onlineTotal);
+            paymentMode = (cashTotal > 0 && onlineTotal > 0) ? 'split' : (onlineTotal > 0 ? 'online' : 'cash');
+        } else {
+            cashTotal = netOwnerTotal;
+            onlineTotal = 0;
+            paymentMode = 'cash';
+        }
+
         return {
             subtotal: Math.round(subtotal),
             delivery: 0,
             driverDelivery: Math.round(driverDelivery),
             discount: Math.round(discount),
             total: netOwnerTotal,
-            implicitDiscount: Math.round(implicitDisc)
+            implicitDiscount: Math.round(implicitDisc),
+            cashTotal: Math.round(cashTotal),
+            onlineTotal: Math.round(onlineTotal),
+            paymentMode: paymentMode
         };
     };
 
@@ -584,8 +622,8 @@
             if (!window.isAfterFiscalReset(oMs)) return;
 
             const fin = window.getAccurateOrderFinancials(o);
-            if (o.paymentMethod === 'online') onlineIn += fin.total;
-            else cashIn += fin.total;
+            cashIn += fin.cashTotal;
+            onlineIn += fin.onlineTotal;
         });
 
         ledgerList.forEach(r => {
@@ -2676,8 +2714,8 @@
                 completedRevenue += fin.total;
                 if (oDebt > 0) completedDebtTotal += oDebt;
 
-                if (o.paymentMethod === 'online') onlineCompletedRev += fin.total;
-                else cashCompletedRev += fin.total;
+                cashCompletedRev += fin.cashTotal;
+                onlineCompletedRev += fin.onlineTotal;
 
                 if (fin.discount > 0 || fin.implicitDiscount > 0) {
                     completedDirectDisc += fin.discount;
@@ -2695,8 +2733,8 @@
                 activeExpectedRev += fin.total;
                 if (oDebt > 0) activeDebtTotal += oDebt;
 
-                if (o.paymentMethod === 'online') onlinePendingRev += fin.total;
-                else cashPendingRev += fin.total;
+                cashPendingRev += fin.cashTotal;
+                onlinePendingRev += fin.onlineTotal;
 
                 if (fin.discount > 0 || fin.implicitDiscount > 0) {
                     activeDirectDisc += fin.discount;
@@ -2704,6 +2742,7 @@
                     activeDiscOrders++;
                 }
             }
+
 
             if (Array.isArray(o.items)) {
                 o.items.forEach(item => {
@@ -3088,9 +3127,11 @@
                     const dObj = parseOrderDateObj(o, window.dashState.dateBasis);
                     const dateFormatted = dObj ? dObj.toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' }) : (o.orderDate || '-');
 
-                    const payBadge = o.paymentMethod === 'online'
-                        ? `<span class="text-[8px] bg-emerald-100 text-emerald-700 px-1 rounded font-black block">أونلاين</span>`
-                        : `<span class="text-[8px] bg-slate-100 text-slate-500 px-1 rounded font-bold block">كاش</span>`;
+                    const payBadge = fin.paymentMode === 'online'
+                        ? `<span class="text-[8px] bg-emerald-100 text-emerald-700 px-1 rounded font-black block">💳 فيزا/محفظة</span>`
+                        : (fin.paymentMode === 'split'
+                            ? `<span class="text-[8px] bg-indigo-100 text-indigo-700 px-1 rounded font-black block">⚖️ ${fin.cashTotal}ج كاش + ${fin.onlineTotal}ج محفظة</span>`
+                            : `<span class="text-[8px] bg-slate-100 text-slate-500 px-1 rounded font-bold block">💵 كاش</span>`);
 
                     return `
                     <tr class="hover:bg-slate-50/80 transition-colors">
