@@ -1,24 +1,36 @@
 // =========================================================================
 // 🛵 المحرك الموحد للمناديب، التوجيه، الرادار الحي، وتقفيل العهدة المرن (www/drivers.js)
 // خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM)
-// يدعم: الدفع الكاش 💵 | فيزا أو محفظة 💳 | التقسيم نص ونص ⚖️ (للعميل وللمندوب)
+// يعتمد تقفيل المندوب الفعلي (كاش 💵 / فيزا أو محفظة 💳 / نص ونص ⚖️) كمرجع نهائي للداش بورد
 // =========================================================================
 
 (function () {
     window.reconShowHistory = false;
-    window.reconSplitModeActive = false;
     window.reconOpenSplitOrderId = null;
 
-    // =====================================================================
-    // أ. دوال مساعدة لحساب مبالغ (الكاش) و(الفيزا/المحفظة) لأي طلب بدقة
-    // =====================================================================
+    // حساب صافي قيمة المنتجات للمالك (بدون مصاريف التوصيل) للتطابق التام مع dashboard.js
+    function getOwnerNetProductTotal(order) {
+        if (!order) return 0;
+        if (typeof window.getAccurateOrderFinancials === 'function') {
+            return window.getAccurateOrderFinancials(order).total;
+        }
+        const rawTotal = Number(order.total) || 0;
+        const delFee = Number(order.deliveryFee) || 0;
+        const discount = Number(order.discount) || 0;
+        const rawSub = Number(order.subtotal);
+        const subtotal = (!isNaN(rawSub) && rawSub > 0) ? rawSub : Math.max(0, rawTotal - delFee + discount);
+        return Math.max(0, Math.round(subtotal - discount));
+    }
+
+    // قراءة تفصيلة دفع الطلب الواحد (شامل الشحن للمندوب + صافي المنتجات للداش بورد)
     window.getOrderPaymentBreakdown = function (order) {
-        if (!order) return { method: 'cash', cash: 0, online: 0, total: 0 };
+        if (!order) return { method: 'cash', cash: 0, online: 0, total: 0, netCash: 0, netOnline: 0, netTotal: 0 };
         const total = Number(order.total) || 0;
+        const netTotal = getOwnerNetProductTotal(order);
         const method = order.paymentMethod || 'cash';
 
         if (method === 'online') {
-            return { method: 'online', cash: 0, online: total, total: total };
+            return { method: 'online', cash: 0, online: total, total: total, netCash: 0, netOnline: netTotal, netTotal: netTotal };
         }
         if (method === 'split') {
             let cashPart = (order.paidCash !== undefined && order.paidCash !== null) ? Number(order.paidCash) : Math.round(total / 2);
@@ -28,9 +40,15 @@
             if (cashPart + onlinePart !== total) {
                 onlinePart = Math.max(0, total - cashPart);
             }
-            return { method: 'split', cash: cashPart, online: onlinePart, total: total };
+
+            let netOnline = (order.settledOnline !== undefined && order.settledOnline !== null)
+                ? Math.min(netTotal, Math.max(0, Number(order.settledOnline) || 0))
+                : Math.min(netTotal, onlinePart);
+            let netCash = Math.max(0, netTotal - netOnline);
+
+            return { method: 'split', cash: cashPart, online: onlinePart, total: total, netCash: netCash, netOnline: netOnline, netTotal: netTotal };
         }
-        return { method: 'cash', cash: total, online: 0, total: total };
+        return { method: 'cash', cash: total, online: 0, total: total, netCash: netTotal, netOnline: 0, netTotal: netTotal };
     };
 
     // إظهار أو إخفاء خانات التقسيم (نص ونص) داخل نافذة إضافة طلب أو تعديل طلب
@@ -140,15 +158,24 @@
                 const targetId = (typeof editingOrderData !== 'undefined' && editingOrderData) ? editingOrderData.id : null;
                 const method = document.getElementById('edit-payment-method')?.value || 'cash';
                 const total = Number(document.getElementById('edit-total')?.value) || 0;
+                const delFee = Number(document.getElementById('edit-delivery')?.value) || 0;
+                const netProdTotal = Math.max(0, total - delFee);
+
                 let paidCash = total;
                 let paidOnline = 0;
+                let settledCash = netProdTotal;
+                let settledOnline = 0;
 
                 if (method === 'online') {
                     paidCash = 0;
                     paidOnline = total;
+                    settledCash = 0;
+                    settledOnline = netProdTotal;
                 } else if (method === 'split') {
                     paidCash = Number(document.getElementById('edit-paid-cash')?.value) || 0;
                     paidOnline = Number(document.getElementById('edit-paid-online')?.value) || Math.max(0, total - paidCash);
+                    settledOnline = Math.min(netProdTotal, paidOnline);
+                    settledCash = Math.max(0, netProdTotal - settledOnline);
                 }
 
                 await origSaveEdited();
@@ -158,21 +185,27 @@
                         await db.collection('orders').doc(targetId).update({
                             paymentMethod: method,
                             paidCash: paidCash,
-                            paidOnline: paidOnline
+                            paidOnline: paidOnline,
+                            settledCash: settledCash,
+                            settledOnline: settledOnline
                         });
                         const localOrder = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === targetId);
                         if (localOrder) {
                             localOrder.paymentMethod = method;
                             localOrder.paidCash = paidCash;
                             localOrder.paidOnline = paidOnline;
+                            localOrder.settledCash = settledCash;
+                            localOrder.settledOnline = settledOnline;
                         }
                         if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[targetId]) {
                             globalOrdersMap[targetId].paymentMethod = method;
                             globalOrdersMap[targetId].paidCash = paidCash;
                             globalOrdersMap[targetId].paidOnline = paidOnline;
+                            globalOrdersMap[targetId].settledCash = settledCash;
+                            globalOrdersMap[targetId].settledOnline = settledOnline;
                         }
                         if (typeof window.renderOrdersList === 'function') window.renderOrdersList();
-                        window.updateDashboardPaymentBreakdownBadge();
+                        if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
                     } catch (e) {
                         console.error('Error updating split fields on edited order:', e);
                     }
@@ -182,46 +215,8 @@
         }
     }
 
-    // تحديث شارة تفصيل (الكاش مقابل الفيزا/المحفظة) في كارت لوحة القيادة (إجمالي تحصيل اليوم)
-    window.updateDashboardPaymentBreakdownBadge = function () {
-        const dashTotalEl = document.getElementById('dash-total-today');
-        if (!dashTotalEl || typeof allOrdersRaw === 'undefined') return;
-
-        const nowStr = new Date().toLocaleDateString('en-US');
-        let cashToday = 0;
-        let onlineToday = 0;
-
-        allOrdersRaw.forEach(o => {
-            if (!o || o.status !== 'completed') return;
-            const completedDate = o.completedAtStr || (o.completedAt && typeof o.completedAt.toMillis === 'function' ? new Date(o.completedAt.toMillis()).toLocaleDateString('en-US') : o.orderDate);
-            if (completedDate === nowStr) {
-                const br = window.getOrderPaymentBreakdown(o);
-                cashToday += br.cash;
-                onlineToday += br.online;
-            }
-        });
-
-        let badgeEl = document.getElementById('dash-payment-split-badge');
-        if (!badgeEl) {
-            badgeEl = document.createElement('div');
-            badgeEl.id = 'dash-payment-split-badge';
-            badgeEl.className = 'mt-2 pt-2 border-t border-amber-100/80 flex flex-wrap items-center gap-1.5 text-[10px] font-black';
-            dashTotalEl.parentElement.appendChild(badgeEl);
-        }
-
-        badgeEl.innerHTML = `
-            <span class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-lg" title="النقدية الفعلية في الدرج">💵 كاش: ${cashToday.toLocaleString()} ج</span>
-            <span class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-lg" title="مدفوعات الفيزا والمحافظ الإلكترونية">💳 فيزا/محفظة: ${onlineToday.toLocaleString()} ج</span>
-        `;
-    };
-
-    // تفعيل الربط وتحديث لوحة القيادة بشكل دوري وعند تحميل الصفحة
     setTimeout(attachSplitPaymentHooks, 500);
     setTimeout(attachSplitPaymentHooks, 2000);
-    setInterval(() => {
-        attachSplitPaymentHooks();
-        window.updateDashboardPaymentBreakdownBadge();
-    }, 2500);
 
     // =====================================================================
     // ب. دالة مطابقة المندوب
@@ -326,48 +321,67 @@
         if (!order) return;
 
         const total = Number(order.total) || 0;
+        const netTotal = getOwnerNetProductTotal(order);
 
         if (newMode === 'split') {
             window.reconOpenSplitOrderId = (window.reconOpenSplitOrderId === orderId) ? null : orderId;
             if (order.paymentMethod !== 'split') {
                 const half = Math.round(total / 2);
+                const onlineHalf = Math.max(0, total - half);
+                const netOnline = Math.min(netTotal, onlineHalf);
+                const netCash = Math.max(0, netTotal - netOnline);
+
                 order.paymentMethod = 'split';
                 order.paidCash = half;
-                order.paidOnline = Math.max(0, total - half);
+                order.paidOnline = onlineHalf;
+                order.settledCash = netCash;
+                order.settledOnline = netOnline;
+
                 await db.collection('orders').doc(orderId).update({
                     paymentMethod: 'split',
-                    paidCash: order.paidCash,
-                    paidOnline: order.paidOnline
+                    paidCash: half,
+                    paidOnline: onlineHalf,
+                    settledCash: netCash,
+                    settledOnline: netOnline
                 });
             }
             window.calculateDriverReconciliation();
+            if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
             return;
         }
 
         window.reconOpenSplitOrderId = null;
         const paidCash = (newMode === 'online') ? 0 : total;
         const paidOnline = (newMode === 'online') ? total : 0;
+        const settledCash = (newMode === 'online') ? 0 : netTotal;
+        const settledOnline = (newMode === 'online') ? netTotal : 0;
 
         order.paymentMethod = newMode;
         order.paidCash = paidCash;
         order.paidOnline = paidOnline;
+        order.settledCash = settledCash;
+        order.settledOnline = settledOnline;
 
         if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
             globalOrdersMap[orderId].paymentMethod = newMode;
             globalOrdersMap[orderId].paidCash = paidCash;
             globalOrdersMap[orderId].paidOnline = paidOnline;
+            globalOrdersMap[orderId].settledCash = settledCash;
+            globalOrdersMap[orderId].settledOnline = settledOnline;
         }
 
         try {
             await db.collection('orders').doc(orderId).update({
                 paymentMethod: newMode,
                 paidCash: paidCash,
-                paidOnline: paidOnline
+                paidOnline: paidOnline,
+                settledCash: settledCash,
+                settledOnline: settledOnline
             });
             window.calculateDriverReconciliation();
             if (typeof window.renderOrdersList === 'function') window.renderOrdersList();
             if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
-            window.updateDashboardPaymentBreakdownBadge();
+            if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
         } catch (e) {
             alert('حدث خطأ أثناء تحديث طريقة دفع الطلب!');
         }
@@ -398,23 +412,42 @@
         if (!order) return;
 
         const total = Number(order.total) || 0;
+        const netTotal = getOwnerNetProductTotal(order);
+
         let cashVal = Number(document.getElementById(`recon-split-cash-${orderId}`)?.value) || 0;
         if (cashVal < 0) cashVal = 0;
         if (cashVal > total) cashVal = total;
         let onlineVal = Math.max(0, total - cashVal);
 
         let finalMethod = 'split';
-        if (cashVal === 0 && onlineVal === total) finalMethod = 'online';
-        else if (cashVal === total && onlineVal === 0) finalMethod = 'cash';
+        let settledCash = 0;
+        let settledOnline = 0;
+
+        if (cashVal === 0 && onlineVal === total) {
+            finalMethod = 'online';
+            settledCash = 0;
+            settledOnline = netTotal;
+        } else if (cashVal === total && onlineVal === 0) {
+            finalMethod = 'cash';
+            settledCash = netTotal;
+            settledOnline = 0;
+        } else {
+            settledOnline = Math.min(netTotal, onlineVal);
+            settledCash = Math.max(0, netTotal - settledOnline);
+        }
 
         order.paymentMethod = finalMethod;
         order.paidCash = cashVal;
         order.paidOnline = onlineVal;
+        order.settledCash = settledCash;
+        order.settledOnline = settledOnline;
 
         if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
             globalOrdersMap[orderId].paymentMethod = finalMethod;
             globalOrdersMap[orderId].paidCash = cashVal;
             globalOrdersMap[orderId].paidOnline = onlineVal;
+            globalOrdersMap[orderId].settledCash = settledCash;
+            globalOrdersMap[orderId].settledOnline = settledOnline;
         }
 
         window.reconOpenSplitOrderId = null;
@@ -423,12 +456,14 @@
             await db.collection('orders').doc(orderId).update({
                 paymentMethod: finalMethod,
                 paidCash: cashVal,
-                paidOnline: onlineVal
+                paidOnline: onlineVal,
+                settledCash: settledCash,
+                settledOnline: settledOnline
             });
             window.calculateDriverReconciliation();
             if (typeof window.renderOrdersList === 'function') window.renderOrdersList();
             if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
-            window.updateDashboardPaymentBreakdownBadge();
+            if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
         } catch (e) {
             alert('حدث خطأ أثناء حفظ تقسيمة الطلب!');
         }
@@ -437,43 +472,44 @@
     // =====================================================================
     // د. دوال التحكم في الصندوق السفلي لمطابقة الخزنة مع المندوب
     // =====================================================================
-    window.applyReconPreset = function (mode, totalGrossCash, netAfterDriverFee) {
+    window.applyReconPreset = function (mode, totalAllGross, totalAllNetProducts) {
         const cashInput = document.getElementById('actual-collected-cash');
         const walletInput = document.getElementById('actual-collected-wallet');
+        const baseSelect = document.getElementById('recon-target-base');
         if (!cashInput || !walletInput) return;
 
         if (mode === 'all_cash') {
-            window.reconSplitModeActive = false;
-            cashInput.value = totalGrossCash;
+            if (baseSelect) baseSelect.value = String(totalAllGross);
+            cashInput.value = totalAllGross;
             walletInput.value = 0;
         } else if (mode === 'net_cash') {
-            window.reconSplitModeActive = false;
-            cashInput.value = netAfterDriverFee;
+            if (baseSelect) baseSelect.value = String(totalAllNetProducts);
+            cashInput.value = totalAllNetProducts;
             walletInput.value = 0;
         } else if (mode === 'all_wallet') {
-            window.reconSplitModeActive = false;
+            if (baseSelect) baseSelect.value = String(totalAllGross);
             cashInput.value = 0;
-            walletInput.value = totalGrossCash;
+            walletInput.value = totalAllGross;
         } else if (mode === 'net_wallet') {
-            window.reconSplitModeActive = false;
+            if (baseSelect) baseSelect.value = String(totalAllNetProducts);
             cashInput.value = 0;
-            walletInput.value = netAfterDriverFee;
+            walletInput.value = totalAllNetProducts;
         } else if (mode === 'split_50_50') {
-            window.reconSplitModeActive = true;
-            const half = Math.round(totalGrossCash / 2);
+            const currentTarget = Number(baseSelect?.value) || totalAllNetProducts;
+            const half = Math.round(currentTarget / 2);
             cashInput.value = half;
-            walletInput.value = Math.max(0, totalGrossCash - half);
+            walletInput.value = Math.max(0, currentTarget - half);
         }
-        window.checkCashDifference(totalGrossCash, netAfterDriverFee);
+        window.checkCashDifference(totalAllGross, totalAllNetProducts);
     };
 
-    window.onReconSettlementInput = function (changedSide, totalGrossCash, netAfterDriverFee) {
+    window.onReconSettlementInput = function (changedSide, totalAllGross, totalAllNetProducts) {
         const cashInput = document.getElementById('actual-collected-cash');
         const walletInput = document.getElementById('actual-collected-wallet');
         const autoSplitCb = document.getElementById('recon-auto-split-cb');
         if (!cashInput || !walletInput) return;
 
-        const targetBase = Number(document.getElementById('recon-target-base')?.value) || totalGrossCash;
+        const targetBase = Number(document.getElementById('recon-target-base')?.value) || totalAllNetProducts;
 
         if (autoSplitCb && autoSplitCb.checked) {
             if (changedSide === 'cash') {
@@ -486,41 +522,46 @@
                 cashInput.value = Math.max(0, targetBase - w);
             }
         }
-        window.checkCashDifference(totalGrossCash, netAfterDriverFee);
+        window.checkCashDifference(totalAllGross, totalAllNetProducts);
     };
 
-    window.checkCashDifference = function (totalGrossCash, netAfterDriverFee) {
+    window.checkCashDifference = function (totalAllGross, totalAllNetProducts) {
         const alertEl = document.getElementById('cash-diff-alert');
         if (!alertEl) return;
 
         const cashVal = Number(document.getElementById('actual-collected-cash')?.value) || 0;
         const walletVal = Number(document.getElementById('actual-collected-wallet')?.value) || 0;
-        const totalReceivedFromDriver = cashVal + walletVal;
+        const totalReceived = cashVal + walletVal;
 
-        const netTarget = (netAfterDriverFee !== undefined) ? netAfterDriverFee : totalGrossCash;
-        const driverFee = Math.max(0, totalGrossCash - netTarget);
+        const netTarget = (totalAllNetProducts !== undefined) ? totalAllNetProducts : totalAllGross;
+        const driverFee = Math.max(0, totalAllGross - netTarget);
 
-        if (totalReceivedFromDriver === totalGrossCash) {
-            alertEl.className = 'mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-center text-xs font-black shadow-sm';
-            alertEl.innerHTML = `✅ مطابق تماماً لإجمالي العهدة شامل الشحن (${totalGrossCash.toLocaleString()} ج) — [💵 كاش: ${cashVal.toLocaleString()} ج + 💳 فيزا/محفظة: ${walletVal.toLocaleString()} ج]`;
-        } else if (totalReceivedFromDriver === netTarget && driverFee > 0) {
-            alertEl.className = 'mb-4 p-3 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 text-center text-xs font-black shadow-sm';
-            alertEl.innerHTML = `✅ مطابق تماماً لصافي العهدة بعد خصم شحن المندوب (${netTarget.toLocaleString()} ج) — [💵 كاش: ${cashVal.toLocaleString()} ج + 💳 فيزا/محفظة: ${walletVal.toLocaleString()} ج]`;
-        } else if (totalReceivedFromDriver < netTarget) {
-            const diffNet = netTarget - totalReceivedFromDriver;
-            const diffGross = totalGrossCash - totalReceivedFromDriver;
-            alertEl.className = 'mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-center text-xs font-black shadow-sm';
-            alertEl.innerHTML = `⚠️ يوجد عجز قدره (${diffNet.toLocaleString()} ج) عن الصافي، أو (${diffGross.toLocaleString()} ج) عن الإجمالي شامل الشحن!`;
+        // حساب ما سيسمّع فعلياً في الداش بورد (صافي المنتجات بدون التوصيل)
+        let dashOnlinePreview = Math.min(netTarget, walletVal);
+        let dashCashPreview = Math.max(0, netTarget - dashOnlinePreview);
+        if (walletVal === 0 && cashVal > 0) {
+            dashCashPreview = netTarget;
+            dashOnlinePreview = 0;
+        } else if (cashVal === 0 && walletVal > 0) {
+            dashCashPreview = 0;
+            dashOnlinePreview = netTarget;
+        }
+
+        const dashPreviewLine = `<div class="mt-1.5 pt-1.5 border-t border-black/10 text-[11px] font-black">📊 ما سيسمّع في لوحة القيادة (صافي المنتجات بدون الشحن): [💵 كاش الدرج: ${dashCashPreview.toLocaleString()} ج] + [💳 محفظة/فيزا: ${dashOnlinePreview.toLocaleString()} ج]</div>`;
+
+        if (totalReceived === totalAllGross) {
+            alertEl.className = 'mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-center text-xs font-black shadow-sm';
+            alertEl.innerHTML = `✅ مطابق تماماً لإجمالي العهدة شامل الشحن (${totalAllGross.toLocaleString()} ج) — استلام: [💵 كاش: ${cashVal.toLocaleString()} ج + 💳 فيزا/محفظة: ${walletVal.toLocaleString()} ج]${dashPreviewLine}`;
+        } else if (totalReceived === netTarget && driverFee > 0) {
+            alertEl.className = 'mb-4 p-3 rounded-xl bg-sky-50 border border-sky-200 text-sky-800 text-center text-xs font-black shadow-sm';
+            alertEl.innerHTML = `✅ مطابق تماماً لصافي المنتجات بعد خصم شحن المندوب (${netTarget.toLocaleString()} ج) — استلام: [💵 كاش: ${cashVal.toLocaleString()} ج + 💳 فيزا/محفظة: ${walletVal.toLocaleString()} ج]${dashPreviewLine}`;
+        } else if (totalReceived < netTarget) {
+            const diffNet = netTarget - totalReceived;
+            alertEl.className = 'mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-center text-xs font-black shadow-sm';
+            alertEl.innerHTML = `⚠️ يوجد عجز قدره (${diffNet.toLocaleString()} ج) عن صافي المنتجات (${netTarget.toLocaleString()} ج)!${dashPreviewLine}`;
         } else {
-            const diff = totalReceivedFromDriver - totalGrossCash;
-            if (diff > 0) {
-                alertEl.className = 'mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-center text-xs font-black shadow-sm';
-                alertEl.innerHTML = `ℹ️ المبلغ المستلم (${totalReceivedFromDriver.toLocaleString()} ج) أزيد من إجمالي العهدة بـ (${diff.toLocaleString()} ج.م)`;
-            } else {
-                const diffFromGross = totalGrossCash - totalReceivedFromDriver;
-                alertEl.className = 'mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-center text-xs font-black shadow-sm';
-                alertEl.innerHTML = `ℹ️ المبلغ المستلم (${totalReceivedFromDriver.toLocaleString()} ج) أقل من الإجمالي شامل الشحن بـ (${diffFromGross.toLocaleString()} ج)`;
-            }
+            alertEl.className = 'mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-center text-xs font-black shadow-sm';
+            alertEl.innerHTML = `ℹ️ إجمالي المستلم (${totalReceived.toLocaleString()} ج) — [💵 كاش: ${cashVal.toLocaleString()} ج + 💳 فيزا/محفظة: ${walletVal.toLocaleString()} ج]${dashPreviewLine}`;
         }
     };
 
@@ -557,16 +598,18 @@
                     <p class="text-xs font-bold text-slate-400">لا توجد أي طلبات معلقة أو مبالغ غير موردة في ذمة هذا المندوب حالياً.</p>
                     ${settledHistoryOrders.length > 0 ? `
                     <button onclick="toggleReconHistoryView(true)" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-xs font-black transition-all">
-                        👁️ عرض سجل الطلبات المصفاة سابقاً (${settledHistoryOrders.length} طلب)
+                        👁️ عرض وتعديل سجل الطلبات المصفاة سابقاً (${settledHistoryOrders.length} طلب)
                     </button>` : ''}
                 </div>`;
             settleBtn.classList.add('hidden');
             return;
         }
 
-        let totalGrossCash = 0;      // إجمالي الكاش المطلوب من المندوب
-        let totalOnlineAmount = 0;   // إجمالي المدفوع فيزا أو محفظة على الطلبات
-        let totalDeliveryFees = 0;   // إجمالي رسوم التوصيل (عمولة المندوب)
+        let totalAllGross = 0;         // إجمالي كل الفواتير شامل الشحن
+        let totalAllNetProducts = 0;   // إجمالي صافي المنتجات (بدون الشحن) الذي يدخل الداش بورد
+        let totalDeliveryFees = 0;     // إجمالي شحن المندوب
+        let initialCashGross = 0;      // الكاش المبدئي حسب حالة الطلبات
+        let initialOnlineGross = 0;    // الفيزا/المحفظة المبدئية حسب حالة الطلبات
         let totalOnlineCount = 0;
         let totalCashCount = 0;
         let totalSplitCount = 0;
@@ -576,22 +619,22 @@
             const br = window.getOrderPaymentBreakdown(o);
             const delFee = Number(o.deliveryFee) || 0;
 
-            totalGrossCash += br.cash;
-            totalOnlineAmount += br.online;
+            totalAllGross += br.total;
+            totalAllNetProducts += br.netTotal;
             totalDeliveryFees += delFee;
+            initialCashGross += br.cash;
+            initialOnlineGross += br.online;
 
             if (br.method === 'online') totalOnlineCount++;
             else if (br.method === 'split') totalSplitCount++;
             else totalCashCount++;
         });
 
-        const netAfterDriverFee = Math.max(0, totalGrossCash - totalDeliveryFees);
-
         ordersToDisplay.forEach((o, index) => {
             const br = window.getOrderPaymentBreakdown(o);
             const isSettled = Boolean(o.isReconciled || o.isSupplied);
             const delFee = Number(o.deliveryFee) || 0;
-            const isSplitEditorOpen = (window.reconOpenSplitOrderId === o.id || br.method === 'split') && !isSettled;
+            const isSplitEditorOpen = (window.reconOpenSplitOrderId === o.id || br.method === 'split');
 
             const badgeStatus = isSettled
                 ? '<span class="bg-slate-200 text-slate-700 px-2 py-0.5 rounded text-[10px] font-black">تم التوريد والتقفيل ✅</span>'
@@ -605,9 +648,10 @@
                     ? `<span class="bg-indigo-600 text-white px-2 py-0.5 rounded text-[9px] font-black">نص ونص ⚖️ (${br.cash}ج كاش + ${br.online}ج فيزا/محفظة)</span>`
                     : '<span class="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded text-[9px] font-black">كاش 💵</span>');
 
-            const quickSwitchButtons = !isSettled ? `
+            // أزرار تحويل طريقة الدفع تعمل على الطلبات الحالية وحتى الطلبات المصفاة سابقاً لتصحيح أي خطأ فوراً
+            const quickSwitchButtons = `
                 <div class="flex flex-wrap items-center gap-1 mt-2 pt-2 border-t border-slate-100">
-                    <span class="text-[10px] font-black text-slate-400 ml-1">تحويل الدفع:</span>
+                    <span class="text-[10px] font-black text-slate-400 ml-1">تقفيل هذا الطلب كـ:</span>
                     <button type="button" onclick="setOrderPaymentModeInRecon('${o.id}', 'cash')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${br.method === 'cash' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-amber-50'}">💵 كاش</button>
                     <button type="button" onclick="setOrderPaymentModeInRecon('${o.id}', 'online')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${br.method === 'online' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-emerald-50'}">💳 فيزا / محفظة</button>
                     <button type="button" onclick="setOrderPaymentModeInRecon('${o.id}', 'split')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${br.method === 'split' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-indigo-50'}">⚖️ نص ونص</button>
@@ -622,12 +666,12 @@
                         <span class="text-[10px] font-black text-indigo-800 whitespace-nowrap">💳 فيزا/محفظة:</span>
                         <input type="number" id="recon-split-online-${o.id}" value="${br.online}" min="0" max="${br.total}" oninput="syncInlineReconSplit('${o.id}', ${br.total}, 'online')" class="w-full bg-white border border-indigo-300 rounded-lg p-1.5 text-center font-black text-xs text-indigo-900 outline-none">
                     </div>
-                    <button type="button" onclick="saveInlineReconSplit('${o.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all">تطبيق ✅</button>
+                    <button type="button" onclick="saveInlineReconSplit('${o.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all">حفظ التقسيمة ✅</button>
                 </div>` : ''}
-            ` : '';
+            `;
 
             ordersHtml += `
-            <div class="bg-white p-4 rounded-2xl border ${isSettled ? 'border-slate-200 opacity-60' : (br.method === 'online' ? 'border-emerald-200 bg-emerald-50/20' : (br.method === 'split' ? 'border-indigo-200 bg-indigo-50/10' : 'border-slate-200/80'))} shadow-sm mb-2.5 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+            <div class="bg-white p-4 rounded-2xl border ${isSettled ? 'border-slate-300 bg-slate-50/50' : (br.method === 'online' ? 'border-emerald-200 bg-emerald-50/20' : (br.method === 'split' ? 'border-indigo-200 bg-indigo-50/10' : 'border-slate-200/80'))} shadow-sm mb-2.5 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                 <div class="flex-1 w-full">
                     <div class="flex flex-wrap items-center gap-2 mb-1">
                         <span class="text-xs font-black text-slate-400">#${index + 1}</span>
@@ -636,15 +680,14 @@
                         ${paymentBadge}
                     </div>
                     <p class="text-[11px] font-bold text-slate-500"><i class="fa-solid fa-location-dot text-indigo-400 mr-1"></i> ${o.zone || ''} - ${o.customerAddress || ''}</p>
-                    <p class="text-[10px] text-slate-400 font-bold mt-0.5" dir="ltr">📞 ${o.customerPhone || ''} • إجمالي الفاتورة: ${br.total} ج • شحن: ${delFee} ج</p>
+                    <p class="text-[10px] text-slate-400 font-bold mt-0.5" dir="ltr">📞 ${o.customerPhone || ''} • صافي المنتجات: ${br.netTotal} ج • شحن: ${delFee} ج • الإجمالي: ${br.total} ج</p>
                     ${quickSwitchButtons}
                 </div>
                 <div class="text-left flex flex-col items-end w-full md:w-auto border-t md:border-t-0 pt-2 md:pt-0 border-slate-100 shrink-0">
-                    <span class="text-[10px] font-bold text-slate-400">الكاش المطلوب من المندوب</span>
-                    <span class="font-black ${br.method === 'online' ? 'text-emerald-600' : (br.method === 'split' ? 'text-indigo-600' : 'text-brand-primary')} text-lg">
-                        ${br.method === 'online' ? '0 ج (فيزا/محفظة)' : (br.method === 'split' ? `${br.cash} ج كاش` : `${br.total} ج.م`)}
+                    <span class="text-[10px] font-bold text-slate-400">صافي المنتجات بالداش بورد</span>
+                    <span class="font-black ${br.method === 'online' ? 'text-emerald-600' : (br.method === 'split' ? 'text-indigo-600' : 'text-brand-primary')} text-base">
+                        ${br.method === 'online' ? `${br.netOnline} ج (فيزا/محفظة)` : (br.method === 'split' ? `${br.netCash}ج كاش + ${br.netOnline}ج محفظة` : `${br.netCash} ج (كاش)`)}
                     </span>
-                    ${br.online > 0 ? `<span class="text-[10px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded mt-0.5">💳 فيزا/محفظة: ${br.online} ج</span>` : ''}
                 </div>
             </div>`;
         });
@@ -654,67 +697,65 @@
                 <span class="text-xs font-black text-slate-700">📊 ملخص العهدة المفتوحة للمندوب: <strong class="text-brand-primary">${driverName}</strong></span>
                 <label class="flex items-center gap-1.5 text-[11px] font-black text-slate-500 cursor-pointer">
                     <input type="checkbox" ${window.reconShowHistory ? 'checked' : ''} onchange="toggleReconHistoryView(this.checked)" class="w-4 h-4 accent-brand-primary rounded">
-                    إظهار المصفى سابقاً (${settledHistoryOrders.length})
+                    إظهار المصفى سابقاً لتعديله (${settledHistoryOrders.length})
                 </label>
             </div>
 
-            <!-- كروت ملخص العهدة (5 مؤشرات دقيقة) -->
-            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+            <!-- كروت ملخص العهدة -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                 <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-sm text-center">
-                    <p class="text-[10px] font-bold text-slate-400 mb-1">أوردرات العهدة</p>
+                    <p class="text-[10px] font-bold text-slate-400 mb-1">أوردرات العهدة المفتوحة</p>
                     <p class="text-lg font-black text-slate-800">${activeCustodyOrders.length}</p>
                     <p class="text-[9px] font-bold text-slate-400 mt-0.5">${totalCashCount} كاش | ${totalOnlineCount} فيزا/محفظة | ${totalSplitCount} نص</p>
                 </div>
                 <div class="bg-white p-3.5 rounded-2xl border border-emerald-200 shadow-sm text-center">
-                    <p class="text-[10px] font-bold text-emerald-700 mb-1">إجمالي الكاش (شامل الشحن)</p>
-                    <p class="text-lg font-black text-brand-primary">${totalGrossCash.toLocaleString()} ج</p>
-                </div>
-                <div class="bg-indigo-50/60 p-3.5 rounded-2xl border border-indigo-200 shadow-sm text-center">
-                    <p class="text-[10px] font-black text-indigo-700 mb-1">فيزا / محفظة بالأوردرات</p>
-                    <p class="text-lg font-black text-indigo-600">${totalOnlineAmount.toLocaleString()} ج</p>
+                    <p class="text-[10px] font-bold text-emerald-700 mb-1">إجمالي العهدة (شامل الشحن)</p>
+                    <p class="text-lg font-black text-brand-primary">${totalAllGross.toLocaleString()} ج</p>
                 </div>
                 <div class="bg-white p-3.5 rounded-2xl border border-sky-200 shadow-sm text-center">
                     <p class="text-[10px] font-bold text-sky-700 mb-1">إجمالي شحن المندوب</p>
                     <p class="text-lg font-black text-sky-600">${totalDeliveryFees.toLocaleString()} ج</p>
                 </div>
-                <div class="bg-amber-50 p-3.5 rounded-2xl border border-amber-200 shadow-sm text-center col-span-2 md:col-span-1">
-                    <p class="text-[10px] font-black text-amber-800 mb-1">صافي الكاش بعد الشحن</p>
-                    <p class="text-lg font-black text-amber-600">${netAfterDriverFee.toLocaleString()} ج</p>
+                <div class="bg-amber-50 p-3.5 rounded-2xl border border-amber-200 shadow-sm text-center">
+                    <p class="text-[10px] font-black text-amber-800 mb-1">صافي المنتجات (بدون الشحن)</p>
+                    <p class="text-lg font-black text-amber-600">${totalAllNetProducts.toLocaleString()} ج</p>
                 </div>
             </div>
 
-            <!-- حاسبة مطابقة الخزنة المرنة (كاش / فيزا ومحفظة / نص ونص) -->
+            ${activeCustodyOrders.length > 0 ? `
+            <!-- حاسبة مطابقة الخزنة المرنة (المرجع النهائي للداش بورد) -->
             <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-lg mb-4 space-y-4">
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-800 pb-3">
                     <div>
-                        <h4 class="font-black text-sm text-amber-400 mb-1"><i class="fa-solid fa-calculator mr-1"></i> تقفيل الحساب واستلام العهدة من المندوب</h4>
-                        <p class="text-[11px] text-slate-300 font-bold">اختر بضغطة واحدة طريقة استلام العهدة (كاش، أو فيزا/محفظة، أو نص ونص):</p>
+                        <h4 class="font-black text-sm text-amber-400 mb-1"><i class="fa-solid fa-calculator mr-1"></i> كيف استلمت فلوس هذه العهدة من المندوب؟ (يسمّع مباشرة في الداش بورد)</h4>
+                        <p class="text-[11px] text-slate-300 font-bold">اختر بضغطة واحدة أو اكتب المبلغ الذي سلمه المندوب لك كاش أو فيزا/محفظة:</p>
                     </div>
                     <div class="flex flex-wrap items-center gap-1.5">
-                        <button type="button" onclick="applyReconPreset('all_cash', ${totalGrossCash}, ${netAfterDriverFee})" class="bg-emerald-600/30 hover:bg-emerald-600 text-emerald-200 hover:text-white px-3 py-1.5 rounded-xl text-[10px] font-black border border-emerald-500/40 transition-all">💵 الكل كاش (${totalGrossCash} ج)</button>
-                        <button type="button" onclick="applyReconPreset('net_cash', ${totalGrossCash}, ${netAfterDriverFee})" class="bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-900 px-3 py-1.5 rounded-xl text-[10px] font-black border border-amber-400/40 transition-all">🛵 الصافي كاش (${netAfterDriverFee} ج)</button>
-                        <button type="button" onclick="applyReconPreset('all_wallet', ${totalGrossCash}, ${netAfterDriverFee})" class="bg-indigo-500/30 hover:bg-indigo-600 text-indigo-200 hover:text-white px-3 py-1.5 rounded-xl text-[10px] font-black border border-indigo-400/40 transition-all">💳 الكل فيزا/محفظة (${totalGrossCash} ج)</button>
-                        <button type="button" onclick="applyReconPreset('split_50_50', ${totalGrossCash}, ${netAfterDriverFee})" class="bg-purple-500/30 hover:bg-purple-600 text-purple-200 hover:text-white px-3 py-1.5 rounded-xl text-[10px] font-black border border-purple-400/40 transition-all">⚖️ نص ونص</button>
+                        <button type="button" onclick="applyReconPreset('net_cash', ${totalAllGross}, ${totalAllNetProducts})" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition-all">💵 استلام الصافي كاش (${totalAllNetProducts} ج)</button>
+                        <button type="button" onclick="applyReconPreset('all_cash', ${totalAllGross}, ${totalAllNetProducts})" class="bg-emerald-600/30 hover:bg-emerald-600 text-emerald-200 hover:text-white px-3 py-1.5 rounded-xl text-[10px] font-black border border-emerald-500/40 transition-all">💵 الكل كاش بالشحن (${totalAllGross} ج)</button>
+                        <button type="button" onclick="applyReconPreset('net_wallet', ${totalAllGross}, ${totalAllNetProducts})" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition-all">💳 استلام الصافي فيزا/محفظة (${totalAllNetProducts} ج)</button>
+                        <button type="button" onclick="applyReconPreset('all_wallet', ${totalAllGross}, ${totalAllNetProducts})" class="bg-indigo-500/30 hover:bg-indigo-600 text-indigo-200 hover:text-white px-3 py-1.5 rounded-xl text-[10px] font-black border border-indigo-400/40 transition-all">💳 الكل فيزا/محفظة بالشحن (${totalAllGross} ج)</button>
+                        <button type="button" onclick="applyReconPreset('split_50_50', ${totalAllGross}, ${totalAllNetProducts})" class="bg-purple-500/30 hover:bg-purple-600 text-purple-200 hover:text-white px-3 py-1.5 rounded-xl text-[10px] font-black border border-purple-400/40 transition-all">⚖️ تقسيمة نص ونص</button>
                     </div>
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
                     <div class="bg-slate-800/90 p-3 rounded-xl border border-slate-700">
-                        <label class="text-[10px] font-black text-emerald-400 block mb-1.5">💵 المبلغ المستلم كاش في الإيد (ج.م)</label>
-                        <input type="number" id="actual-collected-cash" value="${totalGrossCash}" min="0" oninput="onReconSettlementInput('cash', ${totalGrossCash}, ${netAfterDriverFee})" class="w-full bg-slate-900 border-2 border-emerald-500/40 rounded-xl p-2.5 text-center font-black text-white text-base outline-none focus:border-emerald-400 transition-all">
+                        <label class="text-[10px] font-black text-emerald-400 block mb-1.5">💵 إجمالي المستلم كاش في الإيد (ج.م)</label>
+                        <input type="number" id="actual-collected-cash" value="${initialCashGross}" min="0" oninput="onReconSettlementInput('cash', ${totalAllGross}, ${totalAllNetProducts})" class="w-full bg-slate-900 border-2 border-emerald-500/40 rounded-xl p-2.5 text-center font-black text-white text-base outline-none focus:border-emerald-400 transition-all">
                     </div>
 
                     <div class="bg-slate-800/90 p-3 rounded-xl border border-slate-700">
-                        <label class="text-[10px] font-black text-indigo-300 block mb-1.5">💳 المحول فيزا / محفظة من المندوب الآن (ج.م)</label>
-                        <input type="number" id="actual-collected-wallet" value="0" min="0" oninput="onReconSettlementInput('wallet', ${totalGrossCash}, ${netAfterDriverFee})" class="w-full bg-slate-900 border-2 border-indigo-500/40 rounded-xl p-2.5 text-center font-black text-white text-base outline-none focus:border-indigo-400 transition-all">
+                        <label class="text-[10px] font-black text-indigo-300 block mb-1.5">💳 إجمالي المستلم فيزا / محفظة (ج.م)</label>
+                        <input type="number" id="actual-collected-wallet" value="${initialOnlineGross}" min="0" oninput="onReconSettlementInput('wallet', ${totalAllGross}, ${totalAllNetProducts})" class="w-full bg-slate-900 border-2 border-indigo-500/40 rounded-xl p-2.5 text-center font-black text-white text-base outline-none focus:border-indigo-400 transition-all">
                     </div>
 
                     <div class="bg-slate-800/60 p-3 rounded-xl border border-slate-700/80 flex flex-col justify-between gap-2">
                         <div class="flex items-center justify-between">
                             <span class="text-[10px] font-black text-slate-300">حساب التقسيمة على أساس:</span>
-                            <select id="recon-target-base" onchange="onReconSettlementInput('cash', ${totalGrossCash}, ${netAfterDriverFee})" class="bg-slate-900 text-amber-300 border border-slate-600 rounded-lg px-2 py-1 text-[10px] font-black outline-none">
-                                <option value="${totalGrossCash}">الإجمالي (${totalGrossCash} ج)</option>
-                                <option value="${netAfterDriverFee}">الصافي (${netAfterDriverFee} ج)</option>
+                            <select id="recon-target-base" onchange="onReconSettlementInput('cash', ${totalAllGross}, ${totalAllNetProducts})" class="bg-slate-900 text-amber-300 border border-slate-600 rounded-lg px-2 py-1 text-[10px] font-black outline-none">
+                                <option value="${totalAllGross}" ${initialCashGross + initialOnlineGross === totalAllGross ? 'selected' : ''}>الإجمالي بالشحن (${totalAllGross} ج)</option>
+                                <option value="${totalAllNetProducts}" ${initialCashGross + initialOnlineGross === totalAllNetProducts ? 'selected' : ''}>الصافي بدون شحن (${totalAllNetProducts} ج)</option>
                             </select>
                         </div>
                         <label class="flex items-center gap-2 text-[11px] font-black text-amber-300 cursor-pointer select-none">
@@ -724,8 +765,8 @@
                     </div>
                 </div>
             </div>
-
             <div id="cash-diff-alert" class="mb-4 text-center text-xs font-black"></div>
+            ` : ''}
 
             <!-- قائمة أوردرات العهدة -->
             <div class="space-y-2 max-h-[48vh] overflow-y-auto custom-scroll pr-1">
@@ -733,24 +774,23 @@
             </div>
         `;
 
-        window.checkCashDifference(totalGrossCash, netAfterDriverFee);
-
         if (activeCustodyOrders.length > 0) {
+            window.checkCashDifference(totalAllGross, totalAllNetProducts);
             settleBtn.classList.remove('hidden');
-            settleBtn.onclick = () => window.confirmAndSettleDriverReconciliation(driverName, totalGrossCash, totalOnlineAmount);
+            settleBtn.onclick = () => window.confirmAndSettleDriverReconciliation(driverName, totalAllGross, totalAllNetProducts);
         } else {
             settleBtn.classList.add('hidden');
         }
     };
 
     // =====================================================================
-    // و. تأكيد استلام النقدية/المحفظة وتقفيل العهدة وتحديث الطلبات والخزنة
+    // و. تأكيد استلام النقدية/المحفظة وتقفيل العهدة (تسميع مباشر 100% في الداش بورد)
     // =====================================================================
-    window.confirmAndSettleDriverReconciliation = async function (driverName, expectedCash, preExistingOnlineAmount = 0) {
+    window.confirmAndSettleDriverReconciliation = async function (driverName, totalAllGross, totalAllNetProducts) {
         const cashInput = document.getElementById('actual-collected-cash');
         const walletInput = document.getElementById('actual-collected-wallet');
-        const actualCash = cashInput ? (Number(cashInput.value) || 0) : expectedCash;
-        const actualWalletFromDriver = walletInput ? (Number(walletInput.value) || 0) : 0;
+        const actualCash = cashInput ? (Number(cashInput.value) || 0) : totalAllGross;
+        const actualWallet = walletInput ? (Number(walletInput.value) || 0) : 0;
 
         const targetOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o =>
             o && o.status !== 'trash' &&
@@ -761,22 +801,38 @@
 
         if (targetOrders.length === 0) return alert('لا توجد طلبات مفتوحة في عهدة هذا المندوب!');
 
-        const totalOnlineFinal = preExistingOnlineAmount + actualWalletFromDriver;
+        // تحديد صافي المنتجات الذي سيدخل في الداش بورد كـ (كاش) وكـ (فيزا/محفظة) حسب ما استلمه المالك فعلياً من المندوب
+        let targetNetOnline = 0;
+        let targetNetCash = 0;
+
+        if (actualWallet === 0 && actualCash > 0) {
+            // المندوب سلم العهدة كلها كاش
+            targetNetOnline = 0;
+            targetNetCash = totalAllNetProducts;
+        } else if (actualCash === 0 && actualWallet > 0) {
+            // المندوب سلم العهدة كلها فيزا / محفظة
+            targetNetOnline = totalAllNetProducts;
+            targetNetCash = 0;
+        } else {
+            // تقسيمة نص ونص بين الكاش والفيزا/المحفظة
+            targetNetOnline = Math.min(totalAllNetProducts, Math.max(0, Math.round(actualWallet)));
+            targetNetCash = Math.max(0, totalAllNetProducts - targetNetOnline);
+        }
 
         const confirmMsg = `✅ تأكيد تصفية وتقفيل عهدة المندوب (${driverName})؟\n\n` +
             `📦 عدد الطلبات: ${targetOrders.length} طلب\n` +
-            `💵 الكاش المستلم في الدرج الآن: ${actualCash.toLocaleString()} ج.م\n` +
-            `💳 المحول فيزا / محفظة من المندوب الآن: ${actualWalletFromDriver.toLocaleString()} ج.م\n` +
-            (preExistingOnlineAmount > 0 ? `💳 مدفوع فيزا/محفظة مسبقاً على الطلبات: ${preExistingOnlineAmount.toLocaleString()} ج.م\n` : '') +
+            `💵 المستلم من المندوب كاش: ${actualCash.toLocaleString()} ج.م\n` +
+            `💳 المستلم من المندوب فيزا / محفظة: ${actualWallet.toLocaleString()} ج.م\n` +
             `────────────────────\n` +
-            `💰 إجمالي الفيزا/المحفظة بالعهدة: ${totalOnlineFinal.toLocaleString()} ج.م\n\n` +
-            `سيتم تحويل الطلبات إلى (مكتمل) وإغلاق عهدتها في الرادار والتقفيل فوراً.`;
+            `📊 ما سيسمّع في لوحة القيادة (صافي المنتجات بدون الشحن):\n` +
+            `• 💵 صافي كاش الدرج: ${targetNetCash.toLocaleString()} ج.م\n` +
+            `• 💳 محفظة الأونلاين / الفيزا: ${targetNetOnline.toLocaleString()} ج.م`;
 
         if (!confirm(confirmMsg)) return;
 
         const btn = document.getElementById('btn-settle-recon');
         const origHtml = btn.innerHTML;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري تصفية العهدة وتحديث الخزنة...';
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري تصفية العهدة وتحديث الخزنة والداش بورد...';
         btn.disabled = true;
 
         try {
@@ -784,9 +840,7 @@
             const timeStr = new Date().toLocaleString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
             const ptsPer100 = Number(storeSettings?.pointsPer100) || 5;
 
-            // إذا قام المندوب بتحويل جزء من عهدة الكاش عبر (فيزا / محفظة) في الصندوق السفلي،
-            // نقوم بتوزيع هذا المبلغ المحول على طلبات الكاش في عهدته ليتطابق إجمالي الدرج والفيزا/المحفظة في لوحة القيادة 100%
-            let remainingWalletToDistribute = actualWalletFromDriver;
+            let remNetOnlineToAllocate = targetNetOnline;
 
             for (let i = 0; i < targetOrders.length; i += 400) {
                 const chunk = targetOrders.slice(i, i + 400);
@@ -795,23 +849,34 @@
                 chunk.forEach(o => {
                     const ref = db.collection('orders').doc(o.id);
                     const wasCompleted = (o.status === 'completed');
-                    const br = window.getOrderPaymentBreakdown(o);
+                    const orderGross = Number(o.total) || 0;
+                    const orderDelFee = Number(o.deliveryFee) || 0;
+                    const orderNetProd = getOwnerNetProductTotal(o);
 
-                    let finalOrderMethod = br.method;
-                    let finalPaidCash = br.cash;
-                    let finalPaidOnline = br.online;
+                    let orderSettledOnline = 0;
+                    let orderSettledCash = 0;
+                    let finalOrderMethod = 'cash';
+                    let finalPaidCash = orderGross;
+                    let finalPaidOnline = 0;
 
-                    if (remainingWalletToDistribute > 0 && finalPaidCash > 0) {
-                        const shiftToOnline = Math.min(finalPaidCash, remainingWalletToDistribute);
-                        finalPaidCash -= shiftToOnline;
-                        finalPaidOnline += shiftToOnline;
-                        remainingWalletToDistribute -= shiftToOnline;
+                    if (remNetOnlineToAllocate > 0 && orderNetProd > 0) {
+                        orderSettledOnline = Math.min(orderNetProd, remNetOnlineToAllocate);
+                        remNetOnlineToAllocate -= orderSettledOnline;
+                    }
+                    orderSettledCash = Math.max(0, orderNetProd - orderSettledOnline);
 
-                        if (finalPaidCash === 0 && finalPaidOnline > 0) {
-                            finalOrderMethod = 'online';
-                        } else if (finalPaidCash > 0 && finalPaidOnline > 0) {
-                            finalOrderMethod = 'split';
-                        }
+                    if (orderSettledCash === 0 && orderSettledOnline > 0) {
+                        finalOrderMethod = 'online';
+                        finalPaidCash = 0;
+                        finalPaidOnline = orderGross;
+                    } else if (orderSettledOnline === 0) {
+                        finalOrderMethod = 'cash';
+                        finalPaidCash = orderGross;
+                        finalPaidOnline = 0;
+                    } else {
+                        finalOrderMethod = 'split';
+                        finalPaidOnline = orderSettledOnline;
+                        finalPaidCash = Math.max(0, orderGross - finalPaidOnline);
                     }
 
                     batchProcess.update(ref, {
@@ -819,6 +884,8 @@
                         paymentMethod: finalOrderMethod,
                         paidCash: finalPaidCash,
                         paidOnline: finalPaidOnline,
+                        settledCash: orderSettledCash,
+                        settledOnline: orderSettledOnline,
                         completedAtStr: o.completedAtStr || nowStr,
                         completedTimeDisplay: o.completedTimeDisplay || timeStr,
                         completedAt: o.completedAt || firebase.firestore.FieldValue.serverTimestamp(),
@@ -846,6 +913,8 @@
                     o.paymentMethod = finalOrderMethod;
                     o.paidCash = finalPaidCash;
                     o.paidOnline = finalPaidOnline;
+                    o.settledCash = orderSettledCash;
+                    o.settledOnline = orderSettledOnline;
                     o.completedAtStr = o.completedAtStr || nowStr;
                     o.completedTimeDisplay = o.completedTimeDisplay || timeStr;
                     o.isReconciled = true;
@@ -856,6 +925,8 @@
                         globalOrdersMap[o.id].paymentMethod = finalOrderMethod;
                         globalOrdersMap[o.id].paidCash = finalPaidCash;
                         globalOrdersMap[o.id].paidOnline = finalPaidOnline;
+                        globalOrdersMap[o.id].settledCash = orderSettledCash;
+                        globalOrdersMap[o.id].settledOnline = orderSettledOnline;
                         globalOrdersMap[o.id].completedAtStr = o.completedAtStr;
                         globalOrdersMap[o.id].completedTimeDisplay = o.completedTimeDisplay;
                         globalOrdersMap[o.id].isReconciled = true;
@@ -871,12 +942,11 @@
             if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
             if (typeof window.renderOrdersList === 'function') window.renderOrdersList();
             if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
-            window.updateDashboardPaymentBreakdownBadge();
 
             if (typeof window.showToast === 'function') {
-                window.showToast(`🎉 تم تقفيل عهدة (${driverName}) — كاش: ${actualCash} ج | فيزا/محفظة: ${totalOnlineFinal} ج`);
+                window.showToast(`🎉 تم تقفيل عهدة (${driverName}) — كاش الدرج: ${targetNetCash} ج | فيزا/محفظة: ${targetNetOnline} ج`);
             }
-            alert(`تم تقفيل عهدة المندوب (${driverName}) بنجاح! 🎉\n\n💵 الكاش المورد للدرج: ${actualCash.toLocaleString()} ج.م\n💳 إجمالي الفيزا/المحفظة: ${totalOnlineFinal.toLocaleString()} ج.م`);
+            alert(`تم تقفيل عهدة المندوب (${driverName}) بنجاح! 🎉\n\n📊 ما تم تسميعه في لوحة القيادة:\n💵 صافي كاش الدرج: ${targetNetCash.toLocaleString()} ج.م\n💳 محفظة الأونلاين/الفيزا: ${targetNetOnline.toLocaleString()} ج.م`);
         } catch (e) {
             console.error(e);
             alert('حدث خطأ أثناء حفظ تصفية العهدة في قاعدة البيانات!');
