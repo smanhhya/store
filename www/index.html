@@ -797,10 +797,21 @@
                     </div>
                     <div class="bg-emerald-50/50 p-5 rounded-2xl shadow-soft border border-emerald-100">
                         <label class="text-[10px] font-black text-emerald-700 block mb-1.5"><i class="fa-solid fa-money-bill-wave mr-1"></i> طريقة الدفع</label>
-                        <select id="edit-payment-method" class="w-full border border-emerald-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-emerald-300 font-bold bg-white transition-all text-sm text-emerald-800">
-                            <option value="cash">كاش</option>
-                            <option value="online">أونلاين (خالص)</option>
+                        <select id="edit-payment-method" onchange="if(window.toggleOrderSplitBox) window.toggleOrderSplitBox('edit')" class="w-full border border-emerald-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-emerald-300 font-bold bg-white transition-all text-sm text-emerald-800">
+                            <option value="cash">💵 كاش بالكامل</option>
+                            <option value="online">💳 فيزا / محفظة (خالص)</option>
+                            <option value="split">⚖️ نص ونص (كاش + فيزا/محفظة)</option>
                         </select>
+                        <div id="edit-split-box" class="hidden grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-emerald-200/60">
+                            <div>
+                                <label class="text-[9px] font-black text-amber-800 block mb-1">💵 مطلوب كاش</label>
+                                <input type="number" id="edit-paid-cash" min="0" oninput="if(window.syncOrderSplitInputs) window.syncOrderSplitInputs('edit', 'cash')" class="w-full border border-amber-300 rounded-lg p-2 text-xs font-black text-center bg-white text-amber-900 outline-none focus:ring-2 focus:ring-amber-300" placeholder="0">
+                            </div>
+                            <div>
+                                <label class="text-[9px] font-black text-indigo-800 block mb-1">💳 مدفوع فيزا/محفظة</label>
+                                <input type="number" id="edit-paid-online" min="0" oninput="if(window.syncOrderSplitInputs) window.syncOrderSplitInputs('edit', 'online')" class="w-full border border-indigo-300 rounded-lg p-2 text-xs font-black text-center bg-white text-indigo-900 outline-none focus:ring-2 focus:ring-indigo-300" placeholder="0">
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -908,10 +919,21 @@
                 <div class="bg-white p-5 rounded-2xl shadow-soft border border-slate-100">
                     <div class="mb-4 p-3 bg-emerald-50/50 rounded-xl border border-emerald-100">
                         <label class="text-[10px] font-black text-slate-800 block mb-1.5"><i class="fa-solid fa-money-bill-wave text-emerald-500 mr-1"></i> طريقة الدفع (حالة الحساب)</label>
-                        <select id="no-payment-method" class="w-full border border-emerald-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-emerald-300 text-sm font-bold text-emerald-800 bg-white transition-all shadow-sm">
+                        <select id="no-payment-method" onchange="if(window.toggleOrderSplitBox) window.toggleOrderSplitBox('no')" class="w-full border border-emerald-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-emerald-300 text-sm font-bold text-emerald-800 bg-white transition-all shadow-sm">
                             <option value="cash">💵 الدفع كاش عند الاستلام (حساب مفتوح)</option>
-                            <option value="online">💳 الحساب خالص (مدفوع أونلاين / فودافون كاش)</option>
+                            <option value="online">💳 الحساب خالص (فيزا / محفظة)</option>
+                            <option value="split">⚖️ نص ونص (جزء كاش + جزء فيزا/محفظة)</option>
                         </select>
+                        <div id="no-split-box" class="hidden grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-emerald-200/60">
+                            <div>
+                                <label class="text-[10px] font-black text-amber-800 block mb-1">💵 الكاش المطلوب عند الاستلام (ج.م)</label>
+                                <input type="number" id="no-paid-cash" min="0" oninput="if(window.syncOrderSplitInputs) window.syncOrderSplitInputs('no', 'cash')" class="w-full border border-amber-300 rounded-xl p-2.5 text-sm font-black text-center bg-white text-amber-900 outline-none focus:ring-2 focus:ring-amber-300 shadow-sm" placeholder="0">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-black text-indigo-800 block mb-1">💳 المدفوع فيزا / محفظة (ج.م)</label>
+                                <input type="number" id="no-paid-online" min="0" oninput="if(window.syncOrderSplitInputs) window.syncOrderSplitInputs('no', 'online')" class="w-full border border-indigo-300 rounded-xl p-2.5 text-sm font-black text-center bg-white text-indigo-900 outline-none focus:ring-2 focus:ring-indigo-300 shadow-sm" placeholder="0">
+                            </div>
+                        </div>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <div>
@@ -2523,8 +2545,10 @@
                 
                 let customTagHtml = o.customTag ? `<span onclick="document.getElementById('search-order').value='${o.customTag}'; renderOrdersList();" class="text-[10px] bg-purple-50 text-purple-600 border border-purple-100 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-purple-500 hover:text-white transition-colors shadow-sm" title="اضغط لفلترة هذه المجموعة"><i class="fa-solid fa-hashtag"></i> ${o.customTag}</span>` : '';
                 let paymentBadge = (o.paymentMethod === 'online') 
-                    ? '<span class="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm" title="تم الدفع مسبقاً"><i class="fa-solid fa-check-double"></i> خالص (أونلاين)</span>' 
-                    : '<span class="text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-money-bill-1-wave"></i> كاش</span>';
+                    ? '<span class="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm" title="مدفوع بالكامل فيزا أو محفظة"><i class="fa-solid fa-credit-card"></i> خالص (فيزا / محفظة)</span>' 
+                    : (o.paymentMethod === 'split'
+                        ? `<span class="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm" title="دفع مشترك"><i class="fa-solid fa-scale-balanced"></i> نص ونص (كاش: ${o.paidCash ?? 0}ج | فيزا/محفظة: ${o.paidOnline ?? 0}ج)</span>`
+                        : '<span class="text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-money-bill-1-wave"></i> كاش</span>');
                 
                 if(o.debt && o.debt > 0) {
                     paymentBadge += ` <span class="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-triangle-exclamation"></i> آجل (${o.debt} ج)</span>`;
@@ -3488,7 +3512,17 @@
                 let batchName = batchId ? storeBatches[batchId].name : '';
                 let orderDateFormatted = new Date().toLocaleDateString('en-US');
                 
-                                const orderData = { 
+                let paidCashVal = total;
+                let paidOnlineVal = 0;
+                if (paymentMethod === 'online') {
+                    paidCashVal = 0;
+                    paidOnlineVal = total;
+                } else if (paymentMethod === 'split') {
+                    paidCashVal = Number(document.getElementById('no-paid-cash')?.value) || 0;
+                    paidOnlineVal = Number(document.getElementById('no-paid-online')?.value) || Math.max(0, total - paidCashVal);
+                }
+
+                const orderData = { 
                     customerName: name, 
                     customerPhone: phone, 
                     customerPhone2: phone2,
@@ -3500,6 +3534,8 @@
                     deliveryStart: deliveryStart,
                     deliveryEnd: deliveryEnd,
                     paymentMethod: paymentMethod, // 💳 إضافة طريقة الدفع للسيستم
+                    paidCash: paidCashVal,
+                    paidOnline: paidOnlineVal,
                     debt: debtAmount, // 🔴 تسجيل المديونية جوه الأوردر نفسه عشان مننساش
                     total: total, 
 
@@ -3749,7 +3785,10 @@
                 if(!zonesMap[zName]) zonesMap[zName] = []; 
                 zonesMap[zName].push(o); 
                 
-                if (o.paymentMethod !== 'online') {
+                if (o.paymentMethod === 'split') {
+                    let cPart = (o.paidCash !== undefined) ? Number(o.paidCash) : Math.max(0, (Number(o.total) || 0) - (Number(o.paidOnline) || 0));
+                    totalMoneyToCollect += cPart;
+                } else if (o.paymentMethod !== 'online') {
                     totalMoneyToCollect += Number(o.total) || 0; 
                 }
                 totalOrders++; 
@@ -3768,15 +3807,20 @@
                     let itemsStr = (o.items && Array.isArray(o.items)) ? o.items.map(item => `${item.quantity} ${item.name}`).join(' + ') : 'بدون تفاصيل';
                     
                     let isOnline = (o.paymentMethod === 'online');
+                    let isSplit = (o.paymentMethod === 'split');
                     let subtotalVal = Number(o.subtotal) || Number(o.total) || 0;
                     let deliveryVal = Number(o.deliveryFee) || 0;
                     let discountVal = Number(o.discount) || 0;
                     let totalVal = Number(o.total) || 0;
+                    let splitCashVal = isSplit ? ((o.paidCash !== undefined) ? Number(o.paidCash) : Math.max(0, totalVal - (Number(o.paidOnline) || 0))) : totalVal;
+                    let splitOnlineVal = isSplit ? ((o.paidOnline !== undefined) ? Number(o.paidOnline) : Math.max(0, totalVal - splitCashVal)) : 0;
 
                     let subtotalForDriver = isOnline ? '0' : subtotalVal;
                     let deliveryForDriver = isOnline ? '0' : deliveryVal;
                     let discountTextForTemplate = discountVal > 0 ? `${discountVal} ج.م` : '0 ج.م';
-                    let finalTotalForDriver = isOnline ? '0 ج.م (الحساب خالص أونلاين ✅)' : `${totalVal} ج.م`;
+                    let finalTotalForDriver = isOnline 
+                        ? '0 ج.م (الحساب خالص فيزا/محفظة ✅)' 
+                        : (isSplit ? `${splitCashVal} ج.م كاش (ومدفوع ${splitOnlineVal} ج فيزا/محفظة ✅)` : `${totalVal} ج.م`);
                     
                     // تجهيز سطر الرقم البديل لو موجود
                     let altPhoneLine = o.customerPhone2 ? `\n📱 بديل: ${o.customerPhone2}` : '';
@@ -3798,9 +3842,8 @@
                             .replace(/{الإجمالي_النهائي}/g, finalTotalForDriver);
                         
                         msg += `*👤 [ ${i+1} ]* ${orderBlock}\n`;
-                        // لو فيه خصم ومش محطوط في القالب المخصص، نضيفه تحت عشان المندوب يشوفه
                         if (!isOnline && discountVal > 0 && !storeSettings.dispatchTemplate.includes('{الخصم}')) {
-                            msg += `🎁 *خصم: -${discountVal} ج.م* (الصافي: ${totalVal} ج.م)\n`;
+                            msg += `🎁 *خصم: -${discountVal} ج.م* (الصافي: ${isSplit ? splitCashVal : totalVal} ج.م)\n`;
                         }
                     } else {
                         msg += `*👤 [ ${i+1} ] ${o.customerName || 'عميل'}*\n`;
@@ -3811,6 +3854,9 @@
                         if (isOnline) {
                             if (discountVal > 0) msg += `🎁 خصم مطبق: ${discountVal} ج.م\n`;
                             msg += `💳 *المطلوب تحصيله: ${finalTotalForDriver}*\n`;
+                        } else if (isSplit) {
+                            msg += `📦 إجمالي الفاتورة: ${totalVal} ج.م (مدفوع منها ${splitOnlineVal} ج فيزا/محفظة ✅)\n`;
+                            msg += `💰 *المطلوب تحصيله كاش فقط: ${splitCashVal} ج.م*\n`;
                         } else {
                             msg += `📦 الحساب: ${subtotalVal} ج طلبات + ${deliveryVal} ج توصيل\n`;
                             if (discountVal > 0) {
