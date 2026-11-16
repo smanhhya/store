@@ -684,9 +684,10 @@
         }
     };
 
-    window.openCustomerCard = async function (phone) {
+        window.openCustomerCard = async function (phone) {
+        if (typeof openModal === 'function') openModal('customer-modal');
         const normTarget = safeNormPhone(phone);
-        const intelMap = window.buildCustomerIntelligenceMap();
+       const intelMap = window.buildCustomerIntelligenceMap();
         const inf = intelMap[normTarget] || {};
 
         let c = customersData.find(x => safeNormPhone(x.phone) === normTarget);
