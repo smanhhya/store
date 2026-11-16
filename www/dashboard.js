@@ -3103,7 +3103,11 @@
             if (tableOrders.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-400 font-bold">لا توجد طلبات مطابقة لهذا الفلتر.</td></tr>`;
             } else {
-                tbody.innerHTML = tableOrders.map(o => {
+                const dashLimit = window.dashTableRenderLimit || 50;
+                const visibleTableOrders = tableOrders.slice(0, dashLimit);
+                const remTableCount = tableOrders.length - visibleTableOrders.length;
+
+                let rowsHtml = visibleTableOrders.map(o => {
                     const fin = window.getAccurateOrderFinancials(o);
                     const itemsBadges = (o.items && Array.isArray(o.items))
                         ? o.items.map(i => `<span class="bg-slate-100 text-slate-700 border border-slate-200 px-1.5 py-0.5 rounded text-[9px] font-bold inline-block m-0.5">${i.quantity}x ${i.name} (${i.price}ج)</span>`).join('')
@@ -3153,6 +3157,19 @@
                         </td>
                     </tr>`;
                 }).join('');
+
+                if (remTableCount > 0) {
+                    rowsHtml += `
+                    <tr>
+                        <td colspan="8" class="p-3 text-center bg-slate-50">
+                            <button type="button" onclick="window.dashTableRenderLimit = (window.dashTableRenderLimit || 50) + 50; renderSmartDashboard();" class="w-full py-2 bg-white hover:bg-emerald-50 text-brand-primary font-black text-xs rounded-xl border border-dashed border-brand-primary/40 shadow-sm transition-all">
+                                <i class="fa-solid fa-angles-down mr-1"></i> عرض المزيد في الجدول (متبقي ${remTableCount} طلب)
+                            </button>
+                        </td>
+                    </tr>`;
+                }
+
+                tbody.innerHTML = rowsHtml;
             }
         }
 
@@ -3816,8 +3833,12 @@
         if (typeof _origScheduleSystemRender === 'function') {
             _origScheduleSystemRender();
         }
-        setTimeout(() => window.renderSmartDashboard(), 180);
+        const dashView = document.getElementById('view-dashboard');
+        if (dashView && dashView.classList.contains('active')) {
+            setTimeout(() => window.renderSmartDashboard(), 150);
+        }
     };
+
 
     const _origRenderBatchesUI = window.renderBatchesUI;
     if (typeof _origRenderBatchesUI === 'function') {
