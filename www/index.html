@@ -132,10 +132,14 @@
 
     <main class="flex-1 flex flex-col min-w-0 h-full relative">
         <header class="h-[72px] bg-white border-b border-slate-200/60 flex items-center justify-between px-4 lg:px-8 shadow-sm z-10 shrink-0">
-            <div class="flex items-center gap-4">
-                <button onclick="toggleSidebar()" class="md:hidden w-10 h-10 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 flex items-center justify-center hover:bg-slate-100 transition-colors"><i class="fa-solid fa-bars"></i></button>
+            <div class="flex items-center gap-2.5 sm:gap-3">
+                <button onclick="toggleSidebar()" class="md:hidden w-10 h-10 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 flex items-center justify-center hover:bg-slate-100 transition-colors shrink-0"><i class="fa-solid fa-bars"></i></button>
+                <button id="crm-top-back-btn" type="button" onclick="window.triggerSmartBack()" title="رجوع للصفحة السابقة" class="hidden w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 text-brand-primary flex items-center justify-center hover:bg-emerald-600 hover:text-white transition-all active:scale-90 shadow-sm shrink-0">
+                    <i class="fa-solid fa-arrow-right text-base"></i>
+                </button>
                 <h2 id="header-title" class="text-xl font-black text-slate-800 tracking-tight">لوحة القيادة</h2>
             </div>
+
             <div class="flex items-center gap-3">
                 <span class="hidden md:flex items-center gap-1.5 text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-4 py-2 rounded-full shadow-sm"><i class="fa-solid fa-circle-dot text-[10px] animate-pulse text-emerald-500"></i> متصل لايف</span>
                 <button onclick="forceUpdateAppNow()" title="تحديث التطبيق لأحدث نسخة فوراً" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 active:scale-95"><i class="fa-solid fa-rotate"></i> <span class="hidden sm:inline">تحديث</span></button>
@@ -1421,6 +1425,11 @@
         if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
         const auth = firebase.auth(); 
         const db = firebase.firestore();
+        // 🚀 تفعيل الذاكرة المحلية الفورية (Offline Persistence) ليفتح التطبيق في أجزاء من الثانية
+        try {
+            db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+        } catch (e) {}
+
         // ==========================================
         // 🔮 دالة سحرية لتوحيد أرقام الهواتف للبحث (Normalization) 🔮
         // ==========================================
@@ -1602,25 +1611,18 @@
         };
 
         function updateHeaderBackBtn(tabId) {
-            let backBtn = document.getElementById('crm-top-back-btn');
-            const headerTitle = document.getElementById('header-title');
-            if (!backBtn && headerTitle && headerTitle.parentElement) {
-                backBtn = document.createElement('button');
-                backBtn.id = 'crm-top-back-btn';
-                backBtn.onclick = () => window.triggerSmartBack();
-                backBtn.className = 'hidden w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 text-brand-primary flex items-center justify-center hover:bg-emerald-100 transition-all active:scale-90 shadow-sm';
-                backBtn.title = 'رجوع للصفحة السابقة';
-                backBtn.innerHTML = '<i class="fa-solid fa-arrow-right"></i>';
-                headerTitle.parentElement.insertBefore(backBtn, headerTitle);
-            }
-            if (backBtn) {
-                if ((tabId && tabId !== 'dashboard') || window.smanTabHistoryStack.length > 0) {
-                    backBtn.classList.remove('hidden');
-                } else {
-                    backBtn.classList.add('hidden');
-                }
+            const backBtn = document.getElementById('crm-top-back-btn');
+            if (!backBtn) return;
+            const currentActiveView = document.querySelector('.page-view.active');
+            const activeId = tabId || (currentActiveView ? currentActiveView.id.replace('view-', '') : window.smanCurrentActiveTab);
+
+            if ((activeId && activeId !== 'dashboard') || window.smanTabHistoryStack.length > 0) {
+                backBtn.classList.remove('hidden');
+            } else {
+                backBtn.classList.add('hidden');
             }
         }
+
 
         function toggleSidebar(forceClose = false) {
             const sb = document.getElementById('sidebar'), ov = document.getElementById('mobile-overlay');
@@ -1697,11 +1699,17 @@
                     saveBtn.classList.add('hidden'); 
                 }
             }
+            if (tabId === 'orders' && typeof renderOrdersList === 'function') renderOrdersList();
+            if (tabId === 'customers' && typeof renderCustomersTableUI === 'function') renderCustomersTableUI();
+            if (tabId === 'debts' && typeof renderDebtsUI === 'function') renderDebtsUI();
+            if (tabId === 'batches' && typeof renderBatchesUI === 'function') renderBatchesUI();
+            if (tabId === 'inventory' && typeof renderInventoryUI === 'function') renderInventoryUI();
             if (tabId === 'trash' && typeof renderTrashUI === 'function') renderTrashUI();            
             if (tabId === 'notes' && typeof renderNotesUI === 'function') renderNotesUI();
             if (tabId === 'reconciliation' && typeof renderReconciliationUI === 'function') renderReconciliationUI();
             if (tabId === 'radar' && typeof renderDriversRadarUI === 'function') renderDriversRadarUI();
             if (tabId === 'blacklist' && typeof renderBlacklistUI === 'function') renderBlacklistUI();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
 
             if (window.innerWidth < 768 && document.getElementById('sidebar')?.classList.contains('open')) {
                 toggleSidebar(true);
@@ -1755,15 +1763,19 @@
             isHandlingPopState = false;
         });
 
-        // استرجاع آخر صفحة مفتوحة تلقائياً عند فتح التطبيق بدلاً من البدء من الصفر
+        // استرجاع آخر صفحة مفتوحة مع ضمان عمل زر الرجوع للعودة للوحة القيادة
         function restoreLastSessionTab() {
             const hashTab = (window.location.hash || '').replace('#', '').trim();
             const savedTab = getPermanentOwnerData('sman_last_open_tab');
             const targetTab = (hashTab && document.getElementById('view-' + hashTab)) ? hashTab : (savedTab && document.getElementById('view-' + savedTab) ? savedTab : 'dashboard');
 
             if (targetTab && targetTab !== 'dashboard') {
+                if (window.smanTabHistoryStack.length === 0) {
+                    window.smanTabHistoryStack.push('dashboard');
+                }
                 const btn = document.querySelector(`#sidebar button[onclick*="switchTab('${targetTab}'"]`);
                 switchTab(targetTab, btn, true);
+                updateHeaderBackBtn(targetTab);
             } else {
                 updateHeaderBackBtn('dashboard');
             }
@@ -1774,7 +1786,7 @@
             restoreLastSessionTab();
         });
 
-        // === 3. التعرف التلقائي على موبايل المالك والدخول الفوري بدون باسورد ===
+        // === 3. التعرف التلقائي الآمن على موبايل المالك (يمنع الشاشة البيضاء وسباق التحميل 100%) ===
         window._crmBootedOnce = false;
 
         function hideLoginScreenImmediately() {
@@ -1788,23 +1800,30 @@
         function bootCrmOnceSafely() {
             hideLoginScreenImmediately();
             if (window._crmBootedOnce) return;
+            if (document.readyState === 'loading') {
+                window.addEventListener('DOMContentLoaded', () => bootCrmOnceSafely(), { once: true });
+                return;
+            }
             window._crmBootedOnce = true;
             startCRM();
-            setTimeout(restoreLastSessionTab, 150);
+            setTimeout(restoreLastSessionTab, 100);
         }
 
-        // تفعيل بقاء الجلسة دائمة في Firebase
         try {
             auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
         } catch (e) {}
 
-        // فحص فوري قبل انتظار الشبكة: إذا كان الموبايل موثوقاً ومسجلاً مسبقاً، افتح السيستم في 0 ثانية!
+        // إخفاء شاشة الدخول بصرياً فوراً للموبايل الموثوق، مع انتظار جاهزية Firebase الفعلية قبل سحب الداتا لمنع الشاشة البيضاء
         (function instantTrustedDeviceCheck() {
             const isTrusted = getPermanentOwnerData('sman_trusted_owner_device') === '1';
             const savedEmail = getPermanentOwnerData('sman_owner_email');
             const savedPass = getPermanentOwnerData('sman_owner_pass');
             if (isTrusted && savedEmail && savedPass) {
-                setTimeout(bootCrmOnceSafely, 10);
+                hideLoginScreenImmediately();
+                // صمام أمان في حال انقطاع الإنترنت الكامل عن الجهاز
+                setTimeout(() => {
+                    if (!window._crmBootedOnce) bootCrmOnceSafely();
+                }, 1800);
             }
         })();
 
@@ -1814,7 +1833,6 @@
                 if (user.email) setPermanentOwnerData('sman_owner_email', user.email);
                 bootCrmOnceSafely();
             } else {
-                // إذا فقد الـ WebView الجلسة، نقوم بتسجيل الدخول الصامت في الخلفية تلقائياً بدون إظهار شاشة الباسورد
                 const savedEmail = getPermanentOwnerData('sman_owner_email');
                 const savedPass = getPermanentOwnerData('sman_owner_pass');
                 if (savedEmail && savedPass) {
@@ -1822,7 +1840,6 @@
                     auth.signInWithEmailAndPassword(savedEmail, savedPass).then(() => {
                         bootCrmOnceSafely();
                     }).catch(() => {
-                        // في حال عدم وجود إنترنت مؤقتاً والموبايل موثوق، يظل السيستم مفتوحاً
                         if (getPermanentOwnerData('sman_trusted_owner_device') === '1') {
                             bootCrmOnceSafely();
                         } else {
@@ -5607,19 +5624,24 @@ window.deleteProductUI = async (id) => {
         window.scheduleSystemRender = () => {
             clearTimeout(renderTimeout);
             renderTimeout = setTimeout(() => {
-                if (document.getElementById('view-orders')?.classList.contains('active')) {
-                    renderOrdersList();
-                } else {
-                    renderOrdersList();
-                }
+                const activeTab = window.smanCurrentActiveTab || 'dashboard';
+
+                if (activeTab === 'orders' && typeof renderOrdersList === 'function') renderOrdersList();
+                else if (activeTab === 'notes' && typeof renderNotesUI === 'function') renderNotesUI();
+                else if (activeTab === 'reconciliation' && typeof calculateDriverReconciliation === 'function') calculateDriverReconciliation();
+                else if (activeTab === 'radar' && typeof renderDriversRadarUI === 'function') renderDriversRadarUI();
+                else if (activeTab === 'customers' && typeof renderCustomersTableUI === 'function') renderCustomersTableUI();
+                else if (activeTab === 'debts' && typeof renderDebtsUI === 'function') renderDebtsUI();
+                else if (activeTab === 'blacklist' && typeof renderBlacklistUI === 'function') renderBlacklistUI();
+
                 const analysisModal = document.getElementById('analysis-modal');
-                if (analysisModal && !analysisModal.classList.contains('hidden')) {
+                if (analysisModal && !analysisModal.classList.contains('hidden') && typeof updateBatchSummary === 'function') {
                     updateBatchSummary();
                 }
-                if (document.getElementById('view-notes')?.classList.contains('active')) renderNotesUI();
-                if (document.getElementById('view-reconciliation')?.classList.contains('active')) calculateDriverReconciliation();
-                if (document.getElementById('view-radar')?.classList.contains('active') && typeof renderDriversRadarUI === 'function') renderDriversRadarUI();
-            }, 150); 
+                if (typeof window.updateLiveHeaderAndSidebar === 'function') {
+                    window.updateLiveHeaderAndSidebar();
+                }
+            }, 120); 
         };
 
         // تحديث التحليل التفصيلي فور فتح نافذته
