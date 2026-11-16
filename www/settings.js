@@ -459,12 +459,22 @@
             storeSettings.drivers = (storeSettings.drivers || []).filter(d => d && (d.name || d.phone));
             storeSettings.productsData = storeProducts;
 
+            if (typeof storeBatches !== 'undefined' && storeBatches) {
+                Object.keys(storeBatches).forEach(k => {
+                    const bObj = storeBatches[k];
+                    if (!bObj || typeof bObj !== 'object' || !bObj.name || bObj.name === 'undefined' || bObj.name.trim() === '') {
+                        delete storeBatches[k];
+                    }
+                });
+            }
+
             await Promise.all([
                 db.collection('inventory').doc('settings').set(storeSettings, { merge: true }),
                 db.collection('inventory').doc('stock').set(storeStock, { merge: true }),
                 db.collection('inventory').doc('prices').set(storePrices, { merge: true }),
-                db.collection('inventory').doc('batches').set(storeBatches, { merge: true })
+                db.collection('inventory').doc('batches').set(storeBatches)
             ]);
+
 
             if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
             if (typeof window.renderReconciliationUI === 'function') window.renderReconciliationUI();
