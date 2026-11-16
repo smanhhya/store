@@ -223,11 +223,16 @@
             let dashCust = document.getElementById('dash-customers');
             if (dashCust) dashCust.innerText = customersData.length;
 
-            window.renderCustomersTableUI();
-            window.renderDebtsUI();
-            if (typeof window.renderBlacklistUI === 'function') window.renderBlacklistUI();
-            if (typeof window.renderOrdersList === 'function') window.renderOrdersList();
-            if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
+            const activeTab = window.smanCurrentActiveTab || 'dashboard';
+            if (activeTab === 'customers') window.renderCustomersTableUI();
+            else if (activeTab === 'debts') window.renderDebtsUI();
+            else if (activeTab === 'blacklist' && typeof window.renderBlacklistUI === 'function') window.renderBlacklistUI();
+            else if (activeTab === 'orders' && typeof window.renderOrdersList === 'function') window.renderOrdersList();
+            else if (activeTab === 'dashboard' && typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
+
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') {
+                window.updateLiveHeaderAndSidebar();
+            }
         }).catch(err => console.log('خطأ في جلب الأرشيف: ', err));
     };
 
