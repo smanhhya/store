@@ -455,16 +455,17 @@
                 </div>
             </div>
 
-            <div id="view-batches" class="page-view h-full flex flex-col space-y-6 max-w-5xl mx-auto">
-                <div class="flex justify-between items-center bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft shrink-0">
+            <div id="view-batches" class="page-view space-y-4 max-w-7xl mx-auto pb-16">
+                <div class="flex flex-wrap justify-between items-center gap-3 bg-white p-4 sm:p-5 rounded-2xl border border-slate-100 shadow-soft shrink-0">
                     <div>
-                        <h3 class="font-black text-slate-800 text-xl"><i class="fa-solid fa-layer-group text-teal-500 mr-2"></i> إدارة الدفعات</h3>
-                        <p class="text-xs text-slate-500 font-bold mt-1.5">نظم حجوزاتك، حدد الكميات، وتابع المتبقي بدقة.</p>
+                        <h3 class="font-black text-slate-800 text-lg sm:text-xl"><i class="fa-solid fa-layer-group text-teal-500 mr-2"></i> مركز قيادة وإدارة الدفعات</h3>
+                        <p class="text-xs text-slate-500 font-bold mt-1">تنقل بين دفعاتك بضغطة زر، وتابع المتاح والمحجوز والحسابات الصافية بدون تقليب.</p>
                     </div>
-                    <button onclick="addNewBatchUI()" class="bg-teal-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-teal-500/20 hover:bg-teal-700 transition-all flex items-center gap-2 active:scale-95"><i class="fa-solid fa-plus"></i> دورة جديدة</button>
+                    <button onclick="addNewBatchUI()" class="bg-teal-600 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black shadow-lg shadow-teal-500/20 hover:bg-teal-700 transition-all flex items-center gap-2 active:scale-95"><i class="fa-solid fa-plus"></i> دورة جديدة</button>
                 </div>
-                <div id="batches-list-container" class="flex-1 overflow-y-auto custom-scroll space-y-4 pr-1"></div>
+                <div id="batches-list-container" class="space-y-4"></div>
             </div>
+
             <div id="view-archive" class="page-view h-full flex flex-col space-y-6 max-w-5xl mx-auto">
                 <div class="flex justify-between items-center bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft shrink-0">
                     <div>
