@@ -1497,10 +1497,29 @@
             } catch (e) {}
         }
 
-        // جلب جميع النوافذ المنبثقة المفتوحة حالياً (بما فيها استوديو الطابعة وأي نافذة جديدة)
+        // متغيرات حماية سجل التاتش والرجوع على الموبايل
+        window._ignoreNextPopState = false;
+        window._historyCushionPlanted = false;
+
+        // زرع وسادة أمان في سجل الموبايل مع أول لمسة للشاشة لمنع خروج التطبيق المفاجئ
+        function ensureMobileHistoryCushion() {
+            if (window._historyCushionPlanted) return;
+            window._historyCushionPlanted = true;
+            try {
+                const curTab = window.smanCurrentActiveTab || 'dashboard';
+                history.replaceState({ guard: 'root', tab: 'dashboard' }, '', '#dashboard');
+                history.pushState({ guard: 'tab', tab: curTab }, '', '#' + curTab);
+            } catch (e) {}
+        }
+
+        document.addEventListener('pointerdown', ensureMobileHistoryCushion, { passive: true });
+        document.addEventListener('touchstart', ensureMobileHistoryCushion, { passive: true });
+
+        // جلب جميع النوافذ المنبثقة المفتوحة حالياً بالترتيب (الأحدث فوق الأقدم)
         function getOpenModals() {
-            const explicitIds = [
+            const priorityIds = [
                 'deli-waybill-studio-modal',
+                'sm-owner-debt-modal',
                 'action-prompt-modal', 'note-action-modal', 'link-archive-modal',
                 'points-dashboard-modal', 'order-tracking-modal', 'batch-broadcast-modal',
                 'slaughter-modal', 'finance-report-modal', 'packing-list-modal',
@@ -1508,20 +1527,19 @@
                 'batch-bookings-modal', 'analysis-modal', 'edit-order-modal',
                 'add-order-modal', 'dispatch-modal', 'customer-modal'
             ];
-            const found = explicitIds.filter(id => {
+            const found = priorityIds.filter(id => {
                 const el = document.getElementById(id);
                 return el && !el.classList.contains('hidden');
             });
-            // التقاط أي نافذة منبثقة إضافية تنتهي بـ -modal
             document.querySelectorAll('[id$="-modal"]:not(.hidden)').forEach(el => {
                 if (el.id && !found.includes(el.id)) found.unshift(el.id);
             });
             return found;
         }
 
-        // الدالة المركزية للرجوع خطوة للخلف (تُستدعى من زر رجوع الموبايل ومن السهم العلوي)
-        window.handleAndroidBackButton = function () {
-            // 1. لو كبسولة الهيدر الطائرة أو قائمة التنبيهات مفتوحة، اقفلها أولاً
+        // الدالة المركزية لسحبة الرجوع بالتاتش على الموبايل
+        window.handleAndroidBackButton = function (fromPopState = false) {
+            // 1. لو كبسولة سريعة طائرة أو قائمة تنبيهات مفتوحة، اقفلها أولاً
             const floatingPop = document.getElementById('lc-floating-popover');
             if (floatingPop && !floatingPop.classList.contains('hidden')) {
                 if (typeof window.closeLivePopover === 'function') window.closeLivePopover();
@@ -1534,21 +1552,19 @@
                 return 'HANDLED';
             }
 
-            // 2. لو فيه أي نافذة منبثقة (Modal) أو استوديو الطابعة مفتوح، اقفله فوراً وابقَ في نفس الصفحة
+            // 2. لو فيه أي نافذة منبثقة (Modal) مفتوحة، اقفل النافذة فقط وارجع للشاشة اللي تحتها فوراً
             const openModals = getOpenModals();
             if (openModals.length > 0) {
-                closeModal(openModals[0]);
+                closeModal(openModals[0], true);
                 return 'HANDLED';
             }
 
-            // 3. لو القائمة الجانبية في الموبايل مفتوحة، اقفلها
-            const sb = document.getElementById('sidebar');
-            if (sb && sb.classList.contains('open')) {
-                toggleSidebar(true);
+            // 3. لو فورم تسجيل مصروف/دين أو درج فلاتر أو بحث الطوارئ مفتوح، اقفله
+            const ledgerBox = document.getElementById('sm-ledger-form-box');
+            if (ledgerBox && !ledgerBox.classList.contains('hidden')) {
+                ledgerBox.classList.add('hidden');
                 return 'HANDLED';
             }
-
-            // 4. لو نتائج كشاف الطوارئ أو مربع البلاك ليست السريع مفتوح، اقفله
             const searchRes = document.getElementById('global-search-results');
             if (searchRes && !searchRes.classList.contains('hidden')) {
                 searchRes.classList.add('hidden');
@@ -1560,6 +1576,13 @@
                 return 'HANDLED';
             }
 
+            // 4. لو القائمة الجانبية في الموبايل مفتوحة، اقفلها
+            const sb = document.getElementById('sidebar');
+            if (sb && sb.classList.contains('open')) {
+                toggleSidebar(true, true);
+                return 'HANDLED';
+            }
+
             // 5. لو الملاحظات المنزلقة داخل كارت الطلب مفتوحة، اقفلها
             if (typeof openInlineNoteId !== 'undefined' && openInlineNoteId) {
                 const noteCont = document.getElementById(`inline-notes-container-${openInlineNoteId}`);
@@ -1568,7 +1591,7 @@
                 return 'HANDLED';
             }
 
-            // 6. لو المستخدم داخل صفحة "الطلبات الحية" ومفعل فلتر فرعي (مثل: تجهيز / في الطريق) أو بحث نصي، يرجع لعرض "الكل" أولاً
+            // 6. لو داخل شاشة "الطلبات الحية" ومفعل فلتر فرعي أو بحث، يرجع لعرض "الكل" أولاً
             const currentActiveView = document.querySelector('.page-view.active');
             const currentTabId = currentActiveView ? currentActiveView.id.replace('view-', '') : window.smanCurrentActiveTab;
 
@@ -1585,73 +1608,69 @@
                 }
             }
 
-            // 7. الرجوع للصفحة السابقة الفعلية من سجل التنقل (مثلاً كنت في الدفعات ترجع للطلبات الحية)
+            // 7. الرجوع للصفحة السابقة من سجل التنقل
             while (window.smanTabHistoryStack.length > 0) {
                 const prevTabId = window.smanTabHistoryStack.pop();
                 if (prevTabId && prevTabId !== currentTabId && document.getElementById('view-' + prevTabId)) {
-                    const prevBtn = document.querySelector(`button[onclick*="switchTab('${prevTabId}'"]`);
+                    const prevBtn = document.querySelector(`#sidebar button[onclick*="switchTab('${prevTabId}'"]`);
                     switchTab(prevTabId, prevBtn, true);
                     return 'HANDLED';
                 }
             }
 
-            // 8. إذا لم يكن هناك سجل سابق وكنا في صفحة غير لوحة القيادة، نرجع للوحة القيادة
+            // 8. لو في أي صفحة غير لوحة القيادة، يرجع للوحة القيادة بدل الخروج من التطبيق
             if (currentTabId !== 'dashboard') {
-                const dashBtn = document.querySelector(`button[onclick*="switchTab('dashboard'"]`);
-                if (dashBtn) switchTab('dashboard', dashBtn, true);
+                const dashBtn = document.querySelector(`#sidebar button[onclick*="switchTab('dashboard'"]`);
+                switchTab('dashboard', dashBtn, true);
                 return 'HANDLED';
             }
 
-            // وصلنا للصفحة الرئيسية الأولى ولا يوجد شيء مفتوح
             return 'AT_ROOT';
         };
 
         window.triggerSmartBack = () => {
-            return window.handleAndroidBackButton();
+            return window.handleAndroidBackButton(false);
         };
 
-        function updateHeaderBackBtn(tabId) {
+        // إخفاء سهم الرجوع العلوي لأن الاعتماد كله على سحبة التاتش الطبيعية في الموبايل
+        function updateHeaderBackBtn() {
             const backBtn = document.getElementById('crm-top-back-btn');
-            if (!backBtn) return;
-            const currentActiveView = document.querySelector('.page-view.active');
-            const activeId = tabId || (currentActiveView ? currentActiveView.id.replace('view-', '') : window.smanCurrentActiveTab);
-
-            if ((activeId && activeId !== 'dashboard') || window.smanTabHistoryStack.length > 0) {
-                backBtn.classList.remove('hidden');
-            } else {
-                backBtn.classList.add('hidden');
-            }
+            if (backBtn) backBtn.classList.add('hidden');
         }
 
-
-        function toggleSidebar(forceClose = false) {
+        function toggleSidebar(forceClose = false, fromBackGesture = false) {
             const sb = document.getElementById('sidebar'), ov = document.getElementById('mobile-overlay');
             if (!sb || !ov) return;
             const isOpen = sb.classList.contains('open');
-            
+
             if (forceClose && !isOpen) return;
 
             if (!isOpen && !forceClose) {
+                ensureMobileHistoryCushion();
                 sb.classList.add('open');
                 ov.classList.remove('hidden');
                 setTimeout(() => ov.classList.add('opacity-100'), 10);
                 if (!isHandlingPopState) {
-                    try { history.pushState({ guard: 'sidebar' }, ''); } catch (e) {}
+                    try { history.pushState({ guard: 'sidebar' }, '', '#' + (window.smanCurrentActiveTab || 'dashboard') + '__menu'); } catch (e) {}
                 }
             } else {
                 sb.classList.remove('open');
                 ov.classList.remove('opacity-100');
                 setTimeout(() => ov.classList.add('hidden'), 300);
+                if (!fromBackGesture && !isHandlingPopState && history.state && history.state.guard === 'sidebar') {
+                    window._ignoreNextPopState = true;
+                    try { history.back(); } catch (e) { window._ignoreNextPopState = false; }
+                }
             }
         }
 
         function switchTab(tabId, btnElement, isFromBackButton = false) {
-            closeAllOpenOverlays();
+            ensureMobileHistoryCushion();
+            closeAllOpenOverlays(true);
 
             const currentActiveView = document.querySelector('.page-view.active');
             const prevTabId = currentActiveView ? currentActiveView.id.replace('view-', '') : window.smanCurrentActiveTab;
 
-            // حفظ الصفحة السابقة في سجل الرجوع إذا كان الانتقال طبيعياً وليس ضغطة زر رجوع
             if (!isFromBackButton && prevTabId && prevTabId !== tabId) {
                 if (window.smanTabHistoryStack[window.smanTabHistoryStack.length - 1] !== prevTabId) {
                     window.smanTabHistoryStack.push(prevTabId);
@@ -1671,7 +1690,7 @@
             document.querySelectorAll('.page-view').forEach(view => view.classList.remove('active'));
             const targetView = document.getElementById('view-' + tabId);
             if (targetView) targetView.classList.add('active');
-            
+
             document.querySelectorAll('.nav-btn').forEach(btn => {
                 btn.classList.remove('active', 'bg-emerald-600/20', 'text-white', 'shadow-sm', 'mb-4', 'border', 'border-emerald-500/30', 'py-3');
                 btn.classList.add('hover:bg-emerald-800/50', 'hover:text-white', 'text-emerald-100/70', 'py-2.5');
@@ -1680,7 +1699,7 @@
             if (!btnElement) {
                 btnElement = document.querySelector(`#sidebar button[onclick*="switchTab('${tabId}'"]`);
             }
-            
+
             if (btnElement) {
                 btnElement.classList.remove('hover:bg-emerald-800/50', 'text-emerald-100/70', 'py-2.5');
                 btnElement.classList.add('active', 'bg-emerald-600/20', 'text-white', 'shadow-sm', 'mb-4', 'border', 'border-emerald-500/30', 'py-3');
@@ -1690,21 +1709,22 @@
             }
 
             updateHeaderBackBtn(tabId);
-            
+
             const saveBtn = document.getElementById('global-save-btn');
             if (saveBtn) {
                 if (['inventory', 'settings', 'marketing', 'batches'].includes(tabId)) {
-                    saveBtn.classList.remove('hidden'); 
-                } else { 
-                    saveBtn.classList.add('hidden'); 
+                    saveBtn.classList.remove('hidden');
+                } else {
+                    saveBtn.classList.add('hidden');
                 }
             }
+
             if (tabId === 'orders' && typeof renderOrdersList === 'function') renderOrdersList();
             if (tabId === 'customers' && typeof renderCustomersTableUI === 'function') renderCustomersTableUI();
             if (tabId === 'debts' && typeof renderDebtsUI === 'function') renderDebtsUI();
             if (tabId === 'batches' && typeof renderBatchesUI === 'function') renderBatchesUI();
             if (tabId === 'inventory' && typeof renderInventoryUI === 'function') renderInventoryUI();
-            if (tabId === 'trash' && typeof renderTrashUI === 'function') renderTrashUI();            
+            if (tabId === 'trash' && typeof renderTrashUI === 'function') renderTrashUI();
             if (tabId === 'notes' && typeof renderNotesUI === 'function') renderNotesUI();
             if (tabId === 'reconciliation' && typeof renderReconciliationUI === 'function') renderReconciliationUI();
             if (tabId === 'radar' && typeof renderDriversRadarUI === 'function') renderDriversRadarUI();
@@ -1712,62 +1732,85 @@
             if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
 
             if (window.innerWidth < 768 && document.getElementById('sidebar')?.classList.contains('open')) {
-                toggleSidebar(true);
+                toggleSidebar(true, true);
             }
         }
 
         function openModal(id) {
             const el = document.getElementById(id);
             if (!el) return;
+            ensureMobileHistoryCushion();
             const wasHidden = el.classList.contains('hidden');
             el.classList.remove('hidden');
             if (wasHidden && !isHandlingPopState) {
-                try { history.pushState({ guard: 'modal', modal: id }, ''); } catch (e) {}
+                try {
+                    const activeTab = window.smanCurrentActiveTab || 'dashboard';
+                    history.pushState({ guard: 'modal', modal: id }, '', '#' + activeTab + '__' + id);
+                } catch (e) {}
             }
         }
 
-        function closeModal(id) {
+        function closeModal(id, fromBackGesture = false) {
             const el = document.getElementById(id);
             if (!el || el.classList.contains('hidden')) return;
             el.classList.add('hidden');
+
+            // لو المستخدم قفل النافذة بزرار (X) أو زرار الحفظ، نحذف نقطة رجوع النافذة من السجل عشان متفضلش معلقة
+            if (!fromBackGesture && !isHandlingPopState && history.state && history.state.guard === 'modal') {
+                window._ignoreNextPopState = true;
+                try { history.back(); } catch (e) { window._ignoreNextPopState = false; }
+            }
         }
 
-        function closeAllOpenOverlays() {
-            getOpenModals().forEach(id => closeModal(id));
+        function closeAllOpenOverlays(fromTabSwitch = false) {
+            getOpenModals().forEach(id => closeModal(id, fromTabSwitch));
             const searchRes = document.getElementById('global-search-results');
             if (searchRes) searchRes.classList.add('hidden');
             const quickBl = document.getElementById('quick-blacklist-box');
             if (quickBl) quickBl.classList.add('hidden');
         }
 
-        // تأمين سجل المتصفح عند اللمس لمنع الخروج المفاجئ
-        document.addEventListener('click', () => {
-            if (!history.state || !history.state.guard) {
-                try { history.pushState({ guard: 'root' }, ''); } catch (e) {}
-            }
-        }, { passive: true });
+        // مراقب ذكي يلتقط أي نافذة تفتح بدون openModal (مثل استوديو الطابعة في waybill.js) ويسجل لها نقطة رجوع فوراً
+        const _modalAttrObserver = new MutationObserver((mutations) => {
+            if (isHandlingPopState) return;
+            mutations.forEach(m => {
+                if (m.type === 'attributes' && m.attributeName === 'class' && m.target && m.target.id) {
+                    const id = m.target.id;
+                    if (id.endsWith('-modal') || id === 'lc-floating-popover') {
+                        const isNowOpen = !m.target.classList.contains('hidden');
+                        if (isNowOpen && (!history.state || history.state.modal !== id)) {
+                            ensureMobileHistoryCushion();
+                            try {
+                                const activeTab = window.smanCurrentActiveTab || 'dashboard';
+                                history.pushState({ guard: 'modal', modal: id }, '', '#' + activeTab + '__' + id);
+                            } catch (e) {}
+                        }
+                    }
+                }
+            });
+        });
 
         window.addEventListener('popstate', () => {
+            if (window._ignoreNextPopState) {
+                window._ignoreNextPopState = false;
+                return;
+            }
             isHandlingPopState = true;
-            const res = window.handleAndroidBackButton();
-            if (res === 'HANDLED') {
-                try { history.pushState({ guard: 'active' }, ''); } catch (e) {}
-            } else {
+            const res = window.handleAndroidBackButton(true);
+            if (res === 'AT_ROOT') {
                 const now = Date.now();
                 if (now - lastBackPressTime > 2000) {
                     lastBackPressTime = now;
-                    try { history.pushState({ guard: 'root' }, ''); } catch (e) {}
-                    if (window.showQuickAppToast) window.showQuickAppToast("اضغط زر الرجوع مرة أخرى لتصغير التطبيق");
+                    if (window.showQuickAppToast) window.showQuickAppToast("اسحب للرجوع مرة أخرى للخروج من التطبيق");
                 }
             }
-            isHandlingPopState = false;
+            setTimeout(() => { isHandlingPopState = false; }, 50);
         });
 
-        // استرجاع آخر صفحة مفتوحة مع ضمان عمل زر الرجوع للعودة للوحة القيادة
         function restoreLastSessionTab() {
-            const hashTab = (window.location.hash || '').replace('#', '').trim();
+            const hashPart = (window.location.hash || '').replace('#', '').split('__')[0].trim();
             const savedTab = getPermanentOwnerData('sman_last_open_tab');
-            const targetTab = (hashTab && document.getElementById('view-' + hashTab)) ? hashTab : (savedTab && document.getElementById('view-' + savedTab) ? savedTab : 'dashboard');
+            const targetTab = (hashPart && document.getElementById('view-' + hashPart)) ? hashPart : (savedTab && document.getElementById('view-' + savedTab) ? savedTab : 'dashboard');
 
             if (targetTab && targetTab !== 'dashboard') {
                 if (window.smanTabHistoryStack.length === 0) {
@@ -1775,7 +1818,6 @@
                 }
                 const btn = document.querySelector(`#sidebar button[onclick*="switchTab('${targetTab}'"]`);
                 switchTab(targetTab, btn, true);
-                updateHeaderBackBtn(targetTab);
             } else {
                 updateHeaderBackBtn('dashboard');
             }
@@ -1784,6 +1826,22 @@
         window.addEventListener('DOMContentLoaded', () => {
             try { history.replaceState({ guard: 'root', tab: 'dashboard' }, '', window.location.hash || '#dashboard'); } catch (e) {}
             restoreLastSessionTab();
+            // تفعيل المراقب الذكي على كل النوافذ المنبثقة
+            setTimeout(() => {
+                document.querySelectorAll('[id$="-modal"]').forEach(el => {
+                    _modalAttrObserver.observe(el, { attributes: true, attributeFilter: ['class'] });
+                });
+                const bodyObs = new MutationObserver((muts) => {
+                    muts.forEach(m => {
+                        m.addedNodes.forEach(node => {
+                            if (node.nodeType === 1 && node.id && (node.id.endsWith('-modal') || node.id === 'lc-floating-popover')) {
+                                _modalAttrObserver.observe(node, { attributes: true, attributeFilter: ['class'] });
+                            }
+                        });
+                    });
+                });
+                bodyObs.observe(document.body, { childList: true });
+            }, 300);
         });
 
         // === 3. التعرف التلقائي الآمن على موبايل المالك (يمنع الشاشة البيضاء وسباق التحميل 100%) ===
