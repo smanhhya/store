@@ -3180,28 +3180,18 @@
             window.autoPickCountOfWeights(id, nextCount, 'first');
         };
 
-        // دالة زيادة أو إنقاص كمية الصنف العادي بضغطة زر في نافذة إنشاء طلب جديد
-        window.stepNewOrderItemQty = (id, delta) => {
-            const inp = document.getElementById(`no-q-${id}`);
-            if (!inp) return;
-            let cur = parseFloat(inp.value) || 0;
-            let next = Math.max(0, cur + delta);
-            inp.value = next > 0 ? next : '';
-            window.styleNewOrderItemCard(id, next);
-            calcTotal('no');
-        };
-
+        // دالة تمييز الصنف المختار في إنشاء طلب جديد
         window.styleNewOrderItemCard = (id, qty) => {
             const card = document.getElementById(`no-item-card-${id}`);
             if (!card) return;
             if (Number(qty) > 0) {
-                card.className = 'bg-emerald-50/90 border-2 border-brand-primary p-3 rounded-2xl text-center flex flex-col justify-between shadow-md transition-all scale-[1.01]';
+                card.className = 'bg-emerald-50 border-2 border-brand-primary p-3 rounded-2xl text-center flex flex-col justify-between shadow-md transition-all';
             } else {
-                card.className = 'bg-white border border-slate-200/90 hover:border-emerald-300 p-3 rounded-2xl text-center flex flex-col justify-between shadow-sm transition-all';
+                card.className = 'bg-slate-50 border border-slate-200/80 p-3 rounded-2xl text-center flex flex-col justify-between transition-all';
             }
         };
 
-        // إضافة وزن يدوي فوري بالجرام أثناء إنشاء طلب جديد (لو وزنت فرخة غير مسجلة بالمصفوفة)
+        // إضافة وزن يدوي فوري بالجرام أثناء إنشاء طلب جديد
         window.addCustomWeightInNewOrder = (id) => {
             const inp = document.getElementById(`no-custom-gram-${id}`);
             if (!inp) return;
@@ -3236,9 +3226,10 @@
             if (!container) return;
             container.innerHTML = '';
 
+            // إظهار جميع الأصناف للإدارة (حتى المخفي من المتجر العام يظهر لك لتحجز منه براحتك)
             Object.keys(storeProducts).forEach(id => {
                 let p = storeProducts[id];
-                if (!p || p.isHidden) return;
+                if (!p) return;
                 let kiloPrice = storePrices[id] || p.basePrice || 0;
 
                 if (p.isWeightBased) {
@@ -3262,11 +3253,11 @@
                     let dropdownContentHtml = `
                     <div class="space-y-2.5 mt-2">
                         <div class="flex flex-wrap items-center justify-between gap-2 bg-white p-2.5 rounded-xl border border-indigo-100 shadow-sm">
-                            <span class="text-[11px] font-black text-slate-700"><i class="fa-solid fa-wand-magic-sparkles text-indigo-500 ml-1"></i> الزبون عايز كام فرخة؟</span>
+                            <span class="text-[11px] font-black text-slate-700"><i class="fa-solid fa-wand-magic-sparkles text-indigo-500 ml-1"></i> الزبون عايز كام واحدة؟</span>
                             <div class="flex items-center gap-1.5">
-                                <button type="button" onclick="stepWeightQuickCount('${id}', -1)" class="w-8 h-8 rounded-lg bg-rose-50 hover:bg-rose-500 text-rose-600 hover:text-white font-black text-sm transition-colors">-</button>
+                                <button type="button" onclick="stepWeightQuickCount('${id}', -1)" class="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-500 text-rose-600 hover:text-white font-black text-sm transition-colors">-</button>
                                 <input type="number" id="weight-quick-count-${id}" min="0" max="${totalStockCount}" placeholder="العدد" oninput="autoPickCountOfWeights('${id}', this.value, 'first')" class="w-16 border border-indigo-200 rounded-lg p-1 text-center font-black text-xs text-indigo-700 outline-none bg-indigo-50/30">
-                                <button type="button" onclick="stepWeightQuickCount('${id}', 1)" class="w-8 h-8 rounded-lg bg-emerald-50 hover:bg-emerald-500 text-emerald-600 hover:text-white font-black text-sm transition-colors">+</button>
+                                <button type="button" onclick="stepWeightQuickCount('${id}', 1)" class="w-7 h-7 rounded-lg bg-emerald-50 hover:bg-emerald-500 text-emerald-600 hover:text-white font-black text-sm transition-colors">+</button>
                             </div>
                             <div class="flex gap-1 w-full sm:w-auto justify-end pt-1 sm:pt-0">
                                 <button type="button" onclick="autoPickCountOfWeights('${id}', document.getElementById('weight-quick-count-${id}').value || 1, 'light')" class="text-[9px] bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 font-black px-2 py-1 rounded-lg transition-colors">الأخف</button>
@@ -3275,25 +3266,23 @@
                             </div>
                         </div>
 
-                        <!-- إضافة وزن خاص فوري بالجرام -->
-                        <div class="flex items-center gap-1.5 bg-white p-2 rounded-xl border border-indigo-100">
-                            <i class="fa-solid fa-scale-unbalanced text-indigo-500 text-xs px-1"></i>
-                            <input type="number" id="no-custom-gram-${id}" placeholder="إضافة وزن يدوي بالجرام (مثال: 1450)..." onkeydown="if(event.key==='Enter'){event.preventDefault(); addCustomWeightInNewOrder('${id}');}" class="flex-1 text-xs font-black text-slate-700 outline-none bg-transparent">
-                            <button type="button" onclick="addCustomWeightInNewOrder('${id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-lg text-[10px] font-black shrink-0">+ أضف للطلب</button>
-                        </div>
-
-                        <!-- زر فتح القائمة المنسدلة للأوزان -->
                         <div class="relative">
                             <button type="button" onclick="toggleWeightDropdownMenu('${id}')" class="w-full bg-white hover:bg-indigo-50/50 border-2 border-indigo-200 rounded-xl p-2.5 flex items-center justify-between text-right transition-all shadow-sm">
                                 <div class="flex items-center gap-2">
                                     <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
-                                    <span id="weight-summary-label-${id}" class="text-xs font-black text-slate-700">اضغط لفتح قائمة الأوزان (${totalStockCount} متاح بالمصفوفة)</span>
+                                    <span id="weight-summary-label-${id}" class="text-xs font-black text-slate-700">اضغط لفتح قائمة الأوزان المنسدلة (${totalStockCount} متاح)</span>
                                 </div>
                                 <i id="weight-dropdown-arrow-${id}" class="fa-solid fa-chevron-down text-indigo-500 text-xs transition-transform duration-200"></i>
                             </button>
 
-                            <div id="weight-dropdown-menu-${id}" class="hidden mt-1.5 bg-white border-2 border-indigo-200 rounded-2xl p-2.5 shadow-xl max-h-56 overflow-y-auto custom-scroll grid grid-cols-1 sm:grid-cols-2 gap-1.5 z-30">
-                                ${checkboxesHtml || '<div class="col-span-full text-center py-3 text-xs font-bold text-slate-400">يمكنك اختيار الأوزان أو إضافة وزن يدوي بالأعلى</div>'}
+                            <div id="weight-dropdown-menu-${id}" class="hidden mt-1.5 bg-white border-2 border-indigo-200 rounded-2xl p-2.5 shadow-xl max-h-60 overflow-y-auto custom-scroll space-y-2 z-30">
+                                <div class="flex items-center gap-1.5 bg-slate-50 p-2 rounded-xl border border-indigo-100">
+                                    <input type="number" id="no-custom-gram-${id}" placeholder="وزن خاص بالجرام (مثال: 1450)..." onkeydown="if(event.key==='Enter'){event.preventDefault(); addCustomWeightInNewOrder('${id}');}" class="flex-1 text-xs font-black text-slate-700 outline-none bg-white px-2 py-1 rounded border border-slate-200">
+                                    <button type="button" onclick="addCustomWeightInNewOrder('${id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0">+ إضافة</button>
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                    ${checkboxesHtml || '<div class="col-span-full text-center py-2 text-xs font-bold text-slate-400">اكتب الوزن بالجرام في الخانة بالأعلى واضغط إضافة</div>'}
+                                </div>
                             </div>
                         </div>
 
@@ -3304,32 +3293,21 @@
                     container.innerHTML += `
                     <div class="col-span-2 sm:col-span-3 bg-indigo-50/60 border-2 border-indigo-200/80 p-3.5 rounded-2xl text-right flex flex-col justify-between shadow-sm">
                         <div class="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-indigo-100">
-                            <span class="text-xs font-black text-indigo-950 flex items-center gap-1.5"><i class="fa-solid fa-weight-scale text-indigo-600"></i> ${p.name} <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full">الكيلو: ${kiloPrice} ج</span></span>
-                            <span class="text-[10px] font-black text-indigo-700 bg-white px-2.5 py-1 rounded-lg border border-indigo-200">المتاح: ${totalStockCount} فرخة (${totalStockKg} كجم)</span>
+                            <span class="text-xs font-black text-indigo-950 flex items-center gap-1.5"><i class="fa-solid fa-weight-scale text-indigo-600"></i> ${p.name} <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full">سعر الكيلو: ${kiloPrice} ج</span></span>
+                            <span class="text-[10px] font-black text-indigo-700 bg-white px-2.5 py-1 rounded-lg border border-indigo-200">المتاح بالمصفوفة: ${totalStockCount} عدد (${totalStockKg} كجم)</span>
                         </div>
                         ${dropdownContentHtml}
                     </div>`;
                 } else {
-                    let stNow = Number(storeStock[id]) || 0;
-                    let availBadgeHtml = `<span id="no-avail-badge-${id}" class="text-[9px] font-bold text-slate-400">المتاح: ${stNow}</span>`;
-
+                    // تصميم نظيف وواضح جداً: اسم الصنف كامل في سطر مستقل بدون قصّ نهائياً
                     container.innerHTML += `
-                    <div id="no-item-card-${id}" class="bg-white border border-slate-200/90 hover:border-emerald-300 p-3 rounded-2xl text-center flex flex-col justify-between shadow-sm transition-all">
+                    <div id="no-item-card-${id}" class="bg-slate-50 border border-slate-200/80 p-3 rounded-2xl text-center flex flex-col justify-between transition-all">
                         <div class="mb-2">
-                            <div class="flex items-center justify-between gap-1 mb-0.5">
-                                <span class="text-xs font-black text-slate-800 truncate" title="${p.name}">${p.name}</span>
-                                <span class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded-md text-[10px] font-black shrink-0">${kiloPrice} ج</span>
-                            </div>
-                            <div class="flex items-center justify-between text-[9px] text-slate-400 font-bold">
-                                <span>${p.weight || 'طازج'}</span>
-                                ${availBadgeHtml}
-                            </div>
+                            <span class="text-xs sm:text-sm font-black text-slate-800 block leading-snug mb-1">${p.name}</span>
+                            <span class="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md inline-block">${kiloPrice} ج</span>
+                            <span id="no-avail-badge-${id}" class="hidden"></span>
                         </div>
-                        <div class="flex items-center justify-between bg-slate-100 rounded-xl p-1 border border-slate-200/70">
-                            <button type="button" onclick="stepNewOrderItemQty('${id}', -1)" class="w-8 h-8 rounded-lg bg-white hover:bg-rose-500 text-rose-600 hover:text-white font-black text-sm shadow-sm transition-colors flex items-center justify-center">-</button>
-                            <input type="number" id="no-q-${id}" min="0" step="1" class="w-12 border-none bg-transparent text-center font-black text-base text-brand-primary outline-none" placeholder="0" oninput="styleNewOrderItemCard('${id}', this.value); calcTotal('no')">
-                            <button type="button" onclick="stepNewOrderItemQty('${id}', 1)" class="w-8 h-8 rounded-lg bg-white hover:bg-emerald-600 text-emerald-600 hover:text-white font-black text-sm shadow-sm transition-colors flex items-center justify-center">+</button>
-                        </div>
+                        <input type="number" id="no-q-${id}" min="0" step="1" class="w-full border border-slate-200 bg-white rounded-xl p-2 text-center font-black text-base text-brand-primary outline-none focus:ring-2 focus:ring-brand-primary/20 shadow-sm transition-all" placeholder="0" oninput="styleNewOrderItemCard('${id}', this.value); calcTotal('no')">
                     </div>`;
                 }
             });
@@ -3338,7 +3316,7 @@
             if (zSel) {
                 let zVal = zSel.value;
                 zSel.innerHTML = '<option value="">-- اختر المنطقة --</option>';
-                (storeSettings.deliveryZones || []).forEach(z => { zSel.innerHTML += `<option value="${z.name}" data-price="${z.price}">${z.name} (${z.price} ج)</option>`; });
+                (storeSettings.deliveryZones || []).forEach(z => { zSel.innerHTML += `<option value="${z.name}" data-price="${z.price}">${z.name}</option>`; });
                 if (zVal) zSel.value = zVal;
             }
             const bSel = document.getElementById('no-batch');
@@ -3347,13 +3325,13 @@
                 bSel.onchange = () => {
                     if (typeof window.updateNewOrderBatchMeter === 'function') window.updateNewOrderBatchMeter();
                 };
-                bSel.innerHTML = '<option value="">-- أوردر فوري عادي (بدون دورة) --</option>';
+                bSel.innerHTML = '<option value="">-- أوردر عادي (بدون دورة) --</option>';
                 Object.keys(storeBatches).forEach(bId => {
                     const bObj = storeBatches[bId];
                     if (bObj && bObj.isOpen && bObj.name && bObj.name !== 'undefined') {
                         const capInfo = (typeof window.getBatchCeilingAndRemaining === 'function') ? window.getBatchCeilingAndRemaining(bId) : null;
                         const capText = capInfo && capInfo.ceilingPairs > 0
-                            ? ` — (متبقي ${capInfo.remainingPairs} من ${capInfo.ceilingPairs} جوز | ${capInfo.remainingBirds} فردة)`
+                            ? ` — (متبقي ${capInfo.remainingPairs} من ${capInfo.ceilingPairs} جوز)`
                             : '';
                         bSel.innerHTML += `<option value="${bId}">${bObj.name}${capText}</option>`;
                     }
@@ -4845,6 +4823,17 @@ window.deleteProductUI = async (id) => {
             calcEditTotal();
         };
 
+        // فتح أو إغلاق القائمة المنسدلة للأوزان داخل نافذة تعديل الطلب
+        window.toggleEditWeightDropdownMenu = (id) => {
+            const menu = document.getElementById(`edit-weight-dropdown-menu-${id}`);
+            const arrow = document.getElementById(`edit-weight-dropdown-arrow-${id}`);
+            if (!menu) return;
+            menu.classList.toggle('hidden');
+            if (arrow) {
+                arrow.style.transform = menu.classList.contains('hidden') ? 'rotate(0deg)' : 'rotate(180deg)';
+            }
+        };
+
         window.openEditOrderModal = (id) => {
             editingOrderData = allOrdersRaw.find(o => o.id === id);
             if (!editingOrderData) return;
@@ -4852,7 +4841,27 @@ window.deleteProductUI = async (id) => {
             const container = document.getElementById('edit-dynamic-order-items');
             container.innerHTML = '';
 
-            Object.keys(storeProducts).forEach(pId => {
+            // شريط ملخص علوي واضح جداً يعرض الأصناف المطلوبة حالياً في الأوردر عشان عينك تلقطها في ثانية
+            let summaryBar = document.getElementById('edit-current-items-summary');
+            if (!summaryBar && container.parentElement) {
+                summaryBar = document.createElement('div');
+                summaryBar.id = 'edit-current-items-summary';
+                summaryBar.className = 'mb-4 p-3 rounded-xl bg-emerald-900 text-white text-xs font-black flex flex-wrap items-center gap-2 shadow-sm';
+                container.parentElement.insertBefore(summaryBar, container);
+            }
+
+            // نرتب الأصناف بحيث الأصناف المطلوبة في الأوردر تظهر في الأول قدام عينك، وتحتها باقي أصناف الكتالوج كلها (بما فيها المخفي من المتجر العام)
+            const allProdIds = Object.keys(storeProducts);
+            allProdIds.sort((aId, bId) => {
+                const pA = storeProducts[aId], pB = storeProducts[bId];
+                const hasA = editingOrderData.items && editingOrderData.items.some(i => i.id === aId || i.name === pA?.name || (i.name && pA?.name && String(i.name).startsWith(pA.name + ' [')));
+                const hasB = editingOrderData.items && editingOrderData.items.some(i => i.id === bId || i.name === pB?.name || (i.name && pB?.name && String(i.name).startsWith(pB.name + ' [')));
+                if (hasA && !hasB) return -1;
+                if (!hasA && hasB) return 1;
+                return 0;
+            });
+
+            allProdIds.forEach(pId => {
                 let p = storeProducts[pId];
                 if (!p) return;
 
@@ -4860,24 +4869,20 @@ window.deleteProductUI = async (id) => {
                     i.id === pId || i.name === p.name || (i.name && p.name && String(i.name).startsWith(p.name + ' ['))
                 ) : null;
 
-                if (!existingItem && p.isHidden) return;
-
                 let q = existingItem ? Number(existingItem.quantity) : 0;
                 let unitPrice = existingItem ? Number(existingItem.price) : (storePrices[pId] || p.basePrice || 0);
 
-                // ⚖️ إذا كان الصنف يباع بالوزن: نعرض الفرخات المحجوزة في الطلب + الفرخات المتاحة بالمخزن + إضافة وزن يدوي!
+                // ⚖️ الصنف المباع بالوزن: قائمة منسدلة نظيفة تفتح وتقفل بضغطة زر زي إنشاء الطلب بالظبط
                 if (p.isWeightBased) {
                     const orderWeightsGrams = existingItem ? window.extractExistingOrderWeightsGrams(existingItem) : [];
                     const stockWeightsGrams = window.parseWeightsArray(p.weightsList);
 
                     let checkboxesHtml = '';
-
-                    // 1. الأوزان المحجوزة بالفعل داخل هذا الطلب (محددة بعلامة صح)
                     orderWeightsGrams.forEach((w, idx) => {
                         let itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
                         let itemPriceEGP = Math.round((w / 1000) * unitPrice);
                         checkboxesHtml += `
-                        <label class="flex items-center justify-between gap-2 bg-emerald-50/90 hover:bg-emerald-100/80 border-2 border-emerald-400 px-3 py-2 rounded-xl cursor-pointer transition-all select-none">
+                        <label class="flex items-center justify-between gap-2 bg-emerald-50 hover:bg-emerald-100/80 border-2 border-emerald-400 px-3 py-2 rounded-xl cursor-pointer transition-all select-none">
                             <div class="flex items-center gap-2">
                                 <input type="checkbox" data-origin="order" data-order-idx="${idx}" class="edit-weight-cb-${pId} w-4 h-4 accent-emerald-600 rounded" value="${w}" checked onchange="calcEditTotal()">
                                 <span class="text-xs font-black text-emerald-950">✅ بالطلب: <span class="text-emerald-700">${w} جم</span> <span class="text-[10px] text-slate-500">(${itemKg} كجم)</span></span>
@@ -4886,67 +4891,75 @@ window.deleteProductUI = async (id) => {
                         </label>`;
                     });
 
-                    // 2. الأوزان المتاحة في مصفوفة المخزن (للاستبدال أو الزيادة)
                     stockWeightsGrams.forEach((w, idx) => {
                         let itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
                         let itemPriceEGP = Math.round((w / 1000) * unitPrice);
                         checkboxesHtml += `
-                        <label class="flex items-center justify-between gap-2 bg-white hover:bg-indigo-50/80 border border-slate-200 px-3 py-2 rounded-xl cursor-pointer transition-all select-none">
+                        <label class="flex items-center justify-between gap-2 bg-slate-50 hover:bg-indigo-50/80 border border-slate-200 px-3 py-2 rounded-xl cursor-pointer transition-all select-none">
                             <div class="flex items-center gap-2">
                                 <input type="checkbox" data-origin="stock" data-stock-idx="${idx}" class="edit-weight-cb-${pId} w-4 h-4 accent-indigo-600 rounded" value="${w}" onchange="calcEditTotal()">
                                 <span class="text-xs font-black text-slate-700">📦 بالمخزن: <span class="text-indigo-700">${w} جم</span> <span class="text-[10px] text-slate-400">(${itemKg} كجم)</span></span>
                             </div>
-                            <span class="text-[11px] font-black bg-slate-50 text-slate-700 border border-slate-200 px-2 py-0.5 rounded-lg">${itemPriceEGP} ج</span>
+                            <span class="text-[11px] font-black bg-white text-slate-700 border border-slate-200 px-2 py-0.5 rounded-lg">${itemPriceEGP} ج</span>
                         </label>`;
                     });
 
                     container.innerHTML += `
-                    <div class="col-span-2 md:col-span-3 bg-indigo-50/70 border-2 border-indigo-200 p-4 rounded-2xl space-y-3 shadow-sm">
-                        <div class="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-indigo-200/70">
-                            <span class="text-xs font-black text-indigo-950 flex items-center gap-1.5">
-                                <i class="fa-solid fa-scale-balanced text-indigo-600"></i> ${p.name}
+                    <div class="col-span-2 md:col-span-3 ${q > 0 ? 'bg-indigo-50/80 border-2 border-indigo-400' : 'bg-slate-50 border border-slate-200'} p-3.5 rounded-2xl space-y-2.5 shadow-sm">
+                        <div class="flex flex-wrap justify-between items-center gap-2">
+                            <span class="text-xs sm:text-sm font-black text-indigo-950 flex items-center gap-1.5">
+                                <i class="fa-solid fa-weight-scale text-indigo-600"></i> ${p.name}
                                 <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full">سعر الكيلو: ${unitPrice} ج</span>
                             </span>
                             <span class="text-[10px] font-black text-indigo-700 bg-white px-2.5 py-1 rounded-lg border border-indigo-200">
-                                بالطلب حالياً: ${orderWeightsGrams.length} فرخة | متاح بالمخزن: ${stockWeightsGrams.length} فرخة
+                                بالطلب: ${orderWeightsGrams.length} فرخة | متاح بالمخزن: ${stockWeightsGrams.length} فرخة
                             </span>
                         </div>
 
-                        <!-- شريط إضافة وزن يدوي بالجرام أو تعديل الوزن الإجمالي بالكيلو -->
-                        <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center bg-white p-2.5 rounded-xl border border-indigo-100">
-                            <div class="sm:col-span-8 flex items-center gap-1.5">
-                                <i class="fa-solid fa-plus-circle text-indigo-500 text-xs"></i>
-                                <input type="number" id="edit-custom-gram-${pId}" placeholder="إضافة فرخة بوزن جديد بالجرام (مثال: 1550)..." onkeydown="if(event.key==='Enter'){event.preventDefault(); addCustomWeightInEditOrder('${pId}');}" class="flex-1 text-xs font-black text-slate-800 outline-none bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200">
-                                <button type="button" onclick="addCustomWeightInEditOrder('${pId}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shrink-0">+ أضف وزن</button>
-                            </div>
-                            <div class="sm:col-span-4 flex items-center justify-end gap-1.5 border-t sm:border-t-0 sm:border-r border-slate-100 pt-2 sm:pt-0 sm:pr-2">
-                                <span class="text-[10px] font-black text-slate-500">الإجمالي (كجم):</span>
-                                <input type="number" id="edit-q-${pId}" min="0" step="0.01" value="${q}" data-orig-weights="${orderWeightsGrams.join(',')}" oninput="calcEditTotal(true, '${pId}')" class="w-20 border border-indigo-300 bg-indigo-50/50 rounded-lg p-1 text-center font-black text-xs text-indigo-900 outline-none">
-                            </div>
-                        </div>
-
-                        <p class="text-[10px] font-bold text-indigo-700">💡 علّم (✅) على الفرخات المطلوبة في الطلب، أو شيل العلامة لإرجاع الفرخة للمخزن تلقائياً:</p>
-
-                        <!-- شبكة اختيار وتبديل الأوزان -->
-                        <div id="edit-weight-grid-${pId}" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-48 overflow-y-auto custom-scroll p-1">
-                            ${checkboxesHtml || '<div class="col-span-full text-center py-3 text-xs font-bold text-slate-400">لا توجد أوزان مسجلة، يمكنك إضافة وزن بالجرام بالأعلى أو كتابة الكيلو مباشرة</div>'}
-                        </div>
-
                         <!-- شريط الملخص الحي للوزن والسعر -->
-                        <div id="edit-weight-live-bar-${pId}" class="bg-indigo-900 text-white px-3 py-2 rounded-xl text-[11px] font-black flex flex-wrap items-center justify-between gap-2 shadow-sm"></div>
+                        <div id="edit-weight-live-bar-${pId}" class="${q > 0 ? '' : 'hidden'} bg-indigo-900 text-white px-3 py-2 rounded-xl text-[11px] font-black flex flex-wrap items-center justify-between gap-2 shadow-sm"></div>
+
+                        <!-- زر فتح وغلق قائمة الأوزان المنسدلة لمنع الزحام -->
+                        <div class="relative">
+                            <button type="button" onclick="toggleEditWeightDropdownMenu('${pId}')" class="w-full bg-white hover:bg-indigo-50/50 border-2 border-indigo-200 rounded-xl p-2.5 flex items-center justify-between text-right transition-all shadow-sm">
+                                <div class="flex items-center gap-2">
+                                    <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
+                                    <span id="edit-weight-summary-label-${pId}" class="text-xs font-black text-slate-700">
+                                        ${orderWeightsGrams.length > 0 ? `✅ محجوز (${orderWeightsGrams.length}) فرخة: (${orderWeightsGrams.join(' + ')} جم) — اضغط للتعديل` : `اضغط لاختيار أو تعديل أوزان (${p.name})`}
+                                    </span>
+                                </div>
+                                <i id="edit-weight-dropdown-arrow-${pId}" class="fa-solid fa-chevron-down text-indigo-500 text-xs transition-transform duration-200"></i>
+                            </button>
+
+                            <div id="edit-weight-dropdown-menu-${pId}" class="hidden mt-2 bg-white border-2 border-indigo-200 rounded-2xl p-3 shadow-xl space-y-2.5">
+                                <div class="flex flex-wrap items-center gap-2 bg-slate-50 p-2 rounded-xl border border-indigo-100">
+                                    <input type="number" id="edit-custom-gram-${pId}" placeholder="إضافة وزن جديد بالجرام (مثال: 1550)..." onkeydown="if(event.key==='Enter'){event.preventDefault(); addCustomWeightInEditOrder('${pId}');}" class="flex-1 text-xs font-black text-slate-800 outline-none bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
+                                    <button type="button" onclick="addCustomWeightInEditOrder('${pId}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shrink-0">+ أضف وزن</button>
+                                    <div class="flex items-center gap-1 border-r border-slate-200 pr-2">
+                                        <span class="text-[10px] font-black text-slate-500">أو الإجمالي (كجم):</span>
+                                        <input type="number" id="edit-q-${pId}" min="0" step="0.01" value="${q}" oninput="calcEditTotal(true, '${pId}')" class="w-16 border border-indigo-300 bg-indigo-50/50 rounded-lg p-1 text-center font-black text-xs text-indigo-900 outline-none">
+                                    </div>
+                                </div>
+
+                                <div id="edit-weight-grid-${pId}" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-48 overflow-y-auto custom-scroll p-0.5">
+                                    ${checkboxesHtml || '<div class="col-span-full text-center py-2 text-xs font-bold text-slate-400">يمكنك إضافة وزن بالجرام من الخانة بالأعلى</div>'}
+                                </div>
+                            </div>
+                        </div>
                     </div>`;
                 } else {
-                    // 🥩 الأصناف العادية المباعة بالعدد / الطبق
+                    // 🥩 الأصناف العادية: اسم الصنف كامل في سطر لوحده بدون قصّ نهائياً، وتمييز واضح للأصناف المطلوبة
                     let isSelected = q > 0;
                     container.innerHTML += `
-                    <div id="edit-item-card-${pId}" class="${isSelected ? 'bg-emerald-50/80 border-2 border-brand-primary' : 'bg-white border border-slate-200'} p-3 rounded-2xl shadow-sm flex flex-col justify-between transition-all">
-                        <div class="flex items-center justify-between gap-1 mb-2">
-                            <span class="text-xs font-black text-slate-800 truncate" title="${p.name}">${p.name}</span>
-                            <span class="text-[10px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">${unitPrice} ج</span>
+                    <div id="edit-item-card-${pId}" class="${isSelected ? 'bg-emerald-50 border-2 border-brand-primary shadow-md' : 'bg-white border border-slate-200/80 opacity-85'} p-3 rounded-2xl flex flex-col justify-between transition-all">
+                        <div class="text-center mb-2">
+                            <span id="edit-req-badge-${pId}" class="${isSelected ? 'inline-block' : 'hidden'} bg-brand-primary text-white text-[9px] font-black px-2 py-0.5 rounded-full mb-1">✔ مطلوب بالطلب</span>
+                            <span class="text-xs sm:text-sm font-black text-slate-800 block leading-snug">${p.name}</span>
+                            <span class="text-[10px] font-bold text-slate-400 block mt-0.5">${unitPrice} ج</span>
                         </div>
-                        <div class="flex items-center justify-between bg-slate-100 border border-slate-200/70 rounded-xl p-1">
+                        <div class="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl p-1">
                             <button type="button" onclick="changeEditQty('${pId}', -1, false)" class="w-8 h-8 bg-white shadow-sm rounded-lg text-red-500 hover:bg-red-500 hover:text-white transition-colors flex items-center justify-center font-black"><i class="fa-solid fa-minus text-xs"></i></button>
-                            <input type="number" id="edit-q-${pId}" min="0" step="1" value="${q}" class="w-12 border-none bg-transparent text-center font-black text-base outline-none text-brand-primary" oninput="calcEditTotal()">
+                            <input type="number" id="edit-q-${pId}" min="0" step="1" value="${q > 0 ? q : ''}" placeholder="0" class="w-12 border-none bg-transparent text-center font-black text-base outline-none text-brand-primary" oninput="calcEditTotal()">
                             <button type="button" onclick="changeEditQty('${pId}', 1, false)" class="w-8 h-8 bg-white shadow-sm rounded-lg text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors flex items-center justify-center font-black"><i class="fa-solid fa-plus text-xs"></i></button>
                         </div>
                     </div>`;
@@ -4977,7 +4990,6 @@ window.deleteProductUI = async (id) => {
             if (document.getElementById('edit-delivery-start')) document.getElementById('edit-delivery-start').value = editingOrderData.deliveryStart || '';
             if (document.getElementById('edit-delivery-end')) document.getElementById('edit-delivery-end').value = editingOrderData.deliveryEnd || '';
 
-            // حقن خانات تعديل الملاحظات الإدارية وملاحظات المندوب داخل نافذة التعديل إن لم تكن موجودة
             const modalScrollBody = document.querySelector('#edit-order-modal .overflow-y-auto');
             if (modalScrollBody && !document.getElementById('edit-notes-box-wrap')) {
                 const notesWrap = document.createElement('div');
@@ -5010,12 +5022,14 @@ window.deleteProductUI = async (id) => {
             let val = isWeight ? parseFloat(input.value) || 0 : parseInt(input.value) || 0;
             val += amount;
             if (val < 0) val = 0;
-            input.value = isWeight ? parseFloat(val.toFixed(2)) : val;
+            input.value = val > 0 ? (isWeight ? parseFloat(val.toFixed(2)) : val) : '';
             calcEditTotal();
         };
 
         window.calcEditTotal = (manualKgTyped = false, manualPid = '') => {
             let itemsTotal = 0;
+            let activeSummaryPills = [];
+
             Object.keys(storeProducts).forEach(id => {
                 let p = storeProducts[id];
                 if (!p) return;
@@ -5051,29 +5065,52 @@ window.deleteProductUI = async (id) => {
                     const lineMoney = Math.round(q * price);
                     itemsTotal += lineMoney;
 
+                    const summaryLbl = document.getElementById(`edit-weight-summary-label-${id}`);
                     const liveBar = document.getElementById(`edit-weight-live-bar-${id}`);
-                    if (liveBar) {
-                        if (q > 0) {
-                            liveBar.innerHTML = `
-                                <span>🐔 الفرخات المختارة: <strong class="text-amber-300">${birdsCount || 1}</strong></span>
-                                <span>⚖️ الوزن الصافي: <strong class="text-amber-300">${totalGrams.toLocaleString()} جم (${q} كجم)</strong></span>
-                                <span>💰 إجمالي الصنف: <strong class="text-emerald-300">${lineMoney} ج.م</strong></span>
-                            `;
-                        } else {
-                            liveBar.innerHTML = `<span class="text-slate-300">لم يتم تحديد أوزان لهذا الصنف (0 كجم)</span>`;
+
+                    if (q > 0) {
+                        const detailsTxt = checkedBoxes.map(cb => cb.value).join(' + ');
+                        activeSummaryPills.push(`<span class="bg-amber-400 text-slate-950 px-2.5 py-1 rounded-lg">${p.name}: ${birdsCount || 1} فرخة (${q} كجم = ${lineMoney}ج)</span>`);
+                        if (summaryLbl) {
+                            summaryLbl.innerHTML = `✅ محجوز (${birdsCount || 1}) فرخة = <span class="text-emerald-700">${q} كجم</span> ${detailsTxt ? `(${detailsTxt} جم)` : ''} — اضغط للتعديل`;
                         }
+                        if (liveBar) {
+                            liveBar.classList.remove('hidden');
+                            liveBar.innerHTML = `
+                                <span>🐔 العدد: <strong class="text-amber-300">${birdsCount || 1}</strong></span>
+                                <span>⚖️ الوزن: <strong class="text-amber-300">${totalGrams.toLocaleString()} جم (${q} كجم)</strong></span>
+                                <span>💰 الإجمالي: <strong class="text-emerald-300">${lineMoney} ج.م</strong></span>
+                            `;
+                        }
+                    } else {
+                        if (summaryLbl) summaryLbl.innerText = `اضغط لاختيار أو تعديل أوزان (${p.name})`;
+                        if (liveBar) liveBar.classList.add('hidden');
                     }
                 } else {
                     let q = Number(qInput.value) || 0;
                     const card = document.getElementById(`edit-item-card-${id}`);
+                    const reqBadge = document.getElementById(`edit-req-badge-${id}`);
                     if (card) {
                         card.className = q > 0
-                            ? 'bg-emerald-50/80 border-2 border-brand-primary p-3 rounded-2xl shadow-sm flex flex-col justify-between transition-all'
-                            : 'bg-white border border-slate-200 p-3 rounded-2xl shadow-sm flex flex-col justify-between transition-all';
+                            ? 'bg-emerald-50 border-2 border-brand-primary shadow-md p-3 rounded-2xl flex flex-col justify-between transition-all'
+                            : 'bg-white border border-slate-200/80 opacity-85 p-3 rounded-2xl flex flex-col justify-between transition-all';
+                    }
+                    if (reqBadge) {
+                        reqBadge.className = q > 0 ? 'inline-block bg-brand-primary text-white text-[9px] font-black px-2 py-0.5 rounded-full mb-1' : 'hidden';
+                    }
+                    if (q > 0) {
+                        activeSummaryPills.push(`<span class="bg-white text-emerald-950 px-2.5 py-1 rounded-lg">${q}x ${p.name} (${Math.round(q * price)}ج)</span>`);
                     }
                     itemsTotal += Math.round(q * price);
                 }
             });
+
+            const summaryBar = document.getElementById('edit-current-items-summary');
+            if (summaryBar) {
+                summaryBar.innerHTML = activeSummaryPills.length > 0
+                    ? `<span>🛒 المطلوب في الأوردر حالياً:</span> ${activeSummaryPills.join(' ')}`
+                    : `<span class="text-amber-300">⚠️ لم يتم تحديد أي صنف في الطلب حالياً</span>`;
+            }
 
             document.getElementById('edit-price').value = Math.round(itemsTotal);
             let d = Number(document.getElementById('edit-delivery').value) || 0;
