@@ -272,6 +272,140 @@
         window.renderBatchesUI();
     };
 
+    // حساب سقف الدفعة الكلي (بالجوز وبالفردة) والمتبقي الفعلي منها بعد خصم الحجوزات
+    window.getBatchCeilingAndRemaining = function (bId) {
+        const b = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches[bId] : null;
+        if (!b) return { ceilingPairs: 0, ceilingBirds: 0, bookedPairs: 0, bookedBirds: 0, remainingPairs: 0, remainingBirds: 0, allocatedPairs: 0 };
+
+        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
+        const metrics = window.getBatchDeepMetrics(bId, b.name);
+
+        let allocatedMeatPairs = 0;
+        let bookedMeatPairs = 0;
+
+        Object.keys(prodsObj).forEach(pId => {
+            if (prodsObj[pId].isHidden) return;
+            if (isMainQuailProduct(pId)) {
+                allocatedMeatPairs += (Number(b.stock?.[pId]) || 0);
+                const savedB = Number(b.booked?.[pId]) || 0;
+                const liveB = metrics.realBookedByProd[pId] || 0;
+                bookedMeatPairs += ((metrics.totalOrders > 0 || savedB === 0) ? liveB : savedB);
+            }
+        });
+
+        const configuredTargetPairs = Number(b.actualPairs) || Number(b.publicPairs) || 0;
+        // سقف الدفعة المعتمد = الرقم الكلي للدفعة (مثلاً 200 جوز) أو مجموع المقاسات الموزعة أيهما أكبر
+        const effectiveCeilingPairs = Math.max(configuredTargetPairs, allocatedMeatPairs);
+        const remainingPairs = Number((effectiveCeilingPairs - bookedMeatPairs).toFixed(1));
+
+        return {
+            ceilingPairs: effectiveCeilingPairs,
+            ceilingBirds: Math.round(effectiveCeilingPairs * 2),
+            allocatedPairs: allocatedMeatPairs,
+            bookedPairs: Number(bookedMeatPairs.toFixed(1)),
+            bookedBirds: Math.round(bookedMeatPairs * 2),
+            remainingPairs: remainingPairs,
+            remainingBirds: Math.round(remainingPairs * 2)
+        };
+    };
+
+    // تعديل سقف الدفعة الكلي (بالجوز = ×2 فردة) مباشرة من كارت الدفعة
+    window.updateBatchTotalPairsCeiling = async function (bId, val) {
+        if (!storeBatches[bId]) return;
+        const pairs = Math.max(0, parseInt(val) || 0);
+        storeBatches[bId].actualPairs = pairs;
+        if (!storeBatches[bId].publicPairs) storeBatches[bId].publicPairs = pairs;
+
+        try {
+            await db.collection('inventory').doc('batches').update({
+                [`${bId}.actualPairs`]: pairs
+            });
+        } catch (e) {
+            await db.collection('inventory').doc('batches').set({
+                [bId]: { actualPairs: pairs }
+            }, { merge: true });
+        }
+        window.renderBatchesUI();
+        if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
+        if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
+        if (typeof window.showToast === 'function') {
+            window.showToast(`🎯 تم ضبط سقف الدفعة على (${pairs} جوز = ${pairs * 2} فردة)`);
+        }
+    };
+
+    // تحديث شريط عداد الدفعة الحي داخل نافذة "إنشاء طلب جديد" لحظياً أثناء كتابة الطلب
+    window.updateNewOrderBatchMeter = function () {
+        const bSel = document.getElementById('no-batch');
+        const meterDiv = document.getElementById('no-batch-live-meter');
+        if (!bSel || !meterDiv) return;
+
+        const bId = bSel.value;
+        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
+
+        // تحديث شارات المتاح الصغيرة فوق كل صنف في نافذة الطلب الجديد
+        Object.keys(prodsObj).forEach(id => {
+            const badgeEl = document.getElementById(`no-avail-badge-${id}`);
+            if (!badgeEl) return;
+            if (bId && storeBatches[bId] && Number(storeBatches[bId].stock?.[id]) > 0) {
+                const bSt = Number(storeBatches[bId].stock[id]) || 0;
+                const bBk = window.getBatchDeepMetrics(bId, storeBatches[bId].name).realBookedByProd[id] || 0;
+                const curTyped = Number(document.getElementById(`no-q-${id}`)?.value) || 0;
+                const rem = Number((bSt - bBk - curTyped).toFixed(1));
+                badgeEl.className = `text-[9px] font-black ${rem < 0 ? 'text-white bg-red-600' : 'text-teal-700 bg-teal-50'} px-1.5 py-0.5 rounded mb-1 inline-block`;
+                badgeEl.innerText = `متبقي بالدفعة: ${rem}`;
+            } else {
+                const stNow = Number(storeStock[id]) || 0;
+                badgeEl.className = 'text-[9px] font-bold text-slate-400 mb-1 inline-block';
+                badgeEl.innerText = `المتاح: ${stNow}`;
+            }
+        });
+
+        if (!bId || !storeBatches[bId]) {
+            meterDiv.classList.add('hidden');
+            meterDiv.innerHTML = '';
+            return;
+        }
+
+        const cap = window.getBatchCeilingAndRemaining(bId);
+        let currentOrderMeatPairs = 0;
+        Object.keys(prodsObj).forEach(id => {
+            if (isMainQuailProduct(id)) {
+                const qInput = document.getElementById(`no-q-${id}`);
+                const q = Number(qInput?.value) || 0;
+                if (q > 0) {
+                    const birds = Number(qInput?.getAttribute('data-count')) || q;
+                    currentOrderMeatPairs += prodsObj[id].isWeightBased ? birds : q;
+                }
+            }
+        });
+
+        const afterOrderBookedPairs = Number((cap.bookedPairs + currentOrderMeatPairs).toFixed(1));
+        const afterOrderRemPairs = Number((cap.ceilingPairs - afterOrderBookedPairs).toFixed(1));
+        const afterOrderRemBirds = Math.round(afterOrderRemPairs * 2);
+        const isOver = cap.ceilingPairs > 0 && afterOrderRemPairs < 0;
+
+        meterDiv.classList.remove('hidden');
+        if (cap.ceilingPairs <= 0) {
+            meterDiv.innerHTML = `
+                <div class="bg-amber-50 border border-amber-200 text-amber-900 p-2.5 rounded-xl text-xs font-black flex items-center justify-between">
+                    <span>📌 محجوز بالدفعة حالياً: ${cap.bookedPairs} جوز (${cap.bookedBirds} فردة) + طلبك الحالي (${currentOrderMeatPairs})</span>
+                    <span class="text-[10px] text-amber-700">لم يحدد سقف كلي للدفعة بعد</span>
+                </div>`;
+        } else {
+            meterDiv.innerHTML = `
+                <div class="${isOver ? 'bg-red-600 text-white animate-pulse' : 'bg-teal-900 text-white'} p-3 rounded-xl text-xs font-black flex flex-wrap items-center justify-between gap-2 shadow-sm">
+                    <div>
+                        <span>🎯 سقف (${storeBatches[bId].name}): <strong class="text-amber-300">${cap.ceilingPairs} جوز (${cap.ceilingBirds} فردة)</strong></span>
+                        <span class="mx-1.5 opacity-50">|</span>
+                        <span>محجوز شامل طلبك: <strong class="text-emerald-300">${afterOrderBookedPairs} جوز</strong></span>
+                    </div>
+                    <span class="px-2.5 py-1 rounded-lg ${isOver ? 'bg-white text-red-700' : 'bg-white/15 text-amber-300'}">
+                        ${isOver ? `⚠️ تخطى سقف الدفعة بـ ${Math.abs(afterOrderRemPairs)} جوز!` : `🟢 متبقي بالدفعة: ${afterOrderRemPairs} جوز (${afterOrderRemBirds} فردة)`}
+                    </span>
+                </div>`;
+        }
+    };
+
     // =========================================================================
     // 🎛️ 2. رسم مركز قيادة الدفعات المدمج والسريع (renderBatchesUI)
     // =========================================================================
@@ -282,7 +416,6 @@
         const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
 
-        // 1. تنظيف وحذف أي دفعة شبحية بلا اسم أو "دفعة غير مسماة" فارغة وحفظ التنظيف في الفايربيس فوراً
         let ghostKeysFound = false;
         Object.keys(batchesObj).forEach(bId => {
             const b = batchesObj[bId];
@@ -312,14 +445,12 @@
             return;
         }
 
-        // إذا تم حذف الدفعة التي كان المستخدم يفلتر عليها، نعود لعرض الكل تلقائياً
         const currentFilter = window.batchUIState.selectedFilter || 'all';
         if (currentFilter.startsWith('batch:')) {
             const fId = currentFilter.replace('batch:', '');
             if (!batchesObj[fId]) window.batchUIState.selectedFilter = 'all';
         }
 
-        // 2. حساب الإحصائيات العامة وتجهيز أزرار التنقل السريع بين الدفعات
         let globalOpenBatches = 0;
         let globalMeatStock = 0;
         let globalMeatBooked = 0;
@@ -336,12 +467,13 @@
 
             const metrics = window.getBatchDeepMetrics(bId, b.name);
             const bio = getBatchBioStatus(b);
+            const cap = window.getBatchCeilingAndRemaining(bId);
 
-            let totalMeatStockInBatch = 0;
-            let totalMeatBookedInBatch = 0;
             let totalMeatCompletedInBatch = 0;
             let potentialRemainingRev = 0;
             let hasBookingMismatch = false;
+            let avgMeatPriceSum = 0;
+            let avgMeatPriceCount = 0;
 
             Object.keys(prodsObj).forEach(pId => {
                 const p = prodsObj[pId];
@@ -359,9 +491,8 @@
                 const isMainMeat = isMainQuailProduct(pId);
 
                 if (isMainMeat) {
-                    totalMeatStockInBatch += bStock;
-                    totalMeatBookedInBatch += bBooked;
                     totalMeatCompletedInBatch += liveComp;
+                    if (prodPrice > 0) { avgMeatPriceSum += prodPrice; avgMeatPriceCount++; }
                 }
                 if (remaining > 0) {
                     potentialRemainingRev += (remaining * prodPrice);
@@ -369,6 +500,19 @@
                     globalOverbookedAlerts.push(`${b.name}: عجز ${Math.abs(remaining)} في (${p.name})`);
                 }
             });
+
+            // إذا كان المستخدم قد حدد سقف الدفعة (مثلاً 200 جوز) ولم يوزع المقاسات بعد، نحسب الطاقة المتبقية بمتوسط سعر الطبق
+            const unallocatedRemPairs = Math.max(0, cap.remainingPairs - Math.max(0, cap.allocatedPairs - cap.bookedPairs));
+            const avgPrice = avgMeatPriceCount > 0 ? (avgMeatPriceSum / avgMeatPriceCount) : 115;
+            if (unallocatedRemPairs > 0) {
+                potentialRemainingRev += Math.round(unallocatedRemPairs * avgPrice);
+            }
+            if (cap.ceilingPairs > 0 && cap.remainingPairs < 0) {
+                globalOverbookedAlerts.push(`${b.name}: تخطت السقف الكلي بـ ${Math.abs(cap.remainingPairs)} جوز!`);
+            }
+
+            const totalMeatStockInBatch = cap.ceilingPairs;
+            const totalMeatBookedInBatch = cap.bookedPairs;
 
             const batchMaxCapacityRev = metrics.netProductsRevenue + potentialRemainingRev;
             globalMeatStock += totalMeatStockInBatch;
@@ -381,6 +525,7 @@
                 b,
                 metrics,
                 bio,
+                cap,
                 totalMeatStockInBatch,
                 totalMeatBookedInBatch,
                 totalMeatCompletedInBatch,
@@ -389,6 +534,7 @@
                 hasBookingMismatch
             };
         });
+
 
         // 3. بناء شريط التنقل السريع بين الدفعات (Batch Switcher Bar) لمنع التقليب والتوهان
         const activeFilter = window.batchUIState.selectedFilter || 'all';
@@ -573,8 +719,14 @@
                             <button onclick="quickStepBatchAge('${bId}', 1)" class="w-5 h-5 bg-white rounded text-purple-700 hover:bg-purple-600 hover:text-white">+</button>
                         </div>` : ''}
 
+                        <div class="inline-flex items-center gap-1 bg-teal-50 border border-teal-200 px-2 py-1 rounded-xl text-[10px] font-black text-teal-900" title="اكتب العدد الإجمالي للدفعة بالجوز (مثلاً 200 جوز = 400 فردة) وسيخصم السيستم منه تلقائياً مع كل طلب">
+                            <span>🎯 سقف الدفعة:</span>
+                            <input type="number" value="${meta.cap.ceilingPairs || ''}" onchange="updateBatchTotalPairsCeiling('${bId}', this.value)" placeholder="200" class="w-14 bg-white border border-teal-300 rounded-lg px-1 py-0.5 text-center font-black text-teal-800 outline-none">
+                            <span>جوز (${meta.cap.ceilingBirds} فردة)</span>
+                        </div>
                         ${delWindowStr ? `<span class="bg-slate-100 text-slate-600 px-2 py-1 rounded-xl text-[10px] font-black">${delWindowStr}</span>` : ''}
                     </div>
+
 
                     <!-- مفاتيح الظهور والحجز + أزرار التحكم -->
                     <div class="flex flex-wrap items-center gap-1.5 w-full lg:w-auto justify-between lg:justify-end shrink-0">
@@ -599,13 +751,15 @@
                         </div>
                     </div>
                 </div>
-
                 <!-- 2. شريط الحسابات الصافية والقدرة الاستيعابية للدفعة (متطابق 100% مع لوحة القيادة) -->
                 <div class="bg-gradient-to-l from-slate-900 via-slate-800 to-emerald-950 text-white p-3 rounded-2xl grid grid-cols-2 sm:grid-cols-4 gap-2 text-center shadow-sm">
                     <div class="bg-white/5 p-2 rounded-xl border border-white/10">
-                        <span class="text-[9px] text-slate-300 font-bold block">🥩 السمان (محجوز / متاح)</span>
-                        <span class="text-xs sm:text-sm font-black text-emerald-300">${Number(totalMeatBooked.toFixed(1))} <span class="text-white">/ ${totalMeatStock}</span> <span class="text-[10px] text-amber-300">(متبقي ${Number(totalMeatRem.toFixed(1))})</span></span>
+                        <span class="text-[9px] text-slate-300 font-bold block">🥩 حجز الدفعة (بالجوز والفردة)</span>
+                        <span class="text-xs sm:text-sm font-black text-emerald-300">حُجز ${meta.cap.bookedPairs} <span class="text-white">من ${meta.cap.ceilingPairs} جوز</span></span>
+                        <span class="block text-[10px] font-black ${meta.cap.remainingPairs < 0 ? 'text-rose-400 animate-pulse' : 'text-amber-300'}">متبقي: ${meta.cap.remainingPairs} جوز (${meta.cap.remainingBirds} فردة)</span>
                     </div>
+
+
                     <div class="bg-white/5 p-2 rounded-xl border border-white/10">
                         <span class="text-[9px] text-slate-300 font-bold block">✅ صافي المسلّم (محصل)</span>
                         <span class="text-xs sm:text-sm font-black text-emerald-400">${metrics.collectedRevenue.toLocaleString()} ج <span class="text-[9px] text-slate-300">(${metrics.completedOrders} طلب)</span></span>
