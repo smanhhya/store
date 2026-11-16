@@ -4,8 +4,86 @@
 // يدير: الكتالوج والأسعار، الأوزان، المناطق، المناديب، القوالب، النقاط، وجوجل شيت
 // =========================================================================
 
+// =========================================================================
+// ⚙️ المحرك المركزي لإدارة الأصناف، الإعدادات، الفريزر، والمزامنة (settings.js)
+// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM)
+// يدير: الكتالوج والأسعار، الأوزان، المناطق، المناديب، القوالب، النقاط، وجوجل شيت
+// =========================================================================
+
 (function () {
     let lastFocusedTemplateInput = null;
+
+    // حالة فلترة وعرض شاشة الأصناف والأسعار لمنع الزحام والتوهان
+    window.inventoryUIState = {
+        category: 'all',     // 'all' | 'main' | 'weight' | 'extra' | 'hidden'
+        searchQuery: '',
+        compactView: true,   // الوضع المدمج افتراضياً لسهولة الوصول لأي صنف في لمحة عين
+        expandedIds: {}      // { [prodId]: true/false }
+    };
+
+    window.setInventoryCategoryFilter = function (cat) {
+        window.inventoryUIState.category = cat;
+        window.renderInventoryUI();
+    };
+
+    window.setInventorySearchQuery = function (val) {
+        window.inventoryUIState.searchQuery = String(val || '');
+        window.renderInventoryUI();
+        const sInp = document.getElementById('inv-quick-search');
+        if (sInp) {
+            sInp.focus();
+            sInp.setSelectionRange(sInp.value.length, sInp.value.length);
+        }
+    };
+
+    window.toggleInventoryCompactMode = function () {
+        window.inventoryUIState.compactView = !window.inventoryUIState.compactView;
+        window.renderInventoryUI();
+    };
+
+    window.toggleSingleProductExpand = function (prodId) {
+        window.inventoryUIState.expandedIds[prodId] = !window.inventoryUIState.expandedIds[prodId];
+        window.renderInventoryUI();
+    };
+
+    // دالة مزامنة المتاح للحجز في الكتالوج مع المتبقي الفعلي في الدفعات المفتوحة بضغطة زر
+    window.syncCatalogStockWithOpenBatches = async function () {
+        const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
+        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
+        const openBatchIds = Object.keys(batchesObj).filter(bId => batchesObj[bId] && batchesObj[bId].isOpen);
+
+        if (openBatchIds.length === 0) {
+            return alert('لا توجد دفعات مفتوحة للحجز حالياً لمزامنة أعدادها!');
+        }
+
+        let updatedCount = 0;
+        Object.keys(prodsObj).forEach(pId => {
+            if (prodsObj[pId].isWeightBased) return; // الأصناف الموزونة تتبع مصفوفة أوزانها
+            let sumRemaining = 0;
+            let hasStockConfigured = false;
+
+            openBatchIds.forEach(bId => {
+                const b = batchesObj[bId];
+                const bStock = Number(b.stock?.[pId]) || 0;
+                if (bStock > 0) hasStockConfigured = true;
+                const liveBooked = (typeof window.getBatchDeepMetrics === 'function')
+                    ? (window.getBatchDeepMetrics(bId, b.name).realBookedByProd[pId] || 0)
+                    : (Number(b.booked?.[pId]) || 0);
+                sumRemaining += Math.max(0, bStock - liveBooked);
+            });
+
+            if (hasStockConfigured) {
+                storeStock[pId] = Math.round(sumRemaining);
+                updatedCount++;
+            }
+        });
+
+        await window.saveAllSettings(true);
+        window.renderInventoryUI();
+        if (typeof window.showToast === 'function') {
+            window.showToast(`🔄 تمت مطابقة المتاح للحجز لـ (${updatedCount}) صنف مع الدفعات المفتوحة!`);
+        }
+    };
 
     // =========================================================================
     // 🥩 1. إدارة كتالوج الأصناف والأسعار والأوزان (Inventory & Products UI)
@@ -17,35 +95,82 @@
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
         const pricesObj = (typeof storePrices !== 'undefined' && storePrices) ? storePrices : {};
         const stockObj = (typeof storeStock !== 'undefined' && storeStock) ? storeStock : {};
+        const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
+        const freezerObj = (typeof storeFreezer !== 'undefined' && storeFreezer) ? storeFreezer : {};
+
+        // حساب المحجوز والمتاح لكل صنف عبر الدفعات المفتوحة لربط الشاشتين ببعض
+        const batchStatsByProd = {};
+        Object.keys(batchesObj).forEach(bId => {
+            const b = batchesObj[bId];
+            if (!b || !b.isOpen || !b.name || b.name === 'undefined') return;
+            const metrics = (typeof window.getBatchDeepMetrics === 'function') ? window.getBatchDeepMetrics(bId, b.name) : { realBookedByProd: {} };
+            Object.keys(prodsObj).forEach(pId => {
+                if (!batchStatsByProd[pId]) batchStatsByProd[pId] = { stock: 0, booked: 0 };
+                batchStatsByProd[pId].stock += (Number(b.stock?.[pId]) || 0);
+                batchStatsByProd[pId].booked += (metrics.realBookedByProd[pId] || Number(b.booked?.[pId]) || 0);
+            });
+        });
 
         const prodIds = Object.keys(prodsObj);
-        let activeCount = 0;
-        let hiddenCount = 0;
-        let totalStockCount = 0;
+        let activeCount = 0, hiddenCount = 0, weightCount = 0, extraCount = 0, mainCount = 0, totalStockCount = 0;
 
         prodIds.forEach(id => {
             const p = prodsObj[id];
             if (!p) return;
             if (p.isHidden) hiddenCount++;
             else activeCount++;
+
+            if (p.isWeightBased) weightCount++;
+            else if (p.isExtra) extraCount++;
+            else if (!p.isHidden) mainCount++;
+
             totalStockCount += Math.max(0, parseInt(stockObj[id]) || 0);
         });
 
-        // شريط ملخص الكتالوج والحفظ السريع
+        const st = window.inventoryUIState;
+        const catBtnCls = (k) => st.category === k
+            ? 'bg-slate-900 text-white shadow-sm'
+            : 'bg-slate-100 text-slate-600 hover:bg-slate-200';
+
+        // شريط الملخص والفلاتر السريعة والبحث
         let html = `
-            <div class="bg-slate-900 text-white p-4 rounded-2xl shadow-md mb-4 flex flex-wrap items-center justify-between gap-3">
-                <div class="flex flex-wrap items-center gap-4 text-xs font-black">
-                    <span>📦 إجمالي الأصناف: <strong class="text-amber-400">${prodIds.length}</strong></span>
+            <div class="bg-slate-900 text-white p-3.5 rounded-2xl shadow-md flex flex-wrap items-center justify-between gap-2">
+                <div class="flex flex-wrap items-center gap-3 text-xs font-black">
+                    <span>📦 الأصناف: <strong class="text-amber-400">${prodIds.length}</strong></span>
                     <span class="text-slate-600">|</span>
-                    <span>🟢 معروض بالمتجر: <strong class="text-emerald-400">${activeCount}</strong></span>
+                    <span>🟢 معروض: <strong class="text-emerald-400">${activeCount}</strong></span>
                     <span class="text-slate-600">|</span>
                     <span>🚫 مخفي: <strong class="text-rose-400">${hiddenCount}</strong></span>
                     <span class="text-slate-600">|</span>
-                    <span>📊 إجمالي المتاح للحجز: <strong class="text-sky-400">${totalStockCount}</strong></span>
+                    <span>📊 إجمالي المتاح: <strong class="text-sky-400">${totalStockCount}</strong></span>
                 </div>
+                <div class="flex flex-wrap items-center gap-1.5">
+                    <button type="button" onclick="syncCatalogStockWithOpenBatches()" class="bg-teal-500/20 hover:bg-teal-500/30 text-teal-200 border border-teal-400/30 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1" title="جعل المتاح للحجز يطابق المتبقي في الدفعات المفتوحة">
+                        <i class="fa-solid fa-link"></i> مزامنة المتاح مع الدفعات
+                    </button>
+                    <button type="button" onclick="saveAllSettings()" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3.5 py-1.5 rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1.5 active:scale-95">
+                        <i class="fa-solid fa-floppy-disk"></i> حفظ الكتالوج والأسعار
+                    </button>
+                </div>
+            </div>
+
+            <!-- شريط البحث السريع وتقسيم الفئات وتبديل العرض المدمج -->
+            <div class="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-soft flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
+                <div class="flex flex-wrap items-center gap-1.5">
+                    <button type="button" onclick="setInventoryCategoryFilter('all')" class="px-3 py-1.5 rounded-xl text-xs font-black transition-all ${catBtnCls('all')}">الكل (${prodIds.length})</button>
+                    <button type="button" onclick="setInventoryCategoryFilter('main')" class="px-3 py-1.5 rounded-xl text-xs font-black transition-all ${catBtnCls('main')}">🥩 سمان أساسي (${mainCount})</button>
+                    <button type="button" onclick="setInventoryCategoryFilter('weight')" class="px-3 py-1.5 rounded-xl text-xs font-black transition-all ${catBtnCls('weight')}">⚖️ بالوزن (${weightCount})</button>
+                    <button type="button" onclick="setInventoryCategoryFilter('extra')" class="px-3 py-1.5 rounded-xl text-xs font-black transition-all ${catBtnCls('extra')}">🥚 إضافات (${extraCount})</button>
+                    <button type="button" onclick="setInventoryCategoryFilter('hidden')" class="px-3 py-1.5 rounded-xl text-xs font-black transition-all ${catBtnCls('hidden')}">🚫 مخفي (${hiddenCount})</button>
+                </div>
+
                 <div class="flex items-center gap-2">
-                    <button onclick="saveAllSettings()" class="bg-emerald-500 hover:bg-emerald-600 text-slate-950 px-4 py-2 rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1.5 active:scale-95">
-                        <i class="fa-solid fa-floppy-disk"></i> حفظ الكتالوج والأسعار الآن
+                    <div class="relative flex-1 md:w-56">
+                        <i class="fa-solid fa-magnifying-glass absolute right-3 top-2.5 text-slate-400 text-xs"></i>
+                        <input type="search" id="inv-quick-search" value="${st.searchQuery}" oninput="setInventorySearchQuery(this.value)" placeholder="ابحث باسم الصنف بسرعة..." class="w-full pr-8 pl-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-black outline-none focus:bg-white focus:border-indigo-500">
+                    </div>
+                    <button type="button" onclick="toggleInventoryCompactMode()" class="px-3 py-1.5 rounded-xl text-xs font-black border transition-all shrink-0 ${st.compactView ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-100 text-slate-700 border-slate-200'}">
+                        <i class="fa-solid ${st.compactView ? 'fa-expand' : 'fa-compress'} ml-1"></i> ${st.compactView ? 'وضع مدمج (سريع)' : 'وضع مفصل'}
                     </button>
                 </div>
             </div>
@@ -57,15 +182,93 @@
             return;
         }
 
-        prodIds.forEach(id => {
+        const q = st.searchQuery.toLowerCase().trim();
+        const filteredIds = prodIds.filter(id => {
+            const p = prodsObj[id];
+            if (!p) return false;
+            if (st.category === 'main' && (p.isExtra || p.isWeightBased || p.isHidden)) return false;
+            if (st.category === 'weight' && !p.isWeightBased) return false;
+            if (st.category === 'extra' && !p.isExtra) return false;
+            if (st.category === 'hidden' && !p.isHidden) return false;
+
+            if (q) {
+                const hay = `${p.name || ''} ${p.weight || ''}`.toLowerCase();
+                return hay.includes(q);
+            }
+            return true;
+        });
+
+        if (filteredIds.length === 0) {
+            html += `<div class="text-center py-10 text-slate-400 font-bold bg-white rounded-2xl border border-dashed border-slate-200">لا توجد أصناف تطابق هذا البحث أو الفلتر.</div>`;
+            cont.innerHTML = html;
+            return;
+        }
+
+        filteredIds.forEach(id => {
             const p = prodsObj[id];
             if (!p) return;
             const price = pricesObj[id] !== undefined ? pricesObj[id] : (p.basePrice || 0);
             const stock = stockObj[id] || 0;
             const oldPrice = p.oldPrice || '';
             const imgSrc = (p.images && p.images.length > 0) ? p.images[0] : '';
+            const isExpanded = !st.compactView || Boolean(st.expandedIds[id]);
 
-            // حساب إحصائيات الأوزان إذا كان الصنف يباع بالوزن (يدعم المسافات والأسطر والأرقام العربية والإنجليزية)
+            const bStat = batchStatsByProd[id] || { stock: 0, booked: 0 };
+            const fzQty = Math.max(0, Number(freezerObj[id]) || 0);
+
+            let typeBadge = '<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-lg text-[10px] font-black">🥩 أساسي</span>';
+            if (p.isWeightBased) typeBadge = '<span class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-lg text-[10px] font-black">⚖️ بالوزن</span>';
+            else if (p.isExtra) typeBadge = '<span class="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-lg text-[10px] font-black">🥚 إضافي</span>';
+            if (p.isHidden) typeBadge += ' <span class="bg-rose-100 text-rose-700 px-2 py-0.5 rounded-lg text-[10px] font-black">🚫 مخفي</span>';
+
+            // 1. السطر المدمج السريع (Compact Row): تعديل السعر والمتاح في ثانية واحدة بدون زحمة!
+            if (!isExpanded) {
+                let weightQuickInfo = '';
+                if (p.isWeightBased) {
+                    const wArr = typeof window.parseWeightsArray === 'function' ? window.parseWeightsArray(p.weightsList) : [];
+                    const totKg = (wArr.reduce((s, v) => s + v, 0) / 1000).toFixed(2);
+                    weightQuickInfo = `<span class="bg-indigo-600 text-white px-2 py-0.5 rounded-lg text-[10px] font-black">⚖️ بالمصفوفة: ${wArr.length} فرخة (${totKg} كجم)</span>`;
+                }
+
+                html += `
+                <div class="bg-white p-3.5 rounded-2xl border ${p.isHidden ? 'border-rose-200 bg-rose-50/20 opacity-80' : 'border-slate-200/80 hover:border-indigo-400'} shadow-sm transition-all flex flex-wrap items-center justify-between gap-3">
+                    <div onclick="toggleSingleProductExpand('${id}')" class="flex flex-wrap items-center gap-2 cursor-pointer flex-1 min-w-[200px]">
+                        <span class="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center text-xs"><i class="fa-solid fa-chevron-left"></i></span>
+                        <div>
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <span class="font-black text-slate-800 text-sm">${p.name || 'صنف'}</span>
+                                ${p.weight ? `<span class="text-[11px] font-bold text-slate-400">(${p.weight})</span>` : ''}
+                                ${typeBadge}
+                                ${weightQuickInfo}
+                            </div>
+                            <div class="flex flex-wrap items-center gap-2 mt-1 text-[10px] font-black">
+                                <span class="text-blue-700 bg-blue-50 px-2 py-0.5 rounded">📌 محجوز بالدفعات: ${Number(bStat.booked.toFixed(1))}</span>
+                                <span class="text-cyan-700 bg-cyan-50 px-2 py-0.5 rounded">❄️ بالفريزر: ${fzQty}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2 shrink-0">
+                        <div class="flex items-center gap-1 bg-blue-50/80 border border-blue-200 px-2.5 py-1 rounded-xl">
+                            <span class="text-[10px] font-black text-blue-700">السعر:</span>
+                            <input type="number" value="${price}" onchange="storePrices['${id}'] = parseFloat(this.value) || 0; storeProducts['${id}'].basePrice = parseFloat(this.value) || 0; saveAllSettings(true);" class="w-16 bg-white border border-blue-200 rounded-lg p-1 text-xs font-black text-blue-800 text-center outline-none">
+                            <span class="text-[10px] font-bold text-blue-600">ج</span>
+                        </div>
+
+                        <div class="flex items-center gap-1 bg-emerald-50/80 border border-emerald-200 px-2.5 py-1 rounded-xl">
+                            <span class="text-[10px] font-black text-emerald-700">المتاح:</span>
+                            <input type="number" value="${stock}" onchange="storeStock['${id}'] = parseInt(this.value) || 0; saveAllSettings(true);" class="w-16 bg-white border border-emerald-200 rounded-lg p-1 text-xs font-black text-emerald-800 text-center outline-none">
+                        </div>
+
+                        <button type="button" onclick="toggleSingleProductExpand('${id}')" class="bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-xl text-[11px] font-black transition-all flex items-center gap-1">
+                            <i class="fa-solid fa-sliders text-amber-400"></i> ${p.isWeightBased ? 'الأوزان والتفاصيل ▼' : 'تفاصيل ▼'}
+                        </button>
+                    </div>
+                </div>`;
+                return;
+            }
+
+            // 2. الوضع المفتوح الكامل للصنف (Expanded Editor)
             let weightStatsHtml = '';
             if (p.isWeightBased) {
                 const wArr = typeof window.parseWeightsArray === 'function'
@@ -89,62 +292,72 @@
             }
 
             html += `
-            <div class="bg-white p-5 rounded-[1.5rem] border ${p.isHidden ? 'border-rose-200 bg-rose-50/10 opacity-85' : 'border-slate-100'} mb-4 shadow-soft hover:shadow-md transition-all">
-                <div class="flex justify-between items-start gap-3 mb-3">
-                    <div class="flex-1 grid grid-cols-2 md:grid-cols-6 gap-3">
-                        <div>
-                            <label class="text-[10px] font-bold text-slate-400 block mb-1">اسم المنتج</label>
-                            <input type="text" value="${p.name || ''}" onchange="storeProducts['${id}'].name = this.value; generateDynamicOrderInputs();" class="w-full border border-slate-200/80 bg-slate-50 focus:bg-white rounded-xl p-2.5 text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-brand-primary/20 transition-all">
-                        </div>
-                        <div>
-                            <label class="text-[10px] font-bold text-slate-400 block mb-1">الوزن / الوصف</label>
-                            <input type="text" value="${p.weight || ''}" onchange="storeProducts['${id}'].weight = this.value" class="w-full border border-slate-200/80 bg-slate-50 focus:bg-white rounded-xl p-2.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-brand-primary/20 transition-all">
-                        </div>
-                        <div>
-                            <label class="text-[10px] font-bold text-blue-600 block mb-1">السعر الحالي (ج)</label>
-                            <input type="number" value="${price}" onchange="storePrices['${id}'] = parseFloat(this.value) || 0; storeProducts['${id}'].basePrice = parseFloat(this.value) || 0;" class="w-full border border-blue-200 bg-blue-50/70 focus:bg-white rounded-xl p-2.5 text-sm font-black text-blue-700 text-center outline-none focus:ring-2 focus:ring-blue-200 transition-all">
-                        </div>
-                        <div>
-                            <label class="text-[10px] font-bold text-amber-600 block mb-1">سعر الدفعة القديمة</label>
-                            <input type="number" value="${p.oldBatchPrice || ''}" onchange="storeProducts['${id}'].oldBatchPrice = parseFloat(this.value) || 0" class="w-full border border-amber-200 bg-amber-50/70 focus:bg-white rounded-xl p-2.5 text-sm font-black text-amber-700 text-center outline-none focus:ring-2 focus:ring-amber-200 transition-all" placeholder="اختياري">
-                        </div>
-                        <div>
-                            <label class="text-[10px] font-bold text-emerald-600 block mb-1">المتاح للحجز</label>
-                            <input type="number" value="${stock}" onchange="storeStock['${id}'] = parseInt(this.value) || 0" class="w-full border border-emerald-200 bg-emerald-50/70 focus:bg-white rounded-xl p-2.5 text-sm font-black text-emerald-700 text-center outline-none focus:ring-2 focus:ring-emerald-200 transition-all">
-                        </div>
-                        <div>
-                            <label class="text-[10px] font-bold text-slate-400 block mb-1">رابط الصورة</label>
-                            <input type="text" value="${imgSrc}" onchange="storeProducts['${id}'].images = [this.value]" class="w-full border border-slate-200/80 bg-slate-50 focus:bg-white rounded-xl p-2.5 text-[10px] font-bold text-slate-500 outline-none focus:ring-2 focus:ring-brand-primary/20 transition-all" dir="ltr" placeholder="super.png أو رابط">
-                        </div>
+            <div class="bg-white p-4 sm:p-5 rounded-2xl border-2 ${p.isHidden ? 'border-rose-300 bg-rose-50/10' : 'border-indigo-500/40'} shadow-md transition-all">
+                <div class="flex justify-between items-center mb-3 pb-2 border-b border-slate-100">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button type="button" onclick="toggleSingleProductExpand('${id}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1 rounded-lg text-xs font-black">
+                            <i class="fa-solid fa-chevron-up mr-1"></i> طي الصنف
+                        </button>
+                        <span class="font-black text-slate-800 text-sm">${p.name || 'صنف'}</span>
+                        ${typeBadge}
+                        <span class="text-[10px] font-black text-blue-700 bg-blue-50 px-2 py-0.5 rounded">محجوز بالدفعات: ${Number(bStat.booked.toFixed(1))}</span>
+                        <span class="text-[10px] font-black text-cyan-700 bg-cyan-50 px-2 py-0.5 rounded">الفريزر: ${fzQty}</span>
                     </div>
-                    <button onclick="deleteProductUI('${id}')" title="حذف الصنف نهائياً" class="w-9 h-9 bg-red-50 text-red-500 rounded-xl flex justify-center items-center hover:bg-red-500 hover:text-white mt-5 shrink-0 transition-colors shadow-sm">
-                        <i class="fa-solid fa-trash text-sm"></i>
+                    <button onclick="deleteProductUI('${id}')" title="حذف الصنف نهائياً" class="w-8 h-8 bg-red-50 text-red-500 rounded-xl flex justify-center items-center hover:bg-red-500 hover:text-white shrink-0 transition-colors shadow-sm">
+                        <i class="fa-solid fa-trash text-xs"></i>
                     </button>
                 </div>
 
-                <div class="flex flex-wrap items-center gap-5 bg-slate-50/90 p-3 rounded-xl border border-slate-100 mt-2">
-                    <label class="flex items-center gap-2 text-[11px] font-black cursor-pointer text-slate-700">
-                        <input type="checkbox" ${p.isExtra ? 'checked' : ''} onchange="storeProducts['${id}'].isExtra = this.checked" class="w-4 h-4 accent-brand-primary rounded">
-                        <span>يُعرض كمنتج إضافي (بيض/كتاكيت)</span>
+                <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-3">
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-400 block mb-1">اسم المنتج</label>
+                        <input type="text" value="${p.name || ''}" onchange="storeProducts['${id}'].name = this.value; generateDynamicOrderInputs();" class="w-full border border-slate-200/80 bg-slate-50 focus:bg-white rounded-xl p-2 text-xs font-black text-slate-800 outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-400 block mb-1">الوزن / الوصف</label>
+                        <input type="text" value="${p.weight || ''}" onchange="storeProducts['${id}'].weight = this.value" class="w-full border border-slate-200/80 bg-slate-50 focus:bg-white rounded-xl p-2 text-xs font-bold text-slate-700 outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-blue-600 block mb-1">السعر الحالي (ج)</label>
+                        <input type="number" value="${price}" onchange="storePrices['${id}'] = parseFloat(this.value) || 0; storeProducts['${id}'].basePrice = parseFloat(this.value) || 0;" class="w-full border border-blue-200 bg-blue-50/70 focus:bg-white rounded-xl p-2 text-sm font-black text-blue-700 text-center outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-amber-600 block mb-1">سعر الدفعة القديمة</label>
+                        <input type="number" value="${p.oldBatchPrice || ''}" onchange="storeProducts['${id}'].oldBatchPrice = parseFloat(this.value) || 0" class="w-full border border-amber-200 bg-amber-50/70 focus:bg-white rounded-xl p-2 text-sm font-black text-amber-700 text-center outline-none" placeholder="اختياري">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-emerald-600 block mb-1">المتاح للحجز</label>
+                        <input type="number" value="${stock}" onchange="storeStock['${id}'] = parseInt(this.value) || 0" class="w-full border border-emerald-200 bg-emerald-50/70 focus:bg-white rounded-xl p-2 text-sm font-black text-emerald-700 text-center outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-400 block mb-1">رابط الصورة</label>
+                        <input type="text" value="${imgSrc}" onchange="storeProducts['${id}'].images = [this.value]" class="w-full border border-slate-200/80 bg-slate-50 focus:bg-white rounded-xl p-2 text-[10px] font-bold text-slate-500 outline-none" dir="ltr" placeholder="super.png أو رابط">
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-4 bg-slate-50/90 p-2.5 rounded-xl border border-slate-100">
+                    <label class="flex items-center gap-1.5 text-[11px] font-black cursor-pointer text-slate-700">
+                        <input type="checkbox" ${p.isExtra ? 'checked' : ''} onchange="storeProducts['${id}'].isExtra = this.checked; renderInventoryUI();" class="w-4 h-4 accent-brand-primary rounded">
+                        <span>منتج إضافي (بيض/كتاكيت)</span>
                     </label>
-                    <label class="flex items-center gap-2 text-[11px] font-black cursor-pointer text-amber-600">
+                    <label class="flex items-center gap-1.5 text-[11px] font-black cursor-pointer text-amber-600">
                         <input type="checkbox" ${p.isBest ? 'checked' : ''} onchange="storeProducts['${id}'].isBest = this.checked" class="w-4 h-4 accent-amber-500 rounded">
                         <span>الأكثر طلباً 🔥</span>
                     </label>
-                    <label class="flex items-center gap-2 text-[11px] font-black cursor-pointer text-indigo-600">
+                    <label class="flex items-center gap-1.5 text-[11px] font-black cursor-pointer text-indigo-600">
                         <input type="checkbox" ${p.isWeightBased ? 'checked' : ''} onchange="storeProducts['${id}'].isWeightBased = this.checked; renderInventoryUI(); generateDynamicOrderInputs();" class="w-4 h-4 accent-indigo-600 rounded">
                         <span>يباع بالوزن ⚖️</span>
                     </label>
-                    <label class="flex items-center gap-2 text-[11px] font-black cursor-pointer text-rose-600">
+                    <label class="flex items-center gap-1.5 text-[11px] font-black cursor-pointer text-rose-600">
                         <input type="checkbox" ${p.isHidden ? 'checked' : ''} onchange="storeProducts['${id}'].isHidden = this.checked; renderInventoryUI();" class="w-4 h-4 accent-rose-600 rounded">
                         <span>إخفاء من المتجر 🚫</span>
                     </label>
-                    <div class="flex items-center gap-3 border-r border-slate-200 pr-4">
-                        <label class="flex items-center gap-2 text-[11px] font-black cursor-pointer text-red-500">
+                    <div class="flex items-center gap-2 border-r border-slate-200 pr-3">
+                        <label class="flex items-center gap-1.5 text-[11px] font-black cursor-pointer text-red-500">
                             <input type="checkbox" ${p.isDisc ? 'checked' : ''} onchange="storeProducts['${id}'].isDisc = this.checked; renderInventoryUI();" class="w-4 h-4 accent-red-500 rounded">
-                            <span>تفعيل خصم بالمتجر</span>
+                            <span>خصم بالمتجر</span>
                         </label>
-                        ${p.isDisc ? `<input type="number" value="${oldPrice}" onchange="storeProducts['${id}'].oldPrice = parseFloat(this.value) || 0" class="w-24 border border-red-200 bg-white rounded-lg p-1.5 text-[11px] font-black text-red-500 text-center line-through shadow-sm outline-none" placeholder="السعر قبل">` : ''}
+                        ${p.isDisc ? `<input type="number" value="${oldPrice}" onchange="storeProducts['${id}'].oldPrice = parseFloat(this.value) || 0" class="w-20 border border-red-200 bg-white rounded-lg p-1 text-[11px] font-black text-red-500 text-center line-through outline-none" placeholder="السعر قبل">` : ''}
                     </div>
                 </div>
                 ${weightStatsHtml}
@@ -153,6 +366,7 @@
 
         cont.innerHTML = html;
     };
+
 
     window.updateProductWeightList = function (prodId, rawVal) {
         if (!storeProducts[prodId]) return;
