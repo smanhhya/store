@@ -477,7 +477,7 @@
 
             Object.keys(prodsObj).forEach(pId => {
                 const p = prodsObj[pId];
-                if (p.isHidden) return;
+                if (!p) return;
                 const bStock = b.stock ? (Number(b.stock[pId]) || 0) : 0;
                 const savedBooked = b.booked ? (Number(b.booked[pId]) || 0) : 0;
                 const liveBooked = metrics.realBookedByProd[pId] || 0;
@@ -629,8 +629,8 @@
                 return;
             }
 
-            // 🅱️ في حالة الكارت المفتوح (Expanded Mode): منظم في كبسولات واضحة بدون تكدس
-            const allProdIds = Object.keys(prodsObj).filter(pId => !prodsObj[pId].isHidden);
+            // 🅱️ في حالة الكارت المفتوح (Expanded Mode): يشمل كل الأصناف (حتى المخفي من المتجر العام) وباسم كامل واضح
+            const allProdIds = Object.keys(prodsObj).filter(pId => Boolean(prodsObj[pId]));
             let hiddenZeroCount = 0;
 
             let stockCardsHtml = '';
@@ -645,7 +645,6 @@
                 const prodPrice = getProdPrice(pId);
                 const isMainMeat = isMainQuailProduct(pId);
 
-                // إخفاء الأصناف الإضافية الصفرية (مثل البيض والكتاكيت غير المفعلة بالدفعة) إلا إذا ضغط المستخدم إظهار الكل
                 if (!showZeros && !isMainMeat && bStock === 0 && bBooked === 0) {
                     hiddenZeroCount++;
                     return;
@@ -657,12 +656,18 @@
                         ? 'bg-amber-50 border-amber-200 text-amber-700'
                         : 'bg-emerald-50 border-emerald-200 text-emerald-700');
 
+                const hiddenStoreBadge = p.isHidden ? `<span class="text-[8px] bg-rose-50 text-rose-600 border border-rose-200 px-1 py-0.5 rounded font-black" title="مخفي عن الجمهور في المتجر العام ولكنه متاح لك في الإدارة">مخفي بالمتجر</span>` : '';
+
                 stockCardsHtml += `
                 <div class="bg-slate-50/90 p-2.5 rounded-xl border ${remaining < 0 ? 'border-red-300 bg-red-50/30' : 'border-slate-200/80'} flex flex-col justify-between">
-                    <div class="flex justify-between items-center mb-1.5">
-                        <label class="text-[11px] font-black text-slate-800 truncate" title="${pName}">${pName}</label>
-                        <span class="text-[9px] font-bold text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-100">${prodPrice}ج</span>
+                    <div class="mb-2 text-right">
+                        <label class="text-xs font-black text-slate-800 block leading-snug mb-1">${pName}</label>
+                        <div class="flex flex-wrap items-center justify-between gap-1">
+                            <span class="text-[9px] font-black text-emerald-700 bg-white px-1.5 py-0.5 rounded border border-slate-200">${prodPrice} ج</span>
+                            ${hiddenStoreBadge}
+                        </div>
                     </div>
+
                     <div class="grid grid-cols-3 gap-1">
                         <div>
                             <span class="text-[8px] text-slate-400 font-bold block text-center mb-0.5">المتاح</span>
@@ -1390,7 +1395,7 @@
         let html = '';
         Object.keys(prodsObj).forEach(id => {
             const p = prodsObj[id];
-            if (p.isHidden) return;
+            if (!p) return;
             const plannedStock = (b.stock && b.stock[id]) ? Number(b.stock[id]) : 0;
             const bookedNow = metrics.realBookedByProd[id] || (b.booked && b.booked[id] ? Number(b.booked[id]) : 0);
             const currentSlaughtered = (b.slaughtered && b.slaughtered[id] !== undefined)
