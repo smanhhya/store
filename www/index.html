@@ -3163,6 +3163,57 @@
             window.autoPickCountOfWeights(id, nextCount, 'first');
         };
 
+        // دالة زيادة أو إنقاص كمية الصنف العادي بضغطة زر في نافذة إنشاء طلب جديد
+        window.stepNewOrderItemQty = (id, delta) => {
+            const inp = document.getElementById(`no-q-${id}`);
+            if (!inp) return;
+            let cur = parseFloat(inp.value) || 0;
+            let next = Math.max(0, cur + delta);
+            inp.value = next > 0 ? next : '';
+            window.styleNewOrderItemCard(id, next);
+            calcTotal('no');
+        };
+
+        window.styleNewOrderItemCard = (id, qty) => {
+            const card = document.getElementById(`no-item-card-${id}`);
+            if (!card) return;
+            if (Number(qty) > 0) {
+                card.className = 'bg-emerald-50/90 border-2 border-brand-primary p-3 rounded-2xl text-center flex flex-col justify-between shadow-md transition-all scale-[1.01]';
+            } else {
+                card.className = 'bg-white border border-slate-200/90 hover:border-emerald-300 p-3 rounded-2xl text-center flex flex-col justify-between shadow-sm transition-all';
+            }
+        };
+
+        // إضافة وزن يدوي فوري بالجرام أثناء إنشاء طلب جديد (لو وزنت فرخة غير مسجلة بالمصفوفة)
+        window.addCustomWeightInNewOrder = (id) => {
+            const inp = document.getElementById(`no-custom-gram-${id}`);
+            if (!inp) return;
+            const gVal = parseFloat(inp.value);
+            if (isNaN(gVal) || gVal <= 0) return alert('برجاء كتابة الوزن بالجرام أولاً (مثال: 1450)!');
+            const grams = gVal < 25 ? Math.round(gVal * 1000) : Math.round(gVal);
+
+            const menu = document.getElementById(`weight-dropdown-menu-${id}`);
+            if (!menu) return;
+            menu.classList.remove('hidden');
+
+            const kiloPrice = storePrices[id] || storeProducts[id]?.basePrice || 0;
+            const itemKg = (grams / 1000).toFixed(3).replace(/\.?0+$/, '');
+            const itemPriceEGP = Math.round((grams / 1000) * kiloPrice);
+
+            const lbl = document.createElement('label');
+            lbl.className = 'flex items-center justify-between gap-2 bg-emerald-50 border-2 border-emerald-400 px-3 py-2 rounded-xl cursor-pointer transition-all select-none';
+            lbl.innerHTML = `
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" data-custom="1" class="weight-cb-${id} w-4 h-4 accent-emerald-600 rounded" value="${grams}" checked onchange="calcTotal('no')">
+                    <span class="text-xs font-black text-emerald-950">🆕 وزن خاص: <span class="text-emerald-700">${grams} جم</span> <span class="text-[10px] text-slate-500">(${itemKg} كجم)</span></span>
+                </div>
+                <span class="text-[11px] font-black bg-white text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-lg shadow-sm">${itemPriceEGP} ج.م</span>
+            `;
+            menu.insertBefore(lbl, menu.firstChild);
+            inp.value = '';
+            calcTotal('no');
+        };
+
         window.generateDynamicOrderInputs = () => {
             const container = document.getElementById('dynamic-order-items');
             if (!container) return;
@@ -3170,6 +3221,7 @@
 
             Object.keys(storeProducts).forEach(id => {
                 let p = storeProducts[id];
+                if (!p || p.isHidden) return;
                 let kiloPrice = storePrices[id] || p.basePrice || 0;
 
                 if (p.isWeightBased) {
@@ -3177,81 +3229,90 @@
                     let totalStockCount = weightsArr.length;
                     let totalStockKg = (weightsArr.reduce((s, v) => s + v, 0) / 1000).toFixed(2);
 
-                    let dropdownContentHtml = '';
-                    if (weightsArr.length > 0) {
-                        let checkboxesHtml = weightsArr.map((w, idx) => {
-                            let itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
-                            let itemPriceEGP = Math.round((w / 1000) * kiloPrice);
-                            return `
-                            <label class="flex items-center justify-between gap-2 bg-slate-50 hover:bg-indigo-50/80 border border-slate-200 px-3 py-2 rounded-xl cursor-pointer transition-all select-none">
+                    let checkboxesHtml = weightsArr.map((w, idx) => {
+                        let itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
+                        let itemPriceEGP = Math.round((w / 1000) * kiloPrice);
+                        return `
+                        <label class="flex items-center justify-between gap-2 bg-slate-50 hover:bg-indigo-50/80 border border-slate-200 px-3 py-2 rounded-xl cursor-pointer transition-all select-none">
+                            <div class="flex items-center gap-2">
+                                <input type="checkbox" data-idx="${idx}" class="weight-cb-${id} w-4 h-4 accent-indigo-600 rounded" value="${w}" onchange="calcTotal('no')">
+                                <span class="text-xs font-black text-slate-700">#${idx + 1}: <span class="text-indigo-700">${w} جم</span> <span class="text-[10px] text-slate-400">(${itemKg} كجم)</span></span>
+                            </div>
+                            <span class="text-[11px] font-black bg-white text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-lg shadow-sm">${itemPriceEGP} ج.م</span>
+                        </label>`;
+                    }).join('');
+
+                    let dropdownContentHtml = `
+                    <div class="space-y-2.5 mt-2">
+                        <div class="flex flex-wrap items-center justify-between gap-2 bg-white p-2.5 rounded-xl border border-indigo-100 shadow-sm">
+                            <span class="text-[11px] font-black text-slate-700"><i class="fa-solid fa-wand-magic-sparkles text-indigo-500 ml-1"></i> الزبون عايز كام فرخة؟</span>
+                            <div class="flex items-center gap-1.5">
+                                <button type="button" onclick="stepWeightQuickCount('${id}', -1)" class="w-8 h-8 rounded-lg bg-rose-50 hover:bg-rose-500 text-rose-600 hover:text-white font-black text-sm transition-colors">-</button>
+                                <input type="number" id="weight-quick-count-${id}" min="0" max="${totalStockCount}" placeholder="العدد" oninput="autoPickCountOfWeights('${id}', this.value, 'first')" class="w-16 border border-indigo-200 rounded-lg p-1 text-center font-black text-xs text-indigo-700 outline-none bg-indigo-50/30">
+                                <button type="button" onclick="stepWeightQuickCount('${id}', 1)" class="w-8 h-8 rounded-lg bg-emerald-50 hover:bg-emerald-500 text-emerald-600 hover:text-white font-black text-sm transition-colors">+</button>
+                            </div>
+                            <div class="flex gap-1 w-full sm:w-auto justify-end pt-1 sm:pt-0">
+                                <button type="button" onclick="autoPickCountOfWeights('${id}', document.getElementById('weight-quick-count-${id}').value || 1, 'light')" class="text-[9px] bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 font-black px-2 py-1 rounded-lg transition-colors">الأخف</button>
+                                <button type="button" onclick="autoPickCountOfWeights('${id}', document.getElementById('weight-quick-count-${id}').value || 1, 'heavy')" class="text-[9px] bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 font-black px-2 py-1 rounded-lg transition-colors">الأثقل</button>
+                                <button type="button" onclick="autoPickCountOfWeights('${id}', 0)" class="text-[9px] bg-red-50 hover:bg-red-500 hover:text-white text-red-500 font-black px-2 py-1 rounded-lg transition-colors">مسح</button>
+                            </div>
+                        </div>
+
+                        <!-- إضافة وزن خاص فوري بالجرام -->
+                        <div class="flex items-center gap-1.5 bg-white p-2 rounded-xl border border-indigo-100">
+                            <i class="fa-solid fa-scale-unbalanced text-indigo-500 text-xs px-1"></i>
+                            <input type="number" id="no-custom-gram-${id}" placeholder="إضافة وزن يدوي بالجرام (مثال: 1450)..." onkeydown="if(event.key==='Enter'){event.preventDefault(); addCustomWeightInNewOrder('${id}');}" class="flex-1 text-xs font-black text-slate-700 outline-none bg-transparent">
+                            <button type="button" onclick="addCustomWeightInNewOrder('${id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-lg text-[10px] font-black shrink-0">+ أضف للطلب</button>
+                        </div>
+
+                        <!-- زر فتح القائمة المنسدلة للأوزان -->
+                        <div class="relative">
+                            <button type="button" onclick="toggleWeightDropdownMenu('${id}')" class="w-full bg-white hover:bg-indigo-50/50 border-2 border-indigo-200 rounded-xl p-2.5 flex items-center justify-between text-right transition-all shadow-sm">
                                 <div class="flex items-center gap-2">
-                                    <input type="checkbox" data-idx="${idx}" class="weight-cb-${id} w-4 h-4 accent-indigo-600 rounded" value="${w}" onchange="calcTotal('no')">
-                                    <span class="text-xs font-black text-slate-700">#${idx + 1}: <span class="text-indigo-700">${w} جم</span> <span class="text-[10px] text-slate-400">(${itemKg} كجم)</span></span>
+                                    <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
+                                    <span id="weight-summary-label-${id}" class="text-xs font-black text-slate-700">اضغط لفتح قائمة الأوزان (${totalStockCount} متاح بالمصفوفة)</span>
                                 </div>
-                                <span class="text-[11px] font-black bg-white text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-lg shadow-sm">${itemPriceEGP} ج.م</span>
-                            </label>`;
-                        }).join('');
+                                <i id="weight-dropdown-arrow-${id}" class="fa-solid fa-chevron-down text-indigo-500 text-xs transition-transform duration-200"></i>
+                            </button>
 
-                        dropdownContentHtml = `
-                        <!-- شريط التحديد السريع بالعدد + القائمة المنسدلة -->
-                        <div class="space-y-2.5 mt-2">
-                            <div class="flex flex-wrap items-center justify-between gap-2 bg-white p-2.5 rounded-xl border border-indigo-100 shadow-sm">
-                                <span class="text-[11px] font-black text-slate-700"><i class="fa-solid fa-wand-magic-sparkles text-indigo-500 ml-1"></i> الزبون عايز كام واحدة؟</span>
-                                <div class="flex items-center gap-1.5">
-                                    <button type="button" onclick="stepWeightQuickCount('${id}', -1)" class="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-500 text-rose-600 hover:text-white font-black text-sm transition-colors">-</button>
-                                    <input type="number" id="weight-quick-count-${id}" min="0" max="${totalStockCount}" placeholder="العدد" oninput="autoPickCountOfWeights('${id}', this.value, 'first')" class="w-16 border border-indigo-200 rounded-lg p-1 text-center font-black text-xs text-indigo-700 outline-none bg-indigo-50/30">
-                                    <button type="button" onclick="stepWeightQuickCount('${id}', 1)" class="w-7 h-7 rounded-lg bg-emerald-50 hover:bg-emerald-500 text-emerald-600 hover:text-white font-black text-sm transition-colors">+</button>
-                                </div>
-                                <div class="flex gap-1 w-full sm:w-auto justify-end pt-1 sm:pt-0">
-                                    <button type="button" onclick="autoPickCountOfWeights('${id}', document.getElementById('weight-quick-count-${id}').value || 1, 'light')" class="text-[9px] bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 font-black px-2 py-1 rounded-lg transition-colors" title="اختيار الأوزان الأخف أولاً">الأخف</button>
-                                    <button type="button" onclick="autoPickCountOfWeights('${id}', document.getElementById('weight-quick-count-${id}').value || 1, 'heavy')" class="text-[9px] bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 font-black px-2 py-1 rounded-lg transition-colors" title="اختيار الأوزان الأثقل أولاً">الأثقل</button>
-                                    <button type="button" onclick="autoPickCountOfWeights('${id}', 0)" class="text-[9px] bg-red-50 hover:bg-red-500 hover:text-white text-red-500 font-black px-2 py-1 rounded-lg transition-colors">مسح</button>
-                                </div>
+                            <div id="weight-dropdown-menu-${id}" class="hidden mt-1.5 bg-white border-2 border-indigo-200 rounded-2xl p-2.5 shadow-xl max-h-56 overflow-y-auto custom-scroll grid grid-cols-1 sm:grid-cols-2 gap-1.5 z-30">
+                                ${checkboxesHtml || '<div class="col-span-full text-center py-3 text-xs font-bold text-slate-400">يمكنك اختيار الأوزان أو إضافة وزن يدوي بالأعلى</div>'}
                             </div>
+                        </div>
 
-                            <!-- زر فتح القائمة المنسدلة للأوزان -->
-                            <div class="relative">
-                                <button type="button" onclick="toggleWeightDropdownMenu('${id}')" class="w-full bg-white hover:bg-indigo-50/50 border-2 border-indigo-200 rounded-xl p-2.5 flex items-center justify-between text-right transition-all shadow-sm">
-                                    <div class="flex items-center gap-2">
-                                        <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
-                                        <span id="weight-summary-label-${id}" class="text-xs font-black text-slate-700">اضغط لفتح قائمة الأوزان المنسدلة (${totalStockCount} متاح)</span>
-                                    </div>
-                                    <i id="weight-dropdown-arrow-${id}" class="fa-solid fa-chevron-down text-indigo-500 text-xs transition-transform duration-200"></i>
-                                </button>
-
-                                <!-- القائمة المنسدلة للأوزان -->
-                                <div id="weight-dropdown-menu-${id}" class="hidden mt-1.5 bg-white border-2 border-indigo-200 rounded-2xl p-2.5 shadow-xl max-h-56 overflow-y-auto custom-scroll grid grid-cols-1 sm:grid-cols-2 gap-1.5 z-30">
-                                    ${checkboxesHtml}
-                                </div>
-                            </div>
-
-                            <!-- شريط ملخص الوزن والسعر المحسوب لحظياً -->
-                            <div id="weight-live-bar-${id}" class="hidden bg-indigo-900 text-white px-3 py-2 rounded-xl text-[11px] font-black flex flex-wrap items-center justify-between gap-2 shadow-sm"></div>
-                            <input type="hidden" id="no-q-${id}" value="0">
-                        </div>`;
-                    } else {
-                        dropdownContentHtml = `<div class="text-xs text-red-600 font-black p-3 bg-red-50 rounded-xl border border-red-200 mt-2">⚠️ رصيد مصفوفة الأوزان فارغ! ادخل لقسم (الأصناف والأسعار) وأضف الأوزان المتاحة.</div><input type="hidden" id="no-q-${id}" value="0">`;
-                    }
-
-                    let availBadgeHtml = '';
-                    let selBatchIdNow = document.getElementById('no-batch')?.value || '';
-                    if (selBatchIdNow && storeBatches[selBatchIdNow] && storeBatches[selBatchIdNow].stock && Number(storeBatches[selBatchIdNow].stock[id]) > 0) {
-                        let bSt = Number(storeBatches[selBatchIdNow].stock[id]) || 0;
-                        let bBk = (typeof window.getBatchDeepMetrics === 'function')
-                            ? (window.getBatchDeepMetrics(selBatchIdNow, storeBatches[selBatchIdNow].name).realBookedByProd[id] || 0)
-                            : (Number(storeBatches[selBatchIdNow].booked?.[id]) || 0);
-                        let bRem = Math.round((bSt - bBk) * 10) / 10;
-                        availBadgeHtml = `<span id="no-avail-badge-${id}" class="text-[9px] font-black ${bRem <= 0 ? 'text-red-600 bg-red-50' : 'text-teal-700 bg-teal-50'} px-1.5 py-0.5 rounded mb-1 inline-block">متبقي بالدفعة: ${bRem}</span>`;
-                    } else {
-                        let stNow = Number(storeStock[id]) || 0;
-                        availBadgeHtml = `<span id="no-avail-badge-${id}" class="text-[9px] font-bold text-slate-400 mb-1 inline-block">المتاح: ${stNow}</span>`;
-                    }
+                        <div id="weight-live-bar-${id}" class="hidden bg-indigo-900 text-white px-3 py-2 rounded-xl text-[11px] font-black flex flex-wrap items-center justify-between gap-2 shadow-sm"></div>
+                        <input type="hidden" id="no-q-${id}" value="0">
+                    </div>`;
 
                     container.innerHTML += `
-                    <div class="bg-slate-50 border border-slate-100 p-2 rounded-xl text-center flex flex-col justify-between">
-                        <span class="text-[10px] font-black text-slate-700 block truncate" title="${p.name}">${p.name}</span>
-                        ${availBadgeHtml}
-                        <input type="number" id="no-q-${id}" min="0" step="1" class="w-full border-none bg-white rounded-lg p-2 text-center font-black text-brand-primary outline-none focus:ring-2 focus:ring-brand-primary/20 shadow-sm transition-all" placeholder="0" oninput="calcTotal('no')">
+                    <div class="col-span-2 sm:col-span-3 bg-indigo-50/60 border-2 border-indigo-200/80 p-3.5 rounded-2xl text-right flex flex-col justify-between shadow-sm">
+                        <div class="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-indigo-100">
+                            <span class="text-xs font-black text-indigo-950 flex items-center gap-1.5"><i class="fa-solid fa-weight-scale text-indigo-600"></i> ${p.name} <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full">الكيلو: ${kiloPrice} ج</span></span>
+                            <span class="text-[10px] font-black text-indigo-700 bg-white px-2.5 py-1 rounded-lg border border-indigo-200">المتاح: ${totalStockCount} فرخة (${totalStockKg} كجم)</span>
+                        </div>
+                        ${dropdownContentHtml}
+                    </div>`;
+                } else {
+                    let stNow = Number(storeStock[id]) || 0;
+                    let availBadgeHtml = `<span id="no-avail-badge-${id}" class="text-[9px] font-bold text-slate-400">المتاح: ${stNow}</span>`;
+
+                    container.innerHTML += `
+                    <div id="no-item-card-${id}" class="bg-white border border-slate-200/90 hover:border-emerald-300 p-3 rounded-2xl text-center flex flex-col justify-between shadow-sm transition-all">
+                        <div class="mb-2">
+                            <div class="flex items-center justify-between gap-1 mb-0.5">
+                                <span class="text-xs font-black text-slate-800 truncate" title="${p.name}">${p.name}</span>
+                                <span class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded-md text-[10px] font-black shrink-0">${kiloPrice} ج</span>
+                            </div>
+                            <div class="flex items-center justify-between text-[9px] text-slate-400 font-bold">
+                                <span>${p.weight || 'طازج'}</span>
+                                ${availBadgeHtml}
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between bg-slate-100 rounded-xl p-1 border border-slate-200/70">
+                            <button type="button" onclick="stepNewOrderItemQty('${id}', -1)" class="w-8 h-8 rounded-lg bg-white hover:bg-rose-500 text-rose-600 hover:text-white font-black text-sm shadow-sm transition-colors flex items-center justify-center">-</button>
+                            <input type="number" id="no-q-${id}" min="0" step="1" class="w-12 border-none bg-transparent text-center font-black text-base text-brand-primary outline-none" placeholder="0" oninput="styleNewOrderItemCard('${id}', this.value); calcTotal('no')">
+                            <button type="button" onclick="stepNewOrderItemQty('${id}', 1)" class="w-8 h-8 rounded-lg bg-white hover:bg-emerald-600 text-emerald-600 hover:text-white font-black text-sm shadow-sm transition-colors flex items-center justify-center">+</button>
+                        </div>
                     </div>`;
                 }
             });
@@ -3260,7 +3321,7 @@
             if (zSel) {
                 let zVal = zSel.value;
                 zSel.innerHTML = '<option value="">-- اختر المنطقة --</option>';
-                (storeSettings.deliveryZones || []).forEach(z => { zSel.innerHTML += `<option value="${z.name}" data-price="${z.price}">${z.name}</option>`; });
+                (storeSettings.deliveryZones || []).forEach(z => { zSel.innerHTML += `<option value="${z.name}" data-price="${z.price}">${z.name} (${z.price} ج)</option>`; });
                 if (zVal) zSel.value = zVal;
             }
             const bSel = document.getElementById('no-batch');
@@ -3282,7 +3343,6 @@
                 });
                 if (bVal) bSel.value = bVal;
 
-                // حقن شريط عداد الدفعة الحي أسفل القائمة المنسدلة للدفعة
                 if (!document.getElementById('no-batch-live-meter')) {
                     const meterDiv = document.createElement('div');
                     meterDiv.id = 'no-batch-live-meter';
@@ -4693,76 +4753,318 @@ window.deleteProductUI = async (id) => {
             </div>`;
         }
 
+        // دوال مساعدة للدفع المشترك (نص ونص: كاش + فيزا/محفظة) في الإنشاء والتعديل
+        window.toggleOrderSplitBox = (prefix) => {
+            const sel = document.getElementById(`${prefix}-payment-method`);
+            const box = document.getElementById(`${prefix}-split-box`);
+            if (!sel || !box) return;
+            if (sel.value === 'split') {
+                box.classList.remove('hidden');
+                const totalVal = Number(document.getElementById(`${prefix}-total`)?.value) || 0;
+                const cashInp = document.getElementById(`${prefix}-paid-cash`);
+                const onlineInp = document.getElementById(`${prefix}-paid-online`);
+                if (cashInp && onlineInp && !Number(cashInp.value) && !Number(onlineInp.value)) {
+                    const half = Math.round(totalVal / 2);
+                    cashInp.value = half;
+                    onlineInp.value = Math.max(0, totalVal - half);
+                }
+            } else {
+                box.classList.add('hidden');
+            }
+        };
+
+        window.syncOrderSplitInputs = (prefix, changedSide) => {
+            const totalVal = Number(document.getElementById(`${prefix}-total`)?.value) || 0;
+            const cashInp = document.getElementById(`${prefix}-paid-cash`);
+            const onlineInp = document.getElementById(`${prefix}-paid-online`);
+            if (!cashInp || !onlineInp) return;
+
+            if (changedSide === 'cash') {
+                const c = Math.max(0, Number(cashInp.value) || 0);
+                onlineInp.value = Math.max(0, totalVal - c);
+            } else {
+                const o = Math.max(0, Number(onlineInp.value) || 0);
+                cashInp.value = Math.max(0, totalVal - o);
+            }
+        };
+
+        // استخراج الأوزان بالجرام المحجوزة مسبقاً داخل اسم الصنف في الطلب (مثل: 1400 + 1550 جم)
+        window.extractExistingOrderWeightsGrams = (itemObj) => {
+            if (!itemObj || !itemObj.name) return [];
+            const match = String(itemObj.name).match(/\(([^)]*)\s*جم\)/);
+            if (match && match[1]) {
+                return window.parseWeightsArray(match[1]);
+            }
+            return [];
+        };
+
+        // إضافة وزن خاص بالجرام داخل نافذة "تعديل الطلب"
+        window.addCustomWeightInEditOrder = (pId) => {
+            const inp = document.getElementById(`edit-custom-gram-${pId}`);
+            if (!inp) return;
+            const gVal = parseFloat(inp.value);
+            if (isNaN(gVal) || gVal <= 0) return alert('برجاء كتابة الوزن بالجرام أولاً (مثال: 1500)!');
+            const grams = gVal < 25 ? Math.round(gVal * 1000) : Math.round(gVal);
+
+            const grid = document.getElementById(`edit-weight-grid-${pId}`);
+            if (!grid) return;
+
+            const existingItem = editingOrderData?.items ? editingOrderData.items.find(i => i.id === pId) : null;
+            const kiloPrice = existingItem ? existingItem.price : (storePrices[pId] || storeProducts[pId]?.basePrice || 0);
+            const itemKg = (grams / 1000).toFixed(3).replace(/\.?0+$/, '');
+            const itemPriceEGP = Math.round((grams / 1000) * kiloPrice);
+
+            const lbl = document.createElement('label');
+            lbl.className = 'flex items-center justify-between gap-2 bg-emerald-50 border-2 border-emerald-400 px-3 py-2 rounded-xl cursor-pointer transition-all select-none';
+            lbl.innerHTML = `
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" data-origin="custom" class="edit-weight-cb-${pId} w-4 h-4 accent-emerald-600 rounded" value="${grams}" checked onchange="calcEditTotal()">
+                    <span class="text-xs font-black text-emerald-950">🆕 مضاف: <span class="text-emerald-700">${grams} جم</span> <span class="text-[10px] text-slate-500">(${itemKg} كجم)</span></span>
+                </div>
+                <span class="text-[11px] font-black bg-white text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-lg shadow-sm">${itemPriceEGP} ج</span>
+            `;
+            grid.insertBefore(lbl, grid.firstChild);
+            inp.value = '';
+            calcEditTotal();
+        };
+
         window.openEditOrderModal = (id) => {
-            editingOrderData = allOrdersRaw.find(o => o.id === id); if(!editingOrderData) return;
+            editingOrderData = allOrdersRaw.find(o => o.id === id);
+            if (!editingOrderData) return;
             document.getElementById('edit-cust-name').innerText = editingOrderData.customerName || 'عميل';
-            const container = document.getElementById('edit-dynamic-order-items'); container.innerHTML = '';
-            
+            const container = document.getElementById('edit-dynamic-order-items');
+            container.innerHTML = '';
+
             Object.keys(storeProducts).forEach(pId => {
                 let p = storeProducts[pId];
+                if (!p) return;
 
-    
+                let existingItem = editingOrderData.items ? editingOrderData.items.find(i =>
+                    i.id === pId || i.name === p.name || (i.name && p.name && String(i.name).startsWith(p.name + ' ['))
+                ) : null;
 
-                let existingItem = editingOrderData.items ? editingOrderData.items.find(i => i.id === pId || i.name === p.name) : null;
-// ... باقي الكود زي ما هو
-                let q = existingItem ? existingItem.quantity : 0;
-                
-                let step = p.isWeightBased ? 0.5 : 1; // الزراير هتزود وتنقص بالنص كيلو لو ده ميزان
-                let icon = p.isWeightBased ? "⚖️" : "";
-                
-                container.innerHTML += `
-                <div class="bg-white border border-slate-100 p-3 rounded-2xl shadow-sm flex flex-col justify-between">
-                    <span class="text-[11px] font-black text-slate-600 block text-center truncate mb-3" title="${p.name}">${p.name} ${icon}</span>
-                    <div class="flex items-center justify-between bg-slate-50 border border-slate-100 rounded-xl p-1.5">
-                        <button onclick="changeEditQty('${pId}', -${step}, ${p.isWeightBased})" class="w-8 h-8 bg-white shadow-sm rounded-lg text-red-500 hover:bg-red-50 transition-colors flex items-center justify-center font-black"><i class="fa-solid fa-minus text-xs"></i></button>
-                        <input type="number" id="edit-q-${pId}" min="0" step="${p.isWeightBased ? '0.1' : '1'}" value="${q}" class="w-12 border-none bg-transparent text-center font-black text-base outline-none text-brand-primary" oninput="calcEditTotal()">
-                        <button onclick="changeEditQty('${pId}', ${step}, ${p.isWeightBased})" class="w-8 h-8 bg-white shadow-sm rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors flex items-center justify-center font-black"><i class="fa-solid fa-plus text-xs"></i></button>
-                    </div>
-                </div>`;
+                if (!existingItem && p.isHidden) return;
+
+                let q = existingItem ? Number(existingItem.quantity) : 0;
+                let unitPrice = existingItem ? Number(existingItem.price) : (storePrices[pId] || p.basePrice || 0);
+
+                // ⚖️ إذا كان الصنف يباع بالوزن: نعرض الفرخات المحجوزة في الطلب + الفرخات المتاحة بالمخزن + إضافة وزن يدوي!
+                if (p.isWeightBased) {
+                    const orderWeightsGrams = existingItem ? window.extractExistingOrderWeightsGrams(existingItem) : [];
+                    const stockWeightsGrams = window.parseWeightsArray(p.weightsList);
+
+                    let checkboxesHtml = '';
+
+                    // 1. الأوزان المحجوزة بالفعل داخل هذا الطلب (محددة بعلامة صح)
+                    orderWeightsGrams.forEach((w, idx) => {
+                        let itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
+                        let itemPriceEGP = Math.round((w / 1000) * unitPrice);
+                        checkboxesHtml += `
+                        <label class="flex items-center justify-between gap-2 bg-emerald-50/90 hover:bg-emerald-100/80 border-2 border-emerald-400 px-3 py-2 rounded-xl cursor-pointer transition-all select-none">
+                            <div class="flex items-center gap-2">
+                                <input type="checkbox" data-origin="order" data-order-idx="${idx}" class="edit-weight-cb-${pId} w-4 h-4 accent-emerald-600 rounded" value="${w}" checked onchange="calcEditTotal()">
+                                <span class="text-xs font-black text-emerald-950">✅ بالطلب: <span class="text-emerald-700">${w} جم</span> <span class="text-[10px] text-slate-500">(${itemKg} كجم)</span></span>
+                            </div>
+                            <span class="text-[11px] font-black bg-white text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-lg shadow-sm">${itemPriceEGP} ج</span>
+                        </label>`;
+                    });
+
+                    // 2. الأوزان المتاحة في مصفوفة المخزن (للاستبدال أو الزيادة)
+                    stockWeightsGrams.forEach((w, idx) => {
+                        let itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
+                        let itemPriceEGP = Math.round((w / 1000) * unitPrice);
+                        checkboxesHtml += `
+                        <label class="flex items-center justify-between gap-2 bg-white hover:bg-indigo-50/80 border border-slate-200 px-3 py-2 rounded-xl cursor-pointer transition-all select-none">
+                            <div class="flex items-center gap-2">
+                                <input type="checkbox" data-origin="stock" data-stock-idx="${idx}" class="edit-weight-cb-${pId} w-4 h-4 accent-indigo-600 rounded" value="${w}" onchange="calcEditTotal()">
+                                <span class="text-xs font-black text-slate-700">📦 بالمخزن: <span class="text-indigo-700">${w} جم</span> <span class="text-[10px] text-slate-400">(${itemKg} كجم)</span></span>
+                            </div>
+                            <span class="text-[11px] font-black bg-slate-50 text-slate-700 border border-slate-200 px-2 py-0.5 rounded-lg">${itemPriceEGP} ج</span>
+                        </label>`;
+                    });
+
+                    container.innerHTML += `
+                    <div class="col-span-2 md:col-span-3 bg-indigo-50/70 border-2 border-indigo-200 p-4 rounded-2xl space-y-3 shadow-sm">
+                        <div class="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-indigo-200/70">
+                            <span class="text-xs font-black text-indigo-950 flex items-center gap-1.5">
+                                <i class="fa-solid fa-scale-balanced text-indigo-600"></i> ${p.name}
+                                <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full">سعر الكيلو: ${unitPrice} ج</span>
+                            </span>
+                            <span class="text-[10px] font-black text-indigo-700 bg-white px-2.5 py-1 rounded-lg border border-indigo-200">
+                                بالطلب حالياً: ${orderWeightsGrams.length} فرخة | متاح بالمخزن: ${stockWeightsGrams.length} فرخة
+                            </span>
+                        </div>
+
+                        <!-- شريط إضافة وزن يدوي بالجرام أو تعديل الوزن الإجمالي بالكيلو -->
+                        <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center bg-white p-2.5 rounded-xl border border-indigo-100">
+                            <div class="sm:col-span-8 flex items-center gap-1.5">
+                                <i class="fa-solid fa-plus-circle text-indigo-500 text-xs"></i>
+                                <input type="number" id="edit-custom-gram-${pId}" placeholder="إضافة فرخة بوزن جديد بالجرام (مثال: 1550)..." onkeydown="if(event.key==='Enter'){event.preventDefault(); addCustomWeightInEditOrder('${pId}');}" class="flex-1 text-xs font-black text-slate-800 outline-none bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200">
+                                <button type="button" onclick="addCustomWeightInEditOrder('${pId}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shrink-0">+ أضف وزن</button>
+                            </div>
+                            <div class="sm:col-span-4 flex items-center justify-end gap-1.5 border-t sm:border-t-0 sm:border-r border-slate-100 pt-2 sm:pt-0 sm:pr-2">
+                                <span class="text-[10px] font-black text-slate-500">الإجمالي (كجم):</span>
+                                <input type="number" id="edit-q-${pId}" min="0" step="0.01" value="${q}" data-orig-weights="${orderWeightsGrams.join(',')}" oninput="calcEditTotal(true, '${pId}')" class="w-20 border border-indigo-300 bg-indigo-50/50 rounded-lg p-1 text-center font-black text-xs text-indigo-900 outline-none">
+                            </div>
+                        </div>
+
+                        <p class="text-[10px] font-bold text-indigo-700">💡 علّم (✅) على الفرخات المطلوبة في الطلب، أو شيل العلامة لإرجاع الفرخة للمخزن تلقائياً:</p>
+
+                        <!-- شبكة اختيار وتبديل الأوزان -->
+                        <div id="edit-weight-grid-${pId}" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-48 overflow-y-auto custom-scroll p-1">
+                            ${checkboxesHtml || '<div class="col-span-full text-center py-3 text-xs font-bold text-slate-400">لا توجد أوزان مسجلة، يمكنك إضافة وزن بالجرام بالأعلى أو كتابة الكيلو مباشرة</div>'}
+                        </div>
+
+                        <!-- شريط الملخص الحي للوزن والسعر -->
+                        <div id="edit-weight-live-bar-${pId}" class="bg-indigo-900 text-white px-3 py-2 rounded-xl text-[11px] font-black flex flex-wrap items-center justify-between gap-2 shadow-sm"></div>
+                    </div>`;
+                } else {
+                    // 🥩 الأصناف العادية المباعة بالعدد / الطبق
+                    let isSelected = q > 0;
+                    container.innerHTML += `
+                    <div id="edit-item-card-${pId}" class="${isSelected ? 'bg-emerald-50/80 border-2 border-brand-primary' : 'bg-white border border-slate-200'} p-3 rounded-2xl shadow-sm flex flex-col justify-between transition-all">
+                        <div class="flex items-center justify-between gap-1 mb-2">
+                            <span class="text-xs font-black text-slate-800 truncate" title="${p.name}">${p.name}</span>
+                            <span class="text-[10px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">${unitPrice} ج</span>
+                        </div>
+                        <div class="flex items-center justify-between bg-slate-100 border border-slate-200/70 rounded-xl p-1">
+                            <button type="button" onclick="changeEditQty('${pId}', -1, false)" class="w-8 h-8 bg-white shadow-sm rounded-lg text-red-500 hover:bg-red-500 hover:text-white transition-colors flex items-center justify-center font-black"><i class="fa-solid fa-minus text-xs"></i></button>
+                            <input type="number" id="edit-q-${pId}" min="0" step="1" value="${q}" class="w-12 border-none bg-transparent text-center font-black text-base outline-none text-brand-primary" oninput="calcEditTotal()">
+                            <button type="button" onclick="changeEditQty('${pId}', 1, false)" class="w-8 h-8 bg-white shadow-sm rounded-lg text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors flex items-center justify-center font-black"><i class="fa-solid fa-plus text-xs"></i></button>
+                        </div>
+                    </div>`;
+                }
             });
 
-
-            let bSel = document.getElementById('edit-batch'); 
+            let bSel = document.getElementById('edit-batch');
             bSel.innerHTML = '<option value="">-- بدون دورة مسجلة --</option>';
-            Object.keys(storeBatches).forEach(bId => { 
-                bSel.innerHTML += `<option value="${bId}" ${editingOrderData.batchId === bId ? 'selected' : ''}>${storeBatches[bId].name}</option>`; 
+            Object.keys(storeBatches).forEach(bId => {
+                if (storeBatches[bId] && storeBatches[bId].name && storeBatches[bId].name !== 'undefined') {
+                    bSel.innerHTML += `<option value="${bId}" ${editingOrderData.batchId === bId ? 'selected' : ''}>${storeBatches[bId].name}</option>`;
+                }
             });
-            
-            if(document.getElementById('edit-custom-tag')) { document.getElementById('edit-custom-tag').value = editingOrderData.customTag || ''; }
-            if(document.getElementById('edit-phone-2')) document.getElementById('edit-phone-2').value = editingOrderData.customerPhone2 || '';
-            if(document.getElementById('edit-payment-method')) document.getElementById('edit-payment-method').value = editingOrderData.paymentMethod || 'cash';
 
-            if(document.getElementById('edit-delivery-start')) document.getElementById('edit-delivery-start').value = editingOrderData.deliveryStart || '';
-            if(document.getElementById('edit-delivery-end')) document.getElementById('edit-delivery-end').value = editingOrderData.deliveryEnd || '';
+            if (document.getElementById('edit-custom-tag')) document.getElementById('edit-custom-tag').value = editingOrderData.customTag || '';
+            if (document.getElementById('edit-phone-2')) document.getElementById('edit-phone-2').value = editingOrderData.customerPhone2 || '';
+            if (document.getElementById('edit-payment-method')) {
+                document.getElementById('edit-payment-method').value = editingOrderData.paymentMethod || 'cash';
+                window.toggleOrderSplitBox('edit');
+            }
+            if (document.getElementById('edit-paid-cash')) {
+                document.getElementById('edit-paid-cash').value = editingOrderData.paidCash !== undefined ? editingOrderData.paidCash : (editingOrderData.total || 0);
+            }
+            if (document.getElementById('edit-paid-online')) {
+                document.getElementById('edit-paid-online').value = editingOrderData.paidOnline !== undefined ? editingOrderData.paidOnline : 0;
+            }
 
-            document.getElementById('edit-delivery').value = editingOrderData.deliveryFee || 0; 
-            document.getElementById('edit-discount').value = editingOrderData.discount || 0; 
-            calcEditTotal(); openModal('edit-order-modal');
+            if (document.getElementById('edit-delivery-start')) document.getElementById('edit-delivery-start').value = editingOrderData.deliveryStart || '';
+            if (document.getElementById('edit-delivery-end')) document.getElementById('edit-delivery-end').value = editingOrderData.deliveryEnd || '';
+
+            // حقن خانات تعديل الملاحظات الإدارية وملاحظات المندوب داخل نافذة التعديل إن لم تكن موجودة
+            const modalScrollBody = document.querySelector('#edit-order-modal .overflow-y-auto');
+            if (modalScrollBody && !document.getElementById('edit-notes-box-wrap')) {
+                const notesWrap = document.createElement('div');
+                notesWrap.id = 'edit-notes-box-wrap';
+                notesWrap.className = 'bg-white p-5 rounded-2xl shadow-soft border border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-4';
+                notesWrap.innerHTML = `
+                    <div>
+                        <label class="text-[10px] font-black text-amber-800 block mb-1.5"><i class="fa-solid fa-lock text-amber-500 mr-1"></i> تعديل الملاحظات الإدارية</label>
+                        <textarea id="edit-admin-note" rows="2" class="w-full border border-amber-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 bg-amber-50/30 focus:bg-white outline-none resize-none" placeholder="ملاحظات الإدارة..."></textarea>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-blue-800 block mb-1.5"><i class="fa-solid fa-motorcycle text-blue-500 mr-1"></i> تعديل ملاحظات المندوب</label>
+                        <textarea id="edit-driver-note" rows="2" class="w-full border border-blue-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 bg-blue-50/30 focus:bg-white outline-none resize-none" placeholder="ملاحظات للمندوب..."></textarea>
+                    </div>
+                `;
+                modalScrollBody.appendChild(notesWrap);
+            }
+            if (document.getElementById('edit-admin-note')) document.getElementById('edit-admin-note').value = editingOrderData.adminNote || '';
+            if (document.getElementById('edit-driver-note')) document.getElementById('edit-driver-note').value = editingOrderData.driverNote || '';
+
+            document.getElementById('edit-delivery').value = editingOrderData.deliveryFee || 0;
+            document.getElementById('edit-discount').value = editingOrderData.discount || 0;
+            calcEditTotal();
+            openModal('edit-order-modal');
         };
 
-        window.changeEditQty = (pId, amount, isWeight = false) => { 
-            let input = document.getElementById(`edit-q-${pId}`); 
-            // لو वजन بناخد الرقم بكسوره (parseFloat)، لو عدد بناخده صحيح (parseInt)
-            let val = isWeight ? parseFloat(input.value) || 0 : parseInt(input.value) || 0; 
-            val += amount; 
-            if(val < 0) val = 0; 
-            input.value = isWeight ? parseFloat(val.toFixed(2)) : val; 
-            calcEditTotal(); 
+        window.changeEditQty = (pId, amount, isWeight = false) => {
+            let input = document.getElementById(`edit-q-${pId}`);
+            if (!input) return;
+            let val = isWeight ? parseFloat(input.value) || 0 : parseInt(input.value) || 0;
+            val += amount;
+            if (val < 0) val = 0;
+            input.value = isWeight ? parseFloat(val.toFixed(2)) : val;
+            calcEditTotal();
         };
 
-        window.calcEditTotal = () => { 
-            let itemsTotal = 0; 
-            Object.keys(storeProducts).forEach(id => { 
-                let q = Number(document.getElementById(`edit-q-${id}`)?.value) || 0; 
-                let existingItem = editingOrderData.items ? editingOrderData.items.find(i => i.id === id || i.name === storeProducts[id].name) : null;
-                let price = existingItem ? existingItem.price : (storePrices[id] || storeProducts[id].basePrice || 0); 
-                itemsTotal += Math.round(q * price); 
-            }); 
-            document.getElementById('edit-price').value = Math.round(itemsTotal); 
-            let d = Number(document.getElementById('edit-delivery').value) || 0; let disc = Number(document.getElementById('edit-discount').value) || 0; 
-            let finalTotal = Math.round(itemsTotal + d - disc); if(finalTotal < 0) finalTotal = 0; document.getElementById('edit-total').value = finalTotal; 
-        };
+        window.calcEditTotal = (manualKgTyped = false, manualPid = '') => {
+            let itemsTotal = 0;
+            Object.keys(storeProducts).forEach(id => {
+                let p = storeProducts[id];
+                if (!p) return;
 
+                let existingItem = editingOrderData?.items ? editingOrderData.items.find(i =>
+                    i.id === id || i.name === p.name || (i.name && p.name && String(i.name).startsWith(p.name + ' ['))
+                ) : null;
+                let price = existingItem ? Number(existingItem.price) : (storePrices[id] || p.basePrice || 0);
+                let qInput = document.getElementById(`edit-q-${id}`);
+                if (!qInput) return;
+
+                if (p.isWeightBased) {
+                    const checkedBoxes = Array.from(document.querySelectorAll(`.edit-weight-cb-${id}:checked`));
+                    let q = 0;
+                    let birdsCount = checkedBoxes.length;
+                    let totalGrams = 0;
+
+                    if (checkedBoxes.length > 0 && !(manualKgTyped && manualPid === id)) {
+                        totalGrams = checkedBoxes.reduce((s, cb) => s + (parseFloat(cb.value) || 0), 0);
+                        q = Number((totalGrams / 1000).toFixed(3));
+                        qInput.value = q;
+                        qInput.setAttribute('data-details', checkedBoxes.map(cb => cb.value).join(' + '));
+                        qInput.setAttribute('data-count', String(birdsCount));
+                    } else {
+                        q = Number(qInput.value) || 0;
+                        totalGrams = Math.round(q * 1000);
+                        if (q <= 0) {
+                            qInput.removeAttribute('data-details');
+                            qInput.removeAttribute('data-count');
+                        }
+                    }
+
+                    const lineMoney = Math.round(q * price);
+                    itemsTotal += lineMoney;
+
+                    const liveBar = document.getElementById(`edit-weight-live-bar-${id}`);
+                    if (liveBar) {
+                        if (q > 0) {
+                            liveBar.innerHTML = `
+                                <span>🐔 الفرخات المختارة: <strong class="text-amber-300">${birdsCount || 1}</strong></span>
+                                <span>⚖️ الوزن الصافي: <strong class="text-amber-300">${totalGrams.toLocaleString()} جم (${q} كجم)</strong></span>
+                                <span>💰 إجمالي الصنف: <strong class="text-emerald-300">${lineMoney} ج.م</strong></span>
+                            `;
+                        } else {
+                            liveBar.innerHTML = `<span class="text-slate-300">لم يتم تحديد أوزان لهذا الصنف (0 كجم)</span>`;
+                        }
+                    }
+                } else {
+                    let q = Number(qInput.value) || 0;
+                    const card = document.getElementById(`edit-item-card-${id}`);
+                    if (card) {
+                        card.className = q > 0
+                            ? 'bg-emerald-50/80 border-2 border-brand-primary p-3 rounded-2xl shadow-sm flex flex-col justify-between transition-all'
+                            : 'bg-white border border-slate-200 p-3 rounded-2xl shadow-sm flex flex-col justify-between transition-all';
+                    }
+                    itemsTotal += Math.round(q * price);
+                }
+            });
+
+            document.getElementById('edit-price').value = Math.round(itemsTotal);
+            let d = Number(document.getElementById('edit-delivery').value) || 0;
+            let disc = Number(document.getElementById('edit-discount').value) || 0;
+            let finalTotal = Math.round(itemsTotal + d - disc);
+            if (finalTotal < 0) finalTotal = 0;
+            document.getElementById('edit-total').value = finalTotal;
+        };
 
 
 
@@ -6519,53 +6821,134 @@ window.deleteProductUI = async (id) => {
 
 
         window.saveEditedOrder = async () => {
-            if(!editingOrderData) return;
-            let newItems = []; let newSubtotal = 0;
-            let newBatchId = document.getElementById('edit-batch').value; 
+            if (!editingOrderData) return;
+            let newItems = [];
+            let newSubtotal = 0;
+            let newBatchId = document.getElementById('edit-batch').value;
             let oldBatchId = editingOrderData.batchId;
             let oldItems = editingOrderData.items || [];
-            
-            Object.keys(storeProducts).forEach(id => { 
-                let q = Number(document.getElementById(`edit-q-${id}`)?.value) || 0; 
-                if(q > 0) { 
-                    let existingItem = editingOrderData.items ? editingOrderData.items.find(i => i.id === id || i.name === storeProducts[id].name) : null;
-                    let price = existingItem ? existingItem.price : (storePrices[id] || storeProducts[id].basePrice || 0);
-                    let preservedName = (existingItem && existingItem.quantity === q && existingItem.name) ? existingItem.name : storeProducts[id].name;
+            let inventoryWeightsChanged = false;
+
+            Object.keys(storeProducts).forEach(id => {
+                let p = storeProducts[id];
+                if (!p) return;
+                let qInput = document.getElementById(`edit-q-${id}`);
+                let q = Number(qInput?.value) || 0;
+
+                let existingItem = oldItems.find(i =>
+                    i.id === id || i.name === p.name || (i.name && p.name && String(i.name).startsWith(p.name + ' ['))
+                );
+                let price = existingItem ? Number(existingItem.price) : (storePrices[id] || p.basePrice || 0);
+
+                // تحديث مصفوفة أوزان المخزن في حالة إضافة أو إلغاء فرخات موزونة أثناء التعديل
+                if (p.isWeightBased && document.getElementById(`edit-weight-grid-${id}`)) {
+                    const allCbs = Array.from(document.querySelectorAll(`.edit-weight-cb-${id}`));
+                    const checkedCbs = allCbs.filter(cb => cb.checked);
+
+                    // 1. الأوزان التي كانت في الطلب وتم إلغاء تحديدها -> تعود لمصفوفة المخزن
+                    const removedFromOrderGrams = allCbs
+                        .filter(cb => cb.getAttribute('data-origin') === 'order' && !cb.checked)
+                        .map(cb => parseFloat(cb.value))
+                        .filter(v => !isNaN(v) && v > 0);
+
+                    // 2. الأوزان التي كانت في المخزن وتم اختيارها للطلب -> تُخصم من مصفوفة المخزن
+                    const pickedFromStockIndices = allCbs
+                        .filter(cb => cb.getAttribute('data-origin') === 'stock' && cb.checked)
+                        .map(cb => parseInt(cb.getAttribute('data-stock-idx')))
+                        .filter(idx => !isNaN(idx))
+                        .sort((a, b) => b - a);
+
+                    if (removedFromOrderGrams.length > 0 || pickedFromStockIndices.length > 0) {
+                        let currentStockArr = window.parseWeightsArray(p.weightsList);
+                        pickedFromStockIndices.forEach(remIdx => {
+                            if (remIdx >= 0 && remIdx < currentStockArr.length) {
+                                currentStockArr.splice(remIdx, 1);
+                            }
+                        });
+                        removedFromOrderGrams.forEach(g => currentStockArr.push(g));
+                        p.weightsList = currentStockArr.join(' ');
+                        storeStock[id] = currentStockArr.length;
+                        inventoryWeightsChanged = true;
+                    }
+
+                    if (q > 0) {
+                        const detailsStr = checkedCbs.map(cb => cb.value).join(' + ');
+                        const birdsCount = checkedCbs.length || (existingItem?.birdsCount || 1);
+                        const finalName = detailsStr
+                            ? `${p.name} [${birdsCount} فرخة = ${q} كجم] (${detailsStr} جم)`
+                            : (existingItem && existingItem.quantity === q ? existingItem.name : `${p.name} (${q} كجم)`);
+
+                        newItems.push({ id: id, name: finalName, quantity: q, price: price, birdsCount: birdsCount });
+                        newSubtotal += Math.round(q * price);
+                    }
+                } else if (q > 0) {
+                    let preservedName = (existingItem && existingItem.quantity === q && existingItem.name) ? existingItem.name : p.name;
                     let itemObj = { id: id, name: preservedName, quantity: q, price: price };
                     if (existingItem && existingItem.birdsCount) itemObj.birdsCount = existingItem.birdsCount;
                     newItems.push(itemObj);
-                    newSubtotal += Math.round(q * price); 
-                } 
+                    newSubtotal += Math.round(q * price);
+                }
             });
 
+            if (newItems.length === 0) return alert('لا يمكن حفظ طلب فارغ!');
 
-            if(newItems.length === 0) return alert('لا يمكن حفظ طلب فارغ!');
-
-            let newDelivery = Number(document.getElementById('edit-delivery').value) || 0; 
-            let newDiscount = Number(document.getElementById('edit-discount').value) || 0; 
+            let newDelivery = Number(document.getElementById('edit-delivery').value) || 0;
+            let newDiscount = Number(document.getElementById('edit-discount').value) || 0;
             let newTotal = Number(document.getElementById('edit-total').value) || 0;
-            let newBatchName = newBatchId ? storeBatches[newBatchId].name : '';
+            let newBatchName = (newBatchId && storeBatches[newBatchId]) ? storeBatches[newBatchId].name : '';
             let newCustomTag = document.getElementById('edit-custom-tag') ? document.getElementById('edit-custom-tag').value.trim() : '';
             let newPhone2 = document.getElementById('edit-phone-2') ? document.getElementById('edit-phone-2').value.trim() : '';
             let newPaymentMethod = document.getElementById('edit-payment-method') ? document.getElementById('edit-payment-method').value : 'cash';
 
+            let newPaidCash = newTotal;
+            let newPaidOnline = 0;
+            if (newPaymentMethod === 'online') {
+                newPaidCash = 0;
+                newPaidOnline = newTotal;
+            } else if (newPaymentMethod === 'split') {
+                newPaidCash = Number(document.getElementById('edit-paid-cash')?.value) || 0;
+                newPaidOnline = Number(document.getElementById('edit-paid-online')?.value) || Math.max(0, newTotal - newPaidCash);
+            }
+
             let newDeliveryStart = document.getElementById('edit-delivery-start') ? document.getElementById('edit-delivery-start').value : '';
             let newDeliveryEnd = document.getElementById('edit-delivery-end') ? document.getElementById('edit-delivery-end').value : '';
-            
-            let oldTotal = Number(editingOrderData.total) || 0; let difference = newTotal - oldTotal;
-            
-            const btn = document.getElementById('btn-save-edit'); const origHtml = btn.innerHTML; 
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري تحديث السيستم...'; btn.disabled = true;
+            let newAdminNote = document.getElementById('edit-admin-note') ? document.getElementById('edit-admin-note').value.trim() : (editingOrderData.adminNote || '');
+            let newDriverNote = document.getElementById('edit-driver-note') ? document.getElementById('edit-driver-note').value.trim() : (editingOrderData.driverNote || '');
+
+            let oldTotal = Number(editingOrderData.total) || 0;
+            let difference = newTotal - oldTotal;
+
+            const btn = document.getElementById('btn-save-edit');
+            const origHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري تحديث السيستم...';
+            btn.disabled = true;
             try {
                 let atomicBatch = db.batch();
-                
+
                 let orderRef = db.collection('orders').doc(editingOrderData.id);
-                atomicBatch.update(orderRef, { 
-                    items: newItems, subtotal: newSubtotal, deliveryFee: newDelivery, discount: newDiscount, total: newTotal, 
-                    batchId: newBatchId, batchName: newBatchName, customTag: newCustomTag, customerPhone2: newPhone2, paymentMethod: newPaymentMethod,
+                atomicBatch.update(orderRef, {
+                    items: newItems,
+                    subtotal: newSubtotal,
+                    deliveryFee: newDelivery,
+                    discount: newDiscount,
+                    total: newTotal,
+                    batchId: newBatchId,
+                    batchName: newBatchName,
+                    customTag: newCustomTag,
+                    customerPhone2: newPhone2,
+                    paymentMethod: newPaymentMethod,
+                    paidCash: newPaidCash,
+                    paidOnline: newPaidOnline,
                     deliveryStart: newDeliveryStart,
-                    deliveryEnd: newDeliveryEnd     
+                    deliveryEnd: newDeliveryEnd,
+                    adminNote: newAdminNote,
+                    driverNote: newDriverNote
                 });
+
+                if (inventoryWeightsChanged) {
+                    atomicBatch.set(db.collection('inventory').doc('settings'), { productsData: storeProducts }, { merge: true });
+                }
+
                 
                 if(difference !== 0 && editingOrderData.customerPhone) { 
                     let cleanPhone = editingOrderData.customerPhone.startsWith('0') ? editingOrderData.customerPhone : '0' + editingOrderData.customerPhone; 
