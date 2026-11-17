@@ -1574,27 +1574,36 @@
             } catch (e) {}
         }
 
-        // متغيرات حماية سجل التاتش والرجوع على الموبايل
-        window._ignoreNextPopState = false;
-        window._historyCushionPlanted = false;
-
-        // زرع وسادة أمان مزدوجة في سجل الموبايل لمنع الخروج المفاجئ عند سحب الشاشة للرجوع
-        function ensureMobileHistoryCushion() {
-            if (window._historyCushionPlanted) return;
-            window._historyCushionPlanted = true;
+        // محرك حماية زر الرجوع للموبايل (يمنع الخروج المفاجئ ويعرض التنبيه أو يرجع للخطوة السابقة 100%)
+        function armAndroidBackTrap() {
             try {
-                const curTab = window.smanCurrentActiveTab || 'dashboard';
-                history.replaceState({ guard: 'base', tab: 'dashboard' }, '', '#dashboard');
-                history.pushState({ guard: 'cushion', tab: curTab }, '', '#' + curTab);
-                history.pushState({ guard: 'active', tab: curTab }, '', '#' + curTab);
+                if (!history.state || !history.state.guard) {
+                    const curTab = window.smanCurrentActiveTab || 'dashboard';
+                    history.replaceState({ guard: 'root', tab: 'dashboard' }, '', window.location.pathname + '#dashboard');
+                    history.pushState({ guard: 'active', tab: curTab }, '', window.location.pathname + '#' + curTab);
+                }
             } catch (e) {}
         }
 
+        // متصفح الموبايل (Chrome / Android WebView) يشترط حدث click لتفعيل حماية زر الرجوع
+        document.addEventListener('click', () => {
+            armAndroidBackTrap();
+        }, { passive: true });
 
-        document.addEventListener('pointerdown', ensureMobileHistoryCushion, { passive: true });
-        document.addEventListener('touchstart', ensureMobileHistoryCushion, { passive: true });
+        // دعم زر الرجوع الأصلي في تطبيقات الأندرويد (APK / Capacitor / Cordova)
+        document.addEventListener('backbutton', (e) => {
+            if (e && typeof e.preventDefault === 'function') e.preventDefault();
+            const res = window.handleAndroidBackButton(true);
+            if (res === 'AT_ROOT') {
+                const now = Date.now();
+                if (now - lastBackPressTime > 2000) {
+                    lastBackPressTime = now;
+                    if (window.showQuickAppToast) window.showQuickAppToast("اضغط زر الرجوع مرة أخرى لتصغير التطبيق");
+                }
+            }
+        }, false);
 
-        // جلب جميع النوافذ المنبثقة المفتوحة حالياً بالترتيب (الأحدث فوق الأقدم)
+        // جلب جميع النوافذ المنبثقة المفتوحة حالياً بالترتيب
         function getOpenModals() {
             const priorityIds = [
                 'deli-waybill-studio-modal',
@@ -1616,9 +1625,8 @@
             return found;
         }
 
-        // الدالة المركزية لسحبة الرجوع بالتاتش على الموبايل
-        window.handleAndroidBackButton = function (fromPopState = false) {
-            // 1. لو كبسولة سريعة طائرة أو قائمة تنبيهات مفتوحة، اقفلها أولاً
+        window.handleAndroidBackButton = function () {
+            // 1. إغلاق الكبسولات الطائرة أو التنبيهات
             const floatingPop = document.getElementById('lc-floating-popover');
             if (floatingPop && !floatingPop.classList.contains('hidden')) {
                 if (typeof window.closeLivePopover === 'function') window.closeLivePopover();
@@ -1631,14 +1639,14 @@
                 return 'HANDLED';
             }
 
-            // 2. لو فيه أي نافذة منبثقة (Modal) مفتوحة، اقفل النافذة فقط وارجع للشاشة اللي تحتها فوراً
+            // 2. إغلاق أي نافذة منبثقة (Modal) مفتوحة والبقاء في نفس الصفحة
             const openModals = getOpenModals();
             if (openModals.length > 0) {
-                closeModal(openModals[0], true);
+                closeModal(openModals[0]);
                 return 'HANDLED';
             }
 
-            // 3. لو فورم تسجيل مصروف/دين أو درج فلاتر أو بحث الطوارئ مفتوح، اقفله
+            // 3. إغلاق فورم الخزنة أو نتائج كشاف الطوارئ أو البلاك ليست السريع
             const ledgerBox = document.getElementById('sm-ledger-form-box');
             if (ledgerBox && !ledgerBox.classList.contains('hidden')) {
                 ledgerBox.classList.add('hidden');
@@ -1655,14 +1663,14 @@
                 return 'HANDLED';
             }
 
-            // 4. لو القائمة الجانبية في الموبايل مفتوحة، اقفلها
+            // 4. إغلاق القائمة الجانبية في الموبايل
             const sb = document.getElementById('sidebar');
             if (sb && sb.classList.contains('open')) {
-                toggleSidebar(true, true);
+                toggleSidebar(true);
                 return 'HANDLED';
             }
 
-            // 5. لو الملاحظات المنزلقة داخل كارت الطلب مفتوحة، اقفلها
+            // 5. إغلاق الملاحظات المنزلقة داخل كارت الطلب
             if (typeof openInlineNoteId !== 'undefined' && openInlineNoteId) {
                 const noteCont = document.getElementById(`inline-notes-container-${openInlineNoteId}`);
                 if (noteCont) noteCont.classList.add('hidden');
@@ -1670,7 +1678,7 @@
                 return 'HANDLED';
             }
 
-            // 6. لو داخل شاشة "الطلبات الحية" ومفعل فلتر فرعي أو بحث، يرجع لعرض "الكل" أولاً
+            // 6. داخل الطلبات الحية: مسح البحث أو الرجوع لتبويب "الكل"
             const currentActiveView = document.querySelector('.page-view.active');
             const currentTabId = currentActiveView ? currentActiveView.id.replace('view-', '') : window.smanCurrentActiveTab;
 
@@ -1697,7 +1705,7 @@
                 }
             }
 
-            // 8. لو في أي صفحة غير لوحة القيادة، يرجع للوحة القيادة بدل الخروج من التطبيق
+            // 8. الرجوع للوحة القيادة إذا كنا في أي قسم فرعي
             if (currentTabId !== 'dashboard') {
                 const dashBtn = document.querySelector(`#sidebar button[onclick*="switchTab('dashboard'"]`);
                 switchTab('dashboard', dashBtn, true);
@@ -1708,16 +1716,15 @@
         };
 
         window.triggerSmartBack = () => {
-            return window.handleAndroidBackButton(false);
+            return window.handleAndroidBackButton();
         };
 
-        // إخفاء سهم الرجوع العلوي لأن الاعتماد كله على سحبة التاتش الطبيعية في الموبايل
         function updateHeaderBackBtn() {
             const backBtn = document.getElementById('crm-top-back-btn');
             if (backBtn) backBtn.classList.add('hidden');
         }
 
-        function toggleSidebar(forceClose = false, fromBackGesture = false) {
+        function toggleSidebar(forceClose = false) {
             const sb = document.getElementById('sidebar'), ov = document.getElementById('mobile-overlay');
             if (!sb || !ov) return;
             const isOpen = sb.classList.contains('open');
@@ -1725,27 +1732,21 @@
             if (forceClose && !isOpen) return;
 
             if (!isOpen && !forceClose) {
-                ensureMobileHistoryCushion();
                 sb.classList.add('open');
                 ov.classList.remove('hidden');
                 setTimeout(() => ov.classList.add('opacity-100'), 10);
                 if (!isHandlingPopState) {
-                    try { history.pushState({ guard: 'sidebar' }, '', '#' + (window.smanCurrentActiveTab || 'dashboard') + '__menu'); } catch (e) {}
+                    try { history.pushState({ guard: 'sidebar' }, ''); } catch (e) {}
                 }
             } else {
                 sb.classList.remove('open');
                 ov.classList.remove('opacity-100');
                 setTimeout(() => ov.classList.add('hidden'), 300);
-                if (!fromBackGesture && !isHandlingPopState && history.state && history.state.guard === 'sidebar') {
-                    window._ignoreNextPopState = true;
-                    try { history.back(); } catch (e) { window._ignoreNextPopState = false; }
-                }
             }
         }
 
         function switchTab(tabId, btnElement, isFromBackButton = false) {
-            ensureMobileHistoryCushion();
-            closeAllOpenOverlays(true);
+            closeAllOpenOverlays();
 
             const currentActiveView = document.querySelector('.page-view.active');
             const prevTabId = currentActiveView ? currentActiveView.id.replace('view-', '') : window.smanCurrentActiveTab;
@@ -1811,90 +1812,50 @@
             if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
 
             if (window.innerWidth < 768 && document.getElementById('sidebar')?.classList.contains('open')) {
-                toggleSidebar(true, true);
+                toggleSidebar(true);
             }
         }
 
         function openModal(id) {
             const el = document.getElementById(id);
             if (!el) return;
-            ensureMobileHistoryCushion();
             const wasHidden = el.classList.contains('hidden');
             el.classList.remove('hidden');
             if (wasHidden && !isHandlingPopState) {
-                try {
-                    const activeTab = window.smanCurrentActiveTab || 'dashboard';
-                    history.pushState({ guard: 'modal', modal: id }, '', '#' + activeTab + '__' + id);
-                } catch (e) {}
+                try { history.pushState({ guard: 'modal', modal: id }, ''); } catch (e) {}
             }
         }
 
-        function closeModal(id, fromBackGesture = false) {
+        function closeModal(id) {
             const el = document.getElementById(id);
             if (!el || el.classList.contains('hidden')) return;
             el.classList.add('hidden');
-
-            // لو المستخدم قفل النافذة بزرار (X) أو زرار الحفظ، نحذف نقطة رجوع النافذة من السجل عشان متفضلش معلقة
-            if (!fromBackGesture && !isHandlingPopState && history.state && history.state.guard === 'modal') {
-                window._ignoreNextPopState = true;
-                try { history.back(); } catch (e) { window._ignoreNextPopState = false; }
-            }
         }
 
-        function closeAllOpenOverlays(fromTabSwitch = false) {
-            getOpenModals().forEach(id => closeModal(id, fromTabSwitch));
+        function closeAllOpenOverlays() {
+            getOpenModals().forEach(id => closeModal(id));
             const searchRes = document.getElementById('global-search-results');
             if (searchRes) searchRes.classList.add('hidden');
             const quickBl = document.getElementById('quick-blacklist-box');
             if (quickBl) quickBl.classList.add('hidden');
         }
 
-        // مراقب ذكي يلتقط أي نافذة تفتح بدون openModal (مثل استوديو الطابعة في waybill.js) ويسجل لها نقطة رجوع فوراً
-        const _modalAttrObserver = new MutationObserver((mutations) => {
-            if (isHandlingPopState) return;
-            mutations.forEach(m => {
-                if (m.type === 'attributes' && m.attributeName === 'class' && m.target && m.target.id) {
-                    const id = m.target.id;
-                    if (id.endsWith('-modal') || id === 'lc-floating-popover') {
-                        const isNowOpen = !m.target.classList.contains('hidden');
-                        if (isNowOpen && (!history.state || history.state.modal !== id)) {
-                            ensureMobileHistoryCushion();
-                            try {
-                                const activeTab = window.smanCurrentActiveTab || 'dashboard';
-                                history.pushState({ guard: 'modal', modal: id }, '', '#' + activeTab + '__' + id);
-                            } catch (e) {}
-                        }
-                    }
-                }
-            });
-        });
-
         window.addEventListener('popstate', () => {
-            if (window._ignoreNextPopState) {
-                window._ignoreNextPopState = false;
-                return;
-            }
             isHandlingPopState = true;
-            const res = window.handleAndroidBackButton(true);
-            const curTab = window.smanCurrentActiveTab || 'dashboard';
-
+            const res = window.handleAndroidBackButton();
             if (res === 'HANDLED') {
-                // إعادة تسليح حاجز السجل فوراً لكي تظل سحبة الرجوع التالية داخل التطبيق
-                try {
-                    history.pushState({ guard: 'active', tab: curTab }, '', '#' + curTab);
-                } catch (e) {}
+                try { history.pushState({ guard: 'active' }, ''); } catch (e) {}
             } else {
                 const now = Date.now();
                 if (now - lastBackPressTime > 2000) {
                     lastBackPressTime = now;
-                    try {
-                        history.pushState({ guard: 'active', tab: 'dashboard' }, '', '#dashboard');
-                    } catch (e) {}
-                    if (window.showQuickAppToast) window.showQuickAppToast("اسحب للرجوع مرة أخرى للخروج من التطبيق");
+                    try { history.pushState({ guard: 'root' }, ''); } catch (e) {}
+                    if (window.showQuickAppToast) window.showQuickAppToast("اضغط زر الرجوع مرة أخرى لتصغير التطبيق");
                 }
             }
-            setTimeout(() => { isHandlingPopState = false; }, 60);
+            isHandlingPopState = false;
         });
+
 
         function restoreLastSessionTab() {
             const hashPart = (window.location.hash || '').replace('#', '').split('__')[0].trim();
@@ -3373,11 +3334,20 @@
             if (!container) return;
             container.innerHTML = '';
 
-            // إظهار جميع الأصناف للإدارة (حتى المخفي من المتجر العام يظهر لك لتحجز منه براحتك)
+            let pinnedHtml = '';
+            let unpinnedHtml = '';
+            let unpinnedCount = 0;
+
+            const isPinnedFn = (id) => (typeof window.isProductPinnedForAdmin === 'function')
+                ? window.isProductPinnedForAdmin(id)
+                : (!storeProducts[id]?.isExtra);
+
             Object.keys(storeProducts).forEach(id => {
                 let p = storeProducts[id];
                 if (!p) return;
                 let kiloPrice = storePrices[id] || p.basePrice || 0;
+                let isPinned = isPinnedFn(id);
+                let itemCardMarkup = '';
 
                 if (p.isWeightBased) {
                     let weightsArr = window.parseWeightsArray(p.weightsList);
@@ -3437,7 +3407,7 @@
                         <input type="hidden" id="no-q-${id}" value="0">
                     </div>`;
 
-                    container.innerHTML += `
+                    itemCardMarkup = `
                     <div class="col-span-2 sm:col-span-3 bg-indigo-50/60 border-2 border-indigo-200/80 p-3.5 rounded-2xl text-right flex flex-col justify-between shadow-sm">
                         <div class="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-indigo-100">
                             <span class="text-xs font-black text-indigo-950 flex items-center gap-1.5"><i class="fa-solid fa-weight-scale text-indigo-600"></i> ${p.name} <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full">سعر الكيلو: ${kiloPrice} ج</span></span>
@@ -3446,8 +3416,7 @@
                         ${dropdownContentHtml}
                     </div>`;
                 } else {
-                    // تصميم نظيف وواضح جداً: اسم الصنف كامل في سطر مستقل بدون قصّ نهائياً
-                    container.innerHTML += `
+                    itemCardMarkup = `
                     <div id="no-item-card-${id}" class="bg-slate-50 border border-slate-200/80 p-3 rounded-2xl text-center flex flex-col justify-between transition-all">
                         <div class="mb-2">
                             <span class="text-xs sm:text-sm font-black text-slate-800 block leading-snug mb-1">${p.name}</span>
@@ -3457,7 +3426,29 @@
                         <input type="number" id="no-q-${id}" min="0" step="1" class="w-full border border-slate-200 bg-white rounded-xl p-2 text-center font-black text-base text-brand-primary outline-none focus:ring-2 focus:ring-brand-primary/20 shadow-sm transition-all" placeholder="0" oninput="styleNewOrderItemCard('${id}', this.value); calcTotal('no')">
                     </div>`;
                 }
+
+                if (isPinned) {
+                    pinnedHtml += itemCardMarkup;
+                } else {
+                    unpinnedCount++;
+                    unpinnedHtml += itemCardMarkup;
+                }
             });
+
+            if (unpinnedCount > 0) {
+                pinnedHtml += `
+                <div class="col-span-2 sm:col-span-3 pt-1">
+                    <button type="button" onclick="document.getElementById('no-unpinned-items-drawer').classList.toggle('hidden')" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black border border-dashed border-slate-300 flex items-center justify-center gap-2 transition-all">
+                        <i class="fa-solid fa-layer-group text-indigo-500"></i>
+                        <span>➕ عرض باقي الأصناف الأخرى (${unpinnedCount} صنف) ▼</span>
+                    </button>
+                    <div id="no-unpinned-items-drawer" class="hidden grid grid-cols-2 sm:grid-cols-3 gap-2.5 mt-2.5 pt-2.5 border-t border-slate-200">
+                        ${unpinnedHtml}
+                    </div>
+                </div>`;
+            }
+
+            container.innerHTML = pinnedHtml;
 
             const zSel = document.getElementById('no-zone');
             if (zSel) {
