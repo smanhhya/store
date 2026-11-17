@@ -3829,11 +3829,10 @@
         window.initSmartDashboardLayout();
         installEnhancedArchiveReportModal();
         installStrictAntiAutoArchiveGuard();
-        // رسم فوري في 0 ثانية من المرآة المحلية لمنع أي وميض عند الفتح
-        window.renderSmartDashboard();
         window.loadAllArchivedBatchesSafe();
         window.loadLedgerRecordsSafe();
     }
+
 
     if (document.readyState === 'loading') {
         window.addEventListener('DOMContentLoaded', bootSmartEngine);
