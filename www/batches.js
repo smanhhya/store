@@ -272,7 +272,7 @@
         window.renderBatchesUI();
     };
 
-    // حساب سقف الدفعة الكلي (بالجوز وبالفردة) والمتبقي الفعلي منها بعد خصم الحجوزات
+    // حساب سقف الدفعة الكلي (يعتمد الرقم المسجل في سقف الدفعة مباشرة دون أن يلغيه مجموع الخانات القديمة)
     window.getBatchCeilingAndRemaining = function (bId) {
         const b = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches[bId] : null;
         if (!b) return { ceilingPairs: 0, ceilingBirds: 0, bookedPairs: 0, bookedBirds: 0, remainingPairs: 0, remainingBirds: 0, allocatedPairs: 0 };
@@ -284,7 +284,7 @@
         let bookedMeatPairs = 0;
 
         Object.keys(prodsObj).forEach(pId => {
-            if (prodsObj[pId].isHidden) return;
+            if (!prodsObj[pId]) return;
             if (isMainQuailProduct(pId)) {
                 allocatedMeatPairs += (Number(b.stock?.[pId]) || 0);
                 const savedB = Number(b.booked?.[pId]) || 0;
@@ -293,9 +293,19 @@
             }
         });
 
-        const configuredTargetPairs = Number(b.actualPairs) || Number(b.publicPairs) || 0;
-        // سقف الدفعة المعتمد = الرقم الكلي للدفعة (مثلاً 200 جوز) أو مجموع المقاسات الموزعة أيهما أكبر
-        const effectiveCeilingPairs = Math.max(configuredTargetPairs, allocatedMeatPairs);
+        const explicitPairs = Number(b.actualPairs);
+        const publicPairs = Number(b.publicPairs);
+
+        // الأولوية القصوى للرقم الذي كتبه المالك في سقف الدفعة (سواء كان أكبر أو أصغر من مجموع الخانات)
+        let effectiveCeilingPairs = 0;
+        if (!isNaN(explicitPairs) && explicitPairs > 0) {
+            effectiveCeilingPairs = explicitPairs;
+        } else if (allocatedMeatPairs > 0) {
+            effectiveCeilingPairs = allocatedMeatPairs;
+        } else if (!isNaN(publicPairs) && publicPairs > 0) {
+            effectiveCeilingPairs = publicPairs;
+        }
+
         const remainingPairs = Number((effectiveCeilingPairs - bookedMeatPairs).toFixed(1));
 
         return {
@@ -309,27 +319,71 @@
         };
     };
 
-    // تعديل سقف الدفعة الكلي (بالجوز = ×2 فردة) مباشرة من كارت الدفعة
+    // تعديل سقف الدفعة الكلي مباشرة وحفظه بشكل قاطع مع مزامنة الخانات الفرعية
     window.updateBatchTotalPairsCeiling = async function (bId, val) {
         if (!storeBatches[bId]) return;
+        const b = storeBatches[bId];
         const pairs = Math.max(0, parseInt(val) || 0);
-        storeBatches[bId].actualPairs = pairs;
-        if (!storeBatches[bId].publicPairs) storeBatches[bId].publicPairs = pairs;
+
+        b.actualPairs = pairs;
+        b.publicPairs = pairs;
+
+        // فحص ما إذا كانت خانات الأصناف الفرعية تحتفظ بأرقام قديمة مخالفة للسقف الجديد
+        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
+        let oldAllocatedSum = 0;
+        const mainIds = [];
+        Object.keys(prodsObj).forEach(pId => {
+            if (prodsObj[pId] && isMainQuailProduct(pId)) {
+                mainIds.push(pId);
+                oldAllocatedSum += (Number(b.stock?.[pId]) || 0);
+            }
+        });
+
+        if (pairs > 0 && oldAllocatedSum > 0 && oldAllocatedSum !== pairs) {
+            const syncChoice = confirm(
+                `🎯 تم تغيير سقف الدفعة إلى (${pairs} جوز = ${pairs * 2} فردة).\n\n` +
+                `مجموع خانات الأصناف بالأسفل ما زال مسجلاً على الرقم القديم (${oldAllocatedSum} جوز).\n` +
+                `اضغط (موافق) لتعديل وتوزيع الـ ${pairs} جوز تلقائياً على خانات الأصناف، أو (إلغاء) لتصفير الخانات القديمة والاعتماد على السقف الكلي (${pairs}) فقط.`
+            );
+            if (!b.stock) b.stock = {};
+            if (syncChoice) {
+                let runningSum = 0;
+                mainIds.forEach((pId, idx) => {
+                    const oldVal = Number(b.stock[pId]) || 0;
+                    if (idx === mainIds.length - 1) {
+                        b.stock[pId] = Math.max(0, pairs - runningSum);
+                    } else {
+                        const scaled = Math.round((oldVal / oldAllocatedSum) * pairs);
+                        b.stock[pId] = scaled;
+                        runningSum += scaled;
+                    }
+                });
+            } else {
+                mainIds.forEach(pId => { b.stock[pId] = 0; });
+            }
+        } else if (pairs === 0 && oldAllocatedSum > 0) {
+            mainIds.forEach(pId => { if (b.stock) b.stock[pId] = 0; });
+        }
 
         try {
-            await db.collection('inventory').doc('batches').update({
-                [`${bId}.actualPairs`]: pairs
-            });
+            if (typeof db !== 'undefined') {
+                await db.collection('inventory').doc('batches').set({
+                    [bId]: {
+                        actualPairs: b.actualPairs,
+                        publicPairs: b.publicPairs,
+                        stock: b.stock || {}
+                    }
+                }, { merge: true });
+            }
         } catch (e) {
-            await db.collection('inventory').doc('batches').set({
-                [bId]: { actualPairs: pairs }
-            }, { merge: true });
+            console.error('Error saving batch ceiling:', e);
         }
+
         window.renderBatchesUI();
         if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
         if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
         if (typeof window.showToast === 'function') {
-            window.showToast(`🎯 تم ضبط سقف الدفعة على (${pairs} جوز = ${pairs * 2} فردة)`);
+            window.showToast(`🎯 تم تثبيت سقف الدفعة على (${pairs} جوز = ${pairs * 2} فردة) بنجاح!`);
         }
     };
 
@@ -918,19 +972,37 @@
 
     window.updateBatchStock = async function (bId, pId, val) {
         if (!storeBatches[bId]) return;
-        if (!storeBatches[bId].stock) storeBatches[bId].stock = {};
-        storeBatches[bId].stock[pId] = Math.max(0, parseInt(val) || 0);
+        const b = storeBatches[bId];
+        if (!b.stock) b.stock = {};
+        b.stock[pId] = Math.max(0, parseInt(val) || 0);
+
+        // حساب مجموع خانات الأصناف الأساسية وتحديث سقف الدفعة تلقائياً ليتطابق معها
+        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
+        let newMainSum = 0;
+        Object.keys(prodsObj).forEach(k => {
+            if (prodsObj[k] && isMainQuailProduct(k)) {
+                newMainSum += (Number(b.stock[k]) || 0);
+            }
+        });
+
+        if (newMainSum > 0) {
+            b.actualPairs = newMainSum;
+            b.publicPairs = newMainSum;
+        }
 
         try {
-            await db.collection('inventory').doc('batches').update({
-                [`${bId}.stock.${pId}`]: storeBatches[bId].stock[pId]
-            });
-        } catch (e) {
             await db.collection('inventory').doc('batches').set({
-                [bId]: { stock: storeBatches[bId].stock }
+                [bId]: {
+                    stock: b.stock,
+                    actualPairs: b.actualPairs || 0,
+                    publicPairs: b.publicPairs || 0
+                }
             }, { merge: true });
+        } catch (e) {
+            console.error('Update batch stock error:', e);
         }
         window.renderBatchesUI();
+        if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
         if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
     };
 
