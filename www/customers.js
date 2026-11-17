@@ -188,9 +188,40 @@
     // 🔄 ثالثاً: تحديث وبناء جدول أرشيف العملاء الذكي
     // =========================================================================
 
-    window.refreshCustomersData = function () {
+    window._customersLoadedFromServerOnce = false;
+    window._lastCustomersFetchMs = 0;
+
+    // قراءة الكاش المحلي فوراً في 0 ثانية عند تشغيل التطبيق لتجنب انتظار الإنترنت
+    try {
+        const cachedCustStr = localStorage.getItem('sman_customers_fast_cache');
+        if (cachedCustStr) {
+            const parsedCust = JSON.parse(cachedCustStr);
+            if (Array.isArray(parsedCust) && parsedCust.length > 0 && (!customersData || customersData.length === 0)) {
+                customersData = parsedCust;
+            }
+        }
+    } catch (e) {}
+
+    window.refreshCustomersData = function (forceServerFetch = false) {
         if (typeof db === 'undefined') return;
+        const activeTab = window.smanCurrentActiveTab || 'dashboard';
+        const nowMs = Date.now();
+
+        // لو الداتا متحملة قريب ومش واقف في شاشة العملاء، نحدث الواجهة من الذاكرة في 0 ثانية بدون تحميل من السيرفر!
+        if (!forceServerFetch && window._customersLoadedFromServerOnce && (nowMs - window._lastCustomersFetchMs < 45000)) {
+            window._trustCacheTime = 0;
+            if (activeTab === 'customers') window.renderCustomersTableUI();
+            else if (activeTab === 'debts') window.renderDebtsUI();
+            else if (activeTab === 'blacklist' && typeof window.renderBlacklistUI === 'function') window.renderBlacklistUI();
+            else if (activeTab === 'orders' && typeof window.renderOrdersList === 'function') window.renderOrdersList();
+            else if (activeTab === 'dashboard' && typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
+            return;
+        }
+
+        window._lastCustomersFetchMs = nowMs;
         db.collection('customers').get().then(snap => {
+            window._customersLoadedFromServerOnce = true;
             const rawMap = {};
             snap.forEach(doc => {
                 const d = doc.data() || {};
@@ -200,7 +231,6 @@
                 }
             });
 
-            // دمج أي عميل له طلبات في allOrdersRaw ولم يكن له مستند في customers بعد
             const intelMap = window.buildCustomerIntelligenceMap();
             Object.keys(intelMap).forEach(normP => {
                 const inf = intelMap[normP];
@@ -220,15 +250,20 @@
             customersData = Object.values(rawMap);
             window._trustCacheTime = 0;
 
+            // حفظ نسخة سريعة في ذاكرة الموبايل ليفتح التطبيق في المرة القادمة كالطلقة
+            try {
+                localStorage.setItem('sman_customers_fast_cache', JSON.stringify(customersData));
+            } catch (e) {}
+
             let dashCust = document.getElementById('dash-customers');
             if (dashCust) dashCust.innerText = customersData.length;
 
-            const activeTab = window.smanCurrentActiveTab || 'dashboard';
-            if (activeTab === 'customers') window.renderCustomersTableUI();
-            else if (activeTab === 'debts') window.renderDebtsUI();
-            else if (activeTab === 'blacklist' && typeof window.renderBlacklistUI === 'function') window.renderBlacklistUI();
-            else if (activeTab === 'orders' && typeof window.renderOrdersList === 'function') window.renderOrdersList();
-            else if (activeTab === 'dashboard' && typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
+            const curTab = window.smanCurrentActiveTab || 'dashboard';
+            if (curTab === 'customers') window.renderCustomersTableUI();
+            else if (curTab === 'debts') window.renderDebtsUI();
+            else if (curTab === 'blacklist' && typeof window.renderBlacklistUI === 'function') window.renderBlacklistUI();
+            else if (curTab === 'orders' && typeof window.renderOrdersList === 'function') window.renderOrdersList();
+            else if (curTab === 'dashboard' && typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
 
             if (typeof window.updateLiveHeaderAndSidebar === 'function') {
                 window.updateLiveHeaderAndSidebar();
