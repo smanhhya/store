@@ -2073,40 +2073,100 @@
             }).catch(err => console.log("خطأ في جلب الأرشيف: ", err));
         };
 
-        function startCRM() {
-            const nowStr = new Date().toLocaleDateString('en-US');
+        // دالة حفظ واسترجاع المرآة الفورية للمخزون والدفعات والأسعار لمنع وميض الأرقام القديمة عند الفتح
+        window.saveInventoryFastMirror = function () {
+            try {
+                const mirror = {
+                    storeSettings,
+                    storeProducts,
+                    storePrices,
+                    storeStock,
+                    storeBatches,
+                    storeFreezer
+                };
+                localStorage.setItem('sman_inv_fast_mirror', JSON.stringify(mirror));
+            } catch (e) {}
+        };
 
-            // 👇 التعديل لغلق نزيف القراءات: سحب بيانات الإدارة والمخزون مرة واحدة فقط 👇
-            db.collection('inventory').get().then(snap => {
+        (function hydrateInventoryMirrorImmediately() {
+            try {
+                const raw = localStorage.getItem('sman_inv_fast_mirror');
+                if (raw) {
+                    const m = JSON.parse(raw);
+                    if (m.storeSettings) storeSettings = Object.assign(storeSettings, m.storeSettings);
+                    if (m.storeProducts && Object.keys(m.storeProducts).length > 0) storeProducts = m.storeProducts;
+                    if (m.storePrices && Object.keys(m.storePrices).length > 0) storePrices = m.storePrices;
+                    if (m.storeStock) storeStock = m.storeStock;
+                    if (m.storeBatches) storeBatches = m.storeBatches;
+                    if (m.storeFreezer) storeFreezer = m.storeFreezer;
+                    window._hasHydratedInvMirror = true;
+                }
+            } catch (e) {}
+        })();
+
+        function startCRM() {
+            // إذا كانت المرآة المحلية موجودة، نجهز المدخلات في 0 ثانية بأحدث أسعارك الفعلية بدون إظهار defaultProducts القديمة
+            if (window._hasHydratedInvMirror) {
+                generateDynamicOrderInputs();
+            }
+
+            let invLoadedOnce = Boolean(window._hasHydratedInvMirror);
+            let ordersLoadedOnce = false;
+
+            function triggerUnifiedBootRender() {
+                if (!invLoadedOnce || !ordersLoadedOnce) return;
+                window._crmDataReady = true;
+                scheduleSystemRender();
+            }
+
+            // 1. استماع حي وذكي للمخزون والدفعات والأسعار (يقرأ من كاش Firestore في 0.1 ثانية ويحدث أي تغيير فوراً)
+            db.collection('inventory').onSnapshot(snap => {
                 snap.forEach(doc => {
-                    if(doc.id === 'settings') { 
-                        storeSettings = Object.assign(storeSettings, doc.data()); 
-                        storeProducts = storeSettings.productsData || {}; 
+                    if (doc.id === 'settings') {
+                        storeSettings = Object.assign(storeSettings, doc.data());
+                        storeProducts = storeSettings.productsData || storeProducts || {};
                     }
-                    if(doc.id === 'stock') storeStock = doc.data() || {};
-                    if(doc.id === 'prices') storePrices = doc.data() || {};
-                    if(doc.id === 'batches') storeBatches = doc.data() || {};
-                    if(doc.id === 'freezer') storeFreezer = doc.data() || {}; // 🧊 قراءة بيانات الفريزر
+                    if (doc.id === 'stock') storeStock = doc.data() || {};
+                    if (doc.id === 'prices') storePrices = doc.data() || {};
+                    if (doc.id === 'batches') storeBatches = doc.data() || {};
+                    if (doc.id === 'freezer') storeFreezer = doc.data() || {};
                 });
 
-                if(Object.keys(storeProducts).length === 0) {
+                if (Object.keys(storeProducts).length === 0) {
                     storeProducts = JSON.parse(JSON.stringify(defaultProducts));
                 }
-                if(Object.keys(storePrices).length === 0) {
-                    Object.keys(storeProducts).forEach(k => storePrices[k] = storePrices[k] || storeProducts[k].basePrice);
+                if (Object.keys(storePrices).length === 0) {
+                    Object.keys(storeProducts).forEach(k => {
+                        storePrices[k] = storePrices[k] || storeProducts[k].basePrice;
+                    });
                 }
 
-                renderInventoryUI(); 
-                renderSettingsUI(); 
-                generateDynamicOrderInputs(); 
-                renderBatchesUI();
-                renderReconciliationUI();
-            }).catch(e => console.log("خطأ في جلب بيانات لوحة الإدارة:", e));
+                window.saveInventoryFastMirror();
+                invLoadedOnce = true;
 
-            // 🚀 سحب الطلبات وتجهيز الخريطة الحية بأقصى سرعة بدون حسابات مكررة 🚀
+                // ترجمة أسماء الدفعات لأي طلبات محملة
+                if (allOrdersRaw.length > 0) {
+                    allOrdersRaw.forEach(o => {
+                        if (!o.batchName && o.batchId && storeBatches[o.batchId]) {
+                            o.batchName = storeBatches[o.batchId].name;
+                        }
+                    });
+                }
+
+                generateDynamicOrderInputs();
+                const activeTab = window.smanCurrentActiveTab || 'dashboard';
+                if (activeTab === 'inventory' && typeof renderInventoryUI === 'function') renderInventoryUI();
+                if (activeTab === 'settings' && typeof renderSettingsUI === 'function') renderSettingsUI();
+                if (activeTab === 'batches' && typeof renderBatchesUI === 'function') renderBatchesUI();
+                if (activeTab === 'reconciliation' && typeof renderReconciliationUI === 'function') renderReconciliationUI();
+
+                triggerUnifiedBootRender();
+            }, err => console.log("خطأ في جلب بيانات الإدارة:", err));
+
+            // 2. سحب الطلبات وتجهيز الخريطة الحية بأقصى سرعة
             db.collection('orders').onSnapshot(snap => {
                 let counts = { new: 0, processing: 0, dispatched: 0, deferred: 0, no_answer: 0, completed: 0, canceled: 0 };
-                allOrdersRaw = []; 
+                allOrdersRaw = [];
                 dispatchOrdersRaw = [];
                 globalOrdersMap = {};
 
@@ -2130,18 +2190,18 @@
                     }
                 });
 
-                ['new', 'processing', 'dispatched', 'deferred', 'no_answer', 'completed', 'canceled'].forEach(s => { 
-                    let b = document.getElementById(`badge-${s}`); 
-                    if(b) b.innerText = counts[s] || 0; 
+                ['new', 'processing', 'dispatched', 'deferred', 'no_answer', 'completed', 'canceled'].forEach(s => {
+                    let b = document.getElementById(`badge-${s}`);
+                    if (b) b.innerText = counts[s] || 0;
                 });
 
-                scheduleSystemRender();
+                ordersLoadedOnce = true;
+                triggerUnifiedBootRender();
             });
 
-
-            window.refreshCustomersData(); // استدعاء دالة تحديث العملاء والديون
-
+            window.refreshCustomersData();
         }
+
 
         // === 4. إدارة الطلبات والرسائل المرنة ===
         window.ordersRenderLimit = 50;
