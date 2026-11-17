@@ -782,67 +782,100 @@
         });
     };
 
+    // دالة مساعدة لحساب الكاش المطلوب من الطلب بدقة (تدعم الكاش والنص ونص)
+    function getOrderCashForDriver(o) {
+        if (!o || o.paymentMethod === 'online') return 0;
+        if (o.paymentMethod === 'split') {
+            return (o.paidCash !== undefined) ? (Number(o.paidCash) || 0) : Math.max(0, (Number(o.total) || 0) - (Number(o.paidOnline) || 0));
+        }
+        return Number(o.total) || 0;
+    }
+
     window.updateLiveHeaderAndSidebar = function () {
         window.initLiveHeaderAndSidebarUI();
 
         const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
         const custList = (typeof customersData !== 'undefined' && Array.isArray(customersData)) ? customersData : [];
         const freezerObj = (typeof storeFreezer !== 'undefined' && storeFreezer) ? storeFreezer : {};
+        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
         const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
 
-        // 1. حساب إجمالي أطباق الفريزر
-        const totalFreezer = Object.values(freezerObj).reduce((s, v) => s + Math.max(0, Number(v) || 0), 0);
+        // 1. حساب أطباق السمان الفعلي بالفريزر (بنفس معيار لوحة القيادة 100%)
+        let totalFreezerMeat = 0;
+        Object.keys(freezerObj).forEach(pId => {
+            const q = Math.max(0, Number(freezerObj[pId]) || 0);
+            if (q > 0) {
+                const pName = String(prodsObj[pId]?.name || '').toLowerCase();
+                const isExtra = prodsObj[pId]?.isExtra || pId === 'eggs' || pId === 'chicks' || pName.includes('بيض') || pName.includes('كتكوت') || pName.includes('كتاكيت');
+                if (!isExtra) totalFreezerMeat += q;
+            }
+        });
         const fzEl = document.getElementById('lc-hdr-freezer-count');
-        if (fzEl) fzEl.innerText = totalFreezer;
+        if (fzEl) fzEl.innerText = `${totalFreezerMeat} طبق`;
 
-        // 2. حساب الطلبات الحية والملاحظات والرادار وعهدة المناديب
-        let newCount = 0, procCount = 0, dispCount = 0, notesCount = 0, unsettledDriverCash = 0;
-        const todayIso = new Date().toISOString().split('T')[0];
-        let dueTodayOrders = [];
+        // 2. حساب الطلبات الحية والرادار وعهدة المناديب بدقة
+        let newCount = 0, procCount = 0, dispCount = 0, noAnsCount = 0, notesCount = 0;
+        let unsettledGrossCash = 0;
 
         ordersList.forEach(o => {
             if (!o || o.status === 'trash' || o.isArchived) return;
             if (o.status === 'new') newCount++;
-            if (o.status === 'processing') procCount++;
-            if (o.status === 'dispatched') dispCount++;
+            else if (o.status === 'processing') procCount++;
+            else if (o.status === 'dispatched') dispCount++;
+            else if (o.status === 'no_answer' || o.status === 'deferred') noAnsCount++;
 
             if (!['completed', 'canceled'].includes(o.status) && (o.adminNote || o.driverNote)) {
                 notesCount++;
             }
-            if (o.status === 'completed' && o.driverName && !o.isReconciled && !o.isSupplied && o.paymentMethod !== 'online') {
-                unsettledDriverCash += Number(o.total) || 0;
-            }
-            if (['new', 'processing', 'deferred'].includes(o.status) && (o.deliveryStart === todayIso || o.deliveryEnd === todayIso)) {
-                dueTodayOrders.push(o);
+            if (o.status === 'completed' && o.driverName && !o.isReconciled && !o.isSupplied) {
+                unsettledGrossCash += getOrderCashForDriver(o);
             }
         });
 
-        // تحديث كبسولة المناديب بالهيدر بشكل مدمج لا يزحم الموبايل
+        // 3. تحديث كبسولة المناديب بالهيدر لتطابق التقفيل والرادار
         const drvBtn = document.getElementById('lc-hdr-drivers-btn');
         const drvCnt = document.getElementById('lc-hdr-drivers-count');
         if (drvCnt) {
-            if (unsettledDriverCash > 0) {
-                drvCnt.innerHTML = `<span>${dispCount}</span><span class="hidden md:inline"> بالطريق | ${unsettledDriverCash}ج</span>`;
-                if (drvBtn) drvBtn.className = 'lc-capsule bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 px-2 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0';
+            if (unsettledGrossCash > 0) {
+                drvCnt.innerHTML = `<span>${dispCount} بالطريق</span><span class="hidden sm:inline"> • عهدة: ${unsettledGrossCash.toLocaleString()}ج</span>`;
+                if (drvBtn) drvBtn.className = 'lc-capsule bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 shadow-sm shrink-0';
+            } else if (dispCount > 0) {
+                drvCnt.innerHTML = `<span>${dispCount} بالطريق</span>`;
+                if (drvBtn) drvBtn.className = 'lc-capsule bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 shadow-sm shrink-0';
             } else {
-                drvCnt.innerHTML = `<span>${dispCount}</span><span class="hidden lg:inline"> بالطريق</span>`;
-                if (drvBtn) drvBtn.className = 'lc-capsule bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-2 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0';
+                drvCnt.innerHTML = `<span>0 بالشارع</span>`;
+                if (drvBtn) drvBtn.className = 'lc-capsule bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 shadow-sm shrink-0';
             }
         }
 
-        // تحديث جرس التنبيهات الذكي
-        const totalAlerts = newCount + dueTodayOrders.length + (unsettledDriverCash > 0 ? 1 : 0);
+        // 4. فحص تنبيهات امتلاء الدفعات المفتوحة
+        let batchAlertCount = 0;
+        Object.keys(batchesObj).forEach(bId => {
+            if (batchesObj[bId]?.isOpen && typeof window.getBatchCeilingAndRemaining === 'function') {
+                const cap = window.getBatchCeilingAndRemaining(bId);
+                if (cap.ceilingPairs > 0 && cap.remainingPairs <= 5) batchAlertCount++;
+            }
+        });
+
+        // 5. تحديث عداد جرس العمليات الفوري (يحسب عدد المهام الفعلية التي تحتاج تدخلك)
+        let activeTasksGroups = 0;
+        if (newCount > 0) activeTasksGroups++;
+        if (procCount > 0) activeTasksGroups++;
+        if (noAnsCount > 0) activeTasksGroups++;
+        if (unsettledGrossCash > 0) activeTasksGroups++;
+        if (batchAlertCount > 0) activeTasksGroups++;
+
         const bellBadge = document.getElementById('lc-hdr-bell-badge');
         if (bellBadge) {
-            if (totalAlerts > 0) {
-                bellBadge.innerText = totalAlerts;
+            if (activeTasksGroups > 0) {
+                bellBadge.innerText = activeTasksGroups;
                 bellBadge.classList.remove('hidden');
             } else {
                 bellBadge.classList.add('hidden');
             }
         }
 
-        // 3. تحديث عدادات القائمة الجانبية
+        // 6. تحديث عدادات القائمة الجانبية (#sidebar)
         const setSbBadge = (id, val, suffix = '') => {
             const el = document.getElementById(id);
             if (!el) return;
@@ -857,17 +890,17 @@
         const totalMarketDebt = custList.reduce((s, c) => s + (Number(c.debt) > 0 ? Number(c.debt) : 0), 0);
         const openBatchesCount = Object.values(batchesObj).filter(b => b && b.isOpen && b.name && b.name !== 'undefined').length;
 
-        setSbBadge('lc-sb-orders', newCount + procCount);
+        setSbBadge('lc-sb-orders', newCount + procCount + dispCount);
         setSbBadge('lc-sb-notes', notesCount);
         setSbBadge('lc-sb-debts', totalMarketDebt, ' ج');
         setSbBadge('lc-sb-batches', openBatchesCount);
         setSbBadge('lc-sb-radar', dispCount);
-        setSbBadge('lc-sb-recon', unsettledDriverCash, ' ج');
+        setSbBadge('lc-sb-recon', unsettledGrossCash, ' ج');
     };
 
     window.jumpToRadarOrRecon = function () {
         const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
-        const hasUnsettled = ordersList.some(o => o && o.status === 'completed' && o.driverName && !o.isReconciled && !o.isSupplied && o.paymentMethod !== 'online');
+        const hasUnsettled = ordersList.some(o => o && o.status === 'completed' && o.driverName && !o.isReconciled && !o.isSupplied && getOrderCashForDriver(o) > 0);
         const targetTab = hasUnsettled ? 'reconciliation' : 'radar';
         const btn = document.querySelector(`#sidebar button[onclick*="switchTab('${targetTab}'"]`);
         if (btn) switchTab(targetTab, btn);
@@ -875,52 +908,120 @@
 
     window.openSmartBellNotifications = function (anchorEl) {
         const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
-        const todayIso = new Date().toISOString().split('T')[0];
+        const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
 
-        const newOrders = ordersList.filter(o => o && o.status === 'new' && !o.isArchived);
-        const dueToday = ordersList.filter(o => o && ['new', 'processing', 'deferred'].includes(o.status) && !o.isArchived && (o.deliveryStart === todayIso || o.deliveryEnd === todayIso));
-        const unsettledCash = ordersList
-            .filter(o => o && o.status === 'completed' && o.driverName && !o.isReconciled && !o.isSupplied && o.paymentMethod !== 'online')
-            .reduce((s, o) => s + (Number(o.total) || 0), 0);
+        let newCount = 0, newMoney = 0;
+        let procCount = 0, dispCount = 0, noAnsCount = 0;
+        let unsettledCash = 0, unsettledOrdersCount = 0;
+
+        ordersList.forEach(o => {
+            if (!o || o.status === 'trash' || o.isArchived) return;
+            if (o.status === 'new') { newCount++; newMoney += (Number(o.total) || 0); }
+            else if (o.status === 'processing') procCount++;
+            else if (o.status === 'dispatched') dispCount++;
+            else if (o.status === 'no_answer' || o.status === 'deferred') noAnsCount++;
+            else if (o.status === 'completed' && o.driverName && !o.isReconciled && !o.isSupplied) {
+                const c = getOrderCashForDriver(o);
+                if (c > 0) { unsettledCash += c; unsettledOrdersCount++; }
+            }
+        });
 
         let itemsHtml = '';
-        if (newOrders.length > 0) {
+
+        // 1. الطلبات الجديدة
+        if (newCount > 0) {
             itemsHtml += `
-                <div onclick="closeLivePopover(); switchTab('orders', document.querySelector('#sidebar button[onclick*=\\'orders\\']')); setOrderTab('new');" class="p-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 cursor-pointer flex justify-between items-center">
-                    <span class="text-xs font-black text-blue-900">🆕 طلبات جديدة تنتظر المراجعة</span>
-                    <span class="bg-blue-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">${newOrders.length}</span>
-                </div>`;
-        }
-        if (dueToday.length > 0) {
-            itemsHtml += `
-                <div onclick="closeLivePopover(); switchTab('orders', document.querySelector('#sidebar button[onclick*=\\'orders\\']'));" class="p-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 cursor-pointer flex justify-between items-center">
-                    <span class="text-xs font-black text-amber-900">📅 طلبات موعد تسليمها اليوم</span>
-                    <span class="bg-amber-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">${dueToday.length}</span>
-                </div>`;
-        }
-        if (unsettledCash > 0) {
-            itemsHtml += `
-                <div onclick="closeLivePopover(); jumpToRadarOrRecon();" class="p-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 cursor-pointer flex justify-between items-center">
-                    <span class="text-xs font-black text-emerald-900">💰 كاش جاهز للتوريد مع المناديب</span>
-                    <span class="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">${unsettledCash} ج</span>
+                <div onclick="closeLivePopover(); switchTab('orders', document.querySelector('#sidebar button[onclick*=\\'orders\\']')); setOrderTab('new');" class="p-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 cursor-pointer flex justify-between items-center transition-all">
+                    <div>
+                        <span class="text-xs font-black text-blue-950 block">🆕 طلبات جديدة تنتظر التأكيد</span>
+                        <span class="text-[10px] font-bold text-blue-700">إجمالي قيمتها: ${newMoney.toLocaleString()} ج</span>
+                    </div>
+                    <span class="bg-blue-600 text-white text-xs font-black px-2.5 py-1 rounded-xl shadow-sm">${newCount} طلب</span>
                 </div>`;
         }
 
+        // 2. طلبات قيد التجهيز جاهزة للتوجيه للمندوب
+        if (procCount > 0) {
+            itemsHtml += `
+                <div onclick="closeLivePopover(); switchTab('orders', document.querySelector('#sidebar button[onclick*=\\'orders\\']')); setOrderTab('processing');" class="p-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 cursor-pointer flex justify-between items-center transition-all">
+                    <div>
+                        <span class="text-xs font-black text-amber-950 block">⏳ طلبات قيد التجهيز والتحضير</span>
+                        <span class="text-[10px] font-bold text-amber-700">اضغط لمراجعتها أو توجيهها للمندوب</span>
+                    </div>
+                    <span class="bg-amber-500 text-slate-950 text-xs font-black px-2.5 py-1 rounded-xl shadow-sm">${procCount} طلب</span>
+                </div>`;
+        }
+
+        // 3. عهدة الكاش الجاهزة للتقفيل مع المناديب
+        if (unsettledCash > 0) {
+            itemsHtml += `
+                <div onclick="closeLivePopover(); switchTab('reconciliation', document.querySelector('#sidebar button[onclick*=\\'reconciliation\\']'));" class="p-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 cursor-pointer flex justify-between items-center transition-all">
+                    <div>
+                        <span class="text-xs font-black text-emerald-950 block">💰 عهدة كاش مع المناديب للتوريد</span>
+                        <span class="text-[10px] font-bold text-emerald-700">من إجمالي (${unsettledOrdersCount}) طلبات مسلمة</span>
+                    </div>
+                    <span class="bg-emerald-600 text-white text-xs font-black px-2.5 py-1 rounded-xl shadow-sm">${unsettledCash.toLocaleString()} ج</span>
+                </div>`;
+        }
+
+        // 4. طلبات في الطريق مع المناديب الآن
+        if (dispCount > 0) {
+            itemsHtml += `
+                <div onclick="closeLivePopover(); switchTab('radar', document.querySelector('#sidebar button[onclick*=\\'radar\\']'));" class="p-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 cursor-pointer flex justify-between items-center transition-all">
+                    <div>
+                        <span class="text-xs font-black text-indigo-950 block">🛵 طلبات في الطريق مع المناديب</span>
+                        <span class="text-[10px] font-bold text-indigo-700">اضغط لفتح رادار خطوط السير</span>
+                    </div>
+                    <span class="bg-indigo-600 text-white text-xs font-black px-2.5 py-1 rounded-xl shadow-sm">${dispCount} طلب</span>
+                </div>`;
+        }
+
+        // 5. طلبات لم يرد / مؤجل
+        if (noAnsCount > 0) {
+            itemsHtml += `
+                <div onclick="closeLivePopover(); switchTab('orders', document.querySelector('#sidebar button[onclick*=\\'orders\\']')); setOrderTab('no_answer');" class="p-2.5 rounded-xl bg-purple-50 hover:bg-purple-100 border border-purple-200 cursor-pointer flex justify-between items-center transition-all">
+                    <div>
+                        <span class="text-xs font-black text-purple-950 block">📵 طلبات لم يرد / مؤجلة</span>
+                        <span class="text-[10px] font-bold text-purple-700">تحتاج إعادة تواصل مع العميل</span>
+                    </div>
+                    <span class="bg-purple-600 text-white text-xs font-black px-2.5 py-1 rounded-xl shadow-sm">${noAnsCount} طلب</span>
+                </div>`;
+        }
+
+        // 6. تنبيهات امتلاء الدفعات المفتوحة
+        Object.keys(batchesObj).forEach(bId => {
+            const b = batchesObj[bId];
+            if (b && b.isOpen && typeof window.getBatchCeilingAndRemaining === 'function') {
+                const cap = window.getBatchCeilingAndRemaining(bId);
+                if (cap.ceilingPairs > 0 && cap.remainingPairs <= 5) {
+                    itemsHtml += `
+                        <div onclick="closeLivePopover(); switchTab('batches', document.querySelector('#sidebar button[onclick*=\\'batches\\']'));" class="p-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 cursor-pointer flex justify-between items-center transition-all">
+                            <div>
+                                <span class="text-xs font-black text-rose-950 block">🐣 دفعة (${b.name}) أوشكت على الاكتمال</span>
+                                <span class="text-[10px] font-bold text-rose-700">حُجز ${cap.bookedPairs} من ${cap.ceilingPairs} جوز</span>
+                            </div>
+                            <span class="bg-rose-600 text-white text-[10px] font-black px-2 py-1 rounded-xl">متبقي ${cap.remainingPairs}</span>
+                        </div>`;
+                }
+            }
+        });
+
         if (!itemsHtml) {
-            itemsHtml = `<div class="text-center py-6 text-xs font-bold text-slate-400">لا توجد تنبيهات عاجلة حالياً، كل شيء منتظم ✅</div>`;
+            itemsHtml = `<div class="text-center py-6 text-xs font-bold text-slate-400">لا توجد مهام معلقة حالياً، كل العمليات منتظمة ✅</div>`;
         }
 
         const html = `
             <div class="space-y-2.5">
                 <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                    <span class="text-xs font-black text-slate-800"><i class="fa-solid fa-bell text-amber-500 ml-1"></i> مركز التنبيهات الفوري</span>
+                    <span class="text-xs font-black text-slate-800"><i class="fa-solid fa-bell text-amber-500 ml-1"></i> رادار المهام والعمليات الفوري</span>
                     <button onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
                 </div>
-                <div class="space-y-2">${itemsHtml}</div>
+                <div class="space-y-2 max-h-80 overflow-y-auto custom-scroll pr-0.5">${itemsHtml}</div>
             </div>
         `;
         window.openLivePopover(anchorEl, html);
     };
+
 
     // =========================================================================
     // 🌪️ 6. نظام الطي الذكي لدرج الفلاتر عند التمرير (دون إخفاء شريط الملخص)
