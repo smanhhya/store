@@ -1032,18 +1032,16 @@
         window.location.replace(cleanUrl);
     };
 
-    // تشغيل التهيئة التلقائية عند جاهزية الصفحة
+    // تشغيل التهيئة فقط للتبويب المفتوح دون التسبب في وميض عند بدء التشغيل
+    function initSettingsIfActive() {
+        const activeTab = window.smanCurrentActiveTab || 'dashboard';
+        if (activeTab === 'inventory') window.renderInventoryUI();
+        if (activeTab === 'settings') window.renderSettingsUI();
+    }
+
     if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', () => {
-            setTimeout(() => {
-                window.renderInventoryUI();
-                window.renderSettingsUI();
-            }, 450);
-        });
+        window.addEventListener('DOMContentLoaded', () => setTimeout(initSettingsIfActive, 200));
     } else {
-        setTimeout(() => {
-            window.renderInventoryUI();
-            window.renderSettingsUI();
-        }, 450);
+        setTimeout(initSettingsIfActive, 200);
     }
 })();
