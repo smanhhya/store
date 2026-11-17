@@ -705,64 +705,138 @@
     };
 
     // =========================================================================
-    // 💓 5. إحياء الشريط العلوي المتجاوب (بدون إخفاء زر إنشاء طلب أبداً)
+    // 💓 5. تصميم الهيدر المزدوج وشريط الأيقونات الـ 5 الظاهر بالكامل + شريط الموبايل السفلي
     // =========================================================================
+    window.syncBottomDockActiveTab = function (activeTabId) {
+        const cur = activeTabId || window.smanCurrentActiveTab || 'dashboard';
+        document.querySelectorAll('.lc-dock-btn').forEach(btn => {
+            const t = btn.getAttribute('data-dock-tab');
+            if (t === cur) {
+                btn.className = 'lc-dock-btn flex flex-col items-center justify-center py-1 px-2 rounded-xl text-brand-primary font-black scale-105 transition-all';
+            } else {
+                btn.className = 'lc-dock-btn flex flex-col items-center justify-center py-1 px-2 rounded-xl text-slate-400 hover:text-slate-700 font-bold transition-all';
+            }
+        });
+    };
+
     window.initLiveHeaderAndSidebarUI = function () {
+        const headerEl = document.querySelector('header');
         const headerRight = document.querySelector('header .flex.items-center.gap-3') || document.querySelector('header > div:last-child');
+
         if (headerRight) {
-            // تقليل المسافات البينية على الموبايل ليتسع الهيدر لكل الأزرار
-            headerRight.className = 'flex items-center gap-1.5 sm:gap-2.5 shrink-0';
+            headerRight.className = 'flex items-center gap-1.5 sm:gap-2 shrink-0';
 
-            // تأمين زر إنشاء طلب الأصلي في الهيدر ليعمل دائماً ولا يختفي
-            const origAddBtn = headerRight.querySelector('button[onclick*="add-order-modal"]');
+            // إخفاء زر التحديث القديم من الهيدر العلوي لأننا وضعناه بوضوح كامل في شريط الأيقونات الـ 5
+            const oldUpdateBtn = headerRight.querySelector('button[onclick*="forceUpdateAppNow"]');
+            if (oldUpdateBtn) oldUpdateBtn.classList.add('hidden');
+
+            const staticLiveSpan = headerRight.querySelector('span.text-emerald-600');
+            if (staticLiveSpan) staticLiveSpan.classList.add('hidden');
+
+            const origAddBtn = headerRight.querySelector('button[onclick*="add-order-modal"], button[onclick*="safeOpenAddOrderModal"]');
             if (origAddBtn) {
-                origAddBtn.className = 'bg-brand-primary hover:bg-emerald-800 text-white px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-black shadow-md shadow-brand-primary/20 transition-all flex items-center gap-1.5 active:scale-95 shrink-0';
+                origAddBtn.className = 'bg-brand-primary hover:bg-emerald-800 text-white px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-black shadow-md shadow-brand-primary/20 transition-all flex items-center gap-1.5 active:scale-95 shrink-0';
                 origAddBtn.setAttribute('onclick', 'safeOpenAddOrderModal()');
-                origAddBtn.innerHTML = '<i class="fa-solid fa-plus"></i> <span>طلب جديد</span>';
-            }
-
-            if (!document.getElementById('lc-header-pulse-bar')) {
-                const staticLiveSpan = headerRight.querySelector('span.text-emerald-600');
-                if (staticLiveSpan) staticLiveSpan.classList.add('hidden');
-
-                const pulseBar = document.createElement('div');
-                pulseBar.id = 'lc-header-pulse-bar';
-                pulseBar.className = 'flex items-center gap-1 sm:gap-1.5 shrink-0';
-                pulseBar.innerHTML = `
-                    <button onclick="openFreezerModal()" id="lc-hdr-freezer-btn" title="رصيد الفريزر الفعلي الآن (اضغط للفتح)" class="lc-capsule bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-200 px-2 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0">
-                        <i class="fa-solid fa-snowflake text-cyan-600"></i>
-                        <strong id="lc-hdr-freezer-count">0</strong>
-                    </button>
-
-                    <button onclick="jumpToRadarOrRecon()" id="lc-hdr-drivers-btn" title="حركة المناديب وعهدة الكاش بالشارع" class="lc-capsule bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-2 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0">
-                        <i class="fa-solid fa-motorcycle text-indigo-600"></i>
-                        <strong id="lc-hdr-drivers-count">0</strong>
-                    </button>
-
-                    <button onclick="openSmartBellNotifications(this)" data-lc-trigger="1" id="lc-hdr-bell-btn" title="جرس التنبيهات الذكي" class="lc-capsule relative bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center shadow-sm shrink-0">
-                        <i class="fa-solid fa-bell text-xs sm:text-sm"></i>
-                        <span id="lc-hdr-bell-badge" class="hidden absolute -top-1 -right-1 bg-red-600 text-white text-[9px] font-black min-w-[16px] h-[16px] px-1 rounded-full flex items-center justify-center shadow-sm">0</span>
-                    </button>
-                `;
-                headerRight.insertBefore(pulseBar, headerRight.firstChild);
+                origAddBtn.innerHTML = '<i class="fa-solid fa-plus text-amber-300"></i> <span>طلب جديد</span>';
             }
         }
 
-        // زر عائم إضافي للموبايل لضمان الوصول لإنشاء طلب جديد في أي وقت
-        if (!document.getElementById('lc-mobile-fab-add-order')) {
-            const fab = document.createElement('button');
-            fab.id = 'lc-mobile-fab-add-order';
-            fab.onclick = () => {
-                if (typeof window.safeOpenAddOrderModal === 'function') window.safeOpenAddOrderModal();
-                else if (typeof window.openModal === 'function') window.openModal('add-order-modal');
-            };
-            fab.className = 'md:hidden fixed bottom-5 left-5 z-[65] w-13 h-13 px-4 py-3.5 rounded-2xl bg-brand-primary text-white shadow-2xl shadow-brand-primary/40 border-2 border-white flex items-center justify-center gap-1.5 font-black text-xs active:scale-90 transition-transform';
-            fab.title = 'إنشاء طلب جديد سريع';
-            fab.innerHTML = '<i class="fa-solid fa-plus text-amber-300 text-sm"></i> <span>طلب</span>';
-            document.body.appendChild(fab);
+        // 🌟 إنشاء شريط الأيقونات الـ 5 الظاهر بالكامل (100% بدون أي أيقونة مخفية على الموبايل أو الكمبيوتر)
+        if (headerEl && !document.getElementById('lc-top-five-icons-ribbon')) {
+            const ribbon = document.createElement('div');
+            ribbon.id = 'lc-top-five-icons-ribbon';
+            ribbon.className = 'bg-slate-900 text-white px-2.5 sm:px-6 py-2 border-b border-slate-800 shadow-sm shrink-0 z-10';
+            ribbon.innerHTML = `
+                <div id="lc-header-pulse-bar" class="max-w-7xl mx-auto grid grid-cols-5 gap-1.5 sm:gap-2.5 items-center">
+                    <!-- 1. أيقونة الفريزر -->
+                    <button type="button" onclick="openFreezerModal()" id="lc-hdr-freezer-btn" class="lc-capsule bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-200 border border-cyan-400/30 py-1.5 px-1.5 sm:px-3 rounded-xl text-[10px] sm:text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 truncate">
+                        <div class="flex items-center gap-1">
+                            <i class="fa-solid fa-snowflake text-cyan-400 text-xs"></i>
+                            <span class="text-[9px] sm:text-[11px] text-slate-300">الفريزر</span>
+                        </div>
+                        <strong id="lc-hdr-freezer-count" class="text-white text-[10px] sm:text-xs">0 طبق</strong>
+                    </button>
+
+                    <!-- 2. أيقونة رادار وعهدة المناديب -->
+                    <button type="button" onclick="jumpToRadarOrRecon()" id="lc-hdr-drivers-btn" class="lc-capsule bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-200 border border-indigo-400/30 py-1.5 px-1.5 sm:px-3 rounded-xl text-[10px] sm:text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 truncate">
+                        <div class="flex items-center gap-1">
+                            <i class="fa-solid fa-motorcycle text-amber-400 text-xs"></i>
+                            <span class="text-[9px] sm:text-[11px] text-slate-300">المناديب</span>
+                        </div>
+                        <strong id="lc-hdr-drivers-count" class="text-white text-[10px] sm:text-xs truncate">0</strong>
+                    </button>
+
+                    <!-- 3. أيقونة طابعة البوالص الحرارية (Deli 750W) -->
+                    <button type="button" onclick="if(window.openWaybillSettingsModal) openWaybillSettingsModal();" id="lc-hdr-printer-btn" class="lc-capsule bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border border-amber-400/30 py-1.5 px-1.5 sm:px-3 rounded-xl text-[10px] sm:text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 truncate">
+                        <div class="flex items-center gap-1">
+                            <i class="fa-solid fa-print text-amber-400 text-xs"></i>
+                            <span class="text-[9px] sm:text-[11px] text-slate-300">الطابعة</span>
+                        </div>
+                        <strong class="text-amber-300 text-[10px] sm:text-xs">Deli 750</strong>
+                    </button>
+
+                    <!-- 4. أيقونة رادار وجرس المهام الفوري -->
+                    <button type="button" onclick="openSmartBellNotifications(this)" data-lc-trigger="1" id="lc-hdr-bell-btn" class="lc-capsule relative bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border border-emerald-400/30 py-1.5 px-1.5 sm:px-3 rounded-xl text-[10px] sm:text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5">
+                        <div class="flex items-center gap-1">
+                            <i class="fa-solid fa-bell text-emerald-400 text-xs"></i>
+                            <span class="text-[9px] sm:text-[11px] text-slate-300">المهام</span>
+                        </div>
+                        <strong class="text-white text-[10px] sm:text-xs">التنبيهات</strong>
+                        <span id="lc-hdr-bell-badge" class="hidden absolute -top-1 -left-1 bg-red-600 text-white text-[9px] font-black min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center shadow-md border border-white">0</span>
+                    </button>
+
+                    <!-- 5. أيقونة التحديث الفوري للنظام -->
+                    <button type="button" onclick="forceUpdateAppNow()" class="lc-capsule bg-white/10 hover:bg-white/20 text-white border border-white/15 py-1.5 px-1.5 sm:px-3 rounded-xl text-[10px] sm:text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 truncate">
+                        <div class="flex items-center gap-1">
+                            <i class="fa-solid fa-rotate text-sky-400 text-xs"></i>
+                            <span class="text-[9px] sm:text-[11px] text-slate-300">النسخة</span>
+                        </div>
+                        <strong class="text-sky-300 text-[10px] sm:text-xs">تحديث</strong>
+                    </button>
+                </div>
+            `;
+            headerEl.after(ribbon);
         }
 
-        // 2. حقن شارات العدادات الحية داخل أزرار القائمة الجانبية (#sidebar)
+        // إزالة الزر العائم القديم واستبداله بشريط تنقل سفلي متكامل للموبايل (Mobile App Dock)
+        const oldFab = document.getElementById('lc-mobile-fab-add-order');
+        if (oldFab) oldFab.remove();
+
+        if (!document.getElementById('lc-mobile-bottom-dock')) {
+            const dock = document.createElement('nav');
+            dock.id = 'lc-mobile-bottom-dock';
+            dock.className = 'md:hidden fixed bottom-0 inset-x-0 z-[65] bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 shadow-[0_-8px_25px_rgba(15,23,42,0.08)] grid grid-cols-5 items-center';
+            dock.innerHTML = `
+                <button type="button" data-dock-tab="dashboard" onclick="switchTab('dashboard', document.querySelector('#sidebar button[onclick*=\\'dashboard\\']')); syncBottomDockActiveTab('dashboard');" class="lc-dock-btn flex flex-col items-center justify-center py-1 px-2 rounded-xl text-brand-primary font-black">
+                    <i class="fa-solid fa-chart-pie text-sm mb-0.5"></i>
+                    <span class="text-[10px]">القيادة</span>
+                </button>
+                <button type="button" data-dock-tab="orders" onclick="switchTab('orders', document.querySelector('#sidebar button[onclick*=\\'orders\\']')); syncBottomDockActiveTab('orders');" class="lc-dock-btn flex flex-col items-center justify-center py-1 px-2 rounded-xl text-slate-400 font-bold">
+                    <i class="fa-solid fa-bolt text-sm mb-0.5"></i>
+                    <span class="text-[10px]">الطلبات</span>
+                </button>
+                <button type="button" onclick="safeOpenAddOrderModal()" class="flex flex-col items-center justify-center -mt-5">
+                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-brand-dark to-emerald-600 text-white shadow-lg shadow-brand-primary/35 border-2 border-white flex items-center justify-center text-lg active:scale-90 transition-transform">
+                        <i class="fa-solid fa-plus text-amber-300"></i>
+                    </div>
+                    <span class="text-[9px] font-black text-brand-primary mt-0.5">طلب جديد</span>
+                </button>
+                <button type="button" data-dock-tab="batches" onclick="switchTab('batches', document.querySelector('#sidebar button[onclick*=\\'batches\\']')); syncBottomDockActiveTab('batches');" class="lc-dock-btn flex flex-col items-center justify-center py-1 px-2 rounded-xl text-slate-400 font-bold">
+                    <i class="fa-solid fa-layer-group text-sm mb-0.5"></i>
+                    <span class="text-[10px]">الدفعات</span>
+                </button>
+                <button type="button" data-dock-tab="radar" onclick="jumpToRadarOrRecon(); syncBottomDockActiveTab('radar');" class="lc-dock-btn flex flex-col items-center justify-center py-1 px-2 rounded-xl text-slate-400 font-bold">
+                    <i class="fa-solid fa-satellite-dish text-sm mb-0.5"></i>
+                    <span class="text-[10px]">المناديب</span>
+                </button>
+            `;
+            document.body.appendChild(dock);
+        }
+
+        // ربط التبويب النشط مع الشريط السفلي للموبايل
+        window.syncBottomDockActiveTab();
+
+        // حقن شارات العدادات الحية داخل أزرار القائمة الجانبية (#sidebar)
         const sidebarMap = [
             { tab: 'orders', id: 'lc-sb-orders', cls: 'bg-amber-500 text-slate-950' },
             { tab: 'notes', id: 'lc-sb-notes', cls: 'bg-rose-500 text-white' },
