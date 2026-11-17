@@ -106,9 +106,6 @@
                 </div>
 
                 <div class="flex flex-wrap items-center gap-1.5 mr-auto sm:mr-0">
-                    <button onclick="safeOpenAddOrderModal()" class="bg-emerald-500 hover:bg-emerald-600 text-slate-950 px-3 py-1 rounded-lg text-[11px] font-black transition-all shadow-sm flex items-center gap-1 active:scale-95">
-                        <i class="fa-solid fa-plus"></i> طلب جديد
-                    </button>
                     <button onclick="toggleAdvancedFiltersDrawer()" id="so-btn-toggle-filters" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-lg text-[11px] font-black transition-all flex items-center gap-1">
                         <i class="fa-solid fa-filter text-amber-400 text-[10px]"></i> فلتر <span id="so-active-filters-dot" class="hidden w-2 h-2 rounded-full bg-amber-400"></span>
                     </button>
@@ -681,7 +678,7 @@
                 </div>`;
             }
 
-            // 🖥️ 2. وضع الكارت التفصيلي المنظم (3 مناطق واضحة بدون زحام)
+            // 🖥️ 2. وضع الكارت التفصيلي الفاخر (بدون تكرار أيقونات وبدعم الدفع المشترك نص ونص)
             let completedDateHtml = '';
             if (o.status === 'completed') {
                 let cTime = o.completedTimeDisplay || (o.completedAtStr ? o.completedAtStr : 'تم التسليم');
@@ -689,38 +686,41 @@
             }
 
             let itemsStr = (o.items && Array.isArray(o.items)) ? o.items.map((i, idx) =>
-                `<span data-item-idx="${idx}" class="bg-white border border-slate-200 px-2.5 py-1 rounded-lg text-xs shadow-sm inline-flex items-center gap-1.5 hover:border-brand-primary transition-colors">
+                `<span data-item-idx="${idx}" class="bg-white border border-slate-200/90 px-2.5 py-1 rounded-xl text-xs shadow-sm inline-flex items-center gap-1.5 hover:border-brand-primary transition-colors">
                     <span class="font-black text-slate-800">${i.quantity}x ${i.name}</span>
-                    <span class="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded cursor-pointer border border-emerald-100 hover:bg-emerald-500 hover:text-white transition-colors" ondblclick="editItemPrice('${o.id}', ${idx})" title="اضغط مرتين لتعديل السعر">${i.price}ج</span>
+                    <span class="text-[10px] text-emerald-700 font-black bg-emerald-50 px-1.5 py-0.5 rounded-md cursor-pointer border border-emerald-200/70 hover:bg-emerald-600 hover:text-white transition-colors" ondblclick="editItemPrice('${o.id}', ${idx})" title="اضغط مرتين لتعديل السعر">${i.price}ج</span>
                 </span>`
             ).join('') : '<span class="text-slate-400 text-xs font-bold">لا يوجد تفاصيل</span>';
 
+            let splitCashPart = (o.paidCash !== undefined) ? Number(o.paidCash) : Math.max(0, (Number(o.total) || 0) - (Number(o.paidOnline) || 0));
+            let splitOnlinePart = (o.paidOnline !== undefined) ? Number(o.paidOnline) : Math.max(0, (Number(o.total) || 0) - splitCashPart);
+
             let paymentBadge = (o.paymentMethod === 'online')
-                ? '<span class="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-check-double"></i> خالص (أونلاين)</span>'
-                : '<span class="text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-money-bill-1-wave"></i> كاش</span>';
+                ? '<span class="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-check-double"></i> خالص (أونلاين)</span>'
+                : (o.paymentMethod === 'split'
+                    ? `<span class="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-scale-balanced"></i> نص ونص (${splitCashPart}ج كاش + ${splitOnlinePart}ج محفظة)</span>`
+                    : '<span class="text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-money-bill-1-wave"></i> كاش</span>');
 
             if (o.debt && o.debt > 0) {
-                paymentBadge += ` <span class="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-triangle-exclamation"></i> آجل (${o.debt} ج)</span>`;
+                paymentBadge += ` <span class="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-triangle-exclamation"></i> آجل (${o.debt} ج)</span>`;
             }
 
-            const safeBatchAttr = realBatchTitle.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
             let batchTagHtml = realBatchTitle
-                ? `<span onclick="setOrdersQuickFilter('batch', '${safeBatchAttr}')" class="text-[10px] bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-teal-600 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-layer-group"></i> ${realBatchTitle}</span>`
+                ? `<span onclick="setOrdersQuickFilter('batch', '${realBatchTitle}')" class="text-[10px] bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 cursor-pointer hover:bg-teal-600 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-layer-group"></i> ${realBatchTitle}</span>`
                 : '';
 
             let driverBadgeHtml = o.driverName
-                ? `<span class="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-blue-600 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-motorcycle"></i> مع: ${o.driverName}</span>`
+                ? `<span class="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 cursor-pointer hover:bg-blue-600 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-motorcycle"></i> مع: ${o.driverName}</span>`
                 : '';
 
             let deliveryWindowBadge = '';
             if (o.deliveryStart || o.deliveryEnd) {
                 const winTxt = (o.deliveryStart && o.deliveryEnd) ? `${o.deliveryStart} ⬅️ ${o.deliveryEnd}` : (o.deliveryStart || o.deliveryEnd);
-                deliveryWindowBadge = `<span class="text-[10px] bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-regular fa-calendar-check"></i> تسليم: ${winTxt}</span>`;
+                deliveryWindowBadge = `<span class="text-[10px] bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-regular fa-calendar-check"></i> ${winTxt}</span>`;
             }
 
-            const safeCustomTagAttr = (o.customTag || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
             let customTagHtml = o.customTag
-                ? `<span onclick="document.getElementById('search-order').value='${safeCustomTagAttr}'; renderOrdersList();" class="text-[10px] bg-purple-50 text-purple-600 border border-purple-100 px-2 py-0.5 rounded font-black inline-flex items-center gap-1 cursor-pointer hover:bg-purple-500 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-hashtag"></i> ${o.customTag}</span>`
+                ? `<span onclick="document.getElementById('search-order').value='${o.customTag}'; renderOrdersList();" class="text-[10px] bg-purple-50 text-purple-600 border border-purple-100 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 cursor-pointer hover:bg-purple-500 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-hashtag"></i> ${o.customTag}</span>`
                 : '';
 
             let phone2Html = o.customerPhone2 ? `
@@ -734,7 +734,7 @@
             const driverNotesCount = o.driverNote ? o.driverNote.split('\n---\n').filter(Boolean).length : 0;
 
             return `
-            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} p-3.5 rounded-2xl shadow-sm border hover:shadow-md transition-all relative group cursor-pointer space-y-2.5">
+            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} p-3.5 sm:p-4 rounded-2xl shadow-sm border hover:shadow-md transition-all relative group cursor-pointer space-y-2.5">
                 <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb absolute top-3.5 left-3.5 w-4 h-4 accent-brand-primary cursor-pointer opacity-80 group-hover:opacity-100 checked:opacity-100 transition-opacity z-10">
 
                 ${trustInfo.bannerHtml}
@@ -744,7 +744,7 @@
                 <div class="flex justify-between items-start gap-2 pl-6">
                     <div class="space-y-1">
                         <div class="flex flex-wrap items-center gap-1.5">
-                            <span class="font-black text-slate-800 text-sm cursor-pointer hover:text-brand-primary border-b border-transparent hover:border-brand-primary border-dashed" onclick="smartNameClick(this, '${o.id}', '${o.customerPhone}', 'customerName')">${o.customerName || 'بدون اسم'}</span>
+                            <span class="font-black text-slate-800 text-sm sm:text-base cursor-pointer hover:text-brand-primary border-b border-transparent hover:border-brand-primary border-dashed" onclick="smartNameClick(this, '${o.id}', '${o.customerPhone}', 'customerName')">${o.customerName || 'بدون اسم'}</span>
                             ${trustInfo.badgeHtml}
                             <a href="tel:${o.customerPhone}" class="text-emerald-600 hover:text-white hover:bg-emerald-600 w-5 h-5 flex items-center justify-center bg-emerald-50 rounded-full transition-colors" title="اتصال"><i class="fa-solid fa-phone text-[9px]"></i></a>
                             <span class="text-[11px] text-slate-500 font-bold cursor-pointer" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone')">${o.customerPhone}</span>
@@ -767,8 +767,8 @@
                     </div>
                 </div>
 
-                <!-- المنطقة 2: قلب الكارت (الأصناف والدفعة يميناً + الحساب والدفع يساراً) -->
-                <div class="bg-slate-50/90 p-2.5 rounded-xl border border-slate-100 space-y-2">
+                <!-- المنطقة 2: قلب الكارت (الأصناف والدفعة + الملخص المالي) -->
+                <div class="bg-slate-50/90 p-2.5 sm:p-3 rounded-xl border border-slate-100 space-y-2">
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div class="flex flex-wrap gap-1.5 flex-1">
                             ${itemsStr}
@@ -801,16 +801,16 @@
                     <div id="inline-notes-content-${o.id}"></div>
                 </div>
 
-                <!-- المنطقة 3: شريط الإجراءات السفلي الموحد + زر الخطوة التالية الإجباري -->
+                <!-- المنطقة 3: شريط الإجراءات السفلي الرشيق (مرتب في سطر واحد أنيق بدون زحام) -->
                 <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
-                    <div class="flex flex-wrap items-center gap-1.5">
+                    <div class="flex flex-wrap items-center gap-1">
                         ${o.status === 'completed' ? `
-                            <button onclick="sendFollowUpWhatsApp('${o.customerPhone}', '${o.customerName}')" class="text-[10px] bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg font-black shadow-sm flex items-center gap-1"><i class="fa-solid fa-heart-circle-check"></i> متابعة</button>
-                            <button onclick="openLinkArchiveModal('${o.id}')" class="text-[10px] bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1.5 rounded-lg font-black shadow-sm flex items-center gap-1"><i class="fa-solid fa-link text-amber-400"></i> أرشفة</button>
+                            <button onclick="sendFollowUpWhatsApp('${o.customerPhone}', '${o.customerName}')" class="text-[10px] bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-xl font-black shadow-sm flex items-center gap-1"><i class="fa-solid fa-heart-circle-check"></i> متابعة</button>
+                            <button onclick="openLinkArchiveModal('${o.id}')" class="text-[10px] bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1.5 rounded-xl font-black shadow-sm flex items-center gap-1"><i class="fa-solid fa-link text-amber-400"></i> أرشفة</button>
                         ` : `
-                            <div class="inline-flex rounded-lg shadow-sm">
-                                <button onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="text-[10px] bg-[#25D366] hover:bg-[#1ebd57] text-white px-2.5 py-1.5 rounded-r-lg font-black flex items-center gap-1"><i class="fa-brands fa-whatsapp"></i> واتساب</button>
-                                <select onchange="if(this.value){ sendQuickWhatsAppOption('${o.id}', this.value); this.value=''; }" class="bg-[#1ebd57] text-white text-[9px] font-black px-1 rounded-l-lg border-r border-white/20 outline-none cursor-pointer" title="رسائل واتساب جاهزة">
+                            <div class="inline-flex rounded-xl shadow-sm overflow-hidden">
+                                <button onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="text-[10px] bg-[#25D366] hover:bg-[#1ebd57] text-white px-2.5 py-1.5 font-black flex items-center gap-1"><i class="fa-brands fa-whatsapp"></i> واتساب</button>
+                                <select onchange="if(this.value){ sendQuickWhatsAppOption('${o.id}', this.value); this.value=''; }" class="bg-[#1ebd57] text-white text-[9px] font-black px-1 border-r border-white/20 outline-none cursor-pointer" title="رسائل واتساب سريعة">
                                     <option value="">▼</option>
                                     <option value="invoice">🧾 إرسال الفاتورة</option>
                                     <option value="on_way">🛵 الطلب في الطريق</option>
@@ -820,23 +820,24 @@
                             </div>
                         `}
 
-                        <button onclick="event.stopPropagation(); printSingleOrderWaybill('${o.id}')" class="text-[10px] bg-amber-50 text-amber-900 hover:bg-amber-500 hover:text-white px-2.5 py-1.5 rounded-lg font-black border border-amber-200 transition-all flex items-center gap-1"><i class="fa-solid fa-print"></i> بوليصة</button>
-                        <button onclick="openEditOrderModal('${o.id}')" class="text-[10px] bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white px-2.5 py-1.5 rounded-lg font-black transition-all flex items-center gap-1"><i class="fa-solid fa-pen"></i> تعديل</button>
+                        <button onclick="event.stopPropagation(); printSingleOrderWaybill('${o.id}')" class="text-[10px] bg-amber-50 text-amber-900 hover:bg-amber-500 hover:text-white px-2.5 py-1.5 rounded-xl font-black border border-amber-200 transition-all flex items-center gap-1" title="طباعة بوليصة الشحن"><i class="fa-solid fa-print"></i> بوليصة</button>
+                        <button onclick="openEditOrderModal('${o.id}')" class="text-[10px] bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white px-2.5 py-1.5 rounded-xl font-black transition-all flex items-center gap-1" title="تعديل الطلب"><i class="fa-solid fa-pen"></i> تعديل</button>
 
-                        <button onclick="toggleInlineNotes(event, '${o.id}', 'adminNote')" class="text-[10px] bg-amber-50/80 hover:bg-amber-100 text-amber-800 border border-amber-200 px-2 py-1.5 rounded-lg font-black flex items-center gap-1" title="ملاحظات إدارية">
-                            <i class="fa-solid fa-lock"></i> ${adminNotesCount > 0 ? `<span>(${adminNotesCount})</span>` : 'إداري'}
-                        </button>
-                        <button onclick="toggleInlineNotes(event, '${o.id}', 'driverNote')" class="text-[10px] bg-blue-50/80 hover:bg-blue-100 text-blue-800 border border-blue-200 px-2 py-1.5 rounded-lg font-black flex items-center gap-1" title="ملاحظات للمندوب">
-                            <i class="fa-solid fa-motorcycle"></i> ${driverNotesCount > 0 ? `<span>(${driverNotesCount})</span>` : 'للمندوب'}
-                        </button>
-
-                        <button onclick="openOrderTracking('${o.id}')" class="text-[10px] bg-sky-50 text-sky-700 hover:bg-sky-100 px-2 py-1.5 rounded-lg font-bold border border-sky-200" title="تتبع الطلب"><i class="fa-solid fa-route"></i></button>
-                        <button onclick="event.stopPropagation(); quickBanFromOrderCard('${o.id}')" class="text-[10px] bg-red-50 text-red-500 hover:bg-red-600 hover:text-white px-2 py-1.5 rounded-lg border border-red-100 font-black transition-colors" title="إدراج في البلاك ليست"><i class="fa-solid fa-ban"></i></button>
+                        <!-- مجموعة الملاحظات والتتبع المدمجة -->
+                        <div class="inline-flex items-center bg-slate-100 rounded-xl p-0.5 border border-slate-200/80">
+                            <button onclick="toggleInlineNotes(event, '${o.id}', 'adminNote')" class="text-[10px] ${adminNotesCount > 0 ? 'bg-amber-400 text-slate-950' : 'text-amber-800 hover:bg-white'} px-2 py-1 rounded-lg font-black flex items-center gap-1 transition-all" title="ملاحظات إدارية">
+                                <i class="fa-solid fa-lock text-[9px]"></i> ${adminNotesCount > 0 ? adminNotesCount : 'إداري'}
+                            </button>
+                            <button onclick="toggleInlineNotes(event, '${o.id}', 'driverNote')" class="text-[10px] ${driverNotesCount > 0 ? 'bg-blue-600 text-white' : 'text-blue-800 hover:bg-white'} px-2 py-1 rounded-lg font-black flex items-center gap-1 transition-all" title="ملاحظات للمندوب">
+                                <i class="fa-solid fa-motorcycle text-[9px]"></i> ${driverNotesCount > 0 ? driverNotesCount : 'مندوب'}
+                            </button>
+                            <button onclick="openOrderTracking('${o.id}')" class="text-[10px] text-sky-700 hover:bg-white px-2 py-1 rounded-lg font-black transition-all" title="السجل الزمني وتتبع الطلب"><i class="fa-solid fa-route text-[10px]"></i></button>
+                        </div>
                     </div>
 
                     <div class="flex items-center gap-1.5 mr-auto sm:mr-0">
                         ${nextStepBtnHtml}
-                        <select onchange="updateOrderStatus('${o.id}', this.value)" class="text-[10px] font-black bg-white border border-slate-200 rounded-lg px-2 py-1.5 outline-none text-slate-700 cursor-pointer focus:ring-2 focus:ring-brand-primary/20">
+                        <select onchange="updateOrderStatus('${o.id}', this.value)" class="text-[10px] font-black bg-white border border-slate-200 rounded-xl px-2 py-1.5 outline-none text-slate-700 cursor-pointer focus:ring-2 focus:ring-brand-primary/20">
                             <option value="new" ${o.status === 'new' ? 'selected' : ''}>جديد</option>
                             <option value="processing" ${o.status === 'processing' ? 'selected' : ''}>تجهيز</option>
                             <option value="dispatched" ${o.status === 'dispatched' ? 'selected' : ''}>بالطريق</option>
