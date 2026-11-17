@@ -274,36 +274,33 @@
         const b = (typeof storeBatches !== 'undefined') ? storeBatches[bId] : null;
         if (!b) return alert('لم يتم العثور على بيانات هذه الدفعة!');
 
-        if (!confirm(`⚠️ هل أنت متأكد من إغلاق وترحيل دفعة (${b.name}) للأرشيف؟\n\nسيتم حفظ تقريرها الختامي وأرباحها في قسم (أرشيف الدفعات)، وإخفاء طلباتها المكتملة والملغية من الشاشة الحية.`)) return;
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        let bOrders = ordersList.filter(o => o.batchId === bId || (b.name && window.resolveOrderBatchName(o) === b.name.trim()));
 
-        try {
-            const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
-            let bOrders = ordersList.filter(o => o.batchId === bId || (b.name && window.resolveOrderBatchName(o) === b.name.trim()));
-
-            if (bOrders.length === 0 && typeof db !== 'undefined') {
+        if (bOrders.length === 0 && typeof db !== 'undefined') {
+            try {
                 const snap = await db.collection('orders').where('batchId', '==', bId).get();
                 snap.forEach(doc => bOrders.push({ id: doc.id, ...doc.data() }));
-            }
+            } catch (e) {}
+        }
 
-            const activeRemaining = bOrders.filter(o => ['new', 'processing', 'dispatched', 'deferred', 'no_answer'].includes(o.status));
-            let convertActiveToCompleted = false;
-            if (activeRemaining.length > 0) {
-                const proceed = confirm(`🔔 تنبيه مهم: يوجد عدد (${activeRemaining.length}) طلب في هذه الدفعة ما زال في حالة (تجهيز/جديد/في الطريق) ولم يتحول إلى (مكتمل).\n\nاضغط (موافق) لتحويلها إلى مكتمل وحسابها في أرباح الدفعة وأرشفتها الآن، أو اضغط (إلغاء) لمراجعتها أولاً.`);
-                if (!proceed) return;
-                convertActiveToCompleted = true;
-            }
+        const activeRemaining = bOrders.filter(o => ['new', 'processing', 'dispatched', 'deferred', 'no_answer'].includes(o.status));
+        const activeNote = activeRemaining.length > 0
+            ? `\n\n📌 ملاحظة: يوجد (${activeRemaining.length}) طلب حي (جديد/تجهيز/في الطريق) سيظل كما هو في شاشة الطلبات الحية، وعندما يكتمل يمكنك ترحيله يدوياً بزر (أرشفة للدفعة).`
+            : '';
 
+        if (!confirm(`⚠️ هل أنت متأكد من إغلاق وأرشفة دفعة (${b.name})؟\n\nسيتم ترحيل الطلبات (المكتملة والملغية فقط) للأرشيف، مع بقاء أي طلبات حية كما هي بدون تغيير حالتها.${activeNote}`)) return;
+
+        try {
             let totalRev = 0, totalDel = 0, totalDisc = 0, itemsMap = {}, zonesMap = {};
             let ordersToArchiveIds = [];
-            let ordersToCompleteAndArchiveIds = [];
-            const nowStr = new Date().toLocaleDateString('en-US');
-            const timeDisp = new Date().toLocaleString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            let activeOrdersIdsToKeepBatchName = [];
+            let completedOrdersTotalCount = 0;
 
             bOrders.forEach(o => {
-                if (o.status === 'trash') return;
-                const isComp = (o.status === 'completed') || (convertActiveToCompleted && o.status !== 'canceled');
+                if (!o || o.status === 'trash') return;
 
-                if (isComp) {
+                if (o.status === 'completed') {
                     const fin = window.getAccurateOrderFinancials(o);
                     totalRev += fin.total;
                     totalDel += fin.delivery;
@@ -318,25 +315,18 @@
                         });
                     }
 
-                    if (o.status !== 'completed') {
-                        ordersToCompleteAndArchiveIds.push(o.id);
-                        o.status = 'completed';
-                        o.completedAtStr = nowStr;
-                        o.completedTimeDisplay = timeDisp;
-                    } else {
-                        ordersToArchiveIds.push(o.id);
-                    }
+                    ordersToArchiveIds.push(o.id);
+                    completedOrdersTotalCount++;
                 } else if (o.status === 'canceled') {
                     ordersToArchiveIds.push(o.id);
+                } else {
+                    // الطلبات الحية (جديد / تجهيز / بالطريق / مؤجل) تبقى حية ولا تؤرشف تلقائياً
+                    activeOrdersIdsToKeepBatchName.push(o.id);
                 }
             });
 
             const arId = 'arch_' + bId + '_' + Date.now();
             const nowMs = Date.now();
-            const completedOrdersTotalCount = ordersToArchiveIds.filter(id => {
-                const ord = bOrders.find(x => x.id === id);
-                return ord && ord.status === 'completed';
-            }).length + ordersToCompleteAndArchiveIds.length;
 
             const archiveData = {
                 id: arId,
@@ -361,7 +351,7 @@
                 [arId]: archiveData
             }, { merge: true });
 
-            db.collection('archived_batches').doc(arId).set({
+            await db.collection('archived_batches').doc(arId).set({
                 ...archiveData,
                 archivedAt: firebase.firestore.FieldValue.serverTimestamp()
             }).catch(() => {});
@@ -370,24 +360,24 @@
                 [bId]: firebase.firestore.FieldValue.delete()
             });
 
-            const allTargetIds = [
-                ...ordersToArchiveIds.map(id => ({ id, makeCompleted: false })),
-                ...ordersToCompleteAndArchiveIds.map(id => ({ id, makeCompleted: true }))
-            ];
-
-            for (let i = 0; i < allTargetIds.length; i += 400) {
-                const chunk = allTargetIds.slice(i, i + 400);
+            // 1. أرشفة الطلبات المكتملة والملغية فقط
+            for (let i = 0; i < ordersToArchiveIds.length; i += 400) {
+                const chunk = ordersToArchiveIds.slice(i, i + 400);
                 const batchWrite = db.batch();
-                chunk.forEach(item => {
-                    if (!item.id) return;
-                    const upObj = { isArchived: true, batchName: b.name };
-                    if (item.makeCompleted) {
-                        upObj.status = 'completed';
-                        upObj.completedAtStr = nowStr;
-                        upObj.completedTimeDisplay = timeDisp;
-                        upObj.completedAt = firebase.firestore.FieldValue.serverTimestamp();
-                    }
-                    batchWrite.update(db.collection('orders').doc(item.id), upObj);
+                chunk.forEach(id => {
+                    if (!id) return;
+                    batchWrite.update(db.collection('orders').doc(id), { isArchived: true, batchName: b.name });
+                });
+                await batchWrite.commit();
+            }
+
+            // 2. تثبيت اسم الدفعة على الطلبات الحية المتبقية دون تغيير حالتها أو أرشفتها
+            for (let i = 0; i < activeOrdersIdsToKeepBatchName.length; i += 400) {
+                const chunk = activeOrdersIdsToKeepBatchName.slice(i, i + 400);
+                const batchWrite = db.batch();
+                chunk.forEach(id => {
+                    if (!id) return;
+                    batchWrite.update(db.collection('orders').doc(id), { batchName: b.name });
                 });
                 await batchWrite.commit();
             }
@@ -397,12 +387,16 @@
             window.archivedBatchesData.unshift(archiveData);
 
             ordersList.forEach(o => {
-                if ((o.batchId === bId || window.resolveOrderBatchName(o) === b.name.trim()) && (o.status === 'completed' || o.status === 'canceled')) {
-                    o.isArchived = true;
+                if (o.batchId === bId || window.resolveOrderBatchName(o) === b.name.trim()) {
                     o.batchName = b.name;
+                    if (o.status === 'completed' || o.status === 'canceled') {
+                        o.isArchived = true;
+                    }
                     if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[o.id]) {
-                        globalOrdersMap[o.id].isArchived = true;
                         globalOrdersMap[o.id].batchName = b.name;
+                        if (o.status === 'completed' || o.status === 'canceled') {
+                            globalOrdersMap[o.id].isArchived = true;
+                        }
                     }
                 }
             });
@@ -412,13 +406,14 @@
             if (typeof window.renderOrdersList === 'function') window.renderOrdersList();
             if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
 
-            window.showToast(`✅ تم إغلاق وأرشفة (${b.name}) بإجمالي ${totalRev.toLocaleString()} ج!`);
-            alert(`تم إغلاق الدفعة (${b.name}) وترحيلها للأرشيف بنجاح!\nإجمالي مبيعاتها المعتمدة: ${totalRev.toLocaleString()} ج.م 🚀📊`);
+            window.showToast(`✅ تم أرشفة المكتمل من (${b.name}) وبقاء (${activeRemaining.length}) طلب حي!`);
+            alert(`تم إغلاق وأرشفة الدفعة (${b.name}) بنجاح!\n- تم أرشفة (${completedOrdersTotalCount}) طلب مكتمل بإجمالي صافي: ${totalRev.toLocaleString()} ج.م\n- تُرك (${activeRemaining.length}) طلب حي في شاشة الطلبات لتكملها وتؤرشفها يدوياً وقت ما تشاء.`);
         } catch (e) {
             console.error('Archive Error:', e);
             alert('حدث خطأ أثناء أرشفة الدفعة: ' + (e.message || e));
         }
     };
+
 
     window.unarchiveBatch = async function (arId) {
         const list = Array.isArray(window.archivedBatchesData) ? window.archivedBatchesData : [];
