@@ -281,9 +281,9 @@
             
 
 
-            <div id="view-orders" class="page-view h-full flex flex-col max-w-7xl mx-auto relative">
+            <div id="view-orders" class="page-view flex flex-col max-w-7xl mx-auto relative">
                 
-                <div class="sticky top-[-1rem] lg:top-[-2rem] z-40 bg-[#f1f5f9]/95 backdrop-blur-md pt-2.5 pb-2.5 -mx-4 px-3 sm:px-4 lg:-mx-8 lg:px-8 border-b border-slate-200/80 shadow-sm mb-3 space-y-2">
+                <div class="sticky top-0 z-40 bg-[#f1f5f9]/95 backdrop-blur-md -mt-4 lg:-mt-8 pt-3 pb-2.5 -mx-4 px-3 sm:px-4 lg:-mx-8 lg:px-8 border-b border-slate-200/80 shadow-sm mb-3 space-y-2">
                     
                     <!-- الصف 1: شريط البحث الذكي + أزرار أدوات التشغيل المباشرة (تعمل باللمس فوراً بدون قوائم مخفية) -->
                     <div class="flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-2">
@@ -1934,17 +1934,21 @@
                 }
             }
 
+            if (tabId === 'dashboard' && typeof renderSmartDashboard === 'function') renderSmartDashboard();
             if (tabId === 'orders' && typeof renderOrdersList === 'function') renderOrdersList();
             if (tabId === 'customers' && typeof renderCustomersTableUI === 'function') renderCustomersTableUI();
             if (tabId === 'debts' && typeof renderDebtsUI === 'function') renderDebtsUI();
             if (tabId === 'batches' && typeof renderBatchesUI === 'function') renderBatchesUI();
+            if (tabId === 'archive' && typeof renderArchiveUI === 'function') renderArchiveUI();
             if (tabId === 'inventory' && typeof renderInventoryUI === 'function') renderInventoryUI();
+            if (tabId === 'settings' && typeof renderSettingsUI === 'function') renderSettingsUI();
             if (tabId === 'trash' && typeof renderTrashUI === 'function') renderTrashUI();
             if (tabId === 'notes' && typeof renderNotesUI === 'function') renderNotesUI();
             if (tabId === 'reconciliation' && typeof renderReconciliationUI === 'function') renderReconciliationUI();
             if (tabId === 'radar' && typeof renderDriversRadarUI === 'function') renderDriversRadarUI();
             if (tabId === 'blacklist' && typeof renderBlacklistUI === 'function') renderBlacklistUI();
             if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
+            if (typeof window.syncBottomDockActiveTab === 'function') window.syncBottomDockActiveTab(tabId);
 
             if (window.innerWidth < 768 && document.getElementById('sidebar')?.classList.contains('open')) {
                 toggleSidebar(true);
@@ -2528,111 +2532,136 @@
 
 
         // ==========================================
-        // 🚨 كشاف الطوارئ (البحث الشامل الذكي) 🚨
+        // 🚨 كشاف الطوارئ الذكي (بحث فوري + إنشاء طلب بضغطة واحدة) 🚨
         // ==========================================
+        window.quickStartOrderFromSearch = (phone) => {
+            document.getElementById('global-emergency-search').value = '';
+            document.getElementById('global-search-results').classList.add('hidden');
+            if (typeof window.safeOpenAddOrderModal === 'function') window.safeOpenAddOrderModal();
+            else openModal('add-order-modal');
+            const pInput = document.getElementById('no-phone');
+            if (pInput) {
+                pInput.value = phone;
+                checkCustomerExists();
+                if (typeof checkNewOrderBlacklistRadar === 'function') checkNewOrderBlacklistRadar();
+            }
+        };
+
         window.runGlobalSearch = (rawVal) => {
             const resultsContainer = document.getElementById('global-search-results');
-            
             if (!rawVal || rawVal.trim() === '') {
                 resultsContainer.classList.add('hidden');
                 return;
             }
 
             let searchWord = rawVal.toLowerCase().trim();
-            let normWordNum = window.normalizePhone(searchWord); 
+            let normWordNum = window.normalizePhone(searchWord);
 
             let html = '';
             let foundMatch = false;
 
-            // 1. البحث في الطلبات الحية (فرامل: أقصى حاجة 10 نتائج)
+            const stLabels = {
+                new: '<span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-black">🆕 جديد</span>',
+                processing: '<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-[10px] font-black">⏳ تجهيز</span>',
+                dispatched: '<span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-black">🛵 بالطريق</span>',
+                deferred: '<span class="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[10px] font-black">📅 مؤجل</span>',
+                no_answer: '<span class="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-[10px] font-black">📵 لم يرد</span>'
+            };
+
+            // 1. البحث في الطلبات الحية (أقصى 10 نتائج)
             let activeOrdersHtml = '';
             let activeCount = 0;
-            
+
             for (let i = 0; i < allOrdersRaw.length; i++) {
                 if (activeCount >= 10) break;
-                
                 let o = allOrdersRaw[i];
-                if (o.status === 'trash' || o.status === 'completed' || o.status === 'canceled') continue; 
-                
+                if (!o || o.status === 'trash' || o.status === 'completed' || o.status === 'canceled' || o.isArchived) continue;
+
                 let normPhone1 = window.normalizePhone(o.customerPhone);
                 let normPhone2 = window.normalizePhone(o.customerPhone2);
-                let fullString = `${o.customerName || ''} ${o.customerPhone || ''} ${normPhone1} ${o.customerPhone2 || ''} ${normPhone2}`.toLowerCase();
-                
+                let fullString = `${o.customerName || ''} ${o.customerPhone || ''} ${normPhone1} ${o.customerPhone2 || ''} ${normPhone2} ${o.zone || ''}`.toLowerCase();
+
                 if (fullString.includes(searchWord) || (normWordNum !== '' && fullString.includes(normWordNum))) {
                     foundMatch = true;
                     activeCount++;
-                    
-                    // 🌟 الضغطة بتفتح "تعديل الطلب" فوراً
+                    const itemsPreview = Array.isArray(o.items) ? o.items.map(it => `${it.quantity}x ${it.name}`).join(' + ') : '';
+
                     activeOrdersHtml += `
-                    <div onclick="openEditOrderModal('${o.id}'); document.getElementById('global-emergency-search').value=''; document.getElementById('global-search-results').classList.add('hidden');" class="p-4 hover:bg-amber-50 cursor-pointer transition-colors flex justify-between items-center group border-l-4 border-amber-400">
-                        <div>
-                            <p class="text-sm font-black text-slate-800 group-hover:text-amber-600 transition-colors"><i class="fa-solid fa-bolt text-amber-400 mr-1"></i> ${o.customerName || 'بدون اسم'}</p>
-                            <p class="text-[11px] font-bold text-slate-500 mt-1" dir="ltr">${o.customerPhone}</p>
+                    <div onclick="openEditOrderModal('${o.id}'); document.getElementById('global-emergency-search').value=''; document.getElementById('global-search-results').classList.add('hidden');" class="p-3.5 hover:bg-amber-50/80 cursor-pointer transition-colors flex flex-wrap justify-between items-center gap-2 group border-r-4 border-amber-500">
+                        <div class="space-y-0.5">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <span class="text-sm font-black text-slate-800 group-hover:text-amber-700">${o.customerName || 'بدون اسم'}</span>
+                                ${stLabels[o.status] || ''}
+                                ${o.zone ? `<span class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] font-black">📍 ${o.zone}</span>` : ''}
+                            </div>
+                            <p class="text-[11px] font-bold text-slate-500" dir="ltr">${o.customerPhone}</p>
+                            ${itemsPreview ? `<p class="text-[10px] font-bold text-emerald-700 truncate max-w-xs sm:max-w-md">🛒 ${itemsPreview}</p>` : ''}
                         </div>
-                        <div class="text-left flex flex-col items-end">
-                            <span class="bg-amber-500 text-white shadow-md shadow-amber-500/20 px-3 py-1.5 rounded-lg text-xs font-black mb-1.5 group-hover:scale-105 transition-transform"><i class="fa-solid fa-pen mr-1"></i> فتح وتعديل الطلب</span>
-                            <span class="font-black text-brand-primary text-sm">${o.total} ج</span>
+                        <div class="flex items-center gap-2 mr-auto sm:mr-0">
+                            <span class="font-black text-brand-primary text-sm bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-200">${o.total || 0} ج</span>
+                            <button type="button" onclick="event.stopPropagation(); printSingleOrderWaybill('${o.id}'); document.getElementById('global-emergency-search').value=''; document.getElementById('global-search-results').classList.add('hidden');" class="bg-amber-100 hover:bg-amber-500 text-amber-900 hover:text-white px-2.5 py-1.5 rounded-xl text-xs font-black transition-colors" title="طباعة البوليصة"><i class="fa-solid fa-print"></i></button>
+                            <span class="bg-slate-900 text-white px-3 py-1.5 rounded-xl text-xs font-black"><i class="fa-solid fa-pen ml-1 text-amber-400"></i> تعديل</span>
                         </div>
                     </div>`;
                 }
             }
-            
-            if (activeOrdersHtml) html += `<div class="bg-slate-50 px-3 py-2 text-xs font-black text-slate-500 uppercase"><i class="fa-solid fa-fire text-amber-500 mr-1"></i> طلبات حية حالياً</div>` + activeOrdersHtml;
 
-            // 2. البحث في أرشيف العملاء (فرامل: أقصى حاجة 15 نتيجة)
+            if (activeOrdersHtml) html += `<div class="bg-slate-900 text-amber-300 px-3.5 py-1.5 text-[11px] font-black"><i class="fa-solid fa-fire mr-1"></i> طلبات حية جارية الآن (${activeCount})</div>` + activeOrdersHtml;
+
+            // 2. البحث في أرشيف العملاء (أقصى 15 نتيجة)
             let archivedCustomersHtml = '';
             let archiveCount = 0;
-            
+
             for (let i = 0; i < customersData.length; i++) {
-                if (archiveCount >= 15) break; 
-                
+                if (archiveCount >= 15) break;
                 let c = customersData[i];
                 let normPhone = window.normalizePhone(c.phone);
                 let normPhone2 = window.normalizePhone(c.phone2 || '');
                 let altPhonesStr = (c.altPhones || []).join(' ');
-                let fullString = `${c.name || ''} ${c.phone || ''} ${normPhone} ${c.phone2 || ''} ${normPhone2} ${altPhonesStr}`.toLowerCase();
-                
+                let fullString = `${c.name || ''} ${c.phone || ''} ${normPhone} ${c.phone2 || ''} ${normPhone2} ${altPhonesStr} ${c.zone || ''}`.toLowerCase();
+
                 if (fullString.includes(searchWord) || (normWordNum !== '' && fullString.includes(normWordNum))) {
                     foundMatch = true;
                     archiveCount++;
-                    
-                    // 🌟 الضغطة بتفتح "ملف العميل" فوراً
+
                     archivedCustomersHtml += `
-                    <div onclick="openCustomerCard('${c.phone}'); document.getElementById('global-emergency-search').value=''; document.getElementById('global-search-results').classList.add('hidden');" class="p-4 hover:bg-indigo-50 cursor-pointer transition-colors flex justify-between items-center group border-l-4 border-indigo-400">
+                    <div onclick="openCustomerCard('${c.phone}'); document.getElementById('global-emergency-search').value=''; document.getElementById('global-search-results').classList.add('hidden');" class="p-3.5 hover:bg-indigo-50/60 cursor-pointer transition-colors flex flex-wrap justify-between items-center gap-2 group border-r-4 border-indigo-500">
                         <div>
-                            <p class="text-sm font-black text-slate-800 group-hover:text-indigo-600 transition-colors"><i class="fa-solid fa-user text-indigo-400 mr-1"></i> ${c.name || 'بدون اسم'}</p>
-                            <p class="text-[11px] font-bold text-slate-500 mt-1" dir="ltr">${c.phone}</p>
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <span class="text-sm font-black text-slate-800 group-hover:text-indigo-700">${c.name || 'بدون اسم'}</span>
+                                ${c.zone ? `<span class="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-black">📍 ${c.zone}</span>` : ''}
+                                ${(Number(c.debt) > 0) ? `<span class="bg-red-100 text-red-700 px-2 py-0.5 rounded text-[10px] font-black">📕 عليه ${c.debt} ج</span>` : ''}
+                            </div>
+                            <p class="text-[11px] font-bold text-slate-500 mt-0.5" dir="ltr">${c.phone} <span class="text-slate-400">• طلبات سابقة: ${c.ordersCount || 0}</span></p>
                         </div>
-                        <div class="text-left flex flex-col items-end">
-                            <span class="bg-indigo-500 text-white shadow-md shadow-indigo-500/20 px-3 py-1.5 rounded-lg text-xs font-black mb-1.5 group-hover:scale-105 transition-transform"><i class="fa-solid fa-folder-open mr-1"></i> عرض الأرشيف</span>
-                            <span class="text-[10px] font-bold text-slate-500">طلبات سابقة: ${c.ordersCount || 0}</span>
+                        <div class="flex items-center gap-1.5 mr-auto sm:mr-0">
+                            <button type="button" onclick="event.stopPropagation(); quickStartOrderFromSearch('${c.phone}')" class="bg-brand-primary hover:bg-emerald-800 text-white px-3 py-1.5 rounded-xl text-xs font-black shadow-sm flex items-center gap-1"><i class="fa-solid fa-cart-plus text-amber-300"></i> طلب سريع</button>
+                            <span class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-1.5 rounded-xl text-xs font-black">الملف</span>
                         </div>
                     </div>`;
                 }
             }
 
-            if (archivedCustomersHtml) html += `<div class="bg-slate-50 px-3 py-2 text-xs font-black text-slate-500 uppercase"><i class="fa-solid fa-users text-indigo-400 mr-1"></i> في أرشيف المتجر</div>` + archivedCustomersHtml;
+            if (archivedCustomersHtml) html += `<div class="bg-slate-100 text-slate-700 px-3.5 py-1.5 text-[11px] font-black border-t border-slate-200"><i class="fa-solid fa-users text-indigo-500 mr-1"></i> عملاء مسجلون بالأرشيف (${archiveCount})</div>` + archivedCustomersHtml;
 
-            // 3. لو الرقم جديد خالص ومش متسجل
+            // 3. لو الرقم جديد غير مسجل
             if (!foundMatch && normWordNum.length >= 8) {
                 html = `
-                <div onclick="openModal('add-order-modal'); document.getElementById('no-phone').value='${normWordNum}'; checkCustomerExists(); document.getElementById('no-name').focus(); document.getElementById('global-emergency-search').value=''; document.getElementById('global-search-results').classList.add('hidden');" class="p-5 hover:bg-emerald-50 cursor-pointer transition-colors flex items-center justify-center gap-3 group border-l-4 border-emerald-500">
-                    <div class="w-12 h-12 rounded-full bg-emerald-500 text-white shadow-md shadow-emerald-500/30 flex items-center justify-center text-xl group-hover:scale-110 transition-transform"><i class="fa-solid fa-plus"></i></div>
+                <div onclick="quickStartOrderFromSearch('${normWordNum}')" class="p-5 hover:bg-emerald-50 cursor-pointer transition-colors flex items-center justify-center gap-3 group border-r-4 border-emerald-500">
+                    <div class="w-11 h-11 rounded-2xl bg-brand-primary text-white shadow-md flex items-center justify-center text-lg group-hover:scale-110 transition-transform"><i class="fa-solid fa-plus text-amber-300"></i></div>
                     <div class="text-right">
-                        <p class="text-base font-black text-emerald-700">عميل جديد!</p>
-                        <p class="text-xs font-bold text-slate-500 mt-0.5">إنشاء طلب جديد للرقم: <span dir="ltr" class="text-slate-800 font-black">${normWordNum}</span></p>
+                        <p class="text-sm font-black text-emerald-800">عميل جديد! اضغط لإنشاء طلب فوراً</p>
+                        <p class="text-xs font-bold text-slate-500 mt-0.5">رقم الموبايل: <span dir="ltr" class="text-slate-900 font-black">${normWordNum}</span></p>
                     </div>
                 </div>`;
             } else if (!foundMatch) {
-                html = `<div class="p-8 text-center text-slate-400 font-bold text-sm">لم يتم العثور على أي نتائج مطابقة.</div>`;
+                html = `<div class="p-8 text-center text-slate-400 font-bold text-xs">لم يتم العثور على أي نتائج مطابقة لـ "${rawVal}".</div>`;
             }
 
             resultsContainer.innerHTML = html;
             resultsContainer.classList.remove('hidden');
         };
 
-            
-            
 
 
 
@@ -5187,14 +5216,23 @@ window.deleteProductUI = async (id) => {
 
             const zEditSel = document.getElementById('edit-cust-zone-input');
             if (zEditSel) {
-                let zOpts = `<option value="${editingOrderData.zone || ''}">${editingOrderData.zone || '-- اختر المنطقة --'}</option>`;
+                let zOpts = `<option value="${editingOrderData.zone || ''}" data-price="${editingOrderData.deliveryFee || 0}">${editingOrderData.zone || '-- اختر المنطقة --'}</option>`;
                 (storeSettings?.deliveryZones || []).forEach(z => {
                     if (z.name !== editingOrderData.zone) {
-                        zOpts += `<option value="${z.name}">${z.name} (${z.price}ج)</option>`;
+                        zOpts += `<option value="${z.name}" data-price="${z.price || 0}">${z.name} (${z.price}ج)</option>`;
                     }
                 });
                 zEditSel.innerHTML = zOpts;
+                zEditSel.onchange = function () {
+                    const selOpt = this.options[this.selectedIndex];
+                    const zPrice = selOpt ? selOpt.getAttribute('data-price') : null;
+                    if (zPrice !== null && document.getElementById('edit-delivery')) {
+                        document.getElementById('edit-delivery').value = Number(zPrice) || 0;
+                        calcEditTotal();
+                    }
+                };
             }
+
 
             const isPinnedFn = (pId) => (typeof window.isProductPinnedForAdmin === 'function')
                 ? window.isProductPinnedForAdmin(pId)
@@ -6945,7 +6983,7 @@ window.deleteProductUI = async (id) => {
             let choice = prompt(
                 '⭐ التقييم السريع للعميل: (' + o.customerName + ')\n\n' +
                 'اختر رقم التصنيف:\n' +
-                '1 = 💎 عميل VIP\n' +
+                '1 = ?? عميل VIP\n' +
                 '2 = ✅ عميل موثوق\n' +
                 '3 = ⚠️ عميل مُتعب / مقلق\n' +
                 '4 = 🚫 إدراج في البلاك ليست (دفع مسبق إجباري)\n' +
@@ -7314,12 +7352,19 @@ window.deleteProductUI = async (id) => {
 
             if (newItems.length === 0) return alert('لا يمكن حفظ طلب فارغ!');
 
+            let newCustName = document.getElementById('edit-cust-name-input') ? document.getElementById('edit-cust-name-input').value.trim() : (editingOrderData.customerName || '');
+            let rawEditPhone = document.getElementById('edit-cust-phone-input') ? document.getElementById('edit-cust-phone-input').value.trim() : (editingOrderData.customerPhone || '');
+            let newCustPhone = window.normalizePhone ? window.normalizePhone(rawEditPhone) : rawEditPhone;
+            let newCustZone = document.getElementById('edit-cust-zone-input') ? document.getElementById('edit-cust-zone-input').value.trim() : (editingOrderData.zone || '');
+            let newCustAddress = document.getElementById('edit-cust-address-input') ? document.getElementById('edit-cust-address-input').value.trim() : (editingOrderData.customerAddress || '');
+            let newDebt = document.getElementById('edit-order-debt-input') ? (Number(document.getElementById('edit-order-debt-input').value) || 0) : (Number(editingOrderData.debt) || 0);
+
             let newDelivery = Number(document.getElementById('edit-delivery').value) || 0;
             let newDiscount = Number(document.getElementById('edit-discount').value) || 0;
             let newTotal = Number(document.getElementById('edit-total').value) || 0;
             let newBatchName = (newBatchId && storeBatches[newBatchId]) ? storeBatches[newBatchId].name : '';
             let newCustomTag = document.getElementById('edit-custom-tag') ? document.getElementById('edit-custom-tag').value.trim() : '';
-            let newPhone2 = document.getElementById('edit-phone-2') ? document.getElementById('edit-phone-2').value.trim() : '';
+            let newPhone2 = document.getElementById('edit-phone-2') ? window.normalizePhone(document.getElementById('edit-phone-2').value.trim()) : '';
             let newPaymentMethod = document.getElementById('edit-payment-method') ? document.getElementById('edit-payment-method').value : 'cash';
 
             let newPaidCash = newTotal;
@@ -7339,6 +7384,8 @@ window.deleteProductUI = async (id) => {
 
             let oldTotal = Number(editingOrderData.total) || 0;
             let difference = newTotal - oldTotal;
+            let oldDebt = Number(editingOrderData.debt) || 0;
+            let debtDiff = newDebt - oldDebt;
 
             const btn = document.getElementById('btn-save-edit');
             const origHtml = btn.innerHTML;
@@ -7349,6 +7396,11 @@ window.deleteProductUI = async (id) => {
 
                 let orderRef = db.collection('orders').doc(editingOrderData.id);
                 atomicBatch.update(orderRef, {
+                    customerName: newCustName || editingOrderData.customerName || '',
+                    customerPhone: newCustPhone || editingOrderData.customerPhone || '',
+                    zone: newCustZone,
+                    customerAddress: newCustAddress,
+                    debt: newDebt,
                     items: newItems,
                     subtotal: newSubtotal,
                     deliveryFee: newDelivery,
@@ -7371,12 +7423,21 @@ window.deleteProductUI = async (id) => {
                     atomicBatch.set(db.collection('inventory').doc('settings'), { productsData: storeProducts }, { merge: true });
                 }
 
-                
-                if(difference !== 0 && editingOrderData.customerPhone) { 
-                    let cleanPhone = editingOrderData.customerPhone.startsWith('0') ? editingOrderData.customerPhone : '0' + editingOrderData.customerPhone; 
-                    atomicBatch.set(db.collection('customers').doc(cleanPhone), { totalSpent: firebase.firestore.FieldValue.increment(difference) }, {merge: true}); 
+                let targetPhoneForCust = newCustPhone || editingOrderData.customerPhone;
+                if (targetPhoneForCust) {
+                    let cleanPhoneForDB = targetPhoneForCust.startsWith('0') ? targetPhoneForCust : '0' + targetPhoneForCust;
+                    let customerRef = db.collection('customers').doc(cleanPhoneForDB);
+                    let custUpdateObj = {
+                        name: newCustName || editingOrderData.customerName || '',
+                        zone: newCustZone,
+                        address: newCustAddress
+                    };
+                    if (newPhone2) custUpdateObj.phone2 = newPhone2;
+                    if (difference !== 0) custUpdateObj.totalSpent = firebase.firestore.FieldValue.increment(difference);
+                    if (debtDiff !== 0) custUpdateObj.debt = firebase.firestore.FieldValue.increment(debtDiff);
+                    atomicBatch.set(customerRef, custUpdateObj, { merge: true });
                 }
-                
+        
                 if(difference !== 0 && editingOrderData.status !== 'canceled' && editingOrderData.status !== 'trash') { 
                     atomicBatch.set(db.collection('inventory').doc('stats'), { sales: firebase.firestore.FieldValue.increment(difference) }, {merge: true}); 
                 }
