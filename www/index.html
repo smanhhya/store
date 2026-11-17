@@ -66,12 +66,10 @@
             background-color: #ffffff;
         }
 
-        /* ✨ الهوية البصرية الفاخرة (Royal Emerald & Gold Executive Theme) ✨ */
+        /* ✨ الهوية البصرية الفاخرة فائقة السرعة بدون استهلاك معالج الموبايل ✨ */
         header {
-            background: rgba(255, 255, 255, 0.92) !important;
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border-bottom: 1px solid rgba(226, 232, 240, 0.85) !important;
+            background: #ffffff !important;
+            border-bottom: 1px solid #e2e8f0 !important;
         }
         #sidebar {
             background: linear-gradient(180deg, #042f2e 0%, #064e3b 55%, #022c22 100%) !important;
@@ -79,19 +77,9 @@
         #sidebar .nav-btn.active {
             background: linear-gradient(90deg, rgba(16, 185, 129, 0.22) 0%, rgba(245, 158, 11, 0.10) 100%) !important;
             border-color: rgba(52, 211, 153, 0.45) !important;
-            box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.25);
-        }
-        .order-card, .shadow-soft {
-            box-shadow: 0 4px 20px -4px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03) !important;
         }
         .order-card {
-            transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease !important;
-        }
-        @media (min-width: 768px) {
-            .order-card:hover {
-                transform: translateY(-1px);
-                box-shadow: 0 10px 25px -5px rgba(22, 101, 52, 0.10) !important;
-            }
+            contain: content;
         }
     </style>
 
@@ -281,9 +269,9 @@
             
 
 
-            <div id="view-orders" class="page-view flex flex-col max-w-7xl mx-auto relative">
+            <div id="view-orders" class="page-view flex flex-col max-w-7xl mx-auto relative pb-16">
                 
-                <div class="sticky top-0 z-40 bg-[#f1f5f9]/95 backdrop-blur-md -mt-4 lg:-mt-8 pt-3 pb-2.5 -mx-4 px-3 sm:px-4 lg:-mx-8 lg:px-8 border-b border-slate-200/80 shadow-sm mb-3 space-y-2">
+                <div class="bg-[#f1f5f9] pt-1 pb-2.5 border-b border-slate-200/80 mb-3 space-y-2">
                     
                     <!-- الصف 1: شريط البحث الذكي + أزرار أدوات التشغيل المباشرة (تعمل باللمس فوراً بدون قوائم مخفية) -->
                     <div class="flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-2">
@@ -1637,10 +1625,14 @@
         if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
         const auth = firebase.auth(); 
         const db = firebase.firestore();
-        // 🚀 تفعيل الذاكرة المحلية الفورية (Offline Persistence) ليفتح التطبيق في أجزاء من الثانية
+        // مسح أي كاش قديم كان يظهر لثانية عند فتح التطبيق
         try {
-            db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+            localStorage.removeItem('sman_inv_fast_mirror');
+            localStorage.removeItem('sman_customers_fast_cache');
+            localStorage.removeItem('sman_archived_batches_mirror');
+            localStorage.removeItem('sman_ledger_records_mirror');
         } catch (e) {}
+
 
         // ==========================================
         // 🔮 دالة سحرية لتوحيد أرقام الهواتف للبحث (Normalization) 🔮
@@ -2183,58 +2175,16 @@
             }).catch(err => console.log("خطأ في جلب الأرشيف: ", err));
         };
 
-        // دالة حفظ واسترجاع المرآة الفورية للمخزون والدفعات والأسعار لمنع وميض الأرقام القديمة عند الفتح
-        window.saveInventoryFastMirror = function () {
+        window.saveInventoryFastMirror = function () {};
+
+        async function startCRM() {
             try {
-                const mirror = {
-                    storeSettings,
-                    storeProducts,
-                    storePrices,
-                    storeStock,
-                    storeBatches,
-                    storeFreezer
-                };
-                localStorage.setItem('sman_inv_fast_mirror', JSON.stringify(mirror));
-            } catch (e) {}
-        };
-
-        (function hydrateInventoryMirrorImmediately() {
-            try {
-                const raw = localStorage.getItem('sman_inv_fast_mirror');
-                if (raw) {
-                    const m = JSON.parse(raw);
-                    if (m.storeSettings) storeSettings = Object.assign(storeSettings, m.storeSettings);
-                    if (m.storeProducts && Object.keys(m.storeProducts).length > 0) storeProducts = m.storeProducts;
-                    if (m.storePrices && Object.keys(m.storePrices).length > 0) storePrices = m.storePrices;
-                    if (m.storeStock) storeStock = m.storeStock;
-                    if (m.storeBatches) storeBatches = m.storeBatches;
-                    if (m.storeFreezer) storeFreezer = m.storeFreezer;
-                    window._hasHydratedInvMirror = true;
-                }
-            } catch (e) {}
-        })();
-
-        function startCRM() {
-            // إذا كانت المرآة المحلية موجودة، نجهز المدخلات في 0 ثانية بأحدث أسعارك الفعلية بدون إظهار defaultProducts القديمة
-            if (window._hasHydratedInvMirror) {
-                generateDynamicOrderInputs();
-            }
-
-            let invLoadedOnce = Boolean(window._hasHydratedInvMirror);
-            let ordersLoadedOnce = false;
-
-            function triggerUnifiedBootRender() {
-                if (!invLoadedOnce || !ordersLoadedOnce) return;
-                window._crmDataReady = true;
-                scheduleSystemRender();
-            }
-
-            // 1. استماع حي وذكي للمخزون والدفعات والأسعار (يقرأ من كاش Firestore في 0.1 ثانية ويحدث أي تغيير فوراً)
-            db.collection('inventory').onSnapshot(snap => {
-                snap.forEach(doc => {
+                // 1. سحب بيانات الإدارة والدفعات والأسعار الحقيقية أولاً قبل رسم أي رقم
+                const invSnap = await db.collection('inventory').get();
+                invSnap.forEach(doc => {
                     if (doc.id === 'settings') {
                         storeSettings = Object.assign(storeSettings, doc.data());
-                        storeProducts = storeSettings.productsData || storeProducts || {};
+                        storeProducts = storeSettings.productsData || {};
                     }
                     if (doc.id === 'stock') storeStock = doc.data() || {};
                     if (doc.id === 'prices') storePrices = doc.data() || {};
@@ -2251,29 +2201,16 @@
                     });
                 }
 
-                window.saveInventoryFastMirror();
-                invLoadedOnce = true;
-
-                // ترجمة أسماء الدفعات لأي طلبات محملة
-                if (allOrdersRaw.length > 0) {
-                    allOrdersRaw.forEach(o => {
-                        if (!o.batchName && o.batchId && storeBatches[o.batchId]) {
-                            o.batchName = storeBatches[o.batchId].name;
-                        }
-                    });
-                }
-
+                renderInventoryUI();
+                renderSettingsUI();
                 generateDynamicOrderInputs();
-                const activeTab = window.smanCurrentActiveTab || 'dashboard';
-                if (activeTab === 'inventory' && typeof renderInventoryUI === 'function') renderInventoryUI();
-                if (activeTab === 'settings' && typeof renderSettingsUI === 'function') renderSettingsUI();
-                if (activeTab === 'batches' && typeof renderBatchesUI === 'function') renderBatchesUI();
-                if (activeTab === 'reconciliation' && typeof renderReconciliationUI === 'function') renderReconciliationUI();
+                renderBatchesUI();
+                renderReconciliationUI();
+            } catch (e) {
+                console.log("خطأ في جلب بيانات لوحة الإدارة:", e);
+            }
 
-                triggerUnifiedBootRender();
-            }, err => console.log("خطأ في جلب بيانات الإدارة:", err));
-
-            // 2. سحب الطلبات وتجهيز الخريطة الحية بأقصى سرعة
+            // 2. بعد جاهزية الدفعات والأسعار، نفتح اتصال الطلبات الحية ليرسم الأرقام النهائية مباشرة بدون قفز
             db.collection('orders').onSnapshot(snap => {
                 let counts = { new: 0, processing: 0, dispatched: 0, deferred: 0, no_answer: 0, completed: 0, canceled: 0 };
                 allOrdersRaw = [];
@@ -2283,7 +2220,7 @@
                 snap.forEach(doc => {
                     let oData = doc.data();
                     if (!oData.batchName && oData.batchId && storeBatches[oData.batchId]) {
-                        oData.batchName = storeBatches[oData.batchId].name;
+                        oData.batchName = storeBatches[o.batchId].name;
                     }
                     globalOrdersMap[doc.id] = { id: doc.id, ...oData, manuallyUpdated: false };
                 });
@@ -2305,13 +2242,12 @@
                     if (b) b.innerText = counts[s] || 0;
                 });
 
-                ordersLoadedOnce = true;
-                triggerUnifiedBootRender();
+                window._ordersDataReady = true;
+                scheduleSystemRender();
             });
 
-            window.refreshCustomersData();
+            window.refreshCustomersData(true);
         }
-
 
         // === 4. إدارة الطلبات والرسائل المرنة ===
         window.ordersRenderLimit = 50;
