@@ -1347,8 +1347,10 @@
                                         <select id="dw-ord-payment" onchange="applyLiveOrderMetadataEdit()" class="w-full border border-slate-200 rounded-lg p-1.5 text-xs font-black bg-slate-50">
                                             <option value="cash">💵 تحصيل كاش</option>
                                             <option value="online">💳 خالص أونلاين (0 ج)</option>
+                                            <option value="split">⚖️ نص ونص (كاش + محفظة)</option>
                                         </select>
                                     </div>
+
                                     <div class="col-span-2 sm:col-span-4">
                                         <label class="text-[9px] font-black text-amber-700 block mb-0.5">⚠️ ملاحظة للمندوب / على البوليصة</label>
                                         <input type="text" id="dw-ord-note" oninput="applyLiveOrderMetadataEdit()" placeholder="اكتب أي ملاحظة تريد ظهورها على البوليصة..." class="w-full border border-amber-200 rounded-lg p-1.5 text-xs font-bold bg-amber-50/40">
@@ -1730,7 +1732,7 @@
         setVal('dw-ord-zone', ord.zone || '');
         setVal('dw-ord-address', ord.customerAddress || '');
         setVal('dw-ord-total', ord.total || 0);
-        setVal('dw-ord-payment', ord.paymentMethod === 'online' ? 'online' : 'cash');
+        setVal('dw-ord-payment', ord.paymentMethod === 'online' ? 'online' : (ord.paymentMethod === 'split' ? 'split' : 'cash'));
         setVal('dw-ord-note', ord.driverNote || ord.adminNote || '');
 
         const firstItm = ord.items[0] || { name: 'طبق سمان جامبو', quantity: 1, price: 145 };
@@ -3095,18 +3097,29 @@
         }
 
         // =====================================================================
-        // 4. ملخص الحساب المالي والصافي المطلوب (بدون كتل سوداء تلطخ الورقة)
+        // =====================================================================
+        // 4. ملخص الحساب المالي والصافي المطلوب (متوافق 100% مع الكاش والأونلاين والنص ونص)
         // =====================================================================
         if (boxes.cod?.visible !== false) {
             const startCodY = curY;
-            const isOnline = order.paymentMethod === 'online';
+            const br = (typeof window.getOrderPaymentBreakdown === 'function')
+                ? window.getOrderPaymentBreakdown(order)
+                : {
+                    method: order.paymentMethod || 'cash',
+                    cash: order.paymentMethod === 'online' ? 0 : (order.paymentMethod === 'split' ? (Number(order.paidCash) || 0) : (Number(order.total) || 0)),
+                    online: order.paymentMethod === 'online' ? (Number(order.total) || 0) : (order.paymentMethod === 'split' ? (Number(order.paidOnline) || 0) : 0),
+                    total: Number(order.total) || 0
+                };
+
+            const isOnline = br.method === 'online';
+            const isSplit = br.method === 'split';
             const subtotal = Number(order.subtotal) || Number(order.total) || 0;
             const delivery = Number(order.deliveryFee) || 0;
             const discount = Number(order.discount) || 0;
             const total = Number(order.total) || 0;
             const debt = Number(order.debt) || 0;
 
-            // سطر تفصيل الحساب (المنتجات + التوصيل + الخصم)
+            // سطر تفصيل الحساب (المنتجات + التوصيل + الخصم + المدفوع محفظة إن وجد)
             const breakdownH = fSmall + 16;
             drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, breakdownH, 2);
             ctx.fillStyle = '#000000';
@@ -3117,19 +3130,20 @@
             let breakdownParts = [`المنتجات: ${subtotal} ج`];
             breakdownParts.push(delivery > 0 ? `التوصيل: ${delivery} ج` : `التوصيل: مجاني`);
             if (discount > 0) breakdownParts.push(`خصم: -${discount} ج`);
+            if (isSplit && br.online > 0) breakdownParts.push(`مدفوع محفظة: ${br.online} ج`);
             if (debt > 0) breakdownParts.push(`باقي حساب: ${debt} ج`);
 
             ctx.fillText(breakdownParts.join('  •  '), Math.round(W / 2), curY + Math.round(breakdownH / 2));
             curY += breakdownH + 6;
 
-            // الصندوق الرئيسي للإجمالي النهائي (برواز مزدوج فخم وحاد جداً)
+            // الصندوق الرئيسي للإجمالي النهائي المطلوب تحصيله
             const totalBoxH = Math.max(54, fTotalVal + 24);
             drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, totalBoxH, 4);
             drawSharpRectBorder(ctx, innerLeft + 5, curY + 5, innerWidth - 10, totalBoxH - 10, 1);
 
             const codTitle = (boxes.cod?.label && boxes.cod.label.trim())
                 ? boxes.cod.label.trim()
-                : (isOnline ? 'حالة الفاتورة:' : 'الإجمالي المطلوب:');
+                : (isOnline ? 'حالة الفاتورة:' : (isSplit ? 'المتبقي كاش عند الاستلام:' : 'الإجمالي المطلوب:'));
 
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'right';
@@ -3138,12 +3152,13 @@
 
             ctx.textAlign = 'left';
             ctx.font = `900 ${fTotalVal}px Cairo, Tahoma, sans-serif`;
-            ctx.fillText(isOnline ? 'خالص أونلاين' : `${total} ج.م`, innerLeft + 14, curY + Math.round(totalBoxH / 2));
+            ctx.fillText(isOnline ? 'خالص أونلاين' : `${isSplit ? br.cash : total} ج.م`, innerLeft + 14, curY + Math.round(totalBoxH / 2));
 
             curY += totalBoxH;
             hitRegions.push({ key: 'cod', x: innerLeft, y: startCodY, w: innerWidth, h: curY - startCodY });
             curY += 10;
         }
+
 
         // =====================================================================
         // 5. رسالة الختام الدافئة للعميل (توصل بحب وشياكة)
