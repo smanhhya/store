@@ -1098,7 +1098,7 @@
 
 
     // =========================================================================
-    // 🌪️ 6. نظام الطي الذكي لدرج الفلاتر عند التمرير (دون إخفاء شريط الملخص)
+    // 🌪️ 6. نظام الطي الذكي المتزامن لدرج الفلاتر عند التمرير (متوافق 100% مع orders.js)
     // =========================================================================
     window.initZeroClutterOrdersScroll = function () {
         const mainScroll = document.querySelector('main > div.flex-1.overflow-y-auto.custom-scroll');
@@ -1109,15 +1109,33 @@
                 if (!ordersView || !ordersView.classList.contains('active')) return;
 
                 const st = mainScroll.scrollTop;
+                const lastSt = (window.liveConnectState && typeof window.liveConnectState.lastScrollTop === 'number')
+                    ? window.liveConnectState.lastScrollTop
+                    : 0;
+
+                // لا نغلق الدرج إذا كان المستخدم يضغط حالياً داخل قائمة select مفتوحة
+                const activeTag = document.activeElement ? document.activeElement.tagName : '';
                 const drawer = document.getElementById('so-advanced-filters-drawer');
-                if (drawer && !drawer.classList.contains('hidden') && st > window.liveConnectState.lastScrollTop + 35) {
+
+                if (activeTag !== 'SELECT' && drawer && !drawer.classList.contains('hidden') && st > lastSt + 95) {
                     drawer.classList.add('hidden');
-                    if (window.ordersFilterState) window.ordersFilterState.filtersOpen = false;
+                    if (window.ordersFilterState) {
+                        window.ordersFilterState.filtersExpanded = false;
+                        window.ordersFilterState.filtersOpen = false;
+                    }
+                    const btn = document.getElementById('so-btn-toggle-filters');
+                    if (btn) {
+                        btn.className = 'bg-white/10 hover:bg-white/20 text-white border border-white/15 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all flex items-center gap-1';
+                    }
                 }
-                window.liveConnectState.lastScrollTop = st;
+
+                if (window.liveConnectState) {
+                    window.liveConnectState.lastScrollTop = st;
+                }
             }, { passive: true });
         }
     };
+
 
     // =========================================================================
     // 🔗 7. الربط التلقائي السريع مع دوال النظام (بدون تعارض مع drivers.js أو index.html)
