@@ -237,6 +237,14 @@
         return new Date().toLocaleDateString('ar-EG');
     }
 
+    // استرجاع أرشيف الدفعات من الكاش المحلي في 0 ثانية قبل اتصال السيرفر لمنع قفز الأرقام
+    try {
+        const cachedArch = localStorage.getItem('sman_archived_batches_mirror');
+        if (cachedArch) {
+            window.archivedBatchesData = JSON.parse(cachedArch) || [];
+        }
+    } catch (e) {}
+
     window.loadAllArchivedBatchesSafe = async function () {
         if (typeof db === 'undefined') return;
         const map = {};
@@ -266,9 +274,15 @@
             return tB - tA;
         });
 
-        if (typeof window.renderArchiveUI === 'function') window.renderArchiveUI();
-        if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
+        try {
+            localStorage.setItem('sman_archived_batches_mirror', JSON.stringify(window.archivedBatchesData));
+        } catch (e) {}
+
+        const activeTab = window.smanCurrentActiveTab || 'dashboard';
+        if (activeTab === 'archive' && typeof window.renderArchiveUI === 'function') window.renderArchiveUI();
+        if (activeTab === 'dashboard' && typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
     };
+
 
     window.archiveBatch = async function (bId) {
         const b = (typeof storeBatches !== 'undefined') ? storeBatches[bId] : null;
@@ -541,21 +555,26 @@
 
     window.storeAccountingConfig = JSON.parse(JSON.stringify(defaultAccountingConfig));
 
+    // استرجاع المصروفات والديون عليا وإعدادات الجرد فوراً في 0 ثانية عند فتح التطبيق
+    try {
+        const cachedLedger = localStorage.getItem('sman_ledger_records_mirror');
+        if (cachedLedger) {
+            window.storeLedgerRecords = JSON.parse(cachedLedger) || {};
+        }
+        const cachedCfg = localStorage.getItem('sman_accounting_cfg');
+        if (cachedCfg) {
+            const parsed = JSON.parse(cachedCfg);
+            window.storeAccountingConfig = {
+                ...defaultAccountingConfig,
+                ...parsed,
+                fixedMonthly: { ...defaultAccountingConfig.fixedMonthly, ...(parsed.fixedMonthly || {}) },
+                annualArchives: parsed.annualArchives || {}
+            };
+        }
+    } catch (e) {}
+
     // تحميل السجلات المالية وإعدادات الثوابت والجرد السنوي
     window.loadLedgerRecordsSafe = async function () {
-        try {
-            const cachedCfg = localStorage.getItem('sman_accounting_cfg');
-            if (cachedCfg) {
-                const parsed = JSON.parse(cachedCfg);
-                window.storeAccountingConfig = {
-                    ...defaultAccountingConfig,
-                    ...parsed,
-                    fixedMonthly: { ...defaultAccountingConfig.fixedMonthly, ...(parsed.fixedMonthly || {}) },
-                    annualArchives: parsed.annualArchives || {}
-                };
-            }
-        } catch (e) {}
-
         if (typeof db === 'undefined') return;
         try {
             const [ledgerDoc, cfgDoc] = await Promise.all([
@@ -565,7 +584,9 @@
 
             if (ledgerDoc.exists) {
                 window.storeLedgerRecords = ledgerDoc.data() || {};
+                try { localStorage.setItem('sman_ledger_records_mirror', JSON.stringify(window.storeLedgerRecords)); } catch (e) {}
             }
+
             if (cfgDoc.exists) {
                 const cData = cfgDoc.data() || {};
                 window.storeAccountingConfig = {
@@ -3808,13 +3829,8 @@
         window.initSmartDashboardLayout();
         installEnhancedArchiveReportModal();
         installStrictAntiAutoArchiveGuard();
-        setTimeout(() => {
-            installEnhancedArchiveReportModal();
-            installStrictAntiAutoArchiveGuard();
-            window.loadAllArchivedBatchesSafe();
-            window.loadLedgerRecordsSafe();
-            window.renderSmartDashboard();
-        }, 550);
+        window.loadAllArchivedBatchesSafe();
+        window.loadLedgerRecordsSafe();
     }
 
     if (document.readyState === 'loading') {
