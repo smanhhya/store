@@ -62,10 +62,39 @@
             transition: all 0.2s ease;
         }
         input:focus, textarea:focus, select:focus {
-            box-shadow: 0 0 0 3px rgba(22, 101, 52, 0.1);
+            box-shadow: 0 0 0 3px rgba(22, 101, 52, 0.12);
             background-color: #ffffff;
         }
+
+        /* ✨ الهوية البصرية الفاخرة (Royal Emerald & Gold Executive Theme) ✨ */
+        header {
+            background: rgba(255, 255, 255, 0.92) !important;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(226, 232, 240, 0.85) !important;
+        }
+        #sidebar {
+            background: linear-gradient(180deg, #042f2e 0%, #064e3b 55%, #022c22 100%) !important;
+        }
+        #sidebar .nav-btn.active {
+            background: linear-gradient(90deg, rgba(16, 185, 129, 0.22) 0%, rgba(245, 158, 11, 0.10) 100%) !important;
+            border-color: rgba(52, 211, 153, 0.45) !important;
+            box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.25);
+        }
+        .order-card, .shadow-soft {
+            box-shadow: 0 4px 20px -4px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03) !important;
+        }
+        .order-card {
+            transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease !important;
+        }
+        @media (min-width: 768px) {
+            .order-card:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 10px 25px -5px rgba(22, 101, 52, 0.10) !important;
+            }
+        }
     </style>
+
 </head>
 <body class="text-slate-700 flex h-screen w-full relative selection:bg-brand-primary selection:text-white">
 
@@ -4412,9 +4441,10 @@
             document.getElementById('batch-del-start').value = b.deliveryStart || '';
             document.getElementById('batch-del-end').value = b.deliveryEnd || '';
 
-            // إرجاع الأعداد للواجهة
-            document.getElementById('batch-actual-pairs').value = b.actualPairs || '';
-            document.getElementById('batch-public-pairs').value = b.publicPairs || '';
+            // إرجاع الأعداد للواجهة بدقة من سقف الدفعة المعتمد حتى لا يتم تصفيرها بالخطأ
+            const capNow = (typeof window.getBatchCeilingAndRemaining === 'function') ? window.getBatchCeilingAndRemaining(bId) : null;
+            document.getElementById('batch-actual-pairs').value = b.actualPairs || (capNow ? capNow.ceilingPairs : '');
+            document.getElementById('batch-public-pairs').value = b.publicPairs || b.actualPairs || (capNow ? capNow.ceilingPairs : '');
 
             document.getElementById('batch-current-age').value = currentAge;
             document.getElementById('batch-slaughter-age').value = b.slaughterAge || 40;
