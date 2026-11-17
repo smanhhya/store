@@ -41,9 +41,13 @@
         .tab-view { display: none; }
         .tab-view.active { display: block; animation: fadeIn 0.25s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .wa-preview-bg { background-color: #efeae2; background-image: radial-gradient(#cbd5e1 0.6px, transparent 0.6px); background-size: 12px 12px; }
     </style>
 </head>
 <body class="text-slate-700 min-h-screen flex flex-col">
+
+    <!-- إشعار منبثق أنيق (Toast) -->
+    <div id="toast-container" class="fixed bottom-5 left-5 z-[150] space-y-2 pointer-events-none"></div>
 
     <!-- شاشة تسجيل الدخول -->
     <div id="login-screen" class="fixed inset-0 bg-slate-900 z-[100] flex items-center justify-center p-4">
@@ -56,7 +60,7 @@
             <p class="text-xs text-slate-400 font-bold mb-6">منصة الإرسال الذكي وإدارة المكالمات (24/7)</p>
             <div class="space-y-3 mb-5">
                 <input type="email" id="login-email" class="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 text-left outline-none focus:border-brand-wa font-bold text-sm" dir="ltr" placeholder="admin@example.com">
-                <input type="password" id="login-password" class="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 text-left outline-none focus:border-brand-wa font-bold text-sm" dir="ltr" placeholder="••••••••">
+                <input type="password" id="login-password" onkeydown="if(event.key==='Enter') loginApp()" class="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 text-left outline-none focus:border-brand-wa font-bold text-sm" dir="ltr" placeholder="••••••••">
             </div>
             <button onclick="loginApp()" id="login-btn" class="w-full bg-[#25D366] hover:bg-[#1ebd57] text-white font-black py-3.5 rounded-xl transition-all shadow-lg shadow-[#25D366]/30">دخول لمركز الواتساب</button>
             <p id="login-error" class="hidden text-red-500 text-xs font-bold mt-3 bg-red-50 p-2 rounded-lg"></p>
@@ -72,21 +76,27 @@
                         <i class="fa-brands fa-whatsapp"></i>
                     </div>
                     <div>
-                        <h1 class="text-lg font-black tracking-wide flex items-center gap-2">
-                            واتساب سمان ههيا
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h1 class="text-lg font-black tracking-wide">واتساب سمان ههيا</h1>
                             <span id="server-status-badge" class="bg-amber-500/20 text-amber-300 border border-amber-400/30 text-[10px] px-2.5 py-0.5 rounded-full font-black">جاري الفحص...</span>
-                        </h1>
+                            <span id="daily-quota-badge" class="bg-white/10 text-emerald-200 border border-white/15 text-[10px] px-2.5 py-0.5 rounded-full font-black" title="عدد الرسائل المرسلة خلال آخر 24 ساعة">مرسل اليوم: 0</span>
+                        </div>
                         <p class="text-[11px] text-emerald-200/80 font-bold">سيستم عملاء ومكالمات متكامل مرتبط بقاعدة البيانات الحية</p>
                     </div>
                 </div>
-                <button onclick="openQuickTestModal()" class="lg:hidden bg-[#25D366] text-slate-950 px-3 py-2 rounded-xl text-xs font-black shadow-md">
-                    <i class="fa-solid fa-paper-plane mr-1"></i> تجربة سريعة
-                </button>
+                <div class="flex items-center gap-1.5 lg:hidden">
+                    <button onclick="openPairPage()" class="bg-amber-500 text-slate-950 px-2.5 py-2 rounded-xl text-xs font-black shadow-md" title="صفحة ربط الواتساب">
+                        <i class="fa-solid fa-qrcode"></i>
+                    </button>
+                    <button onclick="openQuickTestModal()" class="bg-[#25D366] text-slate-950 px-3 py-2 rounded-xl text-xs font-black shadow-md">
+                        <i class="fa-solid fa-paper-plane mr-1"></i> تجربة
+                    </button>
+                </div>
             </div>
 
             <!-- شريط رابط السيرفر المباشر -->
             <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto bg-slate-900/60 p-2 rounded-2xl border border-emerald-800/60">
-                <div class="flex items-center gap-1.5 flex-1 min-w-[230px]">
+                <div class="flex items-center gap-1.5 flex-1 min-w-[220px]">
                     <i class="fa-solid fa-server text-emerald-400 text-xs mr-1"></i>
                     <input type="url" id="live-server-url" dir="ltr" 
                         value="https://linked-functionality-polyester-ongoing.trycloudflare.com"
@@ -95,6 +105,9 @@
                 </div>
                 <button onclick="saveAndTestServerUrl()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 shadow-sm">
                     <i class="fa-solid fa-plug-circle-check"></i> حفظ وفحص
+                </button>
+                <button onclick="openPairPage()" id="header-pair-btn" class="bg-amber-500/20 hover:bg-amber-500 hover:text-slate-950 text-amber-300 border border-amber-400/40 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 shadow-sm">
+                    <i class="fa-solid fa-qrcode"></i> ربط الواتساب
                 </button>
                 <button onclick="openQuickTestModal()" class="hidden lg:flex bg-[#25D366] hover:bg-green-400 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all items-center gap-1 shadow-sm">
                     <i class="fa-solid fa-bolt"></i> تجربة إرسال فورية
@@ -158,6 +171,7 @@
                     <span class="text-xs font-black text-slate-600">المحدد: <strong id="batch-selected-count" class="text-brand-primary text-sm">0</strong> / <span id="batch-total-count" class="text-slate-400">0</span></span>
                     <div class="flex flex-wrap gap-1.5">
                         <button onclick="useTemplate('batch_ready')" class="text-[10px] bg-amber-100 text-amber-800 px-2.5 py-1 rounded-lg font-black hover:bg-amber-200">قالب: موعد تسليم الدفعة</button>
+                        <button onclick="selectSafeBatch('batch-recipients-list', 50)" class="text-[10px] bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-lg font-black hover:bg-emerald-200">أول 50</button>
                         <button onclick="toggleSelectAll('batch-recipients-list')" class="text-[10px] bg-slate-200 text-slate-700 px-3 py-1 rounded-lg font-black hover:bg-slate-300">تحديد / إلغاء الكل</button>
                     </div>
                 </div>
@@ -209,15 +223,20 @@
 
             <!-- تبويب 3: خط سير المناديب -->
             <div id="tab-drivers" class="tab-view bg-white p-5 rounded-[1.5rem] shadow-sm border border-slate-200/80">
-                <div class="mb-4 pb-3 border-b border-slate-100">
-                    <h2 class="text-base font-black text-slate-800"><i class="fa-solid fa-motorcycle text-blue-600 ml-1"></i> إرسال خط السير لواتساب المندوب أوتوماتيك</h2>
-                    <p class="text-[11px] text-slate-400 font-bold">اختر المندوب وحدد الطلبات (قيد التجهيز) ليقوم السيرفر بإرسال كشف خط السير كامل لواتساب المندوب مباشرة.</p>
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 pb-3 border-b border-slate-100">
+                    <div>
+                        <h2 class="text-base font-black text-slate-800"><i class="fa-solid fa-motorcycle text-blue-600 ml-1"></i> إرسال خط السير لواتساب المندوب أوتوماتيك</h2>
+                        <p class="text-[11px] text-slate-400 font-bold">اختر المندوب والمنطقة وحدد الطلبات ليقوم السيرفر بإرسال كشف خط السير كامل لواتساب المندوب مباشرة.</p>
+                    </div>
+                    <select id="driver-zone-filter" onchange="loadDriverOrdersList()" class="border border-slate-200 bg-slate-50 rounded-xl p-2 text-xs font-black text-slate-700 outline-none">
+                        <option value="all">كل المناطق</option>
+                    </select>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                     <div>
                         <label class="text-[10px] font-black text-slate-500 block mb-1">اختر المندوب المستلم</label>
-                        <select id="wa-driver-select" class="w-full border border-slate-200 bg-slate-50 rounded-xl p-2.5 text-xs font-black text-slate-800 outline-none"></select>
+                        <select id="wa-driver-select" onchange="onDriverSelectChange()" class="w-full border border-slate-200 bg-slate-50 rounded-xl p-2.5 text-xs font-black text-slate-800 outline-none"></select>
                     </div>
                     <div class="flex items-end">
                         <button onclick="generateDriverRouteToComposer()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-2.5 px-4 rounded-xl text-xs shadow-md transition-all">
@@ -226,10 +245,15 @@
                     </div>
                 </div>
 
+                <div class="flex flex-wrap justify-between items-center gap-2 mb-3 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                    <span class="text-xs font-black text-slate-600">الطلبات المحددة للمندوب: <strong id="driver-selected-count" class="text-blue-600 text-sm">0</strong> / <span id="driver-total-count" class="text-slate-400">0</span></span>
+                    <button onclick="toggleSelectAll('driver-orders-list')" class="text-[10px] bg-slate-200 text-slate-700 px-3 py-1 rounded-lg font-black hover:bg-slate-300">تحديد / إلغاء الكل</button>
+                </div>
+
                 <div id="driver-orders-list" class="space-y-2 max-h-[45vh] overflow-y-auto custom-scroll pr-1"></div>
             </div>
 
-            <!-- تبويب 4: أرشيف العملاء الذكي (بدون حد 150 + شرائح بيع ذكية) -->
+            <!-- تبويب 4: أرشيف العملاء الذكي -->
             <div id="tab-customers" class="tab-view bg-white p-5 rounded-[1.5rem] shadow-sm border border-slate-200/80">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3 pb-3 border-b border-slate-100">
                     <div>
@@ -269,7 +293,7 @@
                         </div>
                     </div>
                     <label class="flex items-center gap-2 text-[11px] font-bold text-slate-600 cursor-pointer select-none pt-1 border-t border-slate-200/60">
-                        <input type="checkbox" id="skip-recent-48h" onchange="loadArchiveCustomersRecipients()" class="w-3.5 h-3.5 accent-emerald-600 rounded" checked>
+                        <input type="checkbox" id="skip-recent-48h" onchange="refreshAllRecipientLists()" class="w-3.5 h-3.5 accent-emerald-600 rounded" checked>
                         <span>🛡️ تخطي واستبعاد من أُرسل لهم خلال آخر 48 ساعة تلقائياً (منع الإزعاج والحظر)</span>
                     </label>
                 </div>
@@ -318,10 +342,15 @@
                         <h2 class="text-base font-black text-slate-800"><i class="fa-solid fa-phone-volume text-rose-600 ml-1"></i> سجل المكالمات الواردة والرد الآلي</h2>
                         <p class="text-[11px] text-slate-400 font-bold">يتعرف السيستم على المتصل تلقائياً من قاعدة البيانات ويسجل مكالمته ويرد عليه واتساب.</p>
                     </div>
-                    <label class="flex items-center gap-2 bg-rose-50 border border-rose-200 px-3 py-2 rounded-xl cursor-pointer select-none">
-                        <input type="checkbox" id="auto-reply-calls-toggle" onchange="saveCallAutoReplySettings()" class="w-4 h-4 accent-rose-600 rounded">
-                        <span class="text-xs font-black text-rose-800">تفعيل الرد الآلي على المكالمات</span>
-                    </label>
+                    <div class="flex items-center gap-2">
+                        <button onclick="simulateIncomingCallPrompt()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-2 rounded-xl text-[11px] font-black transition-all" title="محاكاة وتجربة مكالمة واردة">
+                            <i class="fa-solid fa-vial text-rose-500 ml-1"></i> تجربة مكالمة
+                        </button>
+                        <label class="flex items-center gap-2 bg-rose-50 border border-rose-200 px-3 py-2 rounded-xl cursor-pointer select-none">
+                            <input type="checkbox" id="auto-reply-calls-toggle" onchange="saveCallAutoReplySettings()" class="w-4 h-4 accent-rose-600 rounded">
+                            <span class="text-xs font-black text-rose-800">تفعيل الرد الآلي على المكالمات</span>
+                        </label>
+                    </div>
                 </div>
 
                 <!-- إعدادات رسائل الرد الآلي على المكالمات -->
@@ -378,12 +407,16 @@
                     </div>
                 </div>
 
-                <!-- المتغيرات التلقائية -->
+                <!-- المتغيرات التلقائية الشاملة -->
                 <div class="mb-3 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                    <span class="text-[10px] font-bold text-slate-500 block mb-1">اضغط لإدراج متغير ذكي (يتغير باسم وحساب كل عميل تلقائياً):</span>
+                    <span class="text-[10px] font-bold text-slate-500 block mb-1">اضغط لإدراج متغير ذكي في موضع المؤشر (يتغير باسم وحساب كل عميل تلقائياً):</span>
                     <div class="flex flex-wrap gap-1">
                         <button onclick="insertVar('{اسم_العميل}')" class="bg-white border border-slate-200 text-brand-primary px-2 py-0.5 rounded text-[10px] font-black hover:bg-emerald-50">{اسم_العميل}</button>
+                        <button onclick="insertVar('{رقم_العميل}')" class="bg-white border border-slate-200 text-brand-primary px-2 py-0.5 rounded text-[10px] font-black hover:bg-emerald-50">{رقم_العميل}</button>
                         <button onclick="insertVar('{تفاصيل_الطلبات}')" class="bg-white border border-slate-200 text-brand-primary px-2 py-0.5 rounded text-[10px] font-black hover:bg-emerald-50">{تفاصيل_الطلبات}</button>
+                        <button onclick="insertVar('{إجمالي_الطلب}')" class="bg-white border border-slate-200 text-brand-primary px-2 py-0.5 rounded text-[10px] font-black hover:bg-emerald-50">{إجمالي_الطلب}</button>
+                        <button onclick="insertVar('{التوصيل}')" class="bg-white border border-slate-200 text-brand-primary px-2 py-0.5 rounded text-[10px] font-black hover:bg-emerald-50">{التوصيل}</button>
+                        <button onclick="insertVar('{الخصم}')" class="bg-white border border-slate-200 text-brand-primary px-2 py-0.5 rounded text-[10px] font-black hover:bg-emerald-50">{الخصم}</button>
                         <button onclick="insertVar('{الإجمالي_النهائي}')" class="bg-white border border-slate-200 text-brand-primary px-2 py-0.5 rounded text-[10px] font-black hover:bg-emerald-50">{الإجمالي_النهائي}</button>
                         <button onclick="insertVar('{المنطقة}')" class="bg-white border border-slate-200 text-brand-primary px-2 py-0.5 rounded text-[10px] font-black hover:bg-emerald-50">{المنطقة}</button>
                         <button onclick="insertVar('{العنوان}')" class="bg-white border border-slate-200 text-brand-primary px-2 py-0.5 rounded text-[10px] font-black hover:bg-emerald-50">{العنوان}</button>
@@ -391,15 +424,32 @@
                     </div>
                 </div>
 
-                <textarea id="wa-message-box" rows="6" placeholder="اكتب رسالتك هنا أو اختر قالباً من الأعلى..." class="w-full border-2 border-slate-200 rounded-2xl p-3.5 text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:border-[#25D366] outline-none leading-relaxed resize-none mb-3"></textarea>
+                <textarea id="wa-message-box" rows="5" oninput="updateLiveMessagePreview()" placeholder="اكتب رسالتك هنا أو اختر قالباً من الأعلى..." class="w-full border-2 border-slate-200 rounded-2xl p-3.5 text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:border-[#25D366] outline-none leading-relaxed resize-none mb-2"></textarea>
 
-                <!-- إعدادات الأمان والفاصل الزمني -->
-                <div class="flex items-center justify-between bg-emerald-50/70 border border-emerald-200/70 px-3 py-2 rounded-xl mb-4">
-                    <span class="text-[11px] font-black text-emerald-900"><i class="fa-solid fa-shield-halved text-emerald-600 ml-1"></i> طريقة الإرسال عبر السيرفر:</span>
-                    <select id="send-mode-select" class="bg-white border border-emerald-200 rounded-lg px-2 py-1 text-[11px] font-black text-emerald-800 outline-none">
-                        <option value="server_queue">🚀 إرسال في خلفية السيرفر بطابور آمن (مستمر)</option>
-                        <option value="gradual">⏱️ إرسال متدرج بفاصل 3 ثوانٍ (مراقبة لحظية)</option>
-                    </select>
+                <!-- معاينة حية لشكل الرسالة ببيانات أول عميل محدد -->
+                <div class="mb-3 rounded-xl overflow-hidden border border-slate-200">
+                    <div class="bg-slate-100 px-3 py-1 flex justify-between items-center text-[10px] font-black text-slate-500">
+                        <span><i class="fa-solid fa-eye text-emerald-600 ml-1"></i> معاينة حية لرسالة أول عميل محدد:</span>
+                        <span id="preview-recipient-name" class="text-emerald-700">--</span>
+                    </div>
+                    <div class="wa-preview-bg p-2.5 max-h-28 overflow-y-auto custom-scroll">
+                        <div id="wa-live-preview" class="bg-[#d9fdd3] text-slate-800 text-[11px] font-bold p-2.5 rounded-xl rounded-tr-none shadow-sm whitespace-pre-wrap leading-relaxed">اكتب رسالة لعرض المعاينة الحية هنا...</div>
+                    </div>
+                </div>
+
+                <!-- إعدادات الأمان والدمج الذكي -->
+                <div class="bg-emerald-50/70 border border-emerald-200/70 px-3 py-2.5 rounded-xl mb-4 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-black text-emerald-900"><i class="fa-solid fa-shield-halved text-emerald-600 ml-1"></i> نظام الإرسال الآمن:</span>
+                        <select id="send-mode-select" class="bg-white border border-emerald-200 rounded-lg px-2 py-1 text-[11px] font-black text-emerald-800 outline-none">
+                            <option value="server_queue">🚀 طابور السيرفر الآمن ضد الحظر (موصى به)</option>
+                            <option value="gradual">⏱️ إرسال متدرج من المتصفح (للاختبار القليل)</option>
+                        </select>
+                    </div>
+                    <label class="flex items-center gap-2 text-[10px] font-black text-emerald-800 cursor-pointer select-none pt-1 border-t border-emerald-200/60">
+                        <input type="checkbox" id="dedupe-campaign-phones" class="w-3.5 h-3.5 accent-emerald-600 rounded" checked>
+                        <span>🔗 دمج الطلبات المكررة لنفس الرقم في رسالة واحدة (منع إرسال رسالتين لنفس العميل)</span>
+                    </label>
                 </div>
 
                 <!-- زر الإطلاق -->
@@ -469,10 +519,41 @@
         let currentActiveTab = 'batches';
         let directDriverOverridePhone = null;
         let sentTimestampsMap = {};
+        let serverHealthInterval = null;
 
         try {
             sentTimestampsMap = JSON.parse(localStorage.getItem('sman_wa_sent_timestamps') || '{}');
         } catch (e) { sentTimestampsMap = {}; }
+
+        // دالة إشعارات سريعة وأنيقة
+        window.showToast = (msg, type = 'success') => {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+            const colors = {
+                success: 'bg-emerald-700 text-white border-emerald-500',
+                warn: 'bg-amber-600 text-white border-amber-400',
+                error: 'bg-rose-700 text-white border-rose-500'
+            };
+            const el = document.createElement('div');
+            el.className = `${colors[type] || colors.success} border px-4 py-2.5 rounded-2xl shadow-xl text-xs font-black transition-all duration-300 pointer-events-auto flex items-center gap-2`;
+            el.innerHTML = `<span>${msg}</span>`;
+            container.appendChild(el);
+            setTimeout(() => {
+                el.style.opacity = '0';
+                setTimeout(() => el.remove(), 300);
+            }, 3500);
+        };
+
+        // تأمين النصوص داخل خصائص HTML لمنع كسر الكروت (XSS/Quote Escaping)
+        function escapeAttr(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
 
         function recordSentPhones(phonesList) {
             const now = Date.now();
@@ -483,6 +564,23 @@
             try {
                 localStorage.setItem('sman_wa_sent_timestamps', JSON.stringify(sentTimestampsMap));
             } catch (e) {}
+            updateDailyQuotaBadge();
+        }
+
+        function updateDailyQuotaBadge() {
+            const badge = document.getElementById('daily-quota-badge');
+            if (!badge) return;
+            const now = Date.now();
+            const dayMs = 24 * 60 * 60 * 1000;
+            const count24h = Object.values(sentTimestampsMap).filter(ts => (now - ts) < dayMs).length;
+            badge.innerText = `مرسل 24س: ${count24h}`;
+            if (count24h >= 120) {
+                badge.className = 'bg-rose-500/30 text-rose-200 border border-rose-400/40 text-[10px] px-2.5 py-0.5 rounded-full font-black';
+            } else if (count24h >= 70) {
+                badge.className = 'bg-amber-500/30 text-amber-200 border border-amber-400/40 text-[10px] px-2.5 py-0.5 rounded-full font-black';
+            } else {
+                badge.className = 'bg-white/10 text-emerald-200 border border-white/15 text-[10px] px-2.5 py-0.5 rounded-full font-black';
+            }
         }
 
         function getRecentSentHoursAgo(phone) {
@@ -494,7 +592,7 @@
             return Math.max(1, Math.round(diffMs / (60 * 60 * 1000)));
         }
 
-        // دالة تنظيف وتوحيد أرقام الموبايل
+        // دالة تنظيف وتوحيد أرقام الموبايل المصرية
         window.normalizePhone = (phone) => {
             if (!phone) return '';
             let n = phone.toString()
@@ -547,6 +645,7 @@
         async function bootWhatsAppCenter() {
             const savedUrl = localStorage.getItem('sman_wa_server_url');
             if (savedUrl) document.getElementById('live-server-url').value = savedUrl;
+            updateDailyQuotaBadge();
 
             try {
                 const invSnap = await db.collection('inventory').get();
@@ -560,6 +659,8 @@
 
                 populateInitialSelectors();
                 checkServerHealth();
+                if (serverHealthInterval) clearInterval(serverHealthInterval);
+                serverHealthInterval = setInterval(() => checkServerHealth(false), 25000);
 
                 // مراقبة حية لتحديث رابط السيرفر وإعدادات المكالمات تلقائياً
                 db.collection('inventory').doc('settings').onSnapshot(docSnap => {
@@ -580,11 +681,8 @@
                     }
                     allOrdersRaw.push({ id: doc.id, ...d });
                 });
-                allOrdersRaw.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-                loadBatchRecipients();
-                loadLiveOrdersRecipients();
-                loadDriverOrdersList();
-                loadArchiveCustomersRecipients();
+                allOrdersRaw.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+                refreshAllRecipientLists();
             });
 
             // جلب أرشيف العملاء بالكامل
@@ -614,6 +712,7 @@
                         });
                     }
                 });
+                updateDailyQuotaBadge();
                 renderCampaignsHistory();
             });
 
@@ -624,6 +723,13 @@
                 renderCallsLog();
             });
         }
+
+        window.refreshAllRecipientLists = () => {
+            loadBatchRecipients();
+            loadLiveOrdersRecipients();
+            loadDriverOrdersList();
+            loadArchiveCustomersRecipients();
+        };
 
         function applySettingsToUI() {
             if (storeSettings.whatsappServerUrl) {
@@ -652,9 +758,15 @@
             return url.replace(/\/+$/, '');
         }
 
+        window.openPairPage = () => {
+            const baseUrl = getCleanServerUrl();
+            if (!baseUrl) return showToast('الرجاء التأكد من وجود رابط السيرفر أولاً!', 'warn');
+            window.open(baseUrl + '/pair', '_blank');
+        };
+
         window.saveAndTestServerUrl = async () => {
             const cleanUrl = getCleanServerUrl();
-            if (!cleanUrl) return alert('الرجاء وضع رابط السيرفر!');
+            if (!cleanUrl) return showToast('الرجاء وضع رابط السيرفر!', 'warn');
             localStorage.setItem('sman_wa_server_url', cleanUrl);
             try {
                 await db.collection('inventory').doc('settings').set({ whatsappServerUrl: cleanUrl }, { merge: true });
@@ -672,67 +784,91 @@
                     autoReplyKnownTemplate: knownTpl,
                     autoReplyNewTemplate: newTpl
                 }, { merge: true });
-                if (showAlert) alert('✅ تم حفظ إعدادات الرد الآلي على المكالمات بنجاح!');
+                if (showAlert) showToast('✅ تم حفظ إعدادات الرد الآلي على المكالمات بنجاح!');
             } catch (e) {
-                alert('⚠️ تعذر حفظ الإعدادات: ' + e.message);
+                showToast('⚠️ تعذر حفظ الإعدادات: ' + e.message, 'error');
             }
         };
 
+        // فحص دقيق يميز بين عمل السيرفر واتصال الواتساب الفعلي
         async function checkServerHealth(showAlert = false) {
             const badge = document.getElementById('server-status-badge');
+            const pairBtn = document.getElementById('header-pair-btn');
             const baseUrl = getCleanServerUrl();
             if (!baseUrl) return;
 
-            badge.className = 'bg-amber-500/20 text-amber-300 border border-amber-400/30 text-[10px] px-2.5 py-0.5 rounded-full font-black';
-            badge.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> فحص السيرفر...';
+            if (showAlert) {
+                badge.className = 'bg-amber-500/20 text-amber-300 border border-amber-400/30 text-[10px] px-2.5 py-0.5 rounded-full font-black';
+                badge.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> فحص السيرفر...';
+            }
 
             try {
                 const res = await fetch(baseUrl + '/', { method: 'GET', mode: 'cors' });
                 if (res.ok) {
                     const data = await res.json().catch(() => ({}));
-                    const qText = data.queueLength > 0 ? ` (طابور: ${data.queueLength})` : '';
-                    badge.className = 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 text-[10px] px-2.5 py-0.5 rounded-full font-black';
-                    badge.innerHTML = `🟢 السيرفر متصل وجاهز${qText}`;
-                    if (showAlert) alert('✅ السيرفر حي ومتصل بنجاح وتم حفظ الرابط في السحابة!');
+                    const qText = data.queueLength > 0 ? ` • طابور: ${data.queueLength}` : '';
+                    if (data.connected) {
+                        badge.className = 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 text-[10px] px-2.5 py-0.5 rounded-full font-black';
+                        badge.innerHTML = `🟢 الواتساب متصل وجاهز${qText}`;
+                        if (pairBtn) pairBtn.className = 'bg-white/10 hover:bg-white/20 text-emerald-200 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1';
+                        if (showAlert) showToast('✅ السيرفر حي والواتساب مربوط وجاهز للعمل!');
+                    } else {
+                        badge.className = 'bg-amber-500/30 text-amber-200 border border-amber-400/50 text-[10px] px-2.5 py-0.5 rounded-full font-black animate-pulse';
+                        badge.innerHTML = `🟡 السيرفر يعمل (بانتظار ربط الواتساب)`;
+                        if (pairBtn) pairBtn.className = 'bg-amber-500 hover:bg-amber-400 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 shadow-md';
+                        if (showAlert) showToast('🟡 السيرفر شغال، اضغط على زر (ربط الواتساب) لإدخال الكود.', 'warn');
+                    }
                 } else {
                     throw new Error('Status not OK');
                 }
             } catch (e) {
                 badge.className = 'bg-red-500/20 text-red-300 border border-red-400/40 text-[10px] px-2.5 py-0.5 rounded-full font-black';
                 badge.innerHTML = '🔴 السيرفر غير مستجيب';
-                if (showAlert) alert('⚠️ لم نتمكن من الوصول للسيرفر. تأكد أن عملية GitHub Actions تعمل وأن الرابط صحيح.');
+                if (showAlert) showToast('⚠️ لم نتمكن من الوصول للسيرفر. تأكد أن عملية GitHub Actions تعمل.', 'error');
             }
+        }
+
+        function getSortedBatchIds() {
+            return Object.keys(storeBatches).sort((a, b) => {
+                const tA = storeBatches[a]?.createdAt || a;
+                const tB = storeBatches[b]?.createdAt || b;
+                return String(tA).localeCompare(String(tB));
+            });
         }
 
         function populateInitialSelectors() {
             const bSel = document.getElementById('batch-selector');
             bSel.innerHTML = '<option value="">-- اختر الدفعة --</option>';
-            Object.keys(storeBatches).reverse().forEach(bId => {
+            getSortedBatchIds().reverse().forEach(bId => {
                 if (storeBatches[bId] && storeBatches[bId].name) {
-                    bSel.innerHTML += `<option value="${bId}">${storeBatches[bId].name}</option>`;
+                    bSel.innerHTML += `<option value="${escapeAttr(bId)}">${escapeAttr(storeBatches[bId].name)}</option>`;
                 }
             });
 
             const dSel = document.getElementById('wa-driver-select');
             dSel.innerHTML = '<option value="">-- اختر المندوب --</option>';
             (storeSettings.drivers || []).forEach(d => {
-                dSel.innerHTML += `<option value="${d.phone}" data-name="${d.name}">${d.name} (${d.phone})</option>`;
+                dSel.innerHTML += `<option value="${escapeAttr(d.phone)}" data-name="${escapeAttr(d.name)}">${escapeAttr(d.name)} (${escapeAttr(d.phone)})</option>`;
             });
 
             const zSel = document.getElementById('cust-zone-filter');
             const ozSel = document.getElementById('orders-zone-filter');
+            const dzSel = document.getElementById('driver-zone-filter');
             zSel.innerHTML = '<option value="all">كل المناطق</option>';
             ozSel.innerHTML = '<option value="all">كل المناطق</option>';
+            if (dzSel) dzSel.innerHTML = '<option value="all">كل المناطق</option>';
             (storeSettings.deliveryZones || []).forEach(z => {
-                zSel.innerHTML += `<option value="${z.name}">${z.name}</option>`;
-                ozSel.innerHTML += `<option value="${z.name}">${z.name}</option>`;
+                const zName = escapeAttr(z.name);
+                zSel.innerHTML += `<option value="${zName}">${zName}</option>`;
+                ozSel.innerHTML += `<option value="${zName}">${zName}</option>`;
+                if (dzSel) dzSel.innerHTML += `<option value="${zName}">${zName}</option>`;
             });
         }
 
         // === 4. التبديل بين التبويبات السبعة ===
         window.switchWaTab = (tabId, btn) => {
             currentActiveTab = tabId;
-            directDriverOverridePhone = null;
+            if (tabId !== 'drivers') directDriverOverridePhone = null;
             document.querySelectorAll('.tab-view').forEach(v => v.classList.remove('active'));
             document.getElementById('tab-' + tabId).classList.add('active');
 
@@ -751,10 +887,11 @@
                 calls: 'سجل المكالمات والرد الآلي'
             };
             document.getElementById('active-target-label').innerText = labels[tabId] || '';
+            updateLiveMessagePreview();
         };
 
-        // === 5. بناء قوائم المستلمين مع شارة الحماية من التكرار (48 ساعة) ===
-        function renderRecipientCard(item, checkboxClass, countUpdaterFn, defaultChecked = true) {
+        // === 5. بناء قوائم المستلمين مع إصلاح حدث onchange وتأمين النصوص ===
+        function renderRecipientCard(item, checkboxClass, counterId, defaultChecked = true) {
             const phone = item.customerPhone || item.phone || '';
             const recentHours = getRecentSentHoursAgo(phone);
             const skipRecent = document.getElementById('skip-recent-48h')?.checked !== false;
@@ -768,33 +905,39 @@
                 ? `<span class="bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded text-[9px] font-black mr-1">🕒 أُرسل منذ ${recentHours} س</span>`
                 : '';
 
+            const safeName = escapeAttr(item.customerName || item.name || 'عميل');
+            const safePhone = escapeAttr(phone);
+            const safeZone = escapeAttr(item.zone || '');
+            const safeAddr = escapeAttr(item.customerAddress || item.address || '');
+            const safeBatch = escapeAttr(item.batchName || '');
+
             return `
             <label class="flex items-center justify-between p-3 rounded-xl ${recentHours !== null ? 'bg-amber-50/40 border-amber-200/70' : 'bg-slate-50 border-slate-200/80'} hover:bg-emerald-50/50 border cursor-pointer transition-all select-none">
                 <div class="flex items-center gap-3">
                     <input type="checkbox" class="${checkboxClass} w-4 h-4 accent-[#25D366] rounded" 
-                        data-id="${item.id || ''}"
-                        data-phone="${phone}"
-                        data-name="${item.customerName || item.name || 'عميل'}"
-                        data-zone="${item.zone || ''}"
-                        data-address="${item.customerAddress || item.address || ''}"
-                        data-total="${item.total || 0}"
-                        data-subtotal="${item.subtotal || 0}"
-                        data-delivery="${item.deliveryFee || 0}"
-                        data-discount="${item.discount || 0}"
-                        data-batch="${item.batchName || ''}"
+                        data-id="${escapeAttr(item.id || '')}"
+                        data-phone="${safePhone}"
+                        data-name="${safeName}"
+                        data-zone="${safeZone}"
+                        data-address="${safeAddr}"
+                        data-total="${Number(item.total) || 0}"
+                        data-subtotal="${Number(item.subtotal) || 0}"
+                        data-delivery="${Number(item.deliveryFee) || 0}"
+                        data-discount="${Number(item.discount) || 0}"
+                        data-batch="${safeBatch}"
                         data-recent="${recentHours !== null ? '1' : '0'}"
                         data-items="${encodeURIComponent(itemsStr)}"
-                        onchange="${countUpdaterFn}()" ${isChecked ? 'checked' : ''}>
+                        onchange="updateSelectedCounter('${checkboxClass}', '${counterId}')" ${isChecked ? 'checked' : ''}>
                     <div>
                         <div class="text-xs font-black text-slate-800 flex flex-wrap items-center gap-1">
-                            <span>${item.customerName || item.name || 'عميل'}</span>
-                            <span class="text-[10px] font-bold text-slate-400" dir="ltr">${phone}</span>
+                            <span>${safeName}</span>
+                            <span class="text-[10px] font-bold text-slate-400" dir="ltr">${safePhone}</span>
                             ${recentBadge}
                         </div>
-                        <div class="text-[10px] font-bold text-slate-500 mt-0.5">${item.zone || 'بدون منطقة'} ${itemsStr ? ' • ' + itemsStr : ''}</div>
+                        <div class="text-[10px] font-bold text-slate-500 mt-0.5">${safeZone || 'بدون منطقة'} ${itemsStr ? ' • ' + escapeAttr(itemsStr) : ''}</div>
                     </div>
                 </div>
-                ${item.total ? `<span class="text-xs font-black text-brand-primary bg-white px-2.5 py-1 rounded-lg border border-slate-200">${item.total} ج</span>` : ''}
+                ${item.total ? `<span class="text-xs font-black text-brand-primary bg-white px-2.5 py-1 rounded-lg border border-slate-200">${Number(item.total)} ج</span>` : ''}
             </label>`;
         }
 
@@ -821,7 +964,7 @@
             if (orders.length === 0) {
                 cont.innerHTML = '<div class="text-center py-10 text-slate-400 font-bold text-xs">لا توجد حجوزات مطابقة في هذه الدفعة.</div>';
             } else {
-                cont.innerHTML = orders.map(o => renderRecipientCard(o, 'batch-cb', "() => updateSelectedCounter('batch-cb','batch-selected-count')")).join('');
+                cont.innerHTML = orders.map(o => renderRecipientCard(o, 'batch-cb', 'batch-selected-count')).join('');
             }
             updateSelectedCounter('batch-cb', 'batch-selected-count');
         };
@@ -843,18 +986,36 @@
             if (orders.length === 0) {
                 cont.innerHTML = '<div class="text-center py-10 text-slate-400 font-bold text-xs">لا توجد طلبات مطابقة حالياً.</div>';
             } else {
-                cont.innerHTML = orders.map(o => renderRecipientCard(o, 'orders-cb', "() => updateSelectedCounter('orders-cb','orders-selected-count')")).join('');
+                cont.innerHTML = orders.map(o => renderRecipientCard(o, 'orders-cb', 'orders-selected-count')).join('');
             }
             updateSelectedCounter('orders-cb', 'orders-selected-count');
         };
 
         window.loadDriverOrdersList = () => {
             const cont = document.getElementById('driver-orders-list');
-            const orders = allOrdersRaw.filter(o => o.status === 'processing' && !o.isArchived);
+            const zone = document.getElementById('driver-zone-filter')?.value || 'all';
+            const totalEl = document.getElementById('driver-total-count');
+            const orders = allOrdersRaw.filter(o => {
+                if (o.status !== 'processing' || o.isArchived) return false;
+                if (zone !== 'all' && o.zone !== zone) return false;
+                return true;
+            });
+            if (totalEl) totalEl.innerText = orders.length;
             if (orders.length === 0) {
-                cont.innerHTML = '<div class="text-center py-10 text-slate-400 font-bold text-xs">لا توجد طلبات في قسم (قيد التجهيز) حالياً.</div>';
+                cont.innerHTML = '<div class="text-center py-10 text-slate-400 font-bold text-xs">لا توجد طلبات في قسم (قيد التجهيز) لهذه المنطقة حالياً.</div>';
             } else {
-                cont.innerHTML = orders.map(o => renderRecipientCard(o, 'driver-order-cb', "() => {}")).join('');
+                cont.innerHTML = orders.map(o => renderRecipientCard(o, 'driver-order-cb', 'driver-selected-count', true)).join('');
+            }
+            updateSelectedCounter('driver-order-cb', 'driver-selected-count');
+        };
+
+        window.onDriverSelectChange = () => {
+            const sel = document.getElementById('wa-driver-select');
+            const driverPhone = sel.value;
+            if (driverPhone) {
+                const driverName = sel.options[sel.selectedIndex].getAttribute('data-name') || 'المندوب';
+                directDriverOverridePhone = driverPhone;
+                document.getElementById('active-target-label').innerText = `الهدف: المندوب (${driverName})`;
             }
         };
 
@@ -862,8 +1023,8 @@
         function buildCustomerAnalyticsMap() {
             const lastOrderMsByPhone = {};
             const orderStatsByPhone = {};
-            const batchIds = Object.keys(storeBatches);
-            const latestBatchId = batchIds.length > 0 ? batchIds[batchIds.length - 1] : null;
+            const sortedBatchIds = getSortedBatchIds();
+            const latestBatchId = sortedBatchIds.length > 0 ? sortedBatchIds[sortedBatchIds.length - 1] : null;
             const prevBatchPhones = new Set();
 
             allOrdersRaw.forEach(o => {
@@ -899,7 +1060,6 @@
             const twentyDaysMs = 20 * 24 * 60 * 60 * 1000;
             const now = Date.now();
 
-            // دمج العملاء من أرشيف customers مع أي عميل موجود في orders وغير مضاف بعد
             const mergedMap = new Map();
             customersData.forEach(c => {
                 const norm = window.normalizePhone(c.phone);
@@ -946,9 +1106,8 @@
             if (filtered.length === 0) {
                 cont.innerHTML = '<div class="text-center py-10 text-slate-400 font-bold text-xs">لا يوجد عملاء يطابقون هذا الفلتر حالياً.</div>';
             } else {
-                // إذا كان العدد كبيراً (> 100) نحدد أول 100 آمن تلقائياً لتجنب الإرسال الضخم بالخطأ
                 cont.innerHTML = filtered.map((c, idx) =>
-                    renderRecipientCard(c, 'cust-cb', "() => updateSelectedCounter('cust-cb','customers-selected-count')", idx < 100)
+                    renderRecipientCard(c, 'cust-cb', 'customers-selected-count', idx < 100)
                 ).join('');
             }
             updateSelectedCounter('cust-cb', 'customers-selected-count');
@@ -972,7 +1131,7 @@
                 cont.innerHTML = '<div class="text-center py-8 text-slate-400 font-bold text-xs">الصق الأرقام في المربع بالأعلى لعرضها وتجهيزها للإرسال.</div>';
             } else {
                 cont.innerHTML = list.map((p, idx) =>
-                    renderRecipientCard({ phone: p, name: `عميل جديد #${idx + 1}`, zone: 'خارجي' }, 'ext-cb', "() => updateSelectedCounter('ext-cb','external-selected-count')")
+                    renderRecipientCard({ phone: p, name: `عميل جديد #${idx + 1}`, zone: 'خارجي' }, 'ext-cb', 'external-selected-count')
                 ).join('');
             }
             updateSelectedCounter('ext-cb', 'external-selected-count');
@@ -982,6 +1141,7 @@
             const count = document.querySelectorAll('.' + cbClass + ':checked').length;
             const el = document.getElementById(counterId);
             if (el) el.innerText = count;
+            updateLiveMessagePreview();
         };
 
         window.selectSafeBatch = (containerId, limitCount) => {
@@ -1007,7 +1167,7 @@
             const allChecked = eligibleCbs.length > 0 && eligibleCbs.every(cb => cb.checked);
             cbs.forEach(cb => {
                 const isRecent = cb.getAttribute('data-recent') === '1';
-                if (!allChecked && skipRecent && isRecent) {
+                if (!allChecked && skipRecent && isRecent && containerId !== 'driver-orders-list') {
                     cb.checked = false;
                 } else {
                     cb.checked = !allChecked;
@@ -1019,15 +1179,96 @@
         function updateAllCounters() {
             updateSelectedCounter('batch-cb', 'batch-selected-count');
             updateSelectedCounter('orders-cb', 'orders-selected-count');
+            updateSelectedCounter('driver-order-cb', 'driver-selected-count');
             updateSelectedCounter('cust-cb', 'customers-selected-count');
             updateSelectedCounter('ext-cb', 'external-selected-count');
         }
 
-        // === 6. القوالب الذكية وتجهيز خط السير ===
+        // === 6. القوالب الذكية، الإدراج في موضع المؤشر، والمعاينة الحية ===
         window.insertVar = (variable) => {
             const box = document.getElementById('wa-message-box');
-            box.value += ' ' + variable + ' ';
+            const start = box.selectionStart || 0;
+            const end = box.selectionEnd || 0;
+            const text = box.value;
+            box.value = text.substring(0, start) + variable + text.substring(end);
             box.focus();
+            box.selectionStart = box.selectionEnd = start + variable.length;
+            updateLiveMessagePreview();
+        };
+
+        function formatPersonalizedMessage(rawTemplate, dataObj) {
+            return rawTemplate
+                .replace(/{اسم_العميل}/g, dataObj.name || 'عميلنا العزيز')
+                .replace(/{رقم_العميل}/g, dataObj.phone || '')
+                .replace(/{المنطقة}/g, dataObj.zone || '')
+                .replace(/{العنوان}/g, dataObj.address || '')
+                .replace(/{تفاصيل_الطلبات}/g, dataObj.items || '')
+                .replace(/{إجمالي_الطلب}/g, dataObj.subtotal || '0')
+                .replace(/{التوصيل}/g, dataObj.delivery || '0')
+                .replace(/{الخصم}/g, dataObj.discount || '0')
+                .replace(/{الإجمالي_النهائي}/g, dataObj.total || '0')
+                .replace(/{الدفعة}/g, dataObj.batchName || '');
+        }
+
+        window.updateLiveMessagePreview = () => {
+            const rawTemplate = document.getElementById('wa-message-box')?.value || '';
+            const previewEl = document.getElementById('wa-live-preview');
+            const nameEl = document.getElementById('preview-recipient-name');
+            if (!previewEl || !nameEl) return;
+
+            if (!rawTemplate.trim()) {
+                previewEl.innerText = 'اكتب رسالة لعرض المعاينة الحية هنا...';
+                nameEl.innerText = '--';
+                return;
+            }
+
+            const selectorMap = {
+                batches: '.batch-cb:checked',
+                orders: '.orders-cb:checked',
+                drivers: '.driver-order-cb:checked',
+                customers: '.cust-cb:checked',
+                external: '.ext-cb:checked'
+            };
+            const firstCb = document.querySelector(selectorMap[currentActiveTab] || '.batch-cb:checked');
+
+            if (currentActiveTab === 'drivers') {
+                const sel = document.getElementById('wa-driver-select');
+                const driverName = sel?.options[sel.selectedIndex]?.getAttribute('data-name') || 'المندوب';
+                nameEl.innerText = `المندوب: ${driverName}`;
+                previewEl.innerText = rawTemplate;
+                return;
+            }
+
+            if (firstCb) {
+                const sampleData = {
+                    name: firstCb.getAttribute('data-name') || 'عميلنا العزيز',
+                    phone: firstCb.getAttribute('data-phone') || '01000000000',
+                    zone: firstCb.getAttribute('data-zone') || 'ههيا',
+                    address: firstCb.getAttribute('data-address') || '',
+                    total: firstCb.getAttribute('data-total') || '0',
+                    subtotal: firstCb.getAttribute('data-subtotal') || '0',
+                    delivery: firstCb.getAttribute('data-delivery') || '0',
+                    discount: firstCb.getAttribute('data-discount') || '0',
+                    batchName: firstCb.getAttribute('data-batch') || 'الدفعة الحالية',
+                    items: decodeURIComponent(firstCb.getAttribute('data-items') || '')
+                };
+                nameEl.innerText = `${sampleData.name} (${sampleData.phone})`;
+                previewEl.innerText = formatPersonalizedMessage(rawTemplate, sampleData);
+            } else {
+                nameEl.innerText = 'مثال افتراضي';
+                previewEl.innerText = formatPersonalizedMessage(rawTemplate, {
+                    name: 'أحمد محمد',
+                    phone: '01208027294',
+                    zone: 'ههيا',
+                    address: 'شارع الجمهورية',
+                    total: '350',
+                    subtotal: '340',
+                    delivery: '10',
+                    discount: '0',
+                    batchName: 'دفعة الأسبوع',
+                    items: '2x سمان ملكي'
+                });
+            }
         };
 
         window.useTemplate = (type) => {
@@ -1049,16 +1290,23 @@
             } else if (type === 'one_time_offer') {
                 box.value = "أهلاً بك يا {اسم_العميل} في سمان ههيا 🌹\nسعدنا جداً بتجربتك الأولى معانا! بمناسبة فتح حجز الدفعة الجديدة، ليك أولوية حجز خاصة في ({المنطقة})، ابعتلنا الكمية اللي تحبها وهنجهزهالك فريش 🦆✨";
             }
+            updateLiveMessagePreview();
         };
 
         window.generateDriverRouteToComposer = () => {
             const sel = document.getElementById('wa-driver-select');
             const driverPhone = sel.value;
-            if (!driverPhone) return alert('اختر المندوب أولاً!');
+            if (!driverPhone) {
+                showToast('⚠️ اختر المندوب من القائمة أولاً!', 'warn');
+                return false;
+            }
             const driverName = sel.options[sel.selectedIndex].getAttribute('data-name') || 'المندوب';
 
             const checkedCbs = Array.from(document.querySelectorAll('.driver-order-cb:checked'));
-            if (checkedCbs.length === 0) return alert('حدد طلباً واحداً على الأقل للمندوب!');
+            if (checkedCbs.length === 0) {
+                showToast('⚠️ حدد طلباً واحداً على الأقل للمندوب!', 'warn');
+                return false;
+            }
 
             let totalCash = 0;
             let lines = `*🗺️ خط سير المندوب: ${driverName}*\n📦 عدد الأوردرات: ${checkedCbs.length} طلب\n════════════════════\n\n`;
@@ -1079,6 +1327,9 @@
             document.getElementById('wa-message-box').value = lines;
             directDriverOverridePhone = driverPhone;
             document.getElementById('active-target-label').innerText = `الهدف: المندوب (${driverName})`;
+            updateLiveMessagePreview();
+            showToast(`✅ تم تجهيز خط السير للمندوب (${driverName})`);
+            return true;
         };
 
         // === 7. محرك الإرسال الذكي وحفظ سجل الحملات الدائم ===
@@ -1086,82 +1337,121 @@
             const baseUrl = getCleanServerUrl();
             if (!baseUrl) throw new Error('رابط السيرفر غير مكتوب');
 
-            try {
-                const resSmart = await fetch(baseUrl + '/send-bulk-smart', {
-                    method: 'POST',
-                    mode: 'cors',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ bulkData: bulkDataArray, campaignId })
-                });
-                if (resSmart.ok) return true;
-            } catch (e) {}
+            const resSmart = await fetch(baseUrl + '/send-bulk-smart', {
+                method: 'POST',
+                mode: 'cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bulkData: bulkDataArray, campaignId })
+            });
 
-            for (const item of bulkDataArray) {
-                let formattedPhone = window.normalizePhone(item.phone);
-                if (formattedPhone.startsWith('0')) formattedPhone = '2' + formattedPhone;
-                const resLegacy = await fetch(baseUrl + '/send-bulk', {
-                    method: 'POST',
-                    mode: 'cors',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ numbers: [formattedPhone], message: item.message })
-                });
-                if (!resLegacy.ok) throw new Error('Server rejected request');
+            if (resSmart.ok) return true;
+
+            if (resSmart.status === 503) {
+                throw new Error('الواتساب غير مربوط بالسيرفر حالياً! اضغط على زر (ربط الواتساب) أولاً.');
             }
-            return true;
+
+            // التراجع للمسار القديم فقط إذا كان السيرفر قديماً ويرجع 404
+            if (resSmart.status === 404) {
+                for (const item of bulkDataArray) {
+                    let formattedPhone = window.normalizePhone(item.phone);
+                    if (formattedPhone.startsWith('0')) formattedPhone = '2' + formattedPhone;
+                    const resLegacy = await fetch(baseUrl + '/send-bulk', {
+                        method: 'POST',
+                        mode: 'cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ numbers: [formattedPhone], message: item.message })
+                    });
+                    if (!resLegacy.ok) throw new Error('رفض السيرفر طلب الإرسال');
+                }
+                return true;
+            }
+
+            const errData = await resSmart.json().catch(() => ({}));
+            throw new Error(errData.error || 'حدث خطأ أثناء الاتصال بالسيرفر');
         }
 
         window.launchWhatsAppCampaign = async () => {
-            const rawTemplate = document.getElementById('wa-message-box').value.trim();
-            if (!rawTemplate) return alert('الرجاء كتابة نص الرسالة أولاً!');
-
+            let rawTemplate = document.getElementById('wa-message-box').value.trim();
             let bulkData = [];
 
-            if (currentActiveTab === 'drivers' && directDriverOverridePhone) {
-                bulkData.push({ phone: directDriverOverridePhone, name: 'المندوب', message: rawTemplate });
+            // حماية تبويب المندوب من الإرسال للعملاء بالخطأ
+            if (currentActiveTab === 'drivers') {
+                const sel = document.getElementById('wa-driver-select');
+                const driverPhone = window.normalizePhone(sel.value);
+                if (!driverPhone) return showToast('⚠️ اختر المندوب المستلم أولاً!', 'warn');
+                if (!rawTemplate) {
+                    const generated = generateDriverRouteToComposer();
+                    if (!generated) return;
+                    rawTemplate = document.getElementById('wa-message-box').value.trim();
+                }
+                const driverName = sel.options[sel.selectedIndex]?.getAttribute('data-name') || 'المندوب';
+                bulkData.push({ phone: driverPhone, name: `المندوب (${driverName})`, message: rawTemplate });
             } else {
+                if (!rawTemplate) return showToast('⚠️ الرجاء كتابة نص الرسالة أو اختيار قالب أولاً!', 'warn');
+
                 const selectorMap = {
                     batches: '.batch-cb:checked',
                     orders: '.orders-cb:checked',
-                    drivers: '.driver-order-cb:checked',
                     customers: '.cust-cb:checked',
                     external: '.ext-cb:checked'
                 };
                 const checkedBoxes = Array.from(document.querySelectorAll(selectorMap[currentActiveTab] || ''));
-                if (checkedBoxes.length === 0) return alert('الرجاء تحديد عميل واحد على الأقل من القائمة!');
+                if (checkedBoxes.length === 0) return showToast('⚠️ الرجاء تحديد عميل واحد على الأقل من القائمة!', 'warn');
+
+                const dedupeEnabled = document.getElementById('dedupe-campaign-phones')?.checked !== false;
+                const recipientsByPhone = new Map();
 
                 checkedBoxes.forEach(cb => {
                     const phone = window.normalizePhone(cb.getAttribute('data-phone'));
                     if (phone.length < 10) return;
 
-                    const name = cb.getAttribute('data-name') || 'عميلنا العزيز';
-                    const zone = cb.getAttribute('data-zone') || '';
-                    const address = cb.getAttribute('data-address') || '';
-                    const total = cb.getAttribute('data-total') || '0';
-                    const subtotal = cb.getAttribute('data-subtotal') || '0';
-                    const delivery = cb.getAttribute('data-delivery') || '0';
-                    const discount = cb.getAttribute('data-discount') || '0';
-                    const batchName = cb.getAttribute('data-batch') || '';
-                    const items = decodeURIComponent(cb.getAttribute('data-items') || '');
+                    const recData = {
+                        phone,
+                        name: cb.getAttribute('data-name') || 'عميلنا العزيز',
+                        zone: cb.getAttribute('data-zone') || '',
+                        address: cb.getAttribute('data-address') || '',
+                        total: Number(cb.getAttribute('data-total')) || 0,
+                        subtotal: Number(cb.getAttribute('data-subtotal')) || 0,
+                        delivery: Number(cb.getAttribute('data-delivery')) || 0,
+                        discount: Number(cb.getAttribute('data-discount')) || 0,
+                        batchName: cb.getAttribute('data-batch') || '',
+                        items: decodeURIComponent(cb.getAttribute('data-items') || '')
+                    };
 
-                    const personalizedMsg = rawTemplate
-                        .replace(/{اسم_العميل}/g, name)
-                        .replace(/{رقم_العميل}/g, phone)
-                        .replace(/{المنطقة}/g, zone)
-                        .replace(/{العنوان}/g, address)
-                        .replace(/{تفاصيل_الطلبات}/g, items)
-                        .replace(/{إجمالي_الطلب}/g, subtotal)
-                        .replace(/{التوصيل}/g, delivery)
-                        .replace(/{الخصم}/g, discount)
-                        .replace(/{الإجمالي_النهائي}/g, total)
-                        .replace(/{الدفعة}/g, batchName);
-
-                    bulkData.push({ phone, name, message: personalizedMsg });
+                    if (dedupeEnabled && recipientsByPhone.has(phone)) {
+                        const existing = recipientsByPhone.get(phone);
+                        existing.total += recData.total;
+                        existing.subtotal += recData.subtotal;
+                        existing.delivery += recData.delivery;
+                        existing.discount += recData.discount;
+                        if (recData.items && !existing.items.includes(recData.items)) {
+                            existing.items = existing.items ? `${existing.items} + ${recData.items}` : recData.items;
+                        }
+                    } else if (dedupeEnabled) {
+                        recipientsByPhone.set(phone, recData);
+                    } else {
+                        bulkData.push({
+                            phone,
+                            name: recData.name,
+                            message: formatPersonalizedMessage(rawTemplate, recData)
+                        });
+                    }
                 });
+
+                if (dedupeEnabled) {
+                    recipientsByPhone.forEach(recData => {
+                        bulkData.push({
+                            phone: recData.phone,
+                            name: recData.name,
+                            message: formatPersonalizedMessage(rawTemplate, recData)
+                        });
+                    });
+                }
             }
 
-            if (bulkData.length === 0) return alert('لا توجد أرقام صالحة للإرسال!');
-            const estMinutes = Math.max(1, Math.round((bulkData.length * 22) / 60));
-            if (!confirm(`🚀 سيتم إرسال (${bulkData.length}) رسالة عبر سيرفر الواتساب المباشر.\n⏱️ الوقت التقديري الآمن للحماية من الحظر: حوالي ${estMinutes} دقيقة.\nهل أنت متأكد من بدء الإرسال؟`)) return;
+            if (bulkData.length === 0) return showToast('⚠️ لا توجد أرقام صالحة للإرسال!', 'warn');
+            const estMinutes = Math.max(1, Math.round((bulkData.length * 75) / 60));
+            if (!confirm(`🚀 سيتم إرسال (${bulkData.length}) رسالة عبر سيرفر الواتساب المباشر.\n⏱️ الوقت التقديري الآمن للحماية من التقييد: حوالي ${estMinutes} دقيقة.\nهل أنت متأكد من بدء الإرسال؟`)) return;
 
             const progBox = document.getElementById('campaign-progress-box');
             const progBar = document.getElementById('campaign-progress-bar');
@@ -1174,13 +1464,14 @@
             logBox.innerHTML = '';
             progBar.style.width = '10%';
 
-            // حفظ الحملة في سجل الحملات الدائم في Firestore
+            // حفظ الحملة مع القالب الأصلي الكامل في Firestore
             let campaignId = null;
             try {
                 const targetLabel = document.getElementById('active-target-label').innerText || currentActiveTab;
                 const docRef = await db.collection('wa_campaigns').add({
                     targetLabel,
                     templatePreview: rawTemplate.substring(0, 140),
+                    fullTemplate: rawTemplate,
                     total: bulkData.length,
                     sentCount: 0,
                     failedCount: 0,
@@ -1199,26 +1490,29 @@
                     recordSentPhones(bulkData.map(b => b.phone));
                     progBar.style.width = '100%';
                     statusTxt.innerText = '✅ استلم السيرفر الدفعة ويرسلها في الخلفية بأمان الآن!';
-                    logBox.innerHTML = bulkData.map(b => `<div class="text-emerald-400">✔ في طابور السيرفر: ${b.name} (${b.phone})</div>`).join('');
-                    loadArchiveCustomersRecipients();
+                    logBox.innerHTML = bulkData.map(b => `<div class="text-emerald-400">✔ في طابور السيرفر: ${escapeAttr(b.name)} (${escapeAttr(b.phone)})</div>`).join('');
+                    refreshAllRecipientLists();
+                    checkServerHealth(false);
                 } else {
                     for (let i = 0; i < bulkData.length; i++) {
                         const item = bulkData[i];
-                        statusTxt.innerText = `جاري الإرسال إلى: ${item.name}`;
+                        statusTxt.innerText = `جاري تسليم: ${item.name}`;
                         counterTxt.innerText = `${i + 1} / ${bulkData.length}`;
                         await postToLiveServer([item], campaignId);
                         recordSentPhones([item.phone]);
                         const pct = Math.round(((i + 1) / bulkData.length) * 100);
                         progBar.style.width = pct + '%';
-                        logBox.innerHTML = `<div class="text-emerald-400">✔ تم الإرسال: ${item.name} (${item.phone})</div>` + logBox.innerHTML;
-                        if (i < bulkData.length - 1) await new Promise(r => setTimeout(r, 3000));
+                        logBox.innerHTML = `<div class="text-emerald-400">✔ تم التسليم: ${escapeAttr(item.name)} (${escapeAttr(item.phone)})</div>` + logBox.innerHTML;
+                        if (i < bulkData.length - 1) await new Promise(r => setTimeout(r, 4000));
                     }
-                    statusTxt.innerText = '🎉 اكتملت الحملة بنجاح 100%!';
-                    loadArchiveCustomersRecipients();
+                    statusTxt.innerText = '🎉 تم تسليم جميع الرسائل لطابور السيرفر بنجاح!';
+                    refreshAllRecipientLists();
+                    checkServerHealth(false);
                 }
             } catch (err) {
-                statusTxt.innerText = '❌ توقف الإرسال بسبب خطأ في الاتصال بالسيرفر';
-                logBox.innerHTML = `<div class="text-red-400">⚠️ تأكد من أن السيرفر يعمل في GitHub Actions.</div>` + logBox.innerHTML;
+                statusTxt.innerText = '❌ توقف الإرسال: ' + (err.message || 'خطأ في الاتصال بالسيرفر');
+                logBox.innerHTML = `<div class="text-red-400">⚠️ ${escapeAttr(err.message || 'تأكد من أن السيرفر يعمل والواتساب مربوط.')}</div>` + logBox.innerHTML;
+                showToast(err.message || 'فشل الاتصال بالسيرفر', 'error');
             }
         };
 
@@ -1233,7 +1527,11 @@
 
             cont.innerHTML = campaignsHistory.map(c => {
                 const dateStr = c.createdAtMs ? new Date(c.createdAtMs).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : '';
-                const isDone = c.status === 'completed' || (c.sentCount + c.failedCount) >= c.total;
+                const sentCount = Number(c.sentCount || 0);
+                const failedCount = Number(c.failedCount || 0);
+                const total = Number(c.total || 0);
+                const remaining = Math.max(0, total - sentCount);
+                const isDone = c.status === 'completed' || (total > 0 && (sentCount + failedCount) >= total);
                 const badge = isDone
                     ? '<span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full text-[10px] font-black">✅ مكتملة</span>'
                     : '<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-[10px] font-black">⏳ قيد الإرسال</span>';
@@ -1241,22 +1539,23 @@
                 return `
                 <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2">
                     <div class="flex justify-between items-center">
-                        <span class="text-xs font-black text-slate-800">${c.targetLabel || 'حملة واتساب'}</span>
+                        <span class="text-xs font-black text-slate-800">${escapeAttr(c.targetLabel || 'حملة واتساب')}</span>
                         <div class="flex items-center gap-2">
-                            <span class="text-[10px] text-slate-400 font-bold">${dateStr}</span>
+                            <span class="text-[10px] text-slate-400 font-bold">${escapeAttr(dateStr)}</span>
                             ${badge}
                         </div>
                     </div>
-                    <p class="text-[11px] text-slate-600 font-bold bg-white p-2 rounded-xl border border-slate-100 line-clamp-2">${c.templatePreview || ''}</p>
+                    <p class="text-[11px] text-slate-600 font-bold bg-white p-2 rounded-xl border border-slate-100 line-clamp-2">${escapeAttr(c.templatePreview || '')}</p>
                     <div class="flex flex-wrap justify-between items-center gap-2 pt-1">
                         <div class="flex gap-3 text-[11px] font-black">
-                            <span class="text-slate-600">الإجمالي: ${c.total || 0}</span>
-                            <span class="text-emerald-600">نجح: ${c.sentCount || 0}</span>
-                            <span class="text-rose-600">فشل: ${c.failedCount || 0}</span>
+                            <span class="text-slate-600">الإجمالي: ${total}</span>
+                            <span class="text-emerald-600">نجح: ${sentCount}</span>
+                            <span class="text-rose-600">فشل: ${failedCount}</span>
                         </div>
                         <div class="flex gap-1.5">
-                            <button onclick="reuseCampaignText('${c.id}')" class="text-[10px] bg-slate-200 hover:bg-slate-300 text-slate-800 px-2.5 py-1 rounded-lg font-black">📋 نسخ النص</button>
-                            ${Array.isArray(c.items) && c.items.length > 0 ? `<button onclick="resendCampaignItems('${c.id}')" class="text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg font-black">🔄 إعادة الإرسال</button>` : ''}
+                            <button onclick="reuseCampaignText('${escapeAttr(c.id)}')" class="text-[10px] bg-slate-200 hover:bg-slate-300 text-slate-800 px-2.5 py-1 rounded-lg font-black">📋 نسخ القالب</button>
+                            ${Array.isArray(c.items) && c.items.length > 0 && remaining > 0 ? `<button onclick="resendCampaignItems('${escapeAttr(c.id)}', true)" class="text-[10px] bg-amber-500 hover:bg-amber-600 text-slate-950 px-2.5 py-1 rounded-lg font-black">▶️ استكمال المتبقي (${remaining})</button>` : ''}
+                            ${Array.isArray(c.items) && c.items.length > 0 ? `<button onclick="resendCampaignItems('${escapeAttr(c.id)}', false)" class="text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg font-black">🔄 إعادة الكل</button>` : ''}
                         </div>
                     </div>
                 </div>`;
@@ -1265,19 +1564,27 @@
 
         window.reuseCampaignText = (cId) => {
             const c = campaignsHistory.find(x => x.id === cId);
-            if (!c || !c.items || !c.items[0]) return;
-            document.getElementById('wa-message-box').value = c.items[0].message || c.templatePreview || '';
+            if (!c) return;
+            const textToCopy = c.fullTemplate || c.templatePreview || (c.items && c.items[0] ? c.items[0].message : '');
+            document.getElementById('wa-message-box').value = textToCopy;
+            updateLiveMessagePreview();
+            showToast('📋 تم نسخ قالب الحملة إلى صندوق الرسالة!');
         };
 
-        window.resendCampaignItems = async (cId) => {
+        window.resendCampaignItems = async (cId, onlyRemaining = false) => {
             const c = campaignsHistory.find(x => x.id === cId);
             if (!c || !Array.isArray(c.items) || c.items.length === 0) return;
-            if (!confirm(`سيتم إعادة إرسال (${c.items.length}) رسالة من هذه الحملة عبر السيرفر، هل تريد المتابعة؟`)) return;
+            const sentCount = Number(c.sentCount || 0);
+            const itemsToSend = onlyRemaining ? c.items.slice(sentCount) : c.items;
+            if (itemsToSend.length === 0) return showToast('جميع رسائل هذه الحملة تم إرسالها بالفعل!', 'warn');
+
+            if (!confirm(`سيتم إرسال (${itemsToSend.length}) رسالة عبر السيرفر، هل تريد المتابعة؟`)) return;
             try {
-                await postToLiveServer(c.items, c.id);
-                alert('✅ تمت إضافة الرسائل لطابور السيرفر بنجاح!');
+                await postToLiveServer(itemsToSend, c.id);
+                recordSentPhones(itemsToSend.map(i => i.phone));
+                showToast(`✅ تمت إضافة (${itemsToSend.length}) رسالة لطابور السيرفر!`);
             } catch (e) {
-                alert('❌ فشل الاتصال بالسيرفر!');
+                showToast('❌ ' + (e.message || 'فشل الاتصال بالسيرفر!'), 'error');
             }
         };
 
@@ -1293,39 +1600,66 @@
                 const dateStr = call.createdAtMs ? new Date(call.createdAtMs).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : '';
                 const sourceLabel = call.source === 'whatsapp_call' ? 'مكالمة واتساب' : 'مكالمة هاتف';
                 const regBadge = call.isRegistered
-                    ? `<span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-[10px] font-black">عميل مسجل (${call.ordersCount || 0} طلب)</span>`
+                    ? `<span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-[10px] font-black">عميل مسجل (${Number(call.ordersCount) || 0} طلب)</span>`
                     : `<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-[10px] font-black">رقم جديد</span>`;
                 const replyBadge = call.autoReplied
                     ? `<span class="bg-sky-100 text-sky-800 px-2 py-0.5 rounded text-[10px] font-black">🤖 تم الرد الآلي</span>`
                     : '';
 
+                const safePhone = escapeAttr(call.phone || '');
+                const safeName = escapeAttr(call.customerName || 'متصل');
+
                 return `
                 <div class="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                     <div>
                         <div class="text-xs font-black text-slate-800 flex flex-wrap items-center gap-1.5">
-                            <span>${call.customerName || 'متصل'}</span>
-                            <span class="text-[11px] text-slate-500 font-bold" dir="ltr">${call.phone || ''}</span>
+                            <span>${safeName}</span>
+                            <span class="text-[11px] text-slate-500 font-bold" dir="ltr">${safePhone}</span>
                             ${regBadge}
                             ${replyBadge}
                         </div>
                         <div class="text-[10px] font-bold text-slate-400 mt-1">
-                            ${sourceLabel} • ${call.zone ? call.zone + ' • ' : ''}${dateStr}
+                            ${sourceLabel} • ${call.zone ? escapeAttr(call.zone) + ' • ' : ''}${escapeAttr(dateStr)}
                         </div>
                     </div>
                     <div class="flex gap-1.5">
-                        <a href="tel:${call.phone}" class="bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 px-2.5 py-1.5 rounded-lg text-[10px] font-black"><i class="fa-solid fa-phone text-emerald-600"></i> اتصال</a>
-                        <button onclick="quickReplyToCaller('${call.phone}', '${(call.customerName || '').replace(/'/g, '')}')" class="bg-[#25D366] hover:bg-[#1ebd57] text-slate-950 px-2.5 py-1.5 rounded-lg text-[10px] font-black"><i class="fa-brands fa-whatsapp"></i> مراسلة</button>
+                        <a href="tel:${safePhone}" class="bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 px-2.5 py-1.5 rounded-lg text-[10px] font-black"><i class="fa-solid fa-phone text-emerald-600"></i> اتصال</a>
+                        <button data-phone="${safePhone}" data-name="${safeName}" onclick="quickReplyToCallerBtn(this)" class="bg-[#25D366] hover:bg-[#1ebd57] text-slate-950 px-2.5 py-1.5 rounded-lg text-[10px] font-black"><i class="fa-brands fa-whatsapp"></i> مراسلة</button>
                     </div>
                 </div>`;
             }).join('');
         }
 
+        window.quickReplyToCallerBtn = (btn) => {
+            const phone = btn.getAttribute('data-phone') || '';
+            const name = btn.getAttribute('data-name') || '';
+            window.quickReplyToCaller(phone, name);
+        };
+
         window.quickReplyToCaller = (phone, name) => {
             document.getElementById('test-phone-input').value = phone;
-            document.getElementById('test-msg-input').value = name && name !== 'رقم جديد غير مسجل'
+            document.getElementById('test-msg-input').value = name && name !== 'رقم جديد غير مسجل' && name !== 'متصل'
                 ? `أهلاً بك يا ${name} في سمان ههيا 🌹 شرفنا اتصالك، تحت أمرك في أي طلب 🦆`
                 : `أهلاً بك في سمان ههيا 🦆✨ شرفنا اتصالك، تحت أمرك في أي استفسار أو حجز 🌹`;
             openQuickTestModal();
+        };
+
+        window.simulateIncomingCallPrompt = async () => {
+            const rawPhone = prompt('أدخل رقم موبايل لتجربة تسجيل مكالمة واردة والرد الآلي (إن كان مفعلاً):', '01208027294');
+            if (!rawPhone) return;
+            const baseUrl = getCleanServerUrl();
+            if (!baseUrl) return showToast('رابط السيرفر غير موجود!', 'error');
+            try {
+                const res = await fetch(`${baseUrl}/incoming-call?phone=${encodeURIComponent(rawPhone)}`);
+                const data = await res.json();
+                if (data.ok) {
+                    showToast(`📞 تم تسجيل المكالمة بنجاح (${data.customerName || data.phone})`);
+                } else {
+                    showToast('⚠️ تعذر تسجيل المكالمة: ' + (data.reason || data.error || ''), 'warn');
+                }
+            } catch (e) {
+                showToast('❌ تعذر الاتصال بالسيرفر لتجربة المكالمة', 'error');
+            }
         };
 
         // === 9. نافذة التجربة السريعة ===
@@ -1336,8 +1670,8 @@
         window.sendSingleTestMessage = async () => {
             const phone = window.normalizePhone(document.getElementById('test-phone-input').value);
             const msg = document.getElementById('test-msg-input').value.trim();
-            if (!phone || phone.length < 10) return alert('أدخل رقم موبايل صحيح!');
-            if (!msg) return alert('اكتب نص الرسالة!');
+            if (!phone || phone.length < 10) return showToast('أدخل رقم موبايل صحيح!', 'warn');
+            if (!msg) return showToast('اكتب نص الرسالة!', 'warn');
 
             const btn = document.getElementById('btn-send-test');
             const orig = btn.innerHTML;
@@ -1347,10 +1681,10 @@
             try {
                 await postToLiveServer([{ phone, name: 'مراسلة سريعة', message: msg }]);
                 recordSentPhones([phone]);
-                alert('✅ تم إرسال أمر الرسالة للسيرفر بنجاح!');
+                showToast('✅ تم تسليم الرسالة لطابور السيرفر بنجاح!');
                 document.getElementById('quick-test-modal').classList.add('hidden');
             } catch (e) {
-                alert('❌ فشل الاتصال بالسيرفر! تأكد أن السيرفر يعمل في GitHub Actions.');
+                showToast('❌ ' + (e.message || 'فشل الاتصال بالسيرفر!'), 'error');
             }
             btn.innerHTML = orig;
             btn.disabled = false;
