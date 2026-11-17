@@ -643,12 +643,20 @@
                 const bBooked = (metrics.totalOrders > 0 || savedBooked === 0) ? liveBooked : savedBooked;
                 const remaining = bStock - bBooked;
                 const prodPrice = getProdPrice(pId);
-                const isMainMeat = isMainQuailProduct(pId);
+                const isPinnedPrimary = (typeof window.isProductPrimary === 'function')
+                    ? window.isProductPrimary(p, pId)
+                    : isMainQuailProduct(pId);
 
-                if (!showZeros && !isMainMeat && bStock === 0 && bBooked === 0) {
+                const isPinnedItem = (typeof window.isProductPinnedForAdmin === 'function')
+                    ? window.isProductPinnedForAdmin(pId)
+                    : isMainMeat;
+
+                if (!showZeros && !isPinnedItem && bStock === 0 && bBooked === 0) {
                     hiddenZeroCount++;
                     return;
                 }
+
+
 
                 const remColor = remaining < 0
                     ? 'bg-red-600 text-white border-red-600 animate-pulse'
