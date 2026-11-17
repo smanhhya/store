@@ -935,58 +935,8 @@
         if (typeof window.showToast === 'function') window.showToast(`🎁 تم تطبيق خصم المحفظة (${cashDiscount} ج)`);
     };
 
-    const _origOpenEditOrderModal = window.openEditOrderModal;
-    window.openEditOrderModal = function (id) {
-        if (typeof _origOpenEditOrderModal === 'function') {
-            _origOpenEditOrderModal(id);
-        }
-        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === id);
-        if (!order) return;
+    // تم دمج خانات العميل والآجل مباشرة في التصميم العصري لنافذة التعديل داخل index.html
 
-        const modalBody = document.querySelector('#edit-order-modal .overflow-y-auto');
-        if (!modalBody) return;
-
-        let extraBox = document.getElementById('edit-order-full-customer-box');
-        if (!extraBox) {
-            extraBox = document.createElement('div');
-            extraBox.id = 'edit-order-full-customer-box';
-            extraBox.className = 'bg-white p-5 rounded-2xl shadow-soft border border-slate-100 space-y-3';
-            modalBody.insertBefore(extraBox, modalBody.firstElementChild);
-        }
-
-        let zonesOpts = `<option value="${order.zone || ''}">${order.zone || '-- اختر المنطقة --'}</option>`;
-        (storeSettings?.deliveryZones || []).forEach(z => {
-            if (z.name !== order.zone) {
-                zonesOpts += `<option value="${z.name}">${z.name} (${z.price}ج)</option>`;
-            }
-        });
-
-        extraBox.innerHTML = `
-            <h4 class="text-xs font-black text-slate-800 pb-2 border-b border-slate-100"><i class="fa-solid fa-user-pen text-brand-primary mr-1"></i> بيانات العميل والعنوان والآجل</h4>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                    <label class="text-[10px] font-bold text-slate-500 block mb-1">اسم العميل</label>
-                    <input type="text" id="edit-cust-name-input" value="${order.customerName || ''}" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 focus:bg-white outline-none">
-                </div>
-                <div>
-                    <label class="text-[10px] font-bold text-slate-500 block mb-1">رقم الموبايل الأساسي</label>
-                    <input type="tel" id="edit-cust-phone-input" dir="ltr" value="${order.customerPhone || ''}" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 focus:bg-white outline-none">
-                </div>
-                <div>
-                    <label class="text-[10px] font-bold text-slate-500 block mb-1">المنطقة</label>
-                    <select id="edit-cust-zone-input" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 focus:bg-white outline-none">${zonesOpts}</select>
-                </div>
-                <div>
-                    <label class="text-[10px] font-bold text-slate-500 block mb-1">العنوان التفصيلي</label>
-                    <input type="text" id="edit-cust-address-input" value="${order.customerAddress || ''}" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none">
-                </div>
-                <div class="md:col-span-2 bg-red-50/60 p-3 rounded-xl border border-red-100 flex items-center justify-between gap-3">
-                    <label class="text-[11px] font-black text-red-800"><i class="fa-solid fa-hand-holding-dollar mr-1"></i> باقي حساب لم يُدفع على هذا الطلب (آجل بالجنيه):</label>
-                    <input type="number" id="edit-order-debt-input" value="${order.debt || 0}" class="w-28 border border-red-200 rounded-xl p-2 text-center text-xs font-black text-red-700 bg-white outline-none">
-                </div>
-            </div>
-        `;
-    };
 
     const _origSaveEditedOrder = window.saveEditedOrder;
     window.saveEditedOrder = async function () {
