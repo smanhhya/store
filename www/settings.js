@@ -46,6 +46,69 @@
         window.renderInventoryUI();
     };
 
+    // فحص هل الصنف مثبت ضمن الـ 3-6 أصناف الأساسية في الإدارة والدفعات
+    window.isProductPinnedForAdmin = function (prodId) {
+        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
+        const p = prodsObj[prodId];
+        if (!p) return false;
+        const anyExplicitlySet = Object.values(prodsObj).some(item => item && item.isPinnedAdmin !== undefined);
+        if (anyExplicitlySet) {
+            return Boolean(p.isPinnedAdmin);
+        }
+        // افتراضياً قبل التخصيص اليدوي: نعتبر أول 5 أصناف أساسية غير إضافية هي المثبتة
+        const defaultIds = Object.keys(prodsObj).filter(k => prodsObj[k] && !prodsObj[k].isExtra).slice(0, 5);
+        return defaultIds.includes(prodId);
+    };
+
+    // تبديل تثبيت الصنف كأساسي بضغطة زر واحدة وحفظه فوراً
+    window.togglePinProductForAdmin = async function (prodId) {
+        if (!storeProducts[prodId]) return;
+        const prodsObj = storeProducts;
+        const anyExplicitlySet = Object.values(prodsObj).some(item => item && item.isPinnedAdmin !== undefined);
+        if (!anyExplicitlySet) {
+            Object.keys(prodsObj).forEach(k => {
+                prodsObj[k].isPinnedAdmin = window.isProductPinnedForAdmin(k);
+            });
+        }
+        prodsObj[prodId].isPinnedAdmin = !prodsObj[prodId].isPinnedAdmin;
+        window.renderInventoryUI();
+        if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
+        if (typeof window.renderBatchesUI === 'function') window.renderBatchesUI();
+        await window.saveAllSettings(true);
+        if (typeof window.showToast === 'function') {
+            window.showToast(prodsObj[prodId].isPinnedAdmin ? '📌 تم تثبيت الصنف في المقدمة (الطلبات والدفعات)' : 'تم نقل الصنف لقائمة الأصناف الإضافية المطوية');
+        }
+    };
+
+
+    // دالة تحديد هل الصنف من الأصناف الأساسية المثبتة في الواجهة (الـ 3 إلى 6 أصناف الأساسية)
+    window.isProductPrimary = function (p, id) {
+        if (!p) return false;
+        if (p.isPrimary === true) return true;
+        if (p.isPrimary === false) return false;
+        // افتراضياً: الأصناف غير الإضافية وغير المخفية تعتبر أساسية حتى يخصصها المستخدم بنفسه
+        return !p.isExtra && !p.isHidden;
+    };
+
+    // زر تثبيت أو إلغاء تثبيت الصنف كصنف أساسي في الواجهة بضغطة واحدة
+    window.toggleProductPrimaryPin = async function (prodId) {
+        if (!storeProducts[prodId]) return;
+        const currentState = window.isProductPrimary(storeProducts[prodId], prodId);
+        storeProducts[prodId].isPrimary = !currentState;
+
+        window.renderInventoryUI();
+        if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
+        if (typeof window.renderBatchesUI === 'function') window.renderBatchesUI();
+        await window.saveAllSettings(true);
+
+        if (typeof window.showToast === 'function') {
+            window.showToast(storeProducts[prodId].isPrimary
+                ? `📌 تم تثبيت (${storeProducts[prodId].name}) كصنف أساسي بالواجهة!`
+                : `🔽 تم نقل (${storeProducts[prodId].name}) إلى قائمة الأصناف الفرعية`);
+        }
+    };
+
+
     // دالة مزامنة المتاح للحجز في الكتالوج مع المتبقي الفعلي في الدفعات المفتوحة بضغطة زر
     window.syncCatalogStockWithOpenBatches = async function () {
         const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
@@ -216,10 +279,13 @@
             const bStat = batchStatsByProd[id] || { stock: 0, booked: 0 };
             const fzQty = Math.max(0, Number(freezerObj[id]) || 0);
 
-            let typeBadge = '<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-lg text-[10px] font-black">🥩 أساسي</span>';
-            if (p.isWeightBased) typeBadge = '<span class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-lg text-[10px] font-black">⚖️ بالوزن</span>';
-            else if (p.isExtra) typeBadge = '<span class="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-lg text-[10px] font-black">🥚 إضافي</span>';
-            if (p.isHidden) typeBadge += ' <span class="bg-rose-100 text-rose-700 px-2 py-0.5 rounded-lg text-[10px] font-black">🚫 مخفي</span>';
+            const isPrim = window.isProductPrimary(p, id);
+            const pinBtnHtml = `<button type="button" onclick="event.stopPropagation(); toggleProductPrimaryPin('${id}')" class="px-2 py-0.5 rounded-lg text-[10px] font-black border transition-all ${isPrim ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-sm' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-amber-50 hover:text-amber-800'}" title="اضغط لتثبيت أو إلغاء تثبيت هذا الصنف في الواجهة الأساسية للطلبات والدفعات">📌 ${isPrim ? 'أساسي بالواجهة' : 'فرعي (اضغط للتثبيت)'}</button>`;
+
+            let typeBadge = pinBtnHtml + ' ';
+            if (p.isWeightBased) typeBadge += '<span class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-lg text-[10px] font-black">⚖️ بالوزن</span>';
+            else if (p.isExtra) typeBadge += '<span class="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-lg text-[10px] font-black">🥚 إضافي</span>';
+            if (p.isHidden) typeBadge += ' <span class="bg-rose-100 text-rose-700 px-2 py-0.5 rounded-lg text-[10px] font-black">🚫 مخفي بالمتجر</span>';
 
             // 1. السطر المدمج السريع (Compact Row): تعديل السعر والمتاح في ثانية واحدة بدون زحمة!
             if (!isExpanded) {
@@ -260,9 +326,13 @@
                             <input type="number" value="${stock}" onchange="storeStock['${id}'] = parseInt(this.value) || 0; saveAllSettings(true);" class="w-16 bg-white border border-emerald-200 rounded-lg p-1 text-xs font-black text-emerald-800 text-center outline-none">
                         </div>
 
-                        <button type="button" onclick="toggleSingleProductExpand('${id}')" class="bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-xl text-[11px] font-black transition-all flex items-center gap-1">
-                            <i class="fa-solid fa-sliders text-amber-400"></i> ${p.isWeightBased ? 'الأوزان والتفاصيل ▼' : 'تفاصيل ▼'}
+                        <button type="button" onclick="togglePinProductForAdmin('${id}')" class="${window.isProductPinnedForAdmin(id) ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-sm' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-amber-50 hover:text-amber-800'} border px-2.5 py-2 rounded-xl text-[11px] font-black transition-all flex items-center gap-1" title="تثبيت في مقدمة إنشاء الطلب والدفعات">
+                            <i class="fa-solid fa-thumbtack"></i> ${window.isProductPinnedForAdmin(id) ? 'مثبت كأساسي' : 'تثبيت'}
                         </button>
+                        <button type="button" onclick="toggleSingleProductExpand('${id}')" class="bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-xl text-[11px] font-black transition-all flex items-center gap-1">
+                            <i class="fa-solid fa-sliders text-amber-400"></i> ${p.isWeightBased ? 'الأوزان ▼' : 'تفاصيل ▼'}
+                        </button>
+
                     </div>
                 </div>`;
                 return;
@@ -336,10 +406,15 @@
                 </div>
 
                 <div class="flex flex-wrap items-center gap-4 bg-slate-50/90 p-2.5 rounded-xl border border-slate-100">
+                    <label class="flex items-center gap-1.5 text-[11px] font-black cursor-pointer text-teal-800 bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200">
+                        <input type="checkbox" ${window.isProductPinnedForAdmin(id) ? 'checked' : ''} onchange="togglePinProductForAdmin('${id}')" class="w-4 h-4 accent-teal-600 rounded">
+                        <span>📌 تثبيت كأساسي في الطلبات والدفعات</span>
+                    </label>
                     <label class="flex items-center gap-1.5 text-[11px] font-black cursor-pointer text-slate-700">
                         <input type="checkbox" ${p.isExtra ? 'checked' : ''} onchange="storeProducts['${id}'].isExtra = this.checked; renderInventoryUI();" class="w-4 h-4 accent-brand-primary rounded">
                         <span>منتج إضافي (بيض/كتاكيت)</span>
                     </label>
+
                     <label class="flex items-center gap-1.5 text-[11px] font-black cursor-pointer text-amber-600">
                         <input type="checkbox" ${p.isBest ? 'checked' : ''} onchange="storeProducts['${id}'].isBest = this.checked" class="w-4 h-4 accent-amber-500 rounded">
                         <span>الأكثر طلباً 🔥</span>
