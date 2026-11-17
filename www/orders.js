@@ -1,6 +1,6 @@
 // =========================================================================
-// ⚡ المحرك التنفيذي الفاخر للطلبات الحية، الفلترة الذكية، والتحضير (www/orders.js)
-// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM) - نسخة المركز الأول (Executive Edition)
+// ⚡ المحرك السريع للطلبات الحية، الفلترة الذكية، والتحضير (www/orders.js)
+// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM) - نسخة الأداء الفائق والوضوح الكامل
 // =========================================================================
 
 (function () {
@@ -15,31 +15,66 @@
         filtersExpanded: false
     };
 
-    window.openCardMoreMenuId = null;
+    window.ordersRenderLimit = 25;
+    let _lastDropdownOrdersCount = -1;
 
-    // إغلاق قائمة (•••) الفرعية عند الضغط في أي مكان خارجها
-    document.addEventListener('click', (e) => {
-        if (!e.target.closest('.ord-more-menu-wrap')) {
-            document.querySelectorAll('.ord-more-dropdown').forEach(el => el.classList.add('hidden'));
-            window.openCardMoreMenuId = null;
-        }
-    });
-
-    window.toggleOrderMoreMenu = function (ev, orderId) {
-        if (ev) ev.stopPropagation();
-        const menu = document.getElementById(`ord-more-menu-${orderId}`);
-        if (!menu) return;
-        const wasHidden = menu.classList.contains('hidden');
-        document.querySelectorAll('.ord-more-dropdown').forEach(el => el.classList.add('hidden'));
-        if (wasHidden) {
-            menu.classList.remove('hidden');
-            window.openCardMoreMenuId = orderId;
-        } else {
-            window.openCardMoreMenuId = null;
-        }
+    // =========================================================================
+    // 🎨 2. تلوين أزرار حالات الطلبات (مكتمل / تجهيز / جديد...) بألوان قوية وواضحة جداً
+    // =========================================================================
+    const TAB_ACTIVE_STYLES = {
+        all:        { btn: 'bg-slate-900 text-white border-slate-900 shadow-md scale-[1.03]',      badge: 'bg-amber-400 text-slate-950' },
+        new:        { btn: 'bg-blue-600 text-white border-blue-600 shadow-md scale-[1.03]',        badge: 'bg-white text-blue-700' },
+        processing: { btn: 'bg-amber-500 text-slate-950 border-amber-500 shadow-md scale-[1.03]',  badge: 'bg-slate-900 text-amber-300' },
+        dispatched: { btn: 'bg-indigo-600 text-white border-indigo-600 shadow-md scale-[1.03]',    badge: 'bg-white text-indigo-700' },
+        deferred:   { btn: 'bg-orange-600 text-white border-orange-600 shadow-md scale-[1.03]',    badge: 'bg-white text-orange-700' },
+        no_answer:  { btn: 'bg-purple-600 text-white border-purple-600 shadow-md scale-[1.03]',    badge: 'bg-white text-purple-700' },
+        completed:  { btn: 'bg-emerald-600 text-white border-emerald-600 shadow-md scale-[1.03]',  badge: 'bg-white text-emerald-800' },
+        canceled:   { btn: 'bg-rose-600 text-white border-rose-600 shadow-md scale-[1.03]',        badge: 'bg-white text-rose-700' }
     };
 
-    // دالة مساعدة لحساب منذ متى تم إنشاء الطلب
+    const TAB_INACTIVE_BADGES = {
+        new:        'bg-blue-100 text-blue-700',
+        processing: 'bg-amber-100 text-amber-800',
+        dispatched: 'bg-indigo-100 text-indigo-700',
+        deferred:   'bg-orange-100 text-orange-700',
+        no_answer:  'bg-purple-100 text-purple-700',
+        completed:  'bg-emerald-100 text-emerald-700',
+        canceled:   'bg-slate-200 text-slate-700'
+    };
+
+    window.applyCrispOrderTabsVisuals = function (activeTabName) {
+        const current = activeTabName || (typeof currentOrderTab !== 'undefined' ? currentOrderTab : 'all');
+        const allTabs = ['all', 'new', 'processing', 'dispatched', 'deferred', 'no_answer', 'completed', 'canceled'];
+
+        allTabs.forEach(t => {
+            const btn = document.getElementById(`tab-${t}`);
+            const badge = document.getElementById(`badge-${t}`);
+            if (!btn) return;
+
+            if (t === current) {
+                const st = TAB_ACTIVE_STYLES[t] || TAB_ACTIVE_STYLES.all;
+                btn.className = `order-tab active whitespace-nowrap px-3.5 py-2 rounded-xl text-xs font-black border-2 transition-transform ${st.btn}`;
+                if (badge) {
+                    badge.className = `mr-1 px-1.5 py-0.5 rounded-md text-[10px] font-black ${st.badge}`;
+                }
+            } else {
+                btn.className = 'order-tab whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors';
+                if (badge) {
+                    badge.className = `mr-1 px-1.5 py-0.5 rounded-md text-[10px] font-black ${TAB_INACTIVE_BADGES[t] || 'bg-slate-100 text-slate-600'}`;
+                }
+            }
+        });
+    };
+
+    // ترقية دالة التبديل بين تبويبات الطلبات لتعمل بسرعة البرق وبلون واضح جداً
+    window.setOrderTab = function (tab) {
+        currentOrderTab = tab;
+        window.ordersRenderLimit = 25;
+        window.applyCrispOrderTabsVisuals(tab);
+        window.renderOrdersList();
+    };
+
+    // دالة مساعدة لحساب عمر الطلب الزمني
     function getOrderRelativeAge(o) {
         let ms = 0;
         if (o.createdAt && typeof o.createdAt.toMillis === 'function') {
@@ -59,7 +94,7 @@
         return `منذ ${diffDays} يوم`;
     }
 
-    // دالة تنسيق اسم الصنف الموزون ليظهر كشارة أنيقة بدون أقواس طويلة مزعجة
+    // تنسيق اسم الصنف الموزون بشكل نظيف ومقروء
     function formatOrderItemBadgeClean(item) {
         const rawName = String(item.name || 'صنف').trim();
         const bracketMatch = rawName.match(/^(.*?)\s*\[(.*?)\]\s*(?:\((.*?)\))?$/);
@@ -80,7 +115,7 @@
         };
     }
 
-    // استرجاع أو خصم أوزان الفرخات بالجرام من مصفوفة المخزن عند إلغاء الطلب أو إعادته
+    // استرجاع أو خصم أوزان الفرخات بالجرام من مصفوفة المخزن عند الإلغاء أو الإعادة
     function syncOrderWeighedItemsWithMatrix(order, mode = 'restore') {
         if (!order || !Array.isArray(order.items) || typeof storeProducts === 'undefined') return false;
         let matrixChanged = false;
@@ -102,11 +137,9 @@
                 : [];
 
             if (mode === 'restore') {
-                // إرجاع أوزان الفرخات الملغاة إلى مصفوفة المخزن
                 orderGrams.forEach(g => currentMatrix.push(g));
                 matrixChanged = true;
             } else if (mode === 'deduct') {
-                // خصم الأوزان مجدداً إذا أُعيد تفعيل الطلب بعد الإلغاء
                 orderGrams.forEach(g => {
                     const idx = currentMatrix.indexOf(g);
                     if (idx !== -1) currentMatrix.splice(idx, 1);
@@ -126,7 +159,7 @@
     }
 
     // =========================================================================
-    // 🎛️ 2. بناء شريط الملخص المالي الحي والفلاتر المدمج (بدون تكرار الأزرار)
+    // 🎛️ 3. بناء شريط الملخص المالي والفلاتر المدمج
     // =========================================================================
     window.safeOpenAddOrderModal = function () {
         if (typeof window.generateDynamicOrderInputs === 'function') {
@@ -143,17 +176,17 @@
         const ordersView = document.getElementById('view-orders');
         if (!ordersView || document.getElementById('smart-orders-toolbar')) return;
 
-        const stickyHeader = ordersView.querySelector('.sticky');
-        if (!stickyHeader) return;
+        const topWrap = ordersView.firstElementChild;
+        if (!topWrap) return;
 
         const toolbar = document.createElement('div');
         toolbar.id = 'smart-orders-toolbar';
         toolbar.className = 'space-y-2';
 
         toolbar.innerHTML = `
-            <div class="bg-gradient-to-l from-slate-900 via-slate-800 to-emerald-950 text-white px-3.5 py-2 rounded-xl shadow-sm flex flex-wrap items-center justify-between gap-2 text-[11px] font-black">
+            <div class="bg-slate-900 text-white px-3.5 py-2 rounded-xl shadow-sm flex flex-wrap items-center justify-between gap-2 text-[11px] font-black">
                 <div class="flex flex-wrap items-center gap-2 sm:gap-3">
-                    <span>📦 العدد: <strong id="so-count-orders" class="text-amber-400">0</strong></span>
+                    <span>📦 المعروض: <strong id="so-count-orders" class="text-amber-400">0</strong></span>
                     <span class="text-slate-600">|</span>
                     <span>🥩 الصافي: <strong id="so-sum-net" class="text-emerald-400">0 ج</strong></span>
                     <span class="text-slate-600 hidden sm:inline">|</span>
@@ -163,31 +196,30 @@
                     <span id="so-debt-pill" class="hidden bg-red-500/20 text-red-300 border border-red-400/30 px-2 py-0.5 rounded-md">📕 آجل: <strong id="so-sum-debt">0 ج</strong></span>
                 </div>
                 <div class="flex items-center gap-1.5 mr-auto sm:mr-0">
-                    <button type="button" onclick="toggleAdvancedFiltersDrawer()" id="so-btn-toggle-filters" class="bg-white/10 hover:bg-white/20 text-white border border-white/15 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all flex items-center gap-1">
+                    <button type="button" onclick="toggleAdvancedFiltersDrawer()" id="so-btn-toggle-filters" class="bg-white/10 hover:bg-white/20 text-white border border-white/15 px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1">
                         <i class="fa-solid fa-sliders text-amber-400"></i> <span>فلاتر متقدمة</span>
                         <span id="so-active-filters-dot" class="hidden w-2 h-2 rounded-full bg-amber-400"></span>
                     </button>
-                    <button type="button" onclick="toggleCompactOrdersMode()" id="so-btn-compact" class="bg-white/10 hover:bg-white/20 text-slate-200 border border-white/15 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all flex items-center gap-1" title="تبديل بين الكروت الفاخرة والوضع المضغوط السريع">
+                    <button type="button" onclick="toggleCompactOrdersMode()" id="so-btn-compact" class="bg-white/10 hover:bg-white/20 text-slate-200 border border-white/15 px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1">
                         <i class="fa-solid fa-compress"></i> <span>وضع مضغوط</span>
                     </button>
                 </div>
             </div>
 
-            <!-- درج الفلاتر المتقدمة (يفتح بضغطة زر) -->
             <div id="so-advanced-filters-drawer" class="hidden bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-2">
-                <select id="so-filter-zone" onchange="setOrdersQuickFilter('zone', this.value)" class="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-[11px] font-black text-slate-700 outline-none focus:bg-white">
+                <select id="so-filter-zone" onchange="setOrdersQuickFilter('zone', this.value)" class="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-[11px] font-black text-slate-700 outline-none">
                     <option value="all">📍 كل المناطق</option>
                 </select>
 
-                <select id="so-filter-batch" onchange="setOrdersQuickFilter('batch', this.value)" class="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-[11px] font-black text-teal-800 outline-none focus:bg-white">
+                <select id="so-filter-batch" onchange="setOrdersQuickFilter('batch', this.value)" class="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-[11px] font-black text-teal-800 outline-none">
                     <option value="all">🐣 كل الدفعات</option>
                 </select>
 
-                <select id="so-filter-driver" onchange="setOrdersQuickFilter('driver', this.value)" class="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-[11px] font-black text-indigo-800 outline-none focus:bg-white">
+                <select id="so-filter-driver" onchange="setOrdersQuickFilter('driver', this.value)" class="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-[11px] font-black text-indigo-800 outline-none">
                     <option value="all">🛵 كل المناديب</option>
                 </select>
 
-                <select id="so-filter-payment" onchange="setOrdersQuickFilter('payment', this.value)" class="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-[11px] font-black text-emerald-800 outline-none focus:bg-white">
+                <select id="so-filter-payment" onchange="setOrdersQuickFilter('payment', this.value)" class="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-[11px] font-black text-emerald-800 outline-none">
                     <option value="all">💳 كل طرق الدفع</option>
                     <option value="cash">💵 كاش عند الاستلام</option>
                     <option value="online">💳 خالص (فيزا / محفظة)</option>
@@ -195,37 +227,40 @@
                     <option value="debt">📕 عليه باقي حساب (آجل)</option>
                 </select>
 
-                <select id="so-filter-special" onchange="setOrdersQuickFilter('special', this.value)" class="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-[11px] font-black text-amber-800 outline-none focus:bg-white">
+                <select id="so-filter-special" onchange="setOrdersQuickFilter('special', this.value)" class="border border-slate-200 bg-slate-50 rounded-lg px-2.5 py-1.5 text-[11px] font-black text-amber-800 outline-none">
                     <option value="all">⭐ كل الطلبات</option>
                     <option value="vip">💎 عملاء VIP فقط</option>
                     <option value="high_value">🔥 طلبات كبرى (+500 ج)</option>
                     <option value="has_notes">📝 طلبات بها ملاحظات</option>
                 </select>
 
-                <button type="button" onclick="resetAllOrdersFilters()" id="so-btn-reset" class="hidden mr-auto bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all">
-                    <i class="fa-solid fa-Filter-circle-xmark mr-1"></i> مسح الفلاتر
+                <button type="button" onclick="resetAllOrdersFilters()" id="so-btn-reset" class="hidden mr-auto bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-2.5 py-1.5 rounded-lg text-[10px] font-black">
+                    <i class="fa-solid fa-filter-circle-xmark mr-1"></i> مسح الفلاتر
                 </button>
             </div>
         `;
 
-        stickyHeader.insertBefore(toolbar, stickyHeader.firstChild);
+        topWrap.insertBefore(toolbar, topWrap.firstChild);
     };
 
     window.toggleAdvancedFiltersDrawer = function () {
         window.ordersFilterState.filtersExpanded = !window.ordersFilterState.filtersExpanded;
+        if (window.ordersFilterState.filtersExpanded) {
+            window.refreshOrdersToolbarDropdowns(true);
+        }
         const drawer = document.getElementById('so-advanced-filters-drawer');
         const btn = document.getElementById('so-btn-toggle-filters');
         if (drawer) drawer.classList.toggle('hidden', !window.ordersFilterState.filtersExpanded);
         if (btn) {
             btn.className = window.ordersFilterState.filtersExpanded
-                ? 'bg-amber-400 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all flex items-center gap-1 shadow-sm'
-                : 'bg-white/10 hover:bg-white/20 text-white border border-white/15 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all flex items-center gap-1';
+                ? 'bg-amber-400 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 shadow-sm'
+                : 'bg-white/10 hover:bg-white/20 text-white border border-white/15 px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1';
         }
     };
 
     window.setOrdersQuickFilter = function (key, val) {
         window.ordersFilterState[key] = val;
-        window.ordersRenderLimit = 50;
+        window.ordersRenderLimit = 25;
         const hasActive = ['zone', 'batch', 'driver', 'payment', 'special'].some(k => window.ordersFilterState[k] !== 'all');
         document.getElementById('so-btn-reset')?.classList.toggle('hidden', !hasActive);
         document.getElementById('so-active-filters-dot')?.classList.toggle('hidden', !hasActive);
@@ -237,10 +272,10 @@
         const btn = document.getElementById('so-btn-compact');
         if (btn) {
             if (window.ordersFilterState.compactMode) {
-                btn.className = 'bg-emerald-400 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all flex items-center gap-1 shadow-sm';
+                btn.className = 'bg-emerald-400 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 shadow-sm';
                 btn.innerHTML = '<i class="fa-solid fa-expand"></i> <span>عرض الكروت الكاملة</span>';
             } else {
-                btn.className = 'bg-white/10 hover:bg-white/20 text-slate-200 border border-white/15 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all flex items-center gap-1';
+                btn.className = 'bg-white/10 hover:bg-white/20 text-slate-200 border border-white/15 px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1';
                 btn.innerHTML = '<i class="fa-solid fa-compress"></i> <span>وضع مضغوط</span>';
             }
         }
@@ -253,7 +288,7 @@
         window.ordersFilterState.driver = 'all';
         window.ordersFilterState.payment = 'all';
         window.ordersFilterState.special = 'all';
-        window.ordersRenderLimit = 50;
+        window.ordersRenderLimit = 25;
 
         ['zone', 'batch', 'driver', 'payment', 'special'].forEach(k => {
             const el = document.getElementById(`so-filter-${k}`);
@@ -266,7 +301,11 @@
         window.renderOrdersList();
     };
 
-    window.refreshOrdersToolbarDropdowns = function () {
+    window.refreshOrdersToolbarDropdowns = function (forceRebuild = false) {
+        const ordersArray = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        if (!forceRebuild && _lastDropdownOrdersCount === ordersArray.length) return;
+        _lastDropdownOrdersCount = ordersArray.length;
+
         const zSel = document.getElementById('so-filter-zone');
         const bSel = document.getElementById('so-filter-batch');
         const dSel = document.getElementById('so-filter-driver');
@@ -280,7 +319,7 @@
         (storeSettings?.drivers || []).forEach(d => { if (d?.name) driversSet.add(d.name.trim()); });
         Object.values(storeBatches || {}).forEach(b => { if (b?.name && b.name !== 'undefined') batchesSet.add(b.name.trim()); });
 
-        (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).forEach(o => {
+        ordersArray.forEach(o => {
             if (!o || o.status === 'trash' || o.isArchived) return;
             if (o.zone) zonesSet.add(o.zone.trim());
             if (o.driverName) driversSet.add(o.driverName.trim());
@@ -305,7 +344,7 @@
     };
 
     // =========================================================================
-    // 🚀 3. أزرار الخطوة السريعة وقوالب الواتساب الجاهزة
+    // 🚀 4. أزرار الخطوة السريعة وقوالب الواتساب الجاهزة
     // =========================================================================
     window.quickAdvanceOrderStatus = function (orderId) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
@@ -357,11 +396,11 @@
     };
 
     // =========================================================================
-    // 🎨 4. رسم قائمة الطلبات الحية الفاخرة (Executive First-Place Cards)
+    // 🎨 5. رسم قائمة الطلبات الحية (خفيفة وسريعة جداً وواضحة الألوان)
     // =========================================================================
     window.renderOrdersList = function () {
         window.initSmartOrdersToolbar();
-        window.refreshOrdersToolbarDropdowns();
+        window.refreshOrdersToolbarDropdowns(false);
 
         const container = document.getElementById('orders-list-vertical');
         if (!container) return;
@@ -390,29 +429,24 @@
                 ? window.resolveOrderBatchName(o)
                 : ((o.batchName && o.batchName !== 'undefined') ? o.batchName : '');
 
-            let bNameSearch = realBatchTitle ? realBatchTitle : (o.customTag ? `تاج مخصص: ${o.customTag}` : 'أوردرات عادية');
-            let itemsString = (o.items && Array.isArray(o.items)) ? o.items.map(i => i.name).join(' ') : '';
-            let normPhone1 = window.normalizePhone ? window.normalizePhone(o.customerPhone) : (o.customerPhone || '');
-            let normPhone2 = window.normalizePhone ? window.normalizePhone(o.customerPhone2) : (o.customerPhone2 || '');
+            if (filterWords.length > 0 || exactPhrases.length > 0) {
+                let bNameSearch = realBatchTitle ? realBatchTitle : (o.customTag ? `تاج مخصص: ${o.customTag}` : 'أوردرات عادية');
+                let itemsString = (o.items && Array.isArray(o.items)) ? o.items.map(i => i.name).join(' ') : '';
+                let normPhone1 = window.normalizePhone ? window.normalizePhone(o.customerPhone) : (o.customerPhone || '');
+                let normPhone2 = window.normalizePhone ? window.normalizePhone(o.customerPhone2) : (o.customerPhone2 || '');
 
-            let searchStr = `${o.customerName || ''} ${o.customerPhone || ''} ${normPhone1} ${o.customerPhone2 || ''} ${normPhone2} ${bNameSearch} ${o.zone || ''} ${o.customerAddress || ''} ${o.driverName || ''} ${itemsString} ${o.adminNote || ''} ${o.driverNote || ''}`.toLowerCase();
-            searchStr = searchStr.replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660).replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0);
+                let searchStr = `${o.customerName || ''} ${o.customerPhone || ''} ${normPhone1} ${o.customerPhone2 || ''} ${normPhone2} ${bNameSearch} ${o.zone || ''} ${o.customerAddress || ''} ${o.driverName || ''} ${itemsString} ${o.adminNote || ''} ${o.driverNote || ''}`.toLowerCase();
+                searchStr = searchStr.replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660).replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0);
 
-            let matchSearch = filterWords.length === 0 ? true : filterWords.every(word => {
-                let engWord = word.replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660).replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0);
-                let normWord = window.normalizePhone ? window.normalizePhone(word) : word;
-                return searchStr.includes(engWord) || (normWord !== '' && normWord.length > 5 && searchStr.includes(normWord));
-            });
+                let matchSearch = filterWords.every(word => {
+                    let engWord = word.replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660).replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0);
+                    let normWord = window.normalizePhone ? window.normalizePhone(word) : word;
+                    return searchStr.includes(engWord) || (normWord !== '' && normWord.length > 5 && searchStr.includes(normWord));
+                });
 
-            let matchExact = exactPhrases.length === 0 ? true : exactPhrases.every(p => {
-                return bNameSearch.toLowerCase() === p ||
-                    (o.zone || '').toLowerCase() === p ||
-                    (o.customerName || '').toLowerCase() === p ||
-                    (o.items ? o.items.some(i => (i.name || '').toLowerCase() === p) : false) ||
-                    searchStr.includes(p);
-            });
-
-            if (!matchSearch || !matchExact) return false;
+                let matchExact = exactPhrases.every(p => searchStr.includes(p));
+                if (!matchSearch || !matchExact) return false;
+            }
 
             if (fState.zone !== 'all' && (o.zone || '').trim() !== fState.zone) return false;
             if (fState.batch !== 'all') {
@@ -433,6 +467,7 @@
                 if (fState.special === 'high_value' && (Number(o.total) || 0) < 500) return false;
                 if (fState.special === 'has_notes' && !o.adminNote && !o.driverNote) return false;
                 if (fState.special === 'vip') {
+                    let normPhone1 = window.normalizePhone ? window.normalizePhone(o.customerPhone) : (o.customerPhone || '');
                     let c = (typeof customersData !== 'undefined' ? customersData : []).find(x => (window.normalizePhone ? window.normalizePhone(x.phone) : x.phone) === normPhone1);
                     if (!c || (c.trustRating !== 'vip' && (c.ordersCount || 0) < 3 && (c.totalSpent || 0) < 1500)) return false;
                 }
@@ -443,16 +478,20 @@
             return true;
         });
 
-        // تحديث شارات الأعداد على التبويبات
+        // تحديث شارات الأعداد وتطبيق الألوان الواضحة على التبويبات
         ['new', 'processing', 'dispatched', 'deferred', 'no_answer', 'completed', 'canceled'].forEach(s => {
             let b = document.getElementById(`badge-${s}`);
             if (b) b.innerText = dynamicCounts[s] || 0;
         });
         const totalNonCanceled = filteredBase.filter(o => o.status !== 'canceled').length;
         const tabAllBtn = document.getElementById('tab-all');
-        if (tabAllBtn) tabAllBtn.innerHTML = `الكل <span class="mr-1 bg-white/20 text-white px-1.5 py-0.5 rounded-md text-[10px]">${totalNonCanceled}</span>`;
+        if (tabAllBtn) {
+            tabAllBtn.innerHTML = `الكل <span id="badge-all" class="mr-1 px-1.5 py-0.5 rounded-md text-[10px] font-black">${totalNonCanceled}</span>`;
+        }
 
         const activeTab = (typeof currentOrderTab !== 'undefined') ? currentOrderTab : 'all';
+        window.applyCrispOrderTabsVisuals(activeTab);
+
         let filtered = filteredBase.filter(o => (activeTab === 'all') || (o.status === activeTab));
 
         const sortDir = (typeof ordersSortDirection !== 'undefined') ? ordersSortDirection : 'desc';
@@ -462,7 +501,7 @@
             return sortDir === 'desc' ? (timeB - timeA) : (timeA - timeB);
         });
 
-        // حساب إجماليات الشريط الأسود العلوي للطلبات المعروضة
+        // حساب إجماليات الشريط الأسود العلوي
         let sumTotal = 0, sumNet = 0, sumDel = 0, sumDebt = 0;
         filtered.forEach(o => {
             if (o.status === 'canceled') return;
@@ -487,7 +526,7 @@
 
         if (filtered.length === 0) {
             container.innerHTML = `
-                <div class="text-center text-slate-400 py-14 font-bold border-2 border-dashed border-slate-200 rounded-[2rem] bg-white space-y-2">
+                <div class="text-center text-slate-400 py-14 font-bold border-2 border-dashed border-slate-200 rounded-2xl bg-white space-y-2">
                     <i class="fa-solid fa-box-open text-3xl text-slate-300"></i>
                     <p>لا توجد طلبات مطابقة في هذا القسم حالياً.</p>
                 </div>`;
@@ -499,19 +538,18 @@
         }
 
         const isCompact = window.ordersFilterState.compactMode;
-        const limitCount = window.ordersRenderLimit || 50;
+        const limitCount = window.ordersRenderLimit || 25;
         const visibleOrders = filtered.slice(0, limitCount);
         const remainingCount = filtered.length - visibleOrders.length;
 
-        // ألوان الهوية الجانبية الفاخرة حسب حالة الطلب
         const statusAccentMap = {
-            new:        { border: 'border-r-4 border-r-blue-500',    badge: '<span class="bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-0.5 rounded-lg text-[10px] font-black">🆕 جديد</span>' },
-            processing: { border: 'border-r-4 border-r-amber-500',   badge: '<span class="bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-0.5 rounded-lg text-[10px] font-black">⏳ تجهيز</span>' },
-            dispatched: { border: 'border-r-4 border-r-indigo-500',  badge: '<span class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded-lg text-[10px] font-black"><i class="fa-solid fa-motorcycle mr-1"></i> بالطريق</span>' },
-            deferred:   { border: 'border-r-4 border-r-orange-500',  badge: '<span class="bg-orange-50 text-orange-700 border border-orange-200 px-2.5 py-0.5 rounded-lg text-[10px] font-black">📅 مؤجل</span>' },
-            no_answer:  { border: 'border-r-4 border-r-purple-500',  badge: '<span class="bg-purple-50 text-purple-700 border border-purple-200 px-2.5 py-0.5 rounded-lg text-[10px] font-black">📵 لم يرد</span>' },
-            completed:  { border: 'border-r-4 border-r-emerald-500', badge: '<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-lg text-[10px] font-black">✅ مكتمل</span>' },
-            canceled:   { border: 'border-r-4 border-r-slate-400',   badge: '<span class="bg-slate-100 text-slate-500 border border-slate-200 px-2.5 py-0.5 rounded-lg text-[10px] font-black">❌ ملغي</span>' }
+            new:        { border: 'border-r-4 border-r-blue-500',    badge: '<span class="bg-blue-600 text-white px-2.5 py-0.5 rounded-lg text-[10px] font-black">🆕 جديد</span>' },
+            processing: { border: 'border-r-4 border-r-amber-500',   badge: '<span class="bg-amber-500 text-slate-950 px-2.5 py-0.5 rounded-lg text-[10px] font-black">⏳ تجهيز</span>' },
+            dispatched: { border: 'border-r-4 border-r-indigo-500',  badge: '<span class="bg-indigo-600 text-white px-2.5 py-0.5 rounded-lg text-[10px] font-black"><i class="fa-solid fa-motorcycle mr-1"></i> بالطريق</span>' },
+            deferred:   { border: 'border-r-4 border-r-orange-500',  badge: '<span class="bg-orange-600 text-white px-2.5 py-0.5 rounded-lg text-[10px] font-black">📅 مؤجل</span>' },
+            no_answer:  { border: 'border-r-4 border-r-purple-500',  badge: '<span class="bg-purple-600 text-white px-2.5 py-0.5 rounded-lg text-[10px] font-black">📵 لم يرد</span>' },
+            completed:  { border: 'border-r-4 border-r-emerald-500', badge: '<span class="bg-emerald-600 text-white px-2.5 py-0.5 rounded-lg text-[10px] font-black">✅ مكتمل</span>' },
+            canceled:   { border: 'border-r-4 border-r-rose-500',    badge: '<span class="bg-rose-600 text-white px-2.5 py-0.5 rounded-lg text-[10px] font-black">❌ ملغي</span>' }
         };
 
         let cardsHtml = visibleOrders.map(o => {
@@ -527,18 +565,17 @@
                 ? window.fastAnalyzeOrderTrust(o)
                 : { cardClass: 'bg-white border-slate-200/80', badgeHtml: '', bannerHtml: '', stickyHtml: '' };
 
-            // استخدام محرك تفكيك الدفع من drivers.js لدعم الكاش والأونلاين والنص ونص بدقة 100%
             const payBr = (typeof window.getOrderPaymentBreakdown === 'function')
                 ? window.getOrderPaymentBreakdown(o)
                 : { method: o.paymentMethod || 'cash', cash: Number(o.total) || 0, online: 0, total: Number(o.total) || 0 };
 
             let nextStepBtnHtml = '';
             if (st === 'new' || st === 'no_answer' || st === 'deferred') {
-                nextStepBtnHtml = `<button onclick="event.stopPropagation(); quickAdvanceOrderStatus('${o.id}')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition-all flex items-center gap-1 active:scale-95" title="نقل الطلب فوراً إلى قيد التجهيز"><i class="fa-solid fa-fire-burner"></i> لتجهيز</button>`;
+                nextStepBtnHtml = `<button onclick="event.stopPropagation(); quickAdvanceOrderStatus('${o.id}')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm flex items-center gap-1" title="نقل الطلب فوراً إلى قيد التجهيز"><i class="fa-solid fa-fire-burner"></i> لتجهيز</button>`;
             } else if (st === 'processing') {
-                nextStepBtnHtml = `<button onclick="event.stopPropagation(); quickAdvanceOrderStatus('${o.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition-all flex items-center gap-1 active:scale-95" title="توجيه الطلب للمندوب"><i class="fa-solid fa-motorcycle"></i> توجيه</button>`;
+                nextStepBtnHtml = `<button onclick="event.stopPropagation(); quickAdvanceOrderStatus('${o.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm flex items-center gap-1" title="توجيه الطلب للمندوب"><i class="fa-solid fa-motorcycle"></i> توجيه</button>`;
             } else if (st === 'dispatched') {
-                nextStepBtnHtml = `<button onclick="event.stopPropagation(); quickAdvanceOrderStatus('${o.id}')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition-all flex items-center gap-1 active:scale-95" title="تأكيد تسليم الطلب للعميل"><i class="fa-solid fa-check-double"></i> تسليم</button>`;
+                nextStepBtnHtml = `<button onclick="event.stopPropagation(); quickAdvanceOrderStatus('${o.id}')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm flex items-center gap-1" title="تأكيد تسليم الطلب للعميل"><i class="fa-solid fa-check-double"></i> تسليم</button>`;
             }
 
             // ⚡ 1. الوضع المضغوط السريع (Compact Mode)
@@ -547,7 +584,7 @@
                     ? o.items.map(i => formatOrderItemBadgeClean(i).mainText).join(' + ')
                     : '-';
                 return `
-                <div data-id="${o.id}" class="order-card ${trustInfo.cardClass} ${stStyle.border} p-2.5 rounded-xl border shadow-sm hover:shadow-md transition-all flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div data-id="${o.id}" class="order-card ${trustInfo.cardClass} ${stStyle.border} p-2.5 rounded-xl border shadow-sm flex flex-wrap items-center justify-between gap-2 text-xs">
                     <div class="flex items-center gap-2 min-w-[180px]">
                         <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer">
                         <span onclick="openCustomerCard('${o.customerPhone}')" class="font-black text-slate-800 cursor-pointer hover:text-brand-primary">${o.customerName || 'بدون اسم'}</span>
@@ -566,39 +603,37 @@
                 </div>`;
             }
 
-            // 👑 2. وضع كارت المركز الأول الفندقي الفاخر (Executive Card Mode)
+            // 👑 2. وضع الكارت الفاخر خفيف الوزن (Zero-Lag Executive Card)
             let completedDateHtml = '';
             if (st === 'completed') {
                 let cTime = o.completedTimeDisplay || (o.completedAtStr ? o.completedAtStr : 'تم التسليم');
                 completedDateHtml = `<span class="text-[9px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-black"><i class="fa-solid fa-check-double"></i> ${cTime}</span>`;
             }
 
-            // رسم شارات الأصناف بشكل أنيق ومقروء جداً
             let itemsStr = (o.items && Array.isArray(o.items)) ? o.items.map((i, idx) => {
                 const fmt = formatOrderItemBadgeClean(i);
                 return `
-                <div data-item-idx="${idx}" class="bg-white border border-slate-200/90 px-2.5 py-1.5 rounded-xl text-xs shadow-sm inline-flex flex-col justify-center hover:border-brand-primary transition-colors">
+                <div data-item-idx="${idx}" class="bg-white border border-slate-200/90 px-2.5 py-1.5 rounded-xl text-xs shadow-sm inline-flex flex-col justify-center">
                     <div class="flex items-center gap-1.5">
                         <span class="font-black text-slate-800">${fmt.mainText}</span>
-                        <span class="text-[10px] text-emerald-700 font-black bg-emerald-50 px-1.5 py-0.5 rounded-md cursor-pointer border border-emerald-200/60 hover:bg-emerald-600 hover:text-white transition-colors" ondblclick="editItemPrice('${o.id}', ${idx})" title="اضغط مرتين لتعديل السعر">${i.price}ج</span>
+                        <span class="text-[10px] text-emerald-700 font-black bg-emerald-50 px-1.5 py-0.5 rounded-md cursor-pointer border border-emerald-200/60" ondblclick="editItemPrice('${o.id}', ${idx})" title="اضغط مرتين لتعديل السعر">${i.price}ج</span>
                     </div>
                     ${fmt.subGrams ? `<span class="text-[9px] font-bold text-indigo-600 mt-0.5"><i class="fa-solid fa-scale-balanced text-[8px] ml-0.5"></i>الأوزان: ${fmt.subGrams}</span>` : ''}
                 </div>`;
             }).join('') : '<span class="text-slate-400 text-xs font-bold">لا توجد تفاصيل</span>';
 
-            // شارة طريقة الدفع والمطلوب تحصيله بدقة
             let paymentBadge = '';
             let collectHighlightHtml = '';
 
             if (payBr.method === 'online') {
-                paymentBadge = '<span class="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-credit-card"></i> خالص أونلاين</span>';
+                paymentBadge = '<span class="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1"><i class="fa-solid fa-credit-card"></i> خالص أونلاين</span>';
                 collectHighlightHtml = `
                     <div class="bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-xl text-left">
                         <span class="text-[9px] font-black text-emerald-700 block leading-none">خالص فيزا/محفظة</span>
                         <span class="font-black text-emerald-700 text-base sm:text-lg leading-tight">${o.total || 0} <span class="text-[10px]">ج</span></span>
                     </div>`;
             } else if (payBr.method === 'split') {
-                paymentBadge = `<span class="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-scale-balanced"></i> نص ونص (مدفوع ${payBr.online}ج محفظة)</span>`;
+                paymentBadge = `<span class="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1"><i class="fa-solid fa-scale-balanced"></i> نص ونص (مدفوع ${payBr.online}ج محفظة)</span>`;
                 collectHighlightHtml = `
                     <div class="bg-amber-50 border-2 border-amber-300 px-3 py-1 rounded-xl text-left">
                         <span class="text-[9px] font-black text-amber-800 block leading-none">المطلوب كاش: ${payBr.cash} ج</span>
@@ -614,15 +649,15 @@
             }
 
             if (o.debt && o.debt > 0) {
-                paymentBadge += ` <span class="text-[10px] bg-red-600 text-white px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-triangle-exclamation"></i> آجل (${o.debt} ج)</span>`;
+                paymentBadge += ` <span class="text-[10px] bg-red-600 text-white px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1"><i class="fa-solid fa-triangle-exclamation"></i> آجل (${o.debt} ج)</span>`;
             }
 
             let batchTagHtml = realBatchTitle
-                ? `<span onclick="setOrdersQuickFilter('batch', '${realBatchTitle}')" class="text-[10px] bg-teal-50 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 cursor-pointer hover:bg-teal-600 hover:text-white transition-colors"><i class="fa-solid fa-layer-group"></i> ${realBatchTitle}</span>`
+                ? `<span onclick="setOrdersQuickFilter('batch', '${realBatchTitle}')" class="text-[10px] bg-teal-50 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 cursor-pointer"><i class="fa-solid fa-layer-group"></i> ${realBatchTitle}</span>`
                 : '';
 
             let driverBadgeHtml = o.driverName
-                ? `<span class="text-[10px] bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 cursor-pointer hover:bg-blue-600 hover:text-white transition-colors"><i class="fa-solid fa-motorcycle"></i> مع: ${o.driverName}</span>`
+                ? `<span class="text-[10px] bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1"><i class="fa-solid fa-motorcycle"></i> مع: ${o.driverName}</span>`
                 : '';
 
             let deliveryWindowBadge = '';
@@ -632,33 +667,33 @@
             }
 
             let customTagHtml = o.customTag
-                ? `<span onclick="document.getElementById('search-order').value='${o.customTag}'; renderOrdersList();" class="text-[10px] bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 cursor-pointer hover:bg-purple-600 hover:text-white transition-colors"><i class="fa-solid fa-hashtag"></i> ${o.customTag}</span>`
+                ? `<span onclick="document.getElementById('search-order').value='${o.customTag}'; renderOrdersList();" class="text-[10px] bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 cursor-pointer"><i class="fa-solid fa-hashtag"></i> ${o.customTag}</span>`
                 : '';
 
             let phone2Html = o.customerPhone2 ? `
                 <span class="inline-flex items-center gap-1 bg-purple-50 px-1.5 py-0.5 rounded-md border border-purple-200">
                     <span class="text-[9px] font-black text-purple-600">بديل:</span>
                     <span class="text-[10px] text-slate-700 font-bold" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone2')">${o.customerPhone2}</span>
-                    <a href="tel:${o.customerPhone2}" class="text-purple-600 hover:text-purple-800 text-[9px]"><i class="fa-solid fa-phone"></i></a>
+                    <a href="tel:${o.customerPhone2}" class="text-purple-600 text-[9px]"><i class="fa-solid fa-phone"></i></a>
                 </span>` : '';
 
             const adminNotesCount = o.adminNote ? o.adminNote.split('\n---\n').filter(Boolean).length : 0;
             const driverNotesCount = o.driverNote ? o.driverNote.split('\n---\n').filter(Boolean).length : 0;
 
             return `
-            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${stStyle.border} p-3.5 sm:p-4 rounded-2xl shadow-sm border hover:shadow-md transition-all relative group cursor-pointer space-y-2.5">
-                <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb absolute top-3.5 left-3.5 w-4 h-4 accent-brand-primary cursor-pointer opacity-80 group-hover:opacity-100 checked:opacity-100 transition-opacity z-10">
+            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${stStyle.border} p-3.5 sm:p-4 rounded-2xl shadow-sm border relative cursor-pointer space-y-2.5">
+                <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb absolute top-3.5 left-3.5 w-4 h-4 accent-brand-primary cursor-pointer z-10">
 
                 ${trustInfo.bannerHtml}
                 ${trustInfo.stickyHtml}
 
-                <!-- المنطقة 1: رأس الكارت (العميل + الموقع + شارة الحالة والوقت) -->
+                <!-- المنطقة 1: رأس الكارت -->
                 <div class="flex justify-between items-start gap-2 pl-6">
                     <div class="space-y-1">
                         <div class="flex flex-wrap items-center gap-1.5">
-                            <span class="font-black text-slate-800 text-sm sm:text-base cursor-pointer hover:text-brand-primary border-b border-transparent hover:border-brand-primary border-dashed" onclick="smartNameClick(this, '${o.id}', '${o.customerPhone}', 'customerName')">${o.customerName || 'بدون اسم'}</span>
+                            <span class="font-black text-slate-800 text-sm sm:text-base cursor-pointer hover:text-brand-primary" onclick="smartNameClick(this, '${o.id}', '${o.customerPhone}', 'customerName')">${o.customerName || 'بدون اسم'}</span>
                             ${trustInfo.badgeHtml}
-                            <a href="tel:${o.customerPhone}" class="text-emerald-600 hover:text-white hover:bg-emerald-600 w-5 h-5 flex items-center justify-center bg-emerald-50 border border-emerald-200 rounded-full transition-colors" title="اتصال مباشر"><i class="fa-solid fa-phone text-[9px]"></i></a>
+                            <a href="tel:${o.customerPhone}" class="text-emerald-600 w-5 h-5 flex items-center justify-center bg-emerald-50 border border-emerald-200 rounded-full" title="اتصال مباشر"><i class="fa-solid fa-phone text-[9px]"></i></a>
                             <span class="text-[11px] text-slate-500 font-bold cursor-pointer" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone')">${o.customerPhone}</span>
                             ${phone2Html}
                         </div>
@@ -679,8 +714,8 @@
                     </div>
                 </div>
 
-                <!-- المنطقة 2: قلب الكارت (الأصناف على اليمين + تذكرة الحساب الصافي على اليسار) -->
-                <div class="bg-slate-50/90 p-2.5 sm:p-3 rounded-xl border border-slate-200/60 space-y-2">
+                <!-- المنطقة 2: قلب الكارت -->
+                <div class="bg-slate-50 p-2.5 sm:p-3 rounded-xl border border-slate-200/60 space-y-2">
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div class="flex flex-wrap gap-1.5 flex-1">
                             ${itemsStr}
@@ -705,19 +740,19 @@
                     </div>` : ''}
                 </div>
 
-                <div id="inline-notes-container-${o.id}" class="hidden w-full transition-all duration-300 origin-top">
+                <div id="inline-notes-container-${o.id}" class="hidden w-full">
                     <div id="inline-notes-content-${o.id}"></div>
                 </div>
 
-                <!-- المنطقة 3: شريط الإجراءات السفلي الرشيق (5 عناصر نظيفة فقط + قائمة •••) -->
+                <!-- المنطقة 3: شريط الإجراءات السفلي الخفيف والواضح -->
                 <div class="flex flex-wrap items-center justify-between gap-2 pt-0.5">
                     <div class="flex flex-wrap items-center gap-1.5">
                         ${st === 'completed' ? `
-                            <button onclick="sendFollowUpWhatsApp('${o.customerPhone}', '${o.customerName}')" class="text-[10px] bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-xl font-black shadow-sm flex items-center gap-1"><i class="fa-solid fa-heart-circle-check"></i> متابعة</button>
-                            <button onclick="openLinkArchiveModal('${o.id}')" class="text-[10px] bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1.5 rounded-xl font-black shadow-sm flex items-center gap-1"><i class="fa-solid fa-link text-amber-400"></i> أرشفة للدفعة</button>
+                            <button onclick="sendFollowUpWhatsApp('${o.customerPhone}', '${o.customerName}')" class="text-[10px] bg-indigo-600 text-white px-2.5 py-1.5 rounded-xl font-black shadow-sm flex items-center gap-1"><i class="fa-solid fa-heart-circle-check"></i> متابعة</button>
+                            <button onclick="openLinkArchiveModal('${o.id}')" class="text-[10px] bg-slate-800 text-white px-2.5 py-1.5 rounded-xl font-black shadow-sm flex items-center gap-1"><i class="fa-solid fa-link text-amber-400"></i> أرشفة للدفعة</button>
                         ` : `
                             <div class="inline-flex rounded-xl shadow-sm overflow-hidden">
-                                <button onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="text-[10px] bg-[#25D366] hover:bg-[#1ebd57] text-white px-2.5 py-1.5 font-black flex items-center gap-1"><i class="fa-brands fa-whatsapp"></i> واتساب</button>
+                                <button onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="text-[10px] bg-[#25D366] text-white px-2.5 py-1.5 font-black flex items-center gap-1"><i class="fa-brands fa-whatsapp"></i> واتساب</button>
                                 <select onchange="if(this.value){ sendQuickWhatsAppOption('${o.id}', this.value); this.value=''; }" class="bg-[#1ebd57] text-white text-[9px] font-black px-1 border-r border-white/20 outline-none cursor-pointer" title="رسائل واتساب جاهزة">
                                     <option value="">▼</option>
                                     <option value="invoice">🧾 إرسال الفاتورة</option>
@@ -728,41 +763,23 @@
                             </div>
                         `}
 
-                        <button onclick="event.stopPropagation(); printSingleOrderWaybill('${o.id}')" class="text-[10px] bg-amber-50 text-amber-900 hover:bg-amber-500 hover:text-white px-2.5 py-1.5 rounded-xl font-black border border-amber-200 transition-all flex items-center gap-1"><i class="fa-solid fa-print"></i> بوليصة</button>
-                        <button onclick="openEditOrderModal('${o.id}')" class="text-[10px] bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white px-2.5 py-1.5 rounded-xl font-black transition-all flex items-center gap-1"><i class="fa-solid fa-pen"></i> تعديل</button>
+                        <button onclick="event.stopPropagation(); printSingleOrderWaybill('${o.id}')" class="text-[10px] bg-amber-50 text-amber-900 px-2.5 py-1.5 rounded-xl font-black border border-amber-200 flex items-center gap-1"><i class="fa-solid fa-print"></i> بوليصة</button>
+                        <button onclick="openEditOrderModal('${o.id}')" class="text-[10px] bg-slate-100 text-slate-700 px-2.5 py-1.5 rounded-xl font-black flex items-center gap-1"><i class="fa-solid fa-pen"></i> تعديل</button>
 
-                        <!-- كبسولة الملاحظات السريعة -->
                         <div class="inline-flex items-center bg-slate-100 rounded-xl p-0.5 border border-slate-200/80">
-                            <button onclick="toggleInlineNotes(event, '${o.id}', 'adminNote')" class="text-[10px] ${adminNotesCount > 0 ? 'bg-amber-400 text-slate-950' : 'text-amber-800 hover:bg-white'} px-2 py-1 rounded-lg font-black flex items-center gap-1 transition-all" title="ملاحظات إدارية">
+                            <button onclick="toggleInlineNotes(event, '${o.id}', 'adminNote')" class="text-[10px] ${adminNotesCount > 0 ? 'bg-amber-400 text-slate-950' : 'text-amber-800'} px-2 py-1 rounded-lg font-black flex items-center gap-1" title="ملاحظات إدارية">
                                 <i class="fa-solid fa-lock text-[9px]"></i> ${adminNotesCount > 0 ? adminNotesCount : 'إداري'}
                             </button>
-                            <button onclick="toggleInlineNotes(event, '${o.id}', 'driverNote')" class="text-[10px] ${driverNotesCount > 0 ? 'bg-blue-600 text-white' : 'text-blue-800 hover:bg-white'} px-2 py-1 rounded-lg font-black flex items-center gap-1 transition-all" title="ملاحظات للمندوب">
+                            <button onclick="toggleInlineNotes(event, '${o.id}', 'driverNote')" class="text-[10px] ${driverNotesCount > 0 ? 'bg-blue-600 text-white' : 'text-blue-800'} px-2 py-1 rounded-lg font-black flex items-center gap-1" title="ملاحظات للمندوب">
                                 <i class="fa-solid fa-motorcycle text-[9px]"></i> ${driverNotesCount > 0 ? driverNotesCount : 'مندوب'}
                             </button>
-                        </div>
-
-                        <!-- قائمة (•••) للأدوات الإضافية لمنع زحام الكارت -->
-                        <div class="relative ord-more-menu-wrap">
-                            <button type="button" onclick="toggleOrderMoreMenu(event, '${o.id}')" class="w-7 h-7 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-black transition-colors" title="خيارات إضافية">
-                                <i class="fa-solid fa-ellipsis"></i>
-                            </button>
-                            <div id="ord-more-menu-${o.id}" class="ord-more-dropdown hidden absolute bottom-full right-0 mb-1.5 w-44 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-50 text-xs font-black">
-                                <button type="button" onclick="openOrderTracking('${o.id}'); toggleOrderMoreMenu(event, '${o.id}');" class="w-full px-3 py-2 text-right hover:bg-sky-50 text-sky-700 flex items-center gap-2">
-                                    <i class="fa-solid fa-route w-4 text-center"></i> السجل الزمني والتتبع
-                                </button>
-                                <button type="button" onclick="openLinkArchiveModal('${o.id}'); toggleOrderMoreMenu(event, '${o.id}');" class="w-full px-3 py-2 text-right hover:bg-amber-50 text-slate-700 flex items-center gap-2">
-                                    <i class="fa-solid fa-box-archive w-4 text-center text-amber-500"></i> ترحيل لأرشيف دفعة
-                                </button>
-                                <button type="button" onclick="quickBanFromOrderCard('${o.id}'); toggleOrderMoreMenu(event, '${o.id}');" class="w-full px-3 py-2 text-right hover:bg-red-50 text-red-600 flex items-center gap-2 border-t border-slate-100 mt-1 pt-2">
-                                    <i class="fa-solid fa-ban w-4 text-center"></i> إدراج في البلاك ليست
-                                </button>
-                            </div>
+                            <button onclick="openOrderTracking('${o.id}')" class="text-[10px] text-sky-700 px-2 py-1 rounded-lg font-black" title="تتبع الطلب"><i class="fa-solid fa-route text-[10px]"></i></button>
                         </div>
                     </div>
 
                     <div class="flex items-center gap-1.5 mr-auto sm:mr-0">
                         ${nextStepBtnHtml}
-                        <select onchange="updateOrderStatus('${o.id}', this.value)" class="text-[10px] font-black bg-white border border-slate-200 rounded-xl px-2 py-1.5 outline-none text-slate-700 cursor-pointer focus:ring-2 focus:ring-brand-primary/20">
+                        <select onchange="updateOrderStatus('${o.id}', this.value)" class="text-[10px] font-black bg-white border border-slate-200 rounded-xl px-2 py-1.5 outline-none text-slate-700 cursor-pointer">
                             <option value="new" ${st === 'new' ? 'selected' : ''}>جديد</option>
                             <option value="processing" ${st === 'processing' ? 'selected' : ''}>تجهيز</option>
                             <option value="dispatched" ${st === 'dispatched' ? 'selected' : ''}>بالطريق</option>
@@ -779,8 +796,8 @@
 
         if (remainingCount > 0) {
             cardsHtml += `
-            <button type="button" onclick="window.ordersRenderLimit = (window.ordersRenderLimit || 50) + 50; renderOrdersList();" class="w-full py-3.5 bg-white hover:bg-emerald-50 text-brand-primary font-black text-xs rounded-2xl border-2 border-dashed border-brand-primary/30 shadow-sm transition-all flex items-center justify-center gap-2">
-                <i class="fa-solid fa-angles-down"></i> عرض المزيد من الطلبات (متبقي ${remainingCount} طلب)
+            <button type="button" onclick="window.ordersRenderLimit = (window.ordersRenderLimit || 25) + 25; renderOrdersList();" class="w-full py-3.5 bg-white hover:bg-emerald-50 text-brand-primary font-black text-xs rounded-2xl border-2 border-dashed border-brand-primary/30 shadow-sm flex items-center justify-center gap-2">
+                <i class="fa-solid fa-angles-down"></i> عرض 25 طلب إضافي (متبقي ${remainingCount} طلب)
             </button>`;
         }
 
@@ -792,7 +809,7 @@
     };
 
     // =========================================================================
-    // 🔄 5. تحديث حالة الطلب مع استرجاع الأوزان للمصفوفة عند الإلغاء أو السلة
+    // 🔄 6. تحديث حالة الطلب مع استرجاع الأوزان للمصفوفة عند الإلغاء أو السلة
     // =========================================================================
     window.updateOrderStatus = async function (id, newStatus) {
         let o = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(x => x.id === id);
@@ -810,7 +827,6 @@
                     updateData.deletedAt = firebase.firestore.FieldValue.serverTimestamp();
                 }
 
-                // 1. إدارة رصيد الفريزر الفعلي
                 let wasDeductedFromFreezer = ['processing', 'completed', 'dispatched'].includes(oldStatus);
                 let willBeDeductedFromFreezer = ['processing', 'completed', 'dispatched'].includes(newStatus);
 
@@ -840,7 +856,6 @@
                     if (touched) atomicBatch.set(db.collection('inventory').doc('freezer'), fzNewData, { merge: true });
                 }
 
-                // 2. إدارة التواريخ ونقاط الولاء عند الاكتمال
                 if (newStatus === 'dispatched') {
                     updateData.dispatchedAt = firebase.firestore.FieldValue.serverTimestamp();
                 } else if (newStatus === 'completed') {
@@ -904,7 +919,6 @@
 
                 atomicBatch.update(orderRef, updateData);
 
-                // 3. إرجاع المخزون والمحجوز بالدفعة وأوزان المصفوفة عند (الإلغاء أو النقل للسلة)
                 const wasInactive = ['canceled', 'trash'].includes(oldStatus);
                 const isNowInactive = ['canceled', 'trash'].includes(newStatus);
 
@@ -977,9 +991,6 @@
                 if (typeof window.syncOrderToGoogleSheet === 'function') {
                     window.syncOrderToGoogleSheet(updatedOrderObj, 'update');
                 }
-                if (typeof window.saveInventoryFastMirror === 'function') {
-                    window.saveInventoryFastMirror();
-                }
                 window.refreshCustomersData();
             } catch (e) {
                 console.error(e);
@@ -999,7 +1010,7 @@
     };
 
     // =========================================================================
-    // 📦 6. ورقة التحضير المطبخية (Packing List) والعمليات الجماعية
+    // 📦 7. ورقة التحضير المطبخية (Packing List) والعمليات الجماعية
     // =========================================================================
     window.packingListZoneFilter = 'all';
 
@@ -1127,7 +1138,7 @@
                             <p class="text-[10px] font-bold text-emerald-600 mt-0.5">${itemsStr} (${o.total} ج)</p>
                         </div>
                     </div>
-                    <button onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}'); this.classList.replace('bg-[#25D366]', 'bg-slate-300'); this.innerText='تم الإرسال ✓';" class="bg-[#25D366] text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm hover:bg-[#1ebd57] transition-colors shrink-0">إرسال فردي</button>
+                    <button onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}'); this.classList.replace('bg-[#25D366]', 'bg-slate-300'); this.innerText='تم الإرسال ✓';" class="bg-[#25D366] text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm shrink-0">إرسال فردي</button>
                 </div>`;
         });
         openModal('batch-broadcast-modal');
@@ -1168,16 +1179,4 @@
             alert('حدث خطأ أثناء تعديل السعر!');
         }
     };
-
-    if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', () => setTimeout(() => {
-            window.initSmartOrdersToolbar();
-            if ((window.smanCurrentActiveTab || 'dashboard') === 'orders') window.renderOrdersList();
-        }, 250));
-    } else {
-        setTimeout(() => {
-            window.initSmartOrdersToolbar();
-            if ((window.smanCurrentActiveTab || 'dashboard') === 'orders') window.renderOrdersList();
-        }, 250);
-    }
 })();
