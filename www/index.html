@@ -2008,18 +2008,38 @@
             }
         }
 
+        const _modalAttrObserver = new MutationObserver((mutations) => {
+            mutations.forEach((m) => {
+                if (m.type === 'attributes' && m.attributeName === 'class' && m.target) {
+                    const el = m.target;
+                    const isNowVisible = !el.classList.contains('hidden');
+                    const wasVisible = el.getAttribute('data-was-visible') === '1';
+                    if (isNowVisible && !wasVisible) {
+                        el.setAttribute('data-was-visible', '1');
+                        if (!isHandlingPopState) {
+                            try { history.pushState({ guard: 'modal', modal: el.id }, ''); } catch (e) {}
+                        }
+                    } else if (!isNowVisible && wasVisible) {
+                        el.setAttribute('data-was-visible', '0');
+                    }
+                }
+            });
+        });
+
         window.addEventListener('DOMContentLoaded', () => {
             try { history.replaceState({ guard: 'root', tab: 'dashboard' }, '', window.location.hash || '#dashboard'); } catch (e) {}
             restoreLastSessionTab();
             // تفعيل المراقب الذكي على كل النوافذ المنبثقة
             setTimeout(() => {
                 document.querySelectorAll('[id$="-modal"]').forEach(el => {
+                    el.setAttribute('data-was-visible', el.classList.contains('hidden') ? '0' : '1');
                     _modalAttrObserver.observe(el, { attributes: true, attributeFilter: ['class'] });
                 });
                 const bodyObs = new MutationObserver((muts) => {
                     muts.forEach(m => {
                         m.addedNodes.forEach(node => {
                             if (node.nodeType === 1 && node.id && (node.id.endsWith('-modal') || node.id === 'lc-floating-popover')) {
+                                node.setAttribute('data-was-visible', node.classList.contains('hidden') ? '0' : '1');
                                 _modalAttrObserver.observe(node, { attributes: true, attributeFilter: ['class'] });
                             }
                         });
@@ -2028,6 +2048,7 @@
                 bodyObs.observe(document.body, { childList: true });
             }, 300);
         });
+
 
         // === 3. التعرف التلقائي الآمن على موبايل المالك (يمنع الشاشة البيضاء وسباق التحميل 100%) ===
         window._crmBootedOnce = false;
@@ -7314,12 +7335,21 @@ window.deleteProductUI = async (id) => {
 
             if (newItems.length === 0) return alert('لا يمكن حفظ طلب فارغ!');
 
+            let newCustName = document.getElementById('edit-cust-name-input') ? document.getElementById('edit-cust-name-input').value.trim() : (editingOrderData.customerName || '');
+            let rawEditPhone = document.getElementById('edit-cust-phone-input') ? document.getElementById('edit-cust-phone-input').value.trim() : (editingOrderData.customerPhone || '');
+            let newCustPhone = window.normalizePhone ? window.normalizePhone(rawEditPhone) : rawEditPhone;
+            if (!newCustPhone) newCustPhone = editingOrderData.customerPhone || '';
+            let newCustZone = document.getElementById('edit-cust-zone-input') ? document.getElementById('edit-cust-zone-input').value : (editingOrderData.zone || '');
+            let newCustAddress = document.getElementById('edit-cust-address-input') ? document.getElementById('edit-cust-address-input').value.trim() : (editingOrderData.customerAddress || '');
+            let newOrderDebt = Math.max(0, Number(document.getElementById('edit-order-debt-input')?.value) || 0);
+
             let newDelivery = Number(document.getElementById('edit-delivery').value) || 0;
             let newDiscount = Number(document.getElementById('edit-discount').value) || 0;
             let newTotal = Number(document.getElementById('edit-total').value) || 0;
             let newBatchName = (newBatchId && storeBatches[newBatchId]) ? storeBatches[newBatchId].name : '';
             let newCustomTag = document.getElementById('edit-custom-tag') ? document.getElementById('edit-custom-tag').value.trim() : '';
-            let newPhone2 = document.getElementById('edit-phone-2') ? document.getElementById('edit-phone-2').value.trim() : '';
+            let rawPhone2 = document.getElementById('edit-phone-2') ? document.getElementById('edit-phone-2').value.trim() : '';
+            let newPhone2 = rawPhone2 ? (window.normalizePhone ? window.normalizePhone(rawPhone2) : rawPhone2) : '';
             let newPaymentMethod = document.getElementById('edit-payment-method') ? document.getElementById('edit-payment-method').value : 'cash';
 
             let newPaidCash = newTotal;
@@ -7339,6 +7369,8 @@ window.deleteProductUI = async (id) => {
 
             let oldTotal = Number(editingOrderData.total) || 0;
             let difference = newTotal - oldTotal;
+            let oldDebt = Number(editingOrderData.debt) || 0;
+            let debtDifference = newOrderDebt - oldDebt;
 
             const btn = document.getElementById('btn-save-edit');
             const origHtml = btn.innerHTML;
@@ -7349,6 +7381,11 @@ window.deleteProductUI = async (id) => {
 
                 let orderRef = db.collection('orders').doc(editingOrderData.id);
                 atomicBatch.update(orderRef, {
+                    customerName: newCustName,
+                    customerPhone: newCustPhone,
+                    zone: newCustZone,
+                    customerAddress: newCustAddress,
+                    debt: newOrderDebt,
                     items: newItems,
                     subtotal: newSubtotal,
                     deliveryFee: newDelivery,
@@ -7371,12 +7408,20 @@ window.deleteProductUI = async (id) => {
                     atomicBatch.set(db.collection('inventory').doc('settings'), { productsData: storeProducts }, { merge: true });
                 }
 
-                
-                if(difference !== 0 && editingOrderData.customerPhone) { 
-                    let cleanPhone = editingOrderData.customerPhone.startsWith('0') ? editingOrderData.customerPhone : '0' + editingOrderData.customerPhone; 
-                    atomicBatch.set(db.collection('customers').doc(cleanPhone), { totalSpent: firebase.firestore.FieldValue.increment(difference) }, {merge: true}); 
+                if (newCustPhone) {
+                    let cleanPhone = newCustPhone.startsWith('0') ? newCustPhone : '0' + newCustPhone;
+                    let custUpdateObj = {
+                        name: newCustName,
+                        phone: cleanPhone,
+                        zone: newCustZone,
+                        address: newCustAddress
+                    };
+                    if (newPhone2) custUpdateObj.phone2 = newPhone2;
+                    if (difference !== 0) custUpdateObj.totalSpent = firebase.firestore.FieldValue.increment(difference);
+                    if (debtDifference !== 0) custUpdateObj.debt = firebase.firestore.FieldValue.increment(debtDifference);
+                    atomicBatch.set(db.collection('customers').doc(cleanPhone), custUpdateObj, { merge: true });
                 }
-                
+
                 if(difference !== 0 && editingOrderData.status !== 'canceled' && editingOrderData.status !== 'trash') { 
                     atomicBatch.set(db.collection('inventory').doc('stats'), { sales: firebase.firestore.FieldValue.increment(difference) }, {merge: true}); 
                 }
