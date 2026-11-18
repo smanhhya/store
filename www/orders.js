@@ -1414,11 +1414,632 @@
         }
     };
 
-    if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', () => {
-            window.initSmartOrdersToolbar();
+    // =========================================================================
+    // ⚡ 10. اختصار التوجيه السريع للمندوب بلمسة واحدة (1-Tap Express Dispatch)
+    // =========================================================================
+    window.openExpressBatchDispatchPopover = function (anchorEl) {
+        const procOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o => o && o.status === 'processing' && !o.isArchived);
+        if (procOrders.length === 0) {
+            if (typeof window.showToast === 'function') window.showToast('ℹ️ لا توجد طلبات في مرحلة (قيد التجهيز) حالياً لتوجيهها!');
+            else alert('لا توجد طلبات في مرحلة (قيد التجهيز) حالياً!');
+            return;
+        }
+
+        const drivers = (typeof storeSettings !== 'undefined' && Array.isArray(storeSettings.drivers)) ? storeSettings.drivers : [];
+        if (drivers.length === 0) {
+            if (typeof window.openDispatchModal === 'function') return window.openDispatchModal();
+            return alert('يرجى إضافة مندوب أولاً من قسم إعدادات المتجر!');
+        }
+
+        const zonesCount = {};
+        procOrders.forEach(o => {
+            const z = (o.zone || 'غير مسجل').trim();
+            zonesCount[z] = (zonesCount[z] || 0) + 1;
         });
-    } else {
+
+        let zoneOptions = `<option value="ALL">🌍 كل المناطق الجاهزة (${procOrders.length} طلب)</option>`;
+        Object.keys(zonesCount).forEach(z => {
+            zoneOptions += `<option value="${z}">📍 منطقة: ${z} (${zonesCount[z]} طلب)</option>`;
+        });
+
+        const driverBtns = drivers.map(d => {
+            const safeName = (d.name || '').replace(/'/g, "\\'");
+            const safePhone = (d.phone || '').replace(/'/g, "\\'");
+            return `
+                <button type="button" onclick="executeExpressBatchDispatch('${safeName}', '${safePhone}')" class="w-full bg-indigo-50 hover:bg-indigo-600 text-indigo-950 hover:text-white py-2 px-3 rounded-xl text-xs font-black flex items-center justify-between border border-indigo-100 transition-all shadow-sm">
+                    <span>🛵 توجيه إلى: ${d.name}</span>
+                    <span class="text-[10px] bg-white/80 text-indigo-700 px-2 py-0.5 rounded-lg">بلمسة واحدة ⚡</span>
+                </button>
+            `;
+        }).join('');
+
+        const html = `
+            <div class="space-y-2.5">
+                <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                    <span class="text-xs font-black text-indigo-900"><i class="fa-solid fa-bolt text-amber-500 ml-1"></i> توجيه سريع للجاهز (${procOrders.length} طلب)</span>
+                    <button type="button" onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-500 block mb-1">1. اختر خط السير / المنطقة:</label>
+                    <select id="express-dispatch-zone-sel" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black text-slate-800 bg-slate-50 outline-none">
+                        ${zoneOptions}
+                    </select>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-500 block">2. اضغط على اسم المندوب للنقل الفوري:</label>
+                    ${driverBtns}
+                </div>
+            </div>
+        `;
+
+        if (typeof window.openLivePopover === 'function') {
+            window.openLivePopover(anchorEl, html);
+        } else if (typeof window.openDispatchModal === 'function') {
+            window.openDispatchModal();
+        }
+    };
+
+    window.executeExpressBatchDispatch = async function (driverName, driverPhone) {
+        const selectedZone = document.getElementById('express-dispatch-zone-sel')?.value || 'ALL';
+        if (typeof window.closeLivePopover === 'function') window.closeLivePopover();
+
+        let targetOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o => {
+            if (!o || o.status !== 'processing' || o.isArchived) return false;
+            if (selectedZone !== 'ALL' && (o.zone || 'غير مسجل').trim() !== selectedZone) return false;
+            const bl = window.findBlacklistedCustomerMatch ? window.findBlacklistedCustomerMatch(o.customerPhone, o.customerPhone2, o.customerName, o.customerAddress) : null;
+            if (bl && bl.type === 'exact' && !o.isPrepaidConfirmed && o.paymentMethod !== 'online') return false;
+            return true;
+        });
+
+        if (targetOrders.length === 0) return alert('لا توجد طلبات مطابقة جاهزة للتوجيه!');
+
+        try {
+            const batch = db.batch();
+            targetOrders.forEach(o => {
+                batch.update(db.collection('orders').doc(o.id), {
+                    driverName: driverName,
+                    driverPhone: driverPhone || '',
+                    status: 'dispatched',
+                    dispatchedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                o.driverName = driverName;
+                o.driverPhone = driverPhone || '';
+                o.status = 'dispatched';
+                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[o.id]) {
+                    globalOrdersMap[o.id].driverName = driverName;
+                    globalOrdersMap[o.id].driverPhone = driverPhone || '';
+                    globalOrdersMap[o.id].status = 'dispatched';
+                }
+            });
+
+            await batch.commit();
+            window.renderOrdersList();
+            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
+            if (typeof window.showToast === 'function') {
+                window.showToast(`🛵 تم توجيه (${targetOrders.length}) طلب إلى المندوب (${driverName}) في لمحة بصر!`);
+            }
+        } catch (e) {
+            alert('حدث خطأ أثناء التوجيه السريع للمندوب!');
+        }
+    };
+
+    // =========================================================================
+    // ⏰ 11. منظومة جدولة الطلبات المؤجلة بالتقويم والمنبه الحي (Deferred Scheduler & Alarm)
+    // =========================================================================
+    window._deferredTargetOrderIds = [];
+    window._bypassDeferredModal = false;
+
+    function toLocalDateStr(d) {
+        const yr = d.getFullYear();
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const da = String(d.getDate()).padStart(2, '0');
+        return `${yr}-${mo}-${da}`;
+    }
+
+    function toLocalTimeStr(d) {
+        const hr = String(d.getHours()).padStart(2, '0');
+        const mn = String(d.getMinutes()).padStart(2, '0');
+        return `${hr}:${mn}`;
+    }
+
+    function parseLocalDateTimeToMs(dateStr, timeStr) {
+        if (!dateStr) return 0;
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const [hr, mn] = (timeStr || '12:00').split(':').map(Number);
+        const dt = new Date(y, (m || 1) - 1, d || 1, hr || 0, mn || 0, 0, 0);
+        return isNaN(dt.getTime()) ? 0 : dt.getTime();
+    }
+
+    function formatArabicScheduleLabel(ms) {
+        if (!ms) return '';
+        const dt = new Date(ms);
+        const datePart = dt.toLocaleDateString('ar-EG', { weekday: 'short', month: 'short', day: 'numeric' });
+        const timePart = dt.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true });
+        return `${datePart} - ${timePart}`;
+    }
+
+    function formatRemainingCountdown(targetMs) {
+        if (!targetMs) return '';
+        const diff = targetMs - Date.now();
+        if (diff <= 0) return '🚨 حان الموعد الآن!';
+        const totalMins = Math.floor(diff / 60000);
+        if (totalMins < 60) return `باقي ${totalMins} دقيقة`;
+        const hrs = Math.floor(totalMins / 60);
+        const mins = totalMins % 60;
+        if (hrs < 24) return `باقي ${hrs} س${mins > 0 ? ` و ${mins} د` : ''}`;
+        const days = Math.floor(hrs / 24);
+        const remHrs = hrs % 24;
+        return `باقي ${days} يوم${remHrs > 0 ? ` و ${remHrs} س` : ''}`;
+    }
+
+    // نغمة تنبيه صوتية واضحة تعمل أوفلاين 100% عبر Web Audio API
+    window.playDeferredAlarmChime = function () {
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return;
+            const ctx = new AudioCtx();
+            const notes = [587.33, 880, 587.33, 880];
+            notes.forEach((freq, idx) => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.18);
+                gain.gain.setValueAtTime(0.25, ctx.currentTime + idx * 0.18);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.18 + 0.16);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(ctx.currentTime + idx * 0.18);
+                osc.stop(ctx.currentTime + idx * 0.18 + 0.17);
+            });
+        } catch (e) {}
+    };
+
+    function ensureDeferredScheduleModalExists() {
+        let modal = document.getElementById('deferred-schedule-modal');
+        if (modal) return modal;
+
+        modal = document.createElement('div');
+        modal.id = 'deferred-schedule-modal';
+        modal.className = 'fixed inset-0 bg-slate-900/75 backdrop-blur-sm z-[230] hidden flex items-center justify-center p-3 sm:p-4';
+        modal.innerHTML = `
+            <div class="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-md overflow-hidden flex flex-col border-2 border-orange-300">
+                <div class="bg-gradient-to-l from-slate-900 via-orange-950 to-slate-900 text-white p-4 flex justify-between items-center">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-10 h-10 rounded-xl bg-orange-500/20 border border-orange-400/40 flex items-center justify-center text-orange-300 text-lg">
+                            <i class="fa-regular fa-calendar-check"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-sm sm:text-base font-black text-white">جدولة موعد الطلب المؤجل ⏰</h3>
+                            <p id="def-modal-subtitle" class="text-[11px] text-orange-200 font-bold">اختر التاريخ والوقت ليذكرك السيستم بإشعار تلقائي</p>
+                        </div>
+                    </div>
+                    <button type="button" onclick="cancelDeferredScheduleModal()" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-red-500 text-white flex items-center justify-center transition-colors">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <div class="p-4 sm:p-5 space-y-4 bg-slate-50/70">
+                    <!-- اختصارات سريعة بضغطة واحدة -->
+                    <div>
+                        <label class="text-[10px] font-black text-slate-500 block mb-1.5">⚡ اختصارات سريعة للموعد:</label>
+                        <div class="grid grid-cols-3 gap-1.5">
+                            <button type="button" onclick="applyDeferredQuickPreset(1, 0)" class="bg-white hover:bg-orange-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[11px] font-black transition-all shadow-sm">⏱️ بعد ساعة</button>
+                            <button type="button" onclick="applyDeferredQuickPreset(3, 0)" class="bg-white hover:bg-orange-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[11px] font-black transition-all shadow-sm">⏱️ بعد 3 ساعات</button>
+                            <button type="button" onclick="applyDeferredQuickPreset(0, 1, '10:00')" class="bg-white hover:bg-orange-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[11px] font-black transition-all shadow-sm">🌅 غداً 10 ص</button>
+                            <button type="button" onclick="applyDeferredQuickPreset(0, 1, '14:00')" class="bg-white hover:bg-orange-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[11px] font-black transition-all shadow-sm">☀️ غداً 2 ظهراً</button>
+                            <button type="button" onclick="applyDeferredQuickPreset(0, 1, '19:00')" class="bg-white hover:bg-orange-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[11px] font-black transition-all shadow-sm">🌙 غداً 7 مساءً</button>
+                            <button type="button" onclick="applyDeferredQuickPreset(0, 2, '12:00')" class="bg-white hover:bg-orange-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[11px] font-black transition-all shadow-sm">📅 بعد يومين</button>
+                        </div>
+                    </div>
+
+                    <!-- اختيار التاريخ والوقت من النتيجة والساعة -->
+                    <div class="grid grid-cols-2 gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
+                        <div>
+                            <label class="text-[10px] font-black text-orange-800 block mb-1"><i class="fa-regular fa-calendar ml-1"></i> التاريخ (النتيجة) *</label>
+                            <input type="date" id="def-sched-date" onchange="updateDeferredLivePreviewText()" class="w-full border-2 border-orange-200 focus:border-orange-500 rounded-xl p-2 text-xs font-black text-slate-800 bg-orange-50/30 outline-none">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-black text-orange-800 block mb-1"><i class="fa-regular fa-clock ml-1"></i> الساعة (الوقت) *</label>
+                            <input type="time" id="def-sched-time" onchange="updateDeferredLivePreviewText()" class="w-full border-2 border-orange-200 focus:border-orange-500 rounded-xl p-2 text-xs font-black text-slate-800 bg-orange-50/30 outline-none">
+                        </div>
+                        <div class="col-span-2 bg-orange-50 border border-orange-200/80 px-3 py-2 rounded-xl text-center">
+                            <span id="def-sched-live-preview" class="text-xs font-black text-orange-900"></span>
+                        </div>
+                    </div>
+
+                    <!-- سبب التأجيل أو ملاحظة الإشعار -->
+                    <div>
+                        <label class="text-[10px] font-black text-slate-500 block mb-1.5">📝 سبب التأجيل (يظهر مع الإشعار):</label>
+                        <div class="flex flex-wrap gap-1 mb-2">
+                            <button type="button" onclick="document.getElementById('def-sched-reason').value='طلب التوصيل في هذا الموعد'" class="bg-white border border-slate-200 text-slate-600 hover:bg-slate-800 hover:text-white px-2 py-0.5 rounded-lg text-[10px] font-bold transition-colors">طلب التوصيل بالموعد</button>
+                            <button type="button" onclick="document.getElementById('def-sched-reason').value='العميل مسافر ويعود بالموعد'" class="bg-white border border-slate-200 text-slate-600 hover:bg-slate-800 hover:text-white px-2 py-0.5 rounded-lg text-[10px] font-bold transition-colors">العميل مسافر</button>
+                            <button type="button" onclick="document.getElementById('def-sched-reason').value='بانتظار تحويل فودافون كاش'" class="bg-white border border-slate-200 text-slate-600 hover:bg-slate-800 hover:text-white px-2 py-0.5 rounded-lg text-[10px] font-bold transition-colors">انتظار تحويل</button>
+                        </div>
+                        <input type="text" id="def-sched-reason" placeholder="اكتب ملاحظة أو سبب التأجيل (اختياري)..." class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-white outline-none focus:border-orange-500">
+                    </div>
+                </div>
+
+                <div class="p-4 bg-white border-t border-slate-100 flex gap-2">
+                    <button type="button" onclick="confirmDeferredOrderSchedule()" id="btn-confirm-deferred-sched" class="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-black py-3 rounded-xl text-xs sm:text-sm shadow-lg shadow-orange-600/25 transition-all flex items-center justify-center gap-2 active:scale-95">
+                        <i class="fa-solid fa-bell text-amber-200"></i> تأكيد التأجيل وضبط الإشعار
+                    </button>
+                    <button type="button" onclick="cancelDeferredScheduleModal()" class="bg-slate-100 hover:bg-slate-200 text-slate-600 font-black px-4 py-3 rounded-xl text-xs transition-all">
+                        إلغاء
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    window.applyDeferredQuickPreset = function (addHours, addDays, fixedTimeStr = null) {
+        const dt = new Date();
+        if (addDays > 0) dt.setDate(dt.getDate() + addDays);
+        if (addHours > 0) dt.setHours(dt.getHours() + addHours);
+
+        const dateInp = document.getElementById('def-sched-date');
+        const timeInp = document.getElementById('def-sched-time');
+        if (dateInp) dateInp.value = toLocalDateStr(dt);
+        if (timeInp) timeInp.value = fixedTimeStr ? fixedTimeStr : toLocalTimeStr(dt);
+        window.updateDeferredLivePreviewText();
+    };
+
+    window.updateDeferredLivePreviewText = function () {
+        const dVal = document.getElementById('def-sched-date')?.value || '';
+        const tVal = document.getElementById('def-sched-time')?.value || '';
+        const prevEl = document.getElementById('def-sched-live-preview');
+        if (!prevEl) return;
+
+        const ms = parseLocalDateTimeToMs(dVal, tVal);
+        if (!ms) {
+            prevEl.innerText = 'يرجى تحديد التاريخ والوقت';
+            return;
+        }
+        const label = formatArabicScheduleLabel(ms);
+        const rem = formatRemainingCountdown(ms);
+        prevEl.innerHTML = `🔔 سيتم تنبيهك يوم: <strong class="underline">${label}</strong> (${rem})`;
+    };
+
+    window.openDeferredScheduleModal = function (orderIdsArray) {
+        const ids = Array.isArray(orderIdsArray) ? orderIdsArray : [orderIdsArray];
+        if (ids.length === 0) return;
+        window._deferredTargetOrderIds = ids;
+
+        ensureDeferredScheduleModalExists();
+
+        try {
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission().catch(() => {});
+            }
+        } catch (e) {}
+
+        const firstOrd = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === ids[0]);
+        const subEl = document.getElementById('def-modal-subtitle');
+        if (subEl) {
+            subEl.innerText = ids.length === 1 && firstOrd
+                ? `العميل: ${firstOrd.customerName || 'بدون اسم'} (${firstOrd.zone || ''})`
+                : `تأجيل جماعي لعدد (${ids.length}) طلبات محددة`;
+        }
+
+        const dateInp = document.getElementById('def-sched-date');
+        const timeInp = document.getElementById('def-sched-time');
+        const reasonInp = document.getElementById('def-sched-reason');
+
+        if (firstOrd && firstOrd.deferredDate && firstOrd.deferredTime) {
+            if (dateInp) dateInp.value = firstOrd.deferredDate;
+            if (timeInp) timeInp.value = firstOrd.deferredTime;
+            if (reasonInp) reasonInp.value = firstOrd.deferredReason || '';
+        } else {
+            window.applyDeferredQuickPreset(0, 1, '12:00');
+            if (reasonInp) reasonInp.value = '';
+        }
+
+        window.updateDeferredLivePreviewText();
+        if (typeof openModal === 'function') openModal('deferred-schedule-modal');
+        else document.getElementById('deferred-schedule-modal')?.classList.remove('hidden');
+    };
+
+    window.cancelDeferredScheduleModal = function () {
+        window._deferredTargetOrderIds = [];
+        if (typeof closeModal === 'function') closeModal('deferred-schedule-modal');
+        else document.getElementById('deferred-schedule-modal')?.classList.add('hidden');
+        window.renderOrdersList();
+    };
+
+    window.confirmDeferredOrderSchedule = async function () {
+        const ids = window._deferredTargetOrderIds || [];
+        if (ids.length === 0) return window.cancelDeferredScheduleModal();
+
+        const dVal = document.getElementById('def-sched-date')?.value || '';
+        const tVal = document.getElementById('def-sched-time')?.value || '';
+        const reason = (document.getElementById('def-sched-reason')?.value || '').trim();
+
+        const targetMs = parseLocalDateTimeToMs(dVal, tVal);
+        if (!targetMs) return alert('برجاء تحديد التاريخ والوقت بشكل صحيح!');
+
+        const displayStr = formatArabicScheduleLabel(targetMs);
+        const btn = document.getElementById('btn-confirm-deferred-sched');
+        const origHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري حفظ الموعد وضبط المنبه...';
+        }
+
+        try {
+            window._bypassDeferredModal = true;
+
+            for (const id of ids) {
+                const ord = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === id);
+                if (!ord) continue;
+
+                if (ord.status !== 'deferred' && typeof window._origUpdateOrderStatusForDeferred === 'function') {
+                    await window._origUpdateOrderStatusForDeferred(id, 'deferred');
+                }
+
+                const noteChunk = `[📅 مؤجل لموعد: ${displayStr}]${reason ? ' — ' + reason : ''}`;
+                const updatedAdminNote = ord.adminNote ? `${ord.adminNote}\n---\n${noteChunk}` : noteChunk;
+
+                const scheduleData = {
+                    status: 'deferred',
+                    deferredDate: dVal,
+                    deferredTime: tVal,
+                    deferredUntilMs: targetMs,
+                    deferredDisplayStr: displayStr,
+                    deferredReason: reason,
+                    deferredAlertDismissed: false,
+                    deferredNotifiedOnce: false,
+                    adminNote: updatedAdminNote
+                };
+
+                await db.collection('orders').doc(id).update(scheduleData);
+
+                Object.assign(ord, scheduleData);
+                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) {
+                    Object.assign(globalOrdersMap[id], scheduleData);
+                }
+            }
+
+            if (typeof closeModal === 'function') closeModal('deferred-schedule-modal');
+            else document.getElementById('deferred-schedule-modal')?.classList.add('hidden');
+
+            document.querySelectorAll('.bulk-order-cb').forEach(cb => { cb.checked = false; });
+            document.getElementById('bulk-actions-bar')?.classList.add('hidden');
+
+            window.renderOrdersList();
+            window.checkDueDeferredOrdersNow();
+            if (typeof window.showToast === 'function') {
+                window.showToast(`⏰ تم تأجيل الطلب وضبط المنبه ليوم (${displayStr})`);
+            }
+        } catch (e) {
+            console.error('Deferred schedule save error:', e);
+            alert('حدث خطأ أثناء حفظ موعد التأجيل!');
+        } finally {
+            window._bypassDeferredModal = false;
+            window._deferredTargetOrderIds = [];
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+            }
+        }
+    };
+
+    function hookDeferredStatusInterceptors() {
+        if (typeof window.updateOrderStatus === 'function' && !window.updateOrderStatus._deferredHooked) {
+            window._origUpdateOrderStatusForDeferred = window.updateOrderStatus;
+            const wrappedUpdateStatus = async function (id, newStatus) {
+                if (newStatus === 'deferred' && !window._bypassDeferredModal) {
+                    window.openDeferredScheduleModal([id]);
+                    return;
+                }
+                const ord = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === id);
+                if (ord && ord.status === 'deferred' && newStatus !== 'deferred') {
+                    ord.deferredAlertDismissed = true;
+                    db.collection('orders').doc(id).update({ deferredAlertDismissed: true }).catch(() => {});
+                }
+                const res = await window._origUpdateOrderStatusForDeferred.apply(this, arguments);
+                window.checkDueDeferredOrdersNow();
+                return res;
+            };
+            wrappedUpdateStatus._deferredHooked = true;
+            window.updateOrderStatus = wrappedUpdateStatus;
+        }
+
+        if (typeof window.bulkChangeStatus === 'function' && !window.bulkChangeStatus._deferredHooked) {
+            const _origBulkStatus = window.bulkChangeStatus;
+            const wrappedBulkStatus = async function (newStatus) {
+                if (newStatus === 'deferred' && !window._bypassDeferredModal) {
+                    const checkedIds = Array.from(document.querySelectorAll('.bulk-order-cb:checked')).map(cb => cb.value);
+                    if (checkedIds.length === 0) return;
+                    window.openDeferredScheduleModal(checkedIds);
+                    return;
+                }
+                return _origBulkStatus.apply(this, arguments);
+            };
+            wrappedBulkStatus._deferredHooked = true;
+            window.bulkChangeStatus = wrappedBulkStatus;
+        }
+    }
+
+    window.decorateDeferredOrderCards = function () {
+        const container = document.getElementById('orders-list-vertical');
+        if (!container) return;
+
+        const cards = container.querySelectorAll('.order-card[data-id]');
+        cards.forEach(card => {
+            const orderId = card.getAttribute('data-id');
+            const o = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(x => x && x.id === orderId);
+            if (!o || o.status !== 'deferred') return;
+
+            let oldBanner = card.querySelector('.def-schedule-card-banner');
+            if (oldBanner) oldBanner.remove();
+
+            const banner = document.createElement('div');
+            banner.className = 'def-schedule-card-banner';
+
+            if (o.deferredUntilMs) {
+                const isDue = o.deferredUntilMs <= Date.now();
+                const remTxt = formatRemainingCountdown(o.deferredUntilMs);
+
+                banner.innerHTML = `
+                    <div class="${isDue ? 'bg-red-600 text-white animate-pulse border-red-700' : 'bg-orange-50 text-orange-950 border-orange-300'} border-2 px-3 py-2 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs font-black shadow-sm">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <i class="fa-solid ${isDue ? 'fa-bell fa-shake text-amber-300' : 'fa-clock text-orange-600'}"></i>
+                            <span>موعد التأجيل: <strong>${o.deferredDisplayStr || ''}</strong></span>
+                            <span class="px-2 py-0.5 rounded-lg text-[10px] ${isDue ? 'bg-white text-red-700' : 'bg-orange-200/80 text-orange-900'}">${remTxt}</span>
+                            ${o.deferredReason ? `<span class="text-[10px] opacity-90">• (${o.deferredReason})</span>` : ''}
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            ${isDue ? `<button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-400 hover:bg-amber-300 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm">🔥 ابدأ التجهيز الآن</button>` : ''}
+                            <button type="button" onclick="event.stopPropagation(); openDeferredScheduleModal(['${o.id}'])" class="${isDue ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-white hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-300'} px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors">
+                                📅 تغيير الموعد
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else {
+                banner.innerHTML = `
+                    <div class="bg-orange-50 border border-orange-200 text-orange-900 px-3 py-2 rounded-xl flex items-center justify-between gap-2 text-xs font-black">
+                        <span><i class="fa-regular fa-calendar-plus text-orange-600 ml-1"></i> هذا الطلب مؤجل بدون موعد منبه محدد</span>
+                        <button type="button" onclick="event.stopPropagation(); openDeferredScheduleModal(['${o.id}'])" class="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded-lg text-[10px] font-black shadow-sm">
+                            ⏰ تحديد التاريخ والوقت
+                        </button>
+                    </div>
+                `;
+            }
+
+            card.insertBefore(banner, card.firstChild);
+        });
+    };
+
+    window.checkDueDeferredOrdersNow = function () {
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const nowMs = Date.now();
+
+        const dueOrders = ordersList.filter(o =>
+            o &&
+            o.status === 'deferred' &&
+            !o.isArchived &&
+            o.deferredUntilMs &&
+            o.deferredUntilMs <= nowMs &&
+            !o.deferredAlertDismissed
+        );
+
+        let alarmBar = document.getElementById('deferred-due-alarm-bar');
+
+        if (dueOrders.length === 0) {
+            if (alarmBar) alarmBar.classList.add('hidden');
+            return;
+        }
+
+        let shouldRingNow = false;
+        dueOrders.forEach(o => {
+            if (!o.deferredNotifiedOnce) {
+                o.deferredNotifiedOnce = true;
+                shouldRingNow = true;
+                db.collection('orders').doc(o.id).update({ deferredNotifiedOnce: true }).catch(() => {});
+
+                try {
+                    if ('Notification' in window && Notification.permission === 'granted') {
+                        const itemsTxt = Array.isArray(o.items) ? o.items.map(i => `${i.quantity}x ${i.name}`).join(' + ') : '';
+                        new Notification(`⏰ حان موعد طلب مؤجل: ${o.customerName || 'عميل'}`, {
+                            body: `المنطقة: ${o.zone || ''} | الأصناف: ${itemsTxt} | الإجمالي: ${o.total || 0} ج`,
+                            icon: 'super.png'
+                        });
+                    }
+                } catch (e) {}
+            }
+        });
+
+        if (shouldRingNow) {
+            window.playDeferredAlarmChime();
+        }
+
+        if (!alarmBar) {
+            alarmBar = document.createElement('div');
+            alarmBar.id = 'deferred-due-alarm-bar';
+            alarmBar.className = 'fixed top-14 left-1/2 -translate-x-1/2 z-[215] w-[95vw] max-w-2xl bg-gradient-to-l from-red-700 via-red-600 to-orange-600 text-white p-3.5 rounded-2xl shadow-2xl border-2 border-amber-300 space-y-2.5';
+            document.body.appendChild(alarmBar);
+        }
+
+        const rowsHtml = dueOrders.slice(0, 4).map(o => {
+            const itemsTxt = Array.isArray(o.items) ? o.items.map(i => `${i.quantity}x ${i.name}`).join(' + ') : '';
+            return `
+                <div class="bg-black/25 p-2.5 rounded-xl border border-white/15 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                        <div class="text-xs font-black flex items-center gap-1.5">
+                            <span class="bg-amber-400 text-slate-950 px-2 py-0.5 rounded text-[10px]">⏰ ${o.deferredDisplayStr || 'حان الموعد'}</span>
+                            <span>${o.customerName || 'عميل'} (${o.zone || ''})</span>
+                            <span class="text-amber-300">${o.total || 0} ج</span>
+                        </div>
+                        <p class="text-[11px] text-red-100 font-bold mt-0.5">${itemsTxt} ${o.deferredReason ? `• (${o.deferredReason})` : ''}</p>
+                    </div>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <button type="button" onclick="updateOrderStatus('${o.id}', 'processing')" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black shadow-md transition-all">
+                            🔥 للتجهيز الآن
+                        </button>
+                        <button type="button" onclick="openDeferredScheduleModal(['${o.id}'])" class="bg-white/20 hover:bg-white/30 text-white px-2.5 py-1.5 rounded-xl text-[10px] font-black">
+                            📅 تأجيل
+                        </button>
+                        <button type="button" onclick="dismissDeferredOrderAlert('${o.id}')" class="bg-black/30 hover:bg-black/50 text-white/80 px-2 py-1.5 rounded-xl text-[10px] font-black" title="كتم التنبيه">
+                            🔕
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        alarmBar.innerHTML = `
+            <div class="flex items-center justify-between border-b border-white/20 pb-2">
+                <div class="flex items-center gap-2 text-xs sm:text-sm font-black">
+                    <i class="fa-solid fa-bell fa-shake text-amber-300 text-base"></i>
+                    <span>تنبيه المواعيد: لديك (${dueOrders.length}) طلب مؤجل حان موعد تجهيزه الآن!</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <button type="button" onclick="playDeferredAlarmChime()" class="bg-white/15 hover:bg-white/25 text-white px-2 py-1 rounded-lg text-[10px] font-black" title="اختبار الصوت">🔊</button>
+                    <button type="button" onclick="document.getElementById('deferred-due-alarm-bar').classList.add('hidden')" class="bg-white/15 hover:bg-white/25 text-white w-7 h-7 rounded-lg text-xs font-black flex items-center justify-center">✕</button>
+                </div>
+            </div>
+            <div class="space-y-2 max-h-60 overflow-y-auto custom-scroll">${rowsHtml}</div>
+        `;
+        alarmBar.classList.remove('hidden');
+    };
+
+    window.dismissDeferredOrderAlert = async function (orderId) {
+        const ord = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === orderId);
+        if (ord) {
+            ord.deferredAlertDismissed = true;
+            await db.collection('orders').doc(orderId).update({ deferredAlertDismissed: true }).catch(() => {});
+        }
+        window.checkDueDeferredOrdersNow();
+        window.renderOrdersList();
+    };
+
+    const _origRenderOrdersForDeferred = window.renderOrdersList;
+    window.renderOrdersList = function () {
+        const res = _origRenderOrdersForDeferred.apply(this, arguments);
+        hookDeferredStatusInterceptors();
+        window.decorateDeferredOrderCards();
+        return res;
+    };
+
+    function bootOrdersAndDeferredEngine() {
         window.initSmartOrdersToolbar();
+        hookDeferredStatusInterceptors();
+        window.decorateDeferredOrderCards();
+        window.checkDueDeferredOrdersNow();
+        setInterval(() => {
+            window.checkDueDeferredOrdersNow();
+            if (typeof currentOrderTab !== 'undefined' && (currentOrderTab === 'deferred' || currentOrderTab === 'all')) {
+                window.decorateDeferredOrderCards();
+            }
+        }, 15000);
+    }
+
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', bootOrdersAndDeferredEngine);
+    } else {
+        bootOrdersAndDeferredEngine();
     }
 })();
