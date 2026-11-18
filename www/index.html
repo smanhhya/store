@@ -66,32 +66,65 @@
             background-color: #ffffff;
         }
 
-        /* ✨ الهوية البصرية الفاخرة (Royal Emerald & Gold Executive Theme) ✨ */
+        /* ✨ الهوية البصرية الفاخرة (Royal Emerald & Gold Executive Theme + 60FPS Native Engine) ✨ */
         header {
-            background: rgba(255, 255, 255, 0.92) !important;
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
+            background: rgba(255, 255, 255, 0.94) !important;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
             border-bottom: 1px solid rgba(226, 232, 240, 0.85) !important;
         }
         #sidebar {
             background: linear-gradient(180deg, #042f2e 0%, #064e3b 55%, #022c22 100%) !important;
+            will-change: transform;
         }
         #sidebar .nav-btn.active {
-            background: linear-gradient(90deg, rgba(16, 185, 129, 0.22) 0%, rgba(245, 158, 11, 0.10) 100%) !important;
-            border-color: rgba(52, 211, 153, 0.45) !important;
+            background: linear-gradient(90deg, rgba(16, 185, 129, 0.24) 0%, rgba(245, 158, 11, 0.12) 100%) !important;
+            border-color: rgba(52, 211, 153, 0.50) !important;
             box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.25);
         }
         .order-card, .shadow-soft {
             box-shadow: 0 4px 20px -4px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03) !important;
         }
         .order-card {
-            transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease !important;
+            will-change: transform, box-shadow;
+            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.18s ease !important;
         }
         @media (min-width: 768px) {
             .order-card:hover {
-                transform: translateY(-1px);
-                box-shadow: 0 10px 25px -5px rgba(22, 101, 52, 0.10) !important;
+                transform: translateY(-2px);
+                box-shadow: 0 12px 28px -6px rgba(22, 101, 52, 0.12) !important;
             }
+        }
+
+        /* حركة فيزيائية ناعمة للنوافذ المنبثقة (60FPS Spring Physics) */
+        [id$="-modal"]:not(.hidden) > div {
+            animation: modalSpringIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            will-change: transform, opacity;
+        }
+        @keyframes modalSpringIn {
+            from { opacity: 0; transform: scale(0.95) translateY(10px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        /* مؤثر التحميل الهيكلي اللامع (Skeleton Shimmer) */
+        .skeleton-shimmer {
+            background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+            background-size: 200% 100%;
+            animation: shimmerWave 1.4s infinite linear;
+        }
+        @keyframes shimmerWave {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        /* قناع حماية خصوصية أرقام العملاء أثناء العرض أمام لجنة المسابقة */
+        body.pitch-privacy-mode [dir="ltr"]:not(input):not(textarea) {
+            filter: blur(4px);
+            transition: filter 0.2s ease;
+            user-select: none;
+        }
+        body.pitch-privacy-mode [dir="ltr"]:not(input):not(textarea):hover {
+            filter: blur(0);
         }
     </style>
 
@@ -2026,9 +2059,59 @@
             });
         });
 
+        // مراقب ذكي للنوافذ المنبثقة لربطها بزر الرجوع في الأندرويد بدون أخطاء
+        const _modalAttrObserver = new MutationObserver((mutations) => {
+            mutations.forEach((m) => {
+                if (m.type === 'attributes' && m.attributeName === 'class' && m.target) {
+                    const el = m.target;
+                    const isNowVisible = !el.classList.contains('hidden');
+                    const wasVisible = el.getAttribute('data-was-visible') === '1';
+                    if (isNowVisible && !wasVisible) {
+                        el.setAttribute('data-was-visible', '1');
+                        if (!isHandlingPopState) {
+                            try { history.pushState({ guard: 'modal', modal: el.id }, ''); } catch (e) {}
+                        }
+                    } else if (!isNowVisible && wasVisible) {
+                        el.setAttribute('data-was-visible', '0');
+                    }
+                }
+            });
+        });
+
+        // مؤشر حالة الاتصال والمزامنة اللحظية (Zero-Wait Cloud Sync Indicator)
+        window.updateLiveSyncStatusUI = function (state) {
+            let badge = document.getElementById('sman-live-sync-pill');
+            if (!badge) {
+                const hdrTitle = document.getElementById('header-title');
+                if (hdrTitle && hdrTitle.parentElement) {
+                    badge = document.createElement('span');
+                    badge.id = 'sman-live-sync-pill';
+                    badge.className = 'inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-full border transition-all shadow-sm shrink-0';
+                    hdrTitle.parentElement.appendChild(badge);
+                }
+            }
+            if (!badge) return;
+
+            if (!navigator.onLine || state === 'offline') {
+                badge.className = 'inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-300 shadow-sm shrink-0';
+                badge.innerHTML = '<i class="fa-solid fa-bolt text-amber-500"></i> <span>أوفلاين (حفظ فوري)</span>';
+            } else if (state === 'syncing') {
+                badge.className = 'inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-200 shadow-sm shrink-0';
+                badge.innerHTML = '<i class="fa-solid fa-cloud-arrow-up fa-fade text-sky-500"></i> <span>جاري المزامنة...</span>';
+            } else {
+                badge.className = 'inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-sm shrink-0';
+                badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> <span>متصل لايف</span>';
+            }
+        };
+
+        window.addEventListener('online', () => window.updateLiveSyncStatusUI('synced'));
+        window.addEventListener('offline', () => window.updateLiveSyncStatusUI('offline'));
+
         window.addEventListener('DOMContentLoaded', () => {
             try { history.replaceState({ guard: 'root', tab: 'dashboard' }, '', window.location.hash || '#dashboard'); } catch (e) {}
             restoreLastSessionTab();
+            window.updateLiveSyncStatusUI(navigator.onLine ? 'synced' : 'offline');
+
             // تفعيل المراقب الذكي على كل النوافذ المنبثقة
             setTimeout(() => {
                 document.querySelectorAll('[id$="-modal"]').forEach(el => {
@@ -2290,23 +2373,52 @@
                 triggerUnifiedBootRender();
             }, err => console.log("خطأ في جلب بيانات الإدارة:", err));
 
-            // 2. سحب الطلبات وتجهيز الخريطة الحية بأقصى سرعة
-            db.collection('orders').onSnapshot(snap => {
+            // 2. محرك التحديث التزايدي الفائق للطلبات (Incremental O(1) Snapshot Engine)
+            db.collection('orders').onSnapshot({ includeMetadataChanges: true }, snap => {
+                if (typeof window.updateLiveSyncStatusUI === 'function') {
+                    if (!navigator.onLine) window.updateLiveSyncStatusUI('offline');
+                    else if (snap.metadata.hasPendingWrites) window.updateLiveSyncStatusUI('syncing');
+                    else window.updateLiveSyncStatusUI('synced');
+                }
+
+                const changes = snap.docChanges();
+                // إذا كان التحديث مجرد تأكيد سحابي بدون تغيير في البيانات، لا نعيد رسم الشاشة مرة ثانية
+                if (ordersLoadedOnce && changes.length === 0) return;
+
+                if (!ordersLoadedOnce) {
+                    globalOrdersMap = {};
+                    snap.forEach(doc => {
+                        let oData = doc.data();
+                        if (!oData.batchName && oData.batchId && storeBatches[oData.batchId]) {
+                            oData.batchName = storeBatches[oData.batchId].name;
+                        }
+                        globalOrdersMap[doc.id] = { id: doc.id, ...oData, manuallyUpdated: false };
+                    });
+                } else {
+                    changes.forEach(change => {
+                        const doc = change.doc;
+                        if (change.type === 'removed') {
+                            delete globalOrdersMap[doc.id];
+                        } else {
+                            let oData = doc.data();
+                            if (!oData.batchName && oData.batchId && storeBatches[oData.batchId]) {
+                                oData.batchName = storeBatches[oData.batchId].name;
+                            }
+                            globalOrdersMap[doc.id] = { id: doc.id, ...oData, manuallyUpdated: false };
+                        }
+                    });
+                }
+
                 let counts = { new: 0, processing: 0, dispatched: 0, deferred: 0, no_answer: 0, completed: 0, canceled: 0 };
                 allOrdersRaw = [];
                 dispatchOrdersRaw = [];
-                globalOrdersMap = {};
-
-                snap.forEach(doc => {
-                    let oData = doc.data();
-                    if (!oData.batchName && oData.batchId && storeBatches[oData.batchId]) {
-                        oData.batchName = storeBatches[oData.batchId].name;
-                    }
-                    globalOrdersMap[doc.id] = { id: doc.id, ...oData, manuallyUpdated: false };
-                });
 
                 let mergedOrders = Object.values(globalOrdersMap);
-                mergedOrders.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+                mergedOrders.sort((a, b) => {
+                    const tA = (a.createdAt && typeof a.createdAt.toMillis === 'function') ? a.createdAt.toMillis() : 0;
+                    const tB = (b.createdAt && typeof b.createdAt.toMillis === 'function') ? b.createdAt.toMillis() : 0;
+                    return tB - tA;
+                });
 
                 mergedOrders.forEach(o => {
                     const stat = o.status || 'new';
@@ -2324,7 +2436,8 @@
 
                 ordersLoadedOnce = true;
                 triggerUnifiedBootRender();
-            });
+            }, err => console.log("خطأ في مزامنة الطلبات:", err));
+
 
             window.refreshCustomersData();
         }
