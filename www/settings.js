@@ -81,31 +81,16 @@
     };
 
 
-    // دالة تحديد هل الصنف من الأصناف الأساسية المثبتة في الواجهة (الـ 3 إلى 6 أصناف الأساسية)
+    // توحيد دوال تثبيت الصنف الأساسي عبر كل شاشات النظام
     window.isProductPrimary = function (p, id) {
-        if (!p) return false;
-        if (p.isPrimary === true) return true;
-        if (p.isPrimary === false) return false;
-        // افتراضياً: الأصناف غير الإضافية وغير المخفية تعتبر أساسية حتى يخصصها المستخدم بنفسه
-        return !p.isExtra && !p.isHidden;
+        if (id && typeof window.isProductPinnedForAdmin === 'function') {
+            return window.isProductPinnedForAdmin(id);
+        }
+        return Boolean(p && !p.isExtra && !p.isHidden);
     };
 
-    // زر تثبيت أو إلغاء تثبيت الصنف كصنف أساسي في الواجهة بضغطة واحدة
-    window.toggleProductPrimaryPin = async function (prodId) {
-        if (!storeProducts[prodId]) return;
-        const currentState = window.isProductPrimary(storeProducts[prodId], prodId);
-        storeProducts[prodId].isPrimary = !currentState;
-
-        window.renderInventoryUI();
-        if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
-        if (typeof window.renderBatchesUI === 'function') window.renderBatchesUI();
-        await window.saveAllSettings(true);
-
-        if (typeof window.showToast === 'function') {
-            window.showToast(storeProducts[prodId].isPrimary
-                ? `📌 تم تثبيت (${storeProducts[prodId].name}) كصنف أساسي بالواجهة!`
-                : `🔽 تم نقل (${storeProducts[prodId].name}) إلى قائمة الأصناف الفرعية`);
-        }
+    window.toggleProductPrimaryPin = function (prodId) {
+        return window.togglePinProductForAdmin(prodId);
     };
 
 
