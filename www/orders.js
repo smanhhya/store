@@ -473,10 +473,51 @@
             alert('حدث خطأ أثناء توجيه الطلب للمندوب!');
         }
     };
+    // =========================================================================
+    // 💬 5. منظومة رسائل واتساب الـ 5 الذكية للعميل (تعمل بكبسولة شيك بدون مطّ الأزرار)
+    // =========================================================================
+    window.openWhatsAppTemplatesPopover = function (anchorEl, orderId) {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === orderId);
+        if (!order) return;
 
-    // =========================================================================
-    // 💬 5. رسائل واتساب السريعة الذكية للعميل
-    // =========================================================================
+        const html = `
+            <div class="space-y-2">
+                <div class="flex justify-between items-center border-b border-slate-100 pb-1.5">
+                    <span class="text-xs font-black text-emerald-800"><i class="fa-brands fa-whatsapp text-emerald-600 ml-1"></i> اختر رسالة واتساب لـ (${order.customerName || 'العميل'})</span>
+                    <button type="button" onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="space-y-1.5">
+                    <button type="button" onclick="closeLivePopover(); sendQuickWhatsAppOption('${orderId}', 'invoice')" class="w-full bg-emerald-50 hover:bg-emerald-600 text-emerald-950 hover:text-white py-2 px-3 rounded-xl text-[11px] font-black text-right transition-all flex items-center justify-between border border-emerald-200/80">
+                        <span>🧾 1. إرسال الفاتورة وتفاصيل الطلب</span>
+                        <i class="fa-solid fa-paper-plane text-[10px]"></i>
+                    </button>
+                    <button type="button" onclick="closeLivePopover(); sendQuickWhatsAppOption('${orderId}', 'on_way')" class="w-full bg-indigo-50 hover:bg-indigo-600 text-indigo-950 hover:text-white py-2 px-3 rounded-xl text-[11px] font-black text-right transition-all flex items-center justify-between border border-indigo-200/80">
+                        <span>🛵 2. الطلب خرج وفي الطريق مع المندوب</span>
+                        <i class="fa-solid fa-motorcycle text-[10px]"></i>
+                    </button>
+                    <button type="button" onclick="closeLivePopover(); sendQuickWhatsAppOption('${orderId}', 'no_answer')" class="w-full bg-purple-50 hover:bg-purple-600 text-purple-950 hover:text-white py-2 px-3 rounded-xl text-[11px] font-black text-right transition-all flex items-center justify-between border border-purple-200/80">
+                        <span>📵 3. رنينا عليك ولم يتم الرد (تأكيد الموعد)</span>
+                        <i class="fa-solid fa-phone-slash text-[10px]"></i>
+                    </button>
+                    <button type="button" onclick="closeLivePopover(); sendQuickWhatsAppOption('${orderId}', 'deferred')" class="w-full bg-orange-50 hover:bg-orange-600 text-orange-950 hover:text-white py-2 px-3 rounded-xl text-[11px] font-black text-right transition-all flex items-center justify-between border border-orange-200/80">
+                        <span>📅 4. تأكيد تأجيل وجدولة موعد التسليم</span>
+                        <i class="fa-regular fa-calendar-check text-[10px]"></i>
+                    </button>
+                    <button type="button" onclick="closeLivePopover(); sendQuickWhatsAppOption('${orderId}', 'prepay')" class="w-full bg-amber-50 hover:bg-amber-500 text-amber-950 hover:text-white py-2 px-3 rounded-xl text-[11px] font-black text-right transition-all flex items-center justify-between border border-amber-200/80">
+                        <span>💳 5. طلب تحويل دفعة/الحساب (فودافون كاش)</span>
+                        <i class="fa-solid fa-wallet text-[10px]"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+
+        if (typeof window.openLivePopover === 'function') {
+            window.openLivePopover(anchorEl, html);
+        } else {
+            window.sendMessageToCustomer(order.customerPhone, order.id);
+        }
+    };
+
     window.sendQuickWhatsAppOption = function (orderId, templateType) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
         if (!order) return;
@@ -502,7 +543,10 @@
                 : (payBr.method === 'split' ? `${payBr.cash} ج كاش (ومدفوع ${payBr.online} ج محفظة ✅)` : `${total} ج.م`);
             msg = `أهلاً بحضرتك يا ${cName} 🌹\nأوردر "سمان ههيا" خرج لحضرتك وفي الطريق إليك ${drvInfo} 🛵\n\n📦 الأصناف: ${itemsText}\n💰 المطلوب عند الاستلام: ${collectTxt}\n\nيرجى إبقاء الهاتف متاحاً، وتشرفنا بخدمتك!`;
         } else if (templateType === 'no_answer') {
-            msg = `أهلاً بحضرتك يا ${cName} 🌹\nحاولنا الاتصال بحضرتك لتنسيق تسليم أوردر "سمان ههيا" (${itemsText}) ولكن الهاتف غير متاح أو لم يتم الرد 📵\n\nيرجى التواصل معنا هنا أو تأكيد الموعد المناسب للاستلام.`;
+            msg = `أهلاً بحضرتك يا ${cName} 🌹\nحاولنا الاتصال بحضرتك لتنسيق تسليم أوردر "سمان ههيا" (${itemsText}) ولكن الهاتف غير متاح أو لم يتم الرد 📵\n\nيرجى التواصل معنا هنا لتأكيد الموعد المناسب للاستلام.`;
+        } else if (templateType === 'deferred') {
+            const schedTxt = order.deferredDisplayStr ? `ليوم (${order.deferredDisplayStr})` : 'للموعد المتفق عليه';
+            msg = `أهلاً بحضرتك يا ${cName} 🌹\nتم تأكيد جدولة وتأجيل تسليم أوردر "سمان ههيا" الخاص بحضرتك (${itemsText}) ${schedTxt} 📅\n\n💰 الإجمالي: ${total} ج.م\nسنتواصل معك قبل خروج الطلب، وتشرفنا بخدمتك دائماً 🤍`;
         } else if (templateType === 'prepay') {
             msg = `أهلاً بحضرتك يا ${cName} 🌹\nلتأكيد تجهيز وحجز أوردر "سمان ههيا" الخاص بحضرتك:\n📦 الأصناف: ${itemsText}\n💰 الإجمالي: ${total} ج.م\n\nيرجى تحويل قيمة الطلب على فودافون كاش / إنستاباي على الرقم:\n*${storePhone}*\nوإرسال صورة التحويل هنا لتأكيد التجهيز فوراً ✅`;
         }
@@ -517,14 +561,19 @@
     };
 
     // =========================================================================
-    // 💬 استوديو الملاحظات الفوري بلمسة واحدة للمندوب والإدارة (1-Tap Smart Notes)
+    // 💬 استوديو الملاحظات الموحد بلمسة واحدة (يفتح من أيقونة واحدة شيك)
     // =========================================================================
     window.toggleInlineNotes = function (e, orderId, field, forceReopen = false) {
         if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
         const container = document.getElementById(`inline-notes-container-${orderId}`);
         if (!container) return;
 
-        if (!forceReopen && openInlineNoteId === orderId && openInlineNoteField === field && !container.classList.contains('hidden')) {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === orderId);
+        if (!field) {
+            field = (order && !order.driverNote && order.adminNote) ? 'adminNote' : 'driverNote';
+        }
+
+        if (!forceReopen && openInlineNoteId === orderId && !container.classList.contains('hidden')) {
             container.classList.add('hidden');
             openInlineNoteId = null;
             openInlineNoteField = null;
@@ -548,8 +597,11 @@
         if (!order || !container) return;
 
         const isDriver = (field === 'driverNote');
+        const drvCount = order.driverNote ? order.driverNote.split('\n---\n').filter(Boolean).length : 0;
+        const admCount = order.adminNote ? order.adminNote.split('\n---\n').filter(Boolean).length : 0;
+
         const quickTags = isDriver
-            ? ['📞 اتصل قبل الوصول', '🏠 العميل هينزل يستلم', '💵 الدفع كاش عند الاستلام', '💳 هيحول فودافون كاش', '⏰ التوصيل بعد العصر', '📍 العنوان بجوار المسجد']
+            ? ['📞 اتصل قبل الوصول', '🏠 العميل هينزل يستلم', '💵 الدفع كاش', '💳 هيحول فودافون كاش', '⏰ التوصيل بعد العصر', '📍 بجوار المسجد']
             : ['⚡ مستعجل اليوم', '💳 تم استلام التحويل', '🎁 خصم واجب خاص', '📞 تم التأكيد تليفونياً', '❄️ مجهز في الفريزر', '📕 باقي حساب آجل'];
 
         const chunks = (order[field] || '').split('\n---\n').filter(c => c.trim() !== '');
@@ -562,70 +614,58 @@
                 const formattedTxt = typeof window.formatTags === 'function' ? window.formatTags(textStr) : textStr;
 
                 return `
-                <div class="bg-white border ${isDriver ? 'border-blue-200' : 'border-amber-200'} p-2.5 rounded-xl flex items-center justify-between gap-2 shadow-sm">
-                    <div class="text-xs font-black text-slate-800 leading-relaxed flex-1">
-                        ${dateStr ? `<span class="text-[9px] font-bold ${isDriver ? 'text-blue-600' : 'text-amber-600'} block mb-0.5">${dateStr}</span>` : ''}
+                <div class="bg-white border ${isDriver ? 'border-blue-200' : 'border-amber-200'} px-2.5 py-1.5 rounded-xl flex items-center justify-between gap-2 shadow-sm">
+                    <div class="text-[11px] font-black text-slate-800 leading-snug flex-1">
+                        ${dateStr ? `<span class="text-[9px] font-bold ${isDriver ? 'text-blue-600' : 'text-amber-600'} ml-1">${dateStr}</span>` : ''}
                         <span>${formattedTxt}</span>
                     </div>
                     <div class="flex items-center gap-1 shrink-0">
-                        <button type="button" onclick="event.stopPropagation(); editInlineNoteChunk('${orderId}', '${field}', ${idx})" class="bg-slate-100 hover:bg-blue-600 text-slate-600 hover:text-white px-2 py-1 rounded-lg text-[10px] font-black transition-colors">
-                            <i class="fa-solid fa-pen"></i> تعديل
-                        </button>
-                        <button type="button" onclick="event.stopPropagation(); deleteInlineNoteChunk('${orderId}', '${field}', ${idx})" class="bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white px-2 py-1 rounded-lg text-[10px] font-black transition-colors">
-                            <i class="fa-solid fa-trash"></i>
-                        </button>
+                        <button type="button" onclick="event.stopPropagation(); editInlineNoteChunk('${orderId}', '${field}', ${idx})" class="bg-slate-100 hover:bg-blue-600 text-slate-600 hover:text-white px-2 py-0.5 rounded-lg text-[10px] font-black transition-colors">تعديل</button>
+                        <button type="button" onclick="event.stopPropagation(); deleteInlineNoteChunk('${orderId}', '${field}', ${idx})" class="bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white px-2 py-0.5 rounded-lg text-[10px] font-black transition-colors"><i class="fa-solid fa-trash"></i></button>
                     </div>
                 </div>`;
             }).join('')
-            : `<div class="text-center py-2.5 text-[11px] text-slate-400 font-bold bg-white/70 rounded-xl border border-dashed border-slate-200">لا توجد ملاحظات مسجلة.. المس أي جملة جاهزة بالأسفل لحفظها فوراً بضغطة واحدة!</div>`;
+            : `<div class="text-center py-2 text-[10px] text-slate-400 font-bold bg-white/70 rounded-xl border border-dashed border-slate-200">المس أي جملة جاهزة بالأسفل لحفظها فوراً بضغطة واحدة!</div>`;
 
         const quickChipsHtml = quickTags.map(tag => {
             const safeTag = tag.replace(/'/g, "\\'");
             return `
-                <button type="button" onclick="event.stopPropagation(); instantSaveQuickNote('${orderId}', '${field}', '${safeTag}')" class="${isDriver ? 'bg-white hover:bg-blue-600 text-blue-900 hover:text-white border-blue-200' : 'bg-white hover:bg-amber-500 text-amber-950 hover:text-white border-amber-200'} border px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all shadow-sm active:scale-95 flex items-center gap-1">
-                    <i class="fa-solid fa-bolt text-[9px] opacity-70"></i> ${tag}
+                <button type="button" onclick="event.stopPropagation(); instantSaveQuickNote('${orderId}', '${field}', '${safeTag}')" class="${isDriver ? 'bg-white hover:bg-blue-600 text-blue-900 hover:text-white border-blue-200' : 'bg-white hover:bg-amber-500 text-amber-950 hover:text-white border-amber-200'} border px-2 py-1 rounded-lg text-[10px] font-black transition-all shadow-sm active:scale-95">
+                    + ${tag}
                 </button>
             `;
         }).join('');
 
         container.innerHTML = `
-            <div onclick="event.stopPropagation()" class="p-3 ${isDriver ? 'bg-blue-50/90 border-blue-300' : 'bg-amber-50/90 border-amber-300'} border-2 rounded-2xl space-y-2.5 shadow-inner mt-1">
-                <!-- شريط التبديل السريع بين ملاحظات المندوب وملاحظات الإدارة في نفس المكان -->
-                <div class="flex items-center justify-between gap-2 pb-2 border-b ${isDriver ? 'border-blue-200/80' : 'border-amber-200/80'}">
-                    <div class="flex items-center gap-1.5">
-                        <button type="button" onclick="toggleInlineNotes(event, '${orderId}', 'driverNote', true)" class="px-3 py-1 rounded-xl text-[11px] font-black transition-all ${isDriver ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}">
-                            🛵 للمندوب والدليفري
+            <div onclick="event.stopPropagation()" class="p-2.5 ${isDriver ? 'bg-blue-50/90 border-blue-300' : 'bg-amber-50/90 border-amber-300'} border rounded-2xl space-y-2 shadow-inner mt-1">
+                <div class="flex items-center justify-between gap-2 pb-1.5 border-b ${isDriver ? 'border-blue-200/80' : 'border-amber-200/80'}">
+                    <div class="flex items-center gap-1">
+                        <button type="button" onclick="openInlineNoteField='driverNote'; renderInlineNotesContent('${orderId}', 'driverNote')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${isDriver ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}">
+                            🛵 للمندوب ${drvCount > 0 ? `(${drvCount})` : ''}
                         </button>
-                        <button type="button" onclick="toggleInlineNotes(event, '${orderId}', 'adminNote', true)" class="px-3 py-1 rounded-xl text-[11px] font-black transition-all ${!isDriver ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}">
-                            🔒 ملاحظة إدارية
+                        <button type="button" onclick="openInlineNoteField='adminNote'; renderInlineNotesContent('${orderId}', 'adminNote')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${!isDriver ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}">
+                            🔒 إداري ${admCount > 0 ? `(${admCount})` : ''}
                         </button>
                     </div>
-                    <button type="button" onclick="document.getElementById('inline-notes-container-${orderId}').classList.add('hidden'); openInlineNoteId = null;" class="w-7 h-7 rounded-xl bg-white text-slate-500 hover:bg-red-500 hover:text-white flex items-center justify-center shadow-sm transition-colors">
+                    <button type="button" onclick="document.getElementById('inline-notes-container-${orderId}').classList.add('hidden'); openInlineNoteId = null;" class="w-6 h-6 rounded-lg bg-white text-slate-500 hover:bg-red-500 hover:text-white flex items-center justify-center shadow-sm">
                         <i class="fa-solid fa-xmark text-xs"></i>
                     </button>
                 </div>
 
-                <!-- قائمة الملاحظات الحالية مع أزرار تعديل ومسح ظاهرة للمس -->
-                <div class="space-y-1.5 max-h-40 overflow-y-auto custom-scroll">${notesListHtml}</div>
+                <div class="space-y-1 max-h-36 overflow-y-auto custom-scroll">${notesListHtml}</div>
 
-                <!-- جمل سريعة تحفظ فوراً بضغطة واحدة بدون كتابة -->
-                <div>
-                    <span class="text-[10px] font-black ${isDriver ? 'text-blue-800' : 'text-amber-900'} block mb-1.5">⚡ المس أي جملة لحفظها فوراً بضغطة واحدة:</span>
-                    <div class="flex flex-wrap gap-1.5">${quickChipsHtml}</div>
-                </div>
+                <div class="flex flex-wrap gap-1">${quickChipsHtml}</div>
 
-                <!-- حقل كتابة حرة مع حفظ بزر Enter -->
-                <div class="flex gap-1.5 pt-1">
-                    <input type="text" id="inline-input-${orderId}" onkeydown="if(event.key==='Enter'){event.preventDefault(); saveInlineNote('${orderId}', '${field}');}" class="flex-1 border ${isDriver ? 'border-blue-300 focus:border-blue-600' : 'border-amber-300 focus:border-amber-600'} rounded-xl px-3 py-2 text-xs font-black bg-white text-slate-800 outline-none shadow-sm" placeholder="${isDriver ? 'اكتب تعليمات للمندوب ثم اضغط حفظ أو Enter...' : 'اكتب ملاحظة للإدارة ثم اضغط حفظ أو Enter...'}">
-                    <button type="button" onclick="saveInlineNote('${orderId}', '${field}')" class="${isDriver ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-amber-500 hover:bg-amber-600 text-slate-950'} px-4 py-2 rounded-xl text-xs font-black shadow-sm shrink-0 transition-all active:scale-95 flex items-center gap-1">
-                        <i class="fa-solid fa-check"></i> حفظ
+                <div class="flex gap-1.5">
+                    <input type="text" id="inline-input-${orderId}" onkeydown="if(event.key==='Enter'){event.preventDefault(); saveInlineNote('${orderId}', '${field}');}" class="flex-1 border ${isDriver ? 'border-blue-300' : 'border-amber-300'} rounded-xl px-2.5 py-1.5 text-xs font-black bg-white text-slate-800 outline-none" placeholder="${isDriver ? 'اكتب للمندوب واضغط حفظ...' : 'اكتب للإدارة واضغط حفظ...'}">
+                    <button type="button" onclick="saveInlineNote('${orderId}', '${field}')" class="${isDriver ? 'bg-blue-600 text-white' : 'bg-amber-500 text-slate-950'} px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm shrink-0">
+                        حفظ
                     </button>
                 </div>
             </div>
         `;
     };
 
-    // حفظ الجملة الجاهزة بضغطة واحدة فوراً بدون الحاجة لزر الإرسال
     window.instantSaveQuickNote = async function (orderId, field, noteText) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === orderId);
         if (!order || !noteText) return;
@@ -676,7 +716,7 @@
     };
 
     // =========================================================================
-    // 🚀 6. المحرك البريميوم المتوازن هندسياً لعرض بطاقات الطلبات الحية
+    // 🚀 6. المحرك البريميوم الشيك لبطاقات الطلبات (الطلب واضح وبارز + أزرار رشيقة + أيقونة ملاحظة واحدة)
     // =========================================================================
     window.renderOrdersList = function () {
         window.initSmartOrdersToolbar();
@@ -898,13 +938,13 @@
                 ? window.getOrderPaymentBreakdown(o)
                 : { method: o.paymentMethod || 'cash', cash: Number(o.total) || 0, online: 0, total: Number(o.total) || 0 };
 
-            let sBadge = o.status === 'new' ? '<span class="bg-blue-600 text-white px-2 py-0.5 rounded-lg text-[10px] font-black shadow-sm">🆕 جديد</span>' :
-                (o.status === 'processing' ? '<span class="bg-amber-500 text-slate-950 px-2 py-0.5 rounded-lg text-[10px] font-black shadow-sm">⏳ تجهيز</span>' :
-                (o.status === 'dispatched' ? '<span class="bg-indigo-600 text-white px-2 py-0.5 rounded-lg text-[10px] font-black shadow-sm"><i class="fa-solid fa-motorcycle mr-0.5"></i> بالطريق</span>' :
-                (o.status === 'deferred' ? '<span class="bg-orange-600 text-white px-2 py-0.5 rounded-lg text-[10px] font-black shadow-sm">📅 مؤجل</span>' :
-                (o.status === 'no_answer' ? '<span class="bg-purple-600 text-white px-2 py-0.5 rounded-lg text-[10px] font-black shadow-sm">📵 لم يرد</span>' :
-                (o.status === 'completed' ? '<span class="bg-emerald-600 text-white px-2 py-0.5 rounded-lg text-[10px] font-black shadow-sm">✅ مكتمل</span>' :
-                '<span class="bg-rose-600 text-white px-2 py-0.5 rounded-lg text-[10px] font-black shadow-sm">❌ ملغي</span>')))));
+            let sBadge = o.status === 'new' ? '<span class="bg-blue-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">🆕 جديد</span>' :
+                (o.status === 'processing' ? '<span class="bg-amber-500 text-slate-950 px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">⏳ تجهيز</span>' :
+                (o.status === 'dispatched' ? '<span class="bg-indigo-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">🛵 بالطريق</span>' :
+                (o.status === 'deferred' ? '<span class="bg-orange-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">📅 مؤجل</span>' :
+                (o.status === 'no_answer' ? '<span class="bg-purple-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">📵 لم يرد</span>' :
+                (o.status === 'completed' ? '<span class="bg-emerald-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">✅ مكتمل</span>' :
+                '<span class="bg-rose-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">❌ ملغي</span>')))));
 
             let trustInfo = (typeof window.fastAnalyzeOrderTrust === 'function')
                 ? window.fastAnalyzeOrderTrust(o)
@@ -931,10 +971,6 @@
                         ? `<span class="bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[9px] font-black">⚖️ نص (${payBr.cash}ج كاش)</span>`
                         : '<span class="bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded text-[9px] font-black">كاش</span>');
 
-                const compactDriverBadge = o.driverName
-                    ? `<span class="bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded text-[9px] font-black">مع: ${o.driverName}</span>`
-                    : '';
-
                 return `
                 <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-2.5 rounded-2xl shadow-sm border hover:border-brand-primary transition-all space-y-1.5">
                     <div class="flex flex-wrap items-center justify-between gap-2">
@@ -946,7 +982,6 @@
                             <span data-zone-pill="1" ondblclick="inlineEdit(this, '${o.id}', 'zone')" class="text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-lg">${o.zone || 'بدون منطقة'}</span>
                             ${realBatchTitle ? `<span class="text-[9px] font-black bg-teal-50 text-teal-700 border border-teal-200 px-1.5 py-0.5 rounded">${realBatchTitle}</span>` : ''}
                             ${compactPayBadge}
-                            ${compactDriverBadge}
                         </div>
                         <div class="flex items-center gap-1.5 shrink-0 mr-auto sm:mr-0">
                             <span class="font-black text-brand-primary text-sm sm:text-base">${o.total || 0} <span class="text-[10px]">ج</span></span>
@@ -968,186 +1003,178 @@
                 </div>`;
             }
 
-            // 🖥️ 2. الكارت الاحترافي المتوازن هندسياً (Executive Grid Card)
+            // 🖥️ 2. الكارت البريميوم المتوازن: (الطلب والأصناف هما البطل الواضح + أزرار رشيقة + أيقونة ملاحظة واحدة)
             let itemsStr = (o.items && Array.isArray(o.items)) ? o.items.map((i, idx) =>
-                `<div data-item-idx="${idx}" class="bg-white border border-slate-200/90 hover:border-brand-primary px-2.5 py-1 rounded-xl text-xs shadow-sm inline-flex items-center gap-1.5 transition-all">
-                    <span class="bg-emerald-50 text-brand-primary border border-emerald-200/70 px-1.5 py-0.5 rounded-md font-black text-[10px]">${i.quantity}x</span>
-                    <span class="font-black text-slate-800 text-xs">${i.name}</span>
-                    <span class="text-[10px] text-emerald-700 font-bold bg-slate-50 px-1.5 py-0.5 rounded cursor-pointer border border-slate-200 hover:bg-emerald-600 hover:text-white transition-colors" ondblclick="editItemPrice('${o.id}', ${idx})" title="اضغط مرتين لتعديل السعر">${i.price}ج</span>
+                `<div data-item-idx="${idx}" class="bg-white border-2 border-emerald-600/20 hover:border-brand-primary px-2.5 py-1 rounded-xl shadow-sm inline-flex items-center gap-1.5 transition-all">
+                    <span class="bg-brand-primary text-white px-1.5 py-0.5 rounded-md font-black text-[11px] leading-none">${i.quantity}x</span>
+                    <span class="font-black text-slate-900 text-xs sm:text-sm whitespace-nowrap">${i.name}</span>
+                    <span class="text-[10px] text-emerald-700 font-black bg-emerald-50 px-1.5 py-0.5 rounded cursor-pointer border border-emerald-200/70 hover:bg-emerald-600 hover:text-white transition-colors" ondblclick="editItemPrice('${o.id}', ${idx})" title="اضغط مرتين لتعديل السعر">${i.price}ج</span>
                 </div>`
             ).join('') : '<span class="text-slate-400 text-xs font-bold">لا يوجد تفاصيل</span>';
 
             let paymentBadge = (payBr.method === 'online')
-                ? '<span class="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded-lg font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-check-double"></i> خالص (أونلاين)</span>'
+                ? '<span class="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1"><i class="fa-solid fa-check-double text-[9px]"></i> خالص (أونلاين)</span>'
                 : (payBr.method === 'split'
-                    ? `<span class="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-lg font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-scale-balanced"></i> نص (${payBr.cash}ج كاش)</span>`
-                    : '<span class="text-[10px] bg-white text-slate-700 border border-slate-200 px-2 py-0.5 rounded-lg font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-money-bill-1-wave text-emerald-600"></i> كاش</span>');
+                    ? `<span class="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1">⚖️ نص (${payBr.cash}ج كاش)</span>`
+                    : '<span class="text-[10px] bg-white text-slate-700 border border-slate-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1"><i class="fa-solid fa-money-bill-1-wave text-emerald-600 text-[9px]"></i> كاش</span>');
 
             if (o.debt && o.debt > 0) {
-                paymentBadge += ` <span class="text-[10px] bg-red-600 text-white px-2 py-0.5 rounded-lg font-black inline-flex items-center gap-1 shadow-sm">آجل (${o.debt} ج)</span>`;
+                paymentBadge += ` <span class="text-[10px] bg-red-600 text-white px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1">آجل (${o.debt} ج)</span>`;
             }
 
             const safeBatchAttr = realBatchTitle.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
             let batchTagHtml = realBatchTitle
-                ? `<span onclick="setOrdersQuickFilter('batch', '${safeBatchAttr}')" class="text-[10px] bg-teal-50 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-lg font-black inline-flex items-center gap-1 cursor-pointer hover:bg-teal-600 hover:text-white transition-colors"><i class="fa-solid fa-layer-group text-teal-600 text-[9px]"></i> ${realBatchTitle}</span>`
+                ? `<span onclick="setOrdersQuickFilter('batch', '${safeBatchAttr}')" class="text-[10px] bg-teal-50 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 cursor-pointer hover:bg-teal-600 hover:text-white transition-colors"><i class="fa-solid fa-layer-group text-teal-600 text-[8px]"></i> ${realBatchTitle}</span>`
                 : '';
 
             let driverBadgeHtml = o.driverName
-                ? `<span class="text-[10px] bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded-lg font-black inline-flex items-center gap-1 cursor-pointer hover:bg-blue-600 hover:text-white transition-colors"><i class="fa-solid fa-motorcycle text-blue-600 text-[9px]"></i> مع: ${o.driverName}</span>`
-                : '';
-
-            const safeCustomTagAttr = (o.customTag || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-            let customTagHtml = o.customTag
-                ? `<span onclick="document.getElementById('search-order').value='${safeCustomTagAttr}'; renderOrdersList();" class="text-[10px] bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-lg font-black inline-flex items-center gap-1 cursor-pointer">#${o.customTag}</span>`
+                ? `<span class="text-[10px] bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 cursor-pointer hover:bg-blue-600 hover:text-white transition-colors"><i class="fa-solid fa-motorcycle text-blue-600 text-[8px]"></i> مع: ${o.driverName}</span>`
                 : '';
 
             const timeDisplayStr = (o.status === 'completed' && (o.completedTimeDisplay || o.completedAtStr))
                 ? (o.completedTimeDisplay || o.completedAtStr)
                 : (ageStr ? `${ageStr} • ${d}` : d);
 
-            // استخراج آخر ملاحظة للمندوب وآخر ملاحظة للإدارة لعرضهما بوضوح تام دون أن تخفي إحداهما الأخرى
+            // فحص الملاحظات المكتوبة فعلياً (لا نعرض أي صناديق رمادية فارغة إذا لم تكن هناك ملاحظة!)
             const cleanDriverLatest = o.driverNote ? o.driverNote.split('\n---\n').filter(Boolean).pop().replace(/^\[.*?\]\s*/, '') : '';
             const cleanAdminLatest = o.adminNote ? o.adminNote.split('\n---\n').filter(Boolean).pop().replace(/^\[.*?\]\s*/, '') : '';
+            const totalNotesCount = (o.driverNote ? o.driverNote.split('\n---\n').filter(Boolean).length : 0) + (o.adminNote ? o.adminNote.split('\n---\n').filter(Boolean).length : 0);
 
-            // بناء شبكة أزرار القرارات السفلية المتساوية 100% (Grid) لمنع أي فراغ أبيض على الشمال
+            let activeNotesPreviewHtml = '';
+            if (cleanDriverLatest || cleanAdminLatest) {
+                activeNotesPreviewHtml = `
+                    <div class="flex flex-wrap gap-1.5">
+                        ${cleanDriverLatest ? `
+                        <div onclick="toggleInlineNotes(event, '${o.id}', 'driverNote')" class="flex-1 min-w-[140px] cursor-pointer bg-blue-50 border border-blue-200 text-blue-950 px-2.5 py-1 rounded-xl flex items-center justify-between gap-1 text-[10px] font-black">
+                            <span class="truncate"><i class="fa-solid fa-motorcycle text-blue-600 ml-1"></i> ${cleanDriverLatest}</span>
+                            <button type="button" onclick="event.stopPropagation(); clearSingleNoteFieldQuick('${o.id}', 'driverNote')" class="text-blue-400 hover:text-red-600 px-1">×</button>
+                        </div>` : ''}
+                        ${cleanAdminLatest ? `
+                        <div onclick="toggleInlineNotes(event, '${o.id}', 'adminNote')" class="flex-1 min-w-[140px] cursor-pointer bg-amber-50 border border-amber-200 text-amber-950 px-2.5 py-1 rounded-xl flex items-center justify-between gap-1 text-[10px] font-black">
+                            <span class="truncate"><i class="fa-solid fa-lock text-amber-600 ml-1"></i> ${cleanAdminLatest}</span>
+                            <button type="button" onclick="event.stopPropagation(); clearSingleNoteFieldQuick('${o.id}', 'adminNote')" class="text-amber-400 hover:text-red-600 px-1">×</button>
+                        </div>` : ''}
+                    </div>
+                `;
+            }
+
+            // الصف السفلي لقرارات المرحلة: أزرار رشيقة ورفيعة (h-7) وأيقونات صغيرة شيك
             let workflowGridHtml = '';
             if (o.status === 'new') {
                 workflowGridHtml = `
-                    <div class="grid grid-cols-4 gap-1.5">
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 h-9 rounded-xl text-xs font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-fire-burner"></i> للتجهيز</button>
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'deferred')" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 h-9 rounded-xl text-[11px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">📅 تأجيل</button>
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'no_answer')" class="bg-purple-50 hover:bg-purple-600 text-purple-800 hover:text-white border border-purple-200 h-9 rounded-xl text-[11px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">📵 لم يرد</button>
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'canceled')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 h-9 rounded-xl text-[11px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">❌ إلغاء</button>
+                    <div class="grid grid-cols-4 gap-1">
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 h-7 rounded-lg text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-fire-burner text-[9px]"></i> للتجهيز</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'deferred')" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-regular fa-calendar text-[9px]"></i> تأجيل</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'no_answer')" class="bg-purple-50 hover:bg-purple-600 text-purple-800 hover:text-white border border-purple-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-phone-slash text-[9px]"></i> لم يرد</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'canceled')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-xmark text-[9px]"></i> إلغاء</button>
                     </div>`;
             } else if (o.status === 'processing') {
                 workflowGridHtml = `
-                    <div class="grid grid-cols-4 gap-1.5">
-                        <button type="button" data-lc-trigger="1" onclick="event.stopPropagation(); triggerOrderDriverStep(this, '${o.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white h-9 rounded-xl text-xs font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-motorcycle"></i> للمندوب</button>
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-50 hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-200 h-9 rounded-xl text-[11px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">✅ تسليم</button>
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'deferred')" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 h-9 rounded-xl text-[11px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">📅 تأجيل</button>
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'canceled')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 h-9 rounded-xl text-[11px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">❌ إلغاء</button>
+                    <div class="grid grid-cols-4 gap-1">
+                        <button type="button" data-lc-trigger="1" onclick="event.stopPropagation(); triggerOrderDriverStep(this, '${o.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white h-7 rounded-lg text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-motorcycle text-[9px]"></i> للمندوب</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-50 hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-check text-[9px]"></i> تسليم</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'deferred')" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-regular fa-calendar text-[9px]"></i> تأجيل</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'canceled')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-xmark text-[9px]"></i> إلغاء</button>
                     </div>`;
             } else if (o.status === 'dispatched') {
                 workflowGridHtml = `
-                    <div class="grid grid-cols-4 gap-1.5">
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-600 hover:bg-emerald-700 text-white h-9 rounded-xl text-xs font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-check-double"></i> تم التسليم</button>
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'no_answer')" class="bg-purple-50 hover:bg-purple-600 text-purple-800 hover:text-white border border-purple-200 h-9 rounded-xl text-[11px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">📵 لم يرد</button>
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'deferred')" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 h-9 rounded-xl text-[11px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">📅 تأجيل</button>
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-slate-100 hover:bg-slate-700 text-slate-700 hover:text-white h-9 rounded-xl text-[11px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">↩️ لتجهيز</button>
+                    <div class="grid grid-cols-4 gap-1">
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-600 hover:bg-emerald-700 text-white h-7 rounded-lg text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-check-double text-[9px]"></i> تم التسليم</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'no_answer')" class="bg-purple-50 hover:bg-purple-600 text-purple-800 hover:text-white border border-purple-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-phone-slash text-[9px]"></i> لم يرد</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'deferred')" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-regular fa-calendar text-[9px]"></i> تأجيل</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-slate-100 hover:bg-slate-700 text-slate-700 hover:text-white h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">↩️ لتجهيز</button>
                     </div>`;
             } else if (o.status === 'deferred' || o.status === 'no_answer') {
                 workflowGridHtml = `
-                    <div class="grid grid-cols-3 gap-1.5">
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 h-9 rounded-xl text-xs font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-fire-burner"></i> للتجهيز الآن</button>
-                        <button type="button" onclick="event.stopPropagation(); openDeferredScheduleModal(['${o.id}'])" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 h-9 rounded-xl text-[11px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">⏰ ضبط الموعد</button>
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'canceled')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 h-9 rounded-xl text-[11px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">❌ إلغاء</button>
+                    <div class="grid grid-cols-3 gap-1">
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 h-7 rounded-lg text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-fire-burner text-[9px]"></i> للتجهيز الآن</button>
+                        <button type="button" onclick="event.stopPropagation(); openDeferredScheduleModal(['${o.id}'])" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-regular fa-clock text-[9px]"></i> الموعد</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'canceled')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-xmark text-[9px]"></i> إلغاء</button>
                     </div>`;
             } else if (o.status === 'canceled') {
                 workflowGridHtml = `
-                    <div class="grid grid-cols-2 gap-1.5">
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'new')" class="bg-blue-600 hover:bg-blue-700 text-white h-9 rounded-xl text-xs font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1">↩️ استعادة الطلب لجديد</button>
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'trash')" class="bg-red-50 hover:bg-red-600 text-red-600 hover:text-white border border-red-200 h-9 rounded-xl text-xs font-black transition-all active:scale-95 flex items-center justify-center gap-1">🗑️ نقل لسلة المحذوفات</button>
+                    <div class="grid grid-cols-2 gap-1">
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'new')" class="bg-blue-600 hover:bg-blue-700 text-white h-7 rounded-lg text-[10px] font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1">↩️ استعادة لجديد</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'trash')" class="bg-red-50 hover:bg-red-600 text-red-600 hover:text-white border border-red-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">🗑️ حذف للسلة</button>
                     </div>`;
             }
 
             return `
-            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-3.5 rounded-2xl shadow-sm border border-slate-200/90 hover:shadow-md transition-all relative group cursor-pointer space-y-2.5">
+            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-3 rounded-2xl shadow-sm border border-slate-200/90 hover:shadow-md transition-all relative group cursor-pointer space-y-2">
 
                 ${trustInfo.bannerHtml}
                 ${trustInfo.stickyHtml}
 
-                <!-- 1. الهيدر المزدوج المنظم: (العميل والمنطقة يميناً) و (الحالة ورقم الاتصال يساراً بدون انكسار عشوائي) -->
+                <!-- 1. الهيدر الرشيق: العميل والمنطقة يميناً + الحالة ورقم الاتصال يساراً -->
                 <div class="flex items-start justify-between gap-2">
-                    <!-- يمين الهيدر: الاسم + التقييم + المنطقة والدفعة تحته مباشرة -->
-                    <div class="space-y-1.5 min-w-0 flex-1">
+                    <div class="space-y-1 min-w-0 flex-1">
                         <div class="flex flex-wrap items-center gap-1.5">
                             <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer rounded shrink-0">
-                            <span class="font-black text-slate-900 text-sm sm:text-base cursor-pointer hover:text-brand-primary border-b border-transparent hover:border-brand-primary border-dashed" onclick="smartNameClick(this, '${o.id}', '${o.customerPhone}', 'customerName')">${o.customerName || 'بدون اسم'}</span>
+                            <span class="font-black text-slate-900 text-sm cursor-pointer hover:text-brand-primary border-b border-transparent hover:border-brand-primary border-dashed" onclick="smartNameClick(this, '${o.id}', '${o.customerPhone}', 'customerName')">${o.customerName || 'بدون اسم'}</span>
                             ${trustInfo.badgeHtml}
                         </div>
-                        <div class="flex flex-wrap items-center gap-1.5 pr-5">
-                            <span data-zone-pill="1" class="cursor-pointer text-indigo-900 bg-indigo-50 border border-indigo-200/80 px-2 py-0.5 rounded-lg font-black text-[10px]" ondblclick="inlineEdit(this, '${o.id}', 'zone')"><i class="fa-solid fa-location-dot text-indigo-500 ml-1"></i>${o.zone || 'غير مسجل'}</span>
-                            ${o.customerAddress ? `<span class="cursor-pointer text-slate-600 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200/60 text-[10px]" ondblclick="inlineEdit(this, '${o.id}', 'customerAddress')">${o.customerAddress}</span>` : ''}
+                        <div class="flex flex-wrap items-center gap-1 pr-5">
+                            <span data-zone-pill="1" class="cursor-pointer text-indigo-900 bg-indigo-50 border border-indigo-200/80 px-2 py-0.5 rounded-md font-black text-[10px]" ondblclick="inlineEdit(this, '${o.id}', 'zone')"><i class="fa-solid fa-location-dot text-indigo-500 ml-0.5 text-[9px]"></i>${o.zone || 'غير مسجل'}</span>
+                            ${o.customerAddress ? `<span class="cursor-pointer text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-200/60 text-[10px]" ondblclick="inlineEdit(this, '${o.id}', 'customerAddress')">${o.customerAddress}</span>` : ''}
                             ${batchTagHtml}
                             ${driverBadgeHtml}
-                            ${customTagHtml}
                         </div>
                     </div>
 
-                    <!-- يسار الهيدر: شارة الحالة والوقت فوق + كبسولة رقم التليفون تحتها بنظام عمودي أنيق -->
-                    <div class="flex flex-col items-end gap-1.5 shrink-0">
-                        <div class="flex items-center gap-1.5">
-                            <span class="text-[10px] font-bold text-slate-400">${timeDisplayStr}</span>
+                    <div class="flex flex-col items-end gap-1 shrink-0">
+                        <div class="flex items-center gap-1">
+                            <span class="text-[9px] font-bold text-slate-400">${timeDisplayStr}</span>
                             ${sBadge}
                         </div>
-                        <div class="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-emerald-50 px-2.5 py-1 rounded-xl border border-slate-200/80 transition-colors">
-                            <span class="text-[11px] text-slate-800 font-black cursor-pointer" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone')" title="اضغط مرتين لتعديل الرقم">${o.customerPhone}</span>
-                            <a href="tel:${o.customerPhone}" class="text-emerald-600 hover:text-emerald-800 text-xs flex items-center" title="اتصال مباشر"><i class="fa-solid fa-phone"></i></a>
+                        <div class="inline-flex items-center gap-1 bg-slate-100 hover:bg-emerald-50 px-2 py-0.5 rounded-lg border border-slate-200/80 transition-colors">
+                            <span class="text-[11px] text-slate-800 font-black cursor-pointer" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone')">${o.customerPhone}</span>
+                            <a href="tel:${o.customerPhone}" class="text-emerald-600 hover:text-emerald-800 text-[10px] flex items-center" title="اتصال"><i class="fa-solid fa-phone"></i></a>
                         </div>
-                        ${o.customerPhone2 ? `
-                        <div class="inline-flex items-center gap-1 bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-200 text-[10px]">
-                            <span class="text-purple-700 font-black">بديل:</span>
-                            <span class="text-slate-700 font-bold" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone2')">${o.customerPhone2}</span>
-                            <a href="tel:${o.customerPhone2}" class="text-purple-600"><i class="fa-solid fa-phone text-[9px]"></i></a>
-                        </div>` : ''}
                     </div>
                 </div>
 
-                <!-- 2. صندوق الفاتورة والأصناف الموحد -->
-                <div class="bg-slate-50/90 px-3 py-2.5 rounded-xl border border-slate-200/80 flex flex-wrap items-center justify-between gap-2">
-                    <div class="flex flex-wrap items-center gap-1.5 flex-1 min-w-[150px]">
+                <!-- 2. صندوق الطلب والفاتورة البارز (الأصناف واخدة راحتها بالكامل بدون تكسير + الحساب واضح) -->
+                <div class="bg-slate-50/95 p-2.5 rounded-xl border border-slate-200/90 space-y-2">
+                    <!-- الأصناف هي البطل في السطر الأول من الصندوق -->
+                    <div class="flex flex-wrap items-center gap-1.5 w-full">
                         ${itemsStr}
                     </div>
-
-                    <div class="flex items-center gap-2 mr-auto sm:mr-0 shrink-0">
-                        ${paymentBadge}
-                        <div class="text-left">
-                            <span class="font-black text-brand-primary text-base sm:text-lg leading-none block">${o.total || 0} <span class="text-[10px]">ج.م</span></span>
-                            <span class="text-[9px] font-bold text-slate-400 block">(${o.subtotal || o.total || 0} + شحن ${o.deliveryFee || 0}${o.discount > 0 ? ` - خصم ${o.discount}` : ''})</span>
+                    <!-- شريط الحساب والدفع تحت الأصناف مباشرة بوضوح تام -->
+                    <div class="flex items-center justify-between pt-1.5 border-t border-slate-200/70">
+                        <div class="flex items-center gap-1.5">
+                            ${paymentBadge}
+                            <span class="text-[10px] font-bold text-slate-400">(${o.subtotal || o.total || 0} طلبات + ${o.deliveryFee || 0} شحن${o.discount > 0 ? ` - ${o.discount} خصم` : ''})</span>
                         </div>
+                        <span class="font-black text-brand-primary text-base sm:text-lg leading-none">${o.total || 0} <span class="text-[10px]">ج.م</span></span>
                     </div>
                 </div>
 
-                <!-- 3. شريط الملاحظات الذكي (يعرض ملاحظة المندوب وملاحظة الإدارة بوضوح أو يفتح بضغطة واحدة) -->
-                <div class="grid grid-cols-2 gap-1.5">
-                    <div onclick="toggleInlineNotes(event, '${o.id}', 'driverNote')" class="cursor-pointer ${cleanDriverLatest ? 'bg-blue-50 border-blue-300 text-blue-950' : 'bg-slate-50/80 hover:bg-blue-50/50 border-slate-200/80 text-slate-500'} border px-2.5 py-1.5 rounded-xl flex items-center justify-between gap-1.5 transition-all">
-                        <div class="truncate text-[11px] font-black flex items-center gap-1.5">
-                            <i class="fa-solid fa-motorcycle ${cleanDriverLatest ? 'text-blue-600' : 'text-slate-400'}"></i>
-                            <span class="truncate">${cleanDriverLatest ? cleanDriverLatest : 'ملاحظة للمندوب +'}</span>
-                        </div>
-                        ${cleanDriverLatest ? `<button type="button" onclick="event.stopPropagation(); clearSingleNoteFieldQuick('${o.id}', 'driverNote')" class="text-blue-400 hover:text-red-600 px-1 text-xs font-black" title="مسح سريع">×</button>` : ''}
-                    </div>
+                ${activeNotesPreviewHtml}
 
-                    <div onclick="toggleInlineNotes(event, '${o.id}', 'adminNote')" class="cursor-pointer ${cleanAdminLatest ? 'bg-amber-50 border-amber-300 text-amber-950' : 'bg-slate-50/80 hover:bg-amber-50/50 border-slate-200/80 text-slate-500'} border px-2.5 py-1.5 rounded-xl flex items-center justify-between gap-1.5 transition-all">
-                        <div class="truncate text-[11px] font-black flex items-center gap-1.5">
-                            <i class="fa-solid fa-lock ${cleanAdminLatest ? 'text-amber-600' : 'text-slate-400'}"></i>
-                            <span class="truncate">${cleanAdminLatest ? cleanAdminLatest : 'ملاحظة إدارية +'}</span>
-                        </div>
-                        ${cleanAdminLatest ? `<button type="button" onclick="event.stopPropagation(); clearSingleNoteFieldQuick('${o.id}', 'adminNote')" class="text-amber-400 hover:text-red-600 px-1 text-xs font-black" title="مسح سريع">×</button>` : ''}
-                    </div>
-                </div>
-
-                <!-- حاوية درج الملاحظات الفوري (تفتح عند لمس أي من الخانتين بالأعلى) -->
+                <!-- حاوية درج الملاحظات الموحد (تفتح من أيقونة الملاحظة الواحدة) -->
                 <div id="inline-notes-container-${o.id}" class="hidden w-full transition-all duration-200 origin-top">
                     <div id="inline-notes-content-${o.id}"></div>
                 </div>
 
-                <!-- 4. شبكة الأزرار السفلية المتوازنة 100% (بدون أي فراغ أبيض على الشمال) -->
-                <div class="space-y-1.5 pt-1 border-t border-slate-100">
-                    <!-- الصف الأول: 3 أزرار متساوية العرض (واتساب | بوليصة | تعديل) -->
-                    <div class="grid grid-cols-3 gap-1.5">
+                <!-- 3. شريط الأدوات المدمج (4 أزرار رشيقة h-7: واتساب بالـ 5 مميزات | بوليصة | ملاحظة | تعديل) -->
+                <div class="space-y-1 pt-0.5">
+                    <div class="grid grid-cols-4 gap-1">
                         ${o.status === 'completed' ? `
-                            <button type="button" onclick="sendFollowUpWhatsApp('${o.customerPhone}', '${o.customerName}')" class="bg-[#25D366] hover:bg-[#1ebd57] text-white h-9 rounded-xl text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all"><i class="fa-brands fa-whatsapp text-sm"></i> متابعة</button>
-                            <button type="button" onclick="openLinkArchiveModal('${o.id}')" class="bg-slate-800 hover:bg-slate-900 text-white h-9 rounded-xl text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all"><i class="fa-solid fa-link text-amber-400"></i> أرشفة</button>
-                            <button type="button" onclick="openEditOrderModal('${o.id}')" class="bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white border border-slate-200 h-9 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 active:scale-95 transition-all"><i class="fa-solid fa-pen"></i> تعديل</button>
+                            <button type="button" onclick="sendFollowUpWhatsApp('${o.customerPhone}', '${o.customerName}')" class="bg-[#25D366] hover:bg-[#1ebd57] text-white h-7 rounded-lg text-[10px] font-black shadow-sm flex items-center justify-center gap-1 active:scale-95"><i class="fa-brands fa-whatsapp"></i> متابعة</button>
+                            <button type="button" onclick="openLinkArchiveModal('${o.id}')" class="bg-slate-800 hover:bg-slate-900 text-white h-7 rounded-lg text-[10px] font-black shadow-sm flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-link text-amber-400 text-[9px]"></i> أرشفة</button>
                         ` : `
-                            <button type="button" onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="bg-[#25D366] hover:bg-[#1ebd57] text-white h-9 rounded-xl text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all"><i class="fa-brands fa-whatsapp text-sm"></i> واتساب</button>
-                            <button type="button" onclick="event.stopPropagation(); printSingleOrderWaybill('${o.id}')" class="bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-white border border-amber-200 h-9 rounded-xl text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all"><i class="fa-solid fa-print"></i> بوليصة</button>
-                            <button type="button" onclick="openEditOrderModal('${o.id}')" class="bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white border border-slate-200 h-9 rounded-xl text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all"><i class="fa-solid fa-pen"></i> تعديل</button>
+                            <div class="inline-flex h-7 rounded-lg overflow-hidden shadow-sm">
+                                <button type="button" onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="flex-1 bg-[#25D366] hover:bg-[#1ebd57] text-white text-[10px] font-black flex items-center justify-center gap-1 active:scale-95" title="إرسال الفاتورة مباشرة"><i class="fa-brands fa-whatsapp text-xs"></i> واتساب</button>
+                                <button type="button" data-lc-trigger="1" onclick="event.stopPropagation(); openWhatsAppTemplatesPopover(this, '${o.id}')" class="bg-[#1da851] hover:bg-[#178e43] text-white px-1.5 text-[9px] font-black border-r border-white/20 flex items-center justify-center" title="الـ 5 رسائل الجاهزة للعميل">▾</button>
+                            </div>
+                            <button type="button" onclick="event.stopPropagation(); printSingleOrderWaybill('${o.id}')" class="bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-white border border-amber-200 h-7 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-print text-[9px]"></i> بوليصة</button>
                         `}
+                        <button type="button" onclick="toggleInlineNotes(event, '${o.id}')" class="${totalNotesCount > 0 ? 'bg-blue-50 text-blue-800 border-blue-200' : 'bg-slate-100 text-slate-700 border-slate-200'} hover:bg-slate-800 hover:text-white border h-7 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 active:scale-95" title="فتح نافذة ملاحظات المندوب والإدارة">
+                            <i class="fa-regular fa-comment-dots text-[9px]"></i> ملاحظة ${totalNotesCount > 0 ? `<span class="bg-blue-600 text-white px-1 rounded text-[8px]">${totalNotesCount}</span>` : '+'}
+                        </button>
+                        <button type="button" onclick="openEditOrderModal('${o.id}')" class="bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white border border-slate-200 h-7 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-pen text-[9px]"></i> تعديل</button>
                     </div>
 
-                    <!-- الصف الثاني: شبكة قرارات المرحلة المتساوية 100% (للتجهيز | تأجيل | لم يرد | إلغاء) -->
                     ${workflowGridHtml}
                 </div>
             </div>`;
@@ -1155,15 +1182,15 @@
 
         if (remainingCount > 0) {
             cardsHtml += `
-            <button type="button" onclick="window.ordersRenderLimit = (window.ordersRenderLimit || 30) + 30; renderOrdersList();" class="w-full py-3.5 bg-white hover:bg-emerald-50 text-brand-primary font-black text-xs rounded-2xl border-2 border-dashed border-brand-primary/30 shadow-sm transition-all flex items-center justify-center gap-2">
+            <button type="button" onclick="window.ordersRenderLimit = (window.ordersRenderLimit || 30) + 30; renderOrdersList();" class="w-full py-3 bg-white hover:bg-emerald-50 text-brand-primary font-black text-xs rounded-2xl border-2 border-dashed border-brand-primary/30 shadow-sm transition-all flex items-center justify-center gap-2">
                 <i class="fa-solid fa-angles-down"></i> عرض المزيد من الطلبات (متبقي ${remainingCount} طلب)
             </button>`;
         }
 
         container.innerHTML = cardsHtml;
 
-        if (typeof openInlineNoteId !== 'undefined' && openInlineNoteId && openInlineNoteField) {
-            setTimeout(() => { window.toggleInlineNotes(null, openInlineNoteId, openInlineNoteField, true); }, 50);
+        if (typeof openInlineNoteId !== 'undefined' && openInlineNoteId) {
+            setTimeout(() => { window.toggleInlineNotes(null, openInlineNoteId, openInlineNoteField || 'driverNote', true); }, 50);
         }
         if (typeof hookDeferredStatusInterceptors === 'function') {
             hookDeferredStatusInterceptors();
