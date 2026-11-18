@@ -151,6 +151,22 @@
         toolbar.className = 'mt-2 pt-2 border-t border-slate-200/80 space-y-2';
 
         toolbar.innerHTML = `
+            <!-- شريط إنجاز اليوم المباشر + اختصار التوجيه السريع بلمسة واحدة -->
+            <div id="so-daily-progress-strip" class="bg-white border border-slate-200/90 px-3 py-2 rounded-xl shadow-sm flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center gap-2.5 flex-1 min-w-[200px]">
+                    <span class="text-[11px] font-black text-slate-700 whitespace-nowrap"><i class="fa-solid fa-gauge-high text-brand-primary ml-1"></i> إنجاز التشغيل: <strong id="so-prog-pct" class="text-emerald-600">0%</strong></span>
+                    <div class="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden max-w-xs border border-slate-200/60">
+                        <div id="so-prog-bar" class="h-full bg-gradient-to-l from-emerald-500 to-teal-600 rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                    <span id="so-prog-details" class="hidden sm:inline text-[10px] font-bold text-slate-500"></span>
+                </div>
+                <div class="flex items-center gap-1.5 shrink-0">
+                    <button type="button" data-lc-trigger="1" onclick="openExpressBatchDispatchPopover(this)" class="bg-gradient-to-l from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-3 py-1 rounded-lg text-[11px] font-black shadow-sm transition-all flex items-center gap-1 active:scale-95" title="توجيه كل الطلبات الجاهزة للمندوب بضغطة واحدة">
+                        <i class="fa-solid fa-bolt text-amber-300 text-[10px]"></i> توجيه سريع (<span id="so-ready-dispatch-cnt">0</span>)
+                    </button>
+                </div>
+            </div>
+
             <!-- السطر الأساسي المدمج: الملخص اللحظي + أزرار التحكم السريعة -->
             <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-900 text-white px-3 py-2 rounded-xl shadow-sm">
                 <div class="flex flex-wrap items-center gap-2.5 text-[11px] font-black">
@@ -672,7 +688,42 @@
             }
         }
 
+        // تحديث شريط إنجاز اليوم المباشر وعداد التوجيه السريع
+        const todayStrEn = new Date().toLocaleDateString('en-US');
+        let compToday = 0;
+        filteredBase.forEach(o => {
+            if (o.status === 'completed' && (o.completedAtStr === todayStrEn || o.orderDate === todayStrEn)) {
+                compToday++;
+            }
+        });
+        const activePipelineTotal = dynamicCounts.new + dynamicCounts.processing + dynamicCounts.dispatched + compToday;
+        const progPct = activePipelineTotal > 0 ? Math.min(100, Math.round(((compToday + (dynamicCounts.dispatched * 0.6) + (dynamicCounts.processing * 0.3)) / activePipelineTotal) * 100)) : 100;
+
+        if (document.getElementById('so-prog-pct')) document.getElementById('so-prog-pct').innerText = progPct + '%';
+        if (document.getElementById('so-prog-bar')) document.getElementById('so-prog-bar').style.width = progPct + '%';
+        if (document.getElementById('so-ready-dispatch-cnt')) document.getElementById('so-ready-dispatch-cnt').innerText = dynamicCounts.processing || 0;
+        if (document.getElementById('so-prog-details')) {
+            document.getElementById('so-prog-details').innerText = `(جاهز: ${dynamicCounts.processing} • بالطريق: ${dynamicCounts.dispatched} • سُلّم اليوم: ${compToday})`;
+        }
+
+        // عرض مؤثر التحميل الهيكلي الناعم (Skeleton Shimmer) إذا كانت البيانات قيد الجلب الأولي
         if (filtered.length === 0) {
+            if (!window._crmDataReady && (!allOrdersRaw || allOrdersRaw.length === 0)) {
+                container.innerHTML = [1, 2, 3].map(() => `
+                    <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+                        <div class="flex justify-between items-center">
+                            <div class="h-4 w-40 rounded-lg skeleton-shimmer"></div>
+                            <div class="h-5 w-16 rounded-lg skeleton-shimmer"></div>
+                        </div>
+                        <div class="h-12 w-full rounded-xl skeleton-shimmer"></div>
+                        <div class="flex justify-between items-center pt-1">
+                            <div class="h-7 w-48 rounded-lg skeleton-shimmer"></div>
+                            <div class="h-7 w-24 rounded-lg skeleton-shimmer"></div>
+                        </div>
+                    </div>
+                `).join('');
+                return;
+            }
             container.innerHTML = '<div class="text-center text-slate-400 py-16 font-bold border-2 border-dashed border-slate-200 rounded-[2rem] bg-white">لا توجد طلبات مطابقة في هذا القسم.</div>';
             return;
         }
@@ -1285,6 +1336,115 @@
         }
 
         cont.innerHTML = html;
+    };
+    // =========================================================================
+    // ⚡ 10. اختصار التوجيه السريع للمندوب بلمسة واحدة (1-Tap Express Dispatch)
+    // =========================================================================
+    window.openExpressBatchDispatchPopover = function (anchorEl) {
+        const procOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o => o && o.status === 'processing' && !o.isArchived);
+        if (procOrders.length === 0) {
+            if (typeof window.showToast === 'function') window.showToast('ℹ️ لا توجد طلبات في مرحلة (قيد التجهيز) حالياً لتوجيهها!');
+            else alert('لا توجد طلبات في مرحلة (قيد التجهيز) حالياً!');
+            return;
+        }
+
+        const drivers = (typeof storeSettings !== 'undefined' && Array.isArray(storeSettings.drivers)) ? storeSettings.drivers : [];
+        if (drivers.length === 0) {
+            if (typeof window.openDispatchModal === 'function') return window.openDispatchModal();
+            return alert('يرجى إضافة مندوب أولاً من قسم إعدادات المتجر!');
+        }
+
+        const zonesCount = {};
+        procOrders.forEach(o => {
+            const z = (o.zone || 'غير مسجل').trim();
+            zonesCount[z] = (zonesCount[z] || 0) + 1;
+        });
+
+        let zoneOptions = `<option value="ALL">🌍 كل المناطق الجاهزة (${procOrders.length} طلب)</option>`;
+        Object.keys(zonesCount).forEach(z => {
+            zoneOptions += `<option value="${z}">📍 منطقة: ${z} (${zonesCount[z]} طلب)</option>`;
+        });
+
+        const driverBtns = drivers.map(d => {
+            const safeName = (d.name || '').replace(/'/g, "\\'");
+            const safePhone = (d.phone || '').replace(/'/g, "\\'");
+            return `
+                <button type="button" onclick="executeExpressBatchDispatch('${safeName}', '${safePhone}')" class="w-full bg-indigo-50 hover:bg-indigo-600 text-indigo-950 hover:text-white py-2 px-3 rounded-xl text-xs font-black flex items-center justify-between border border-indigo-100 transition-all shadow-sm">
+                    <span>🛵 توجيه إلى: ${d.name}</span>
+                    <span class="text-[10px] bg-white/80 text-indigo-700 px-2 py-0.5 rounded-lg">بلمسة واحدة ⚡</span>
+                </button>
+            `;
+        }).join('');
+
+        const html = `
+            <div class="space-y-2.5">
+                <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                    <span class="text-xs font-black text-indigo-900"><i class="fa-solid fa-bolt text-amber-500 ml-1"></i> توجيه سريع للجاهز (${procOrders.length} طلب)</span>
+                    <button type="button" onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-500 block mb-1">1. اختر خط السير / المنطقة:</label>
+                    <select id="express-dispatch-zone-sel" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black text-slate-800 bg-slate-50 outline-none">
+                        ${zoneOptions}
+                    </select>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-500 block">2. اضغط على اسم المندوب للنقل الفوري:</label>
+                    ${driverBtns}
+                </div>
+            </div>
+        `;
+
+        if (typeof window.openLivePopover === 'function') {
+            window.openLivePopover(anchorEl, html);
+        } else if (typeof window.openDispatchModal === 'function') {
+            window.openDispatchModal();
+        }
+    };
+
+    window.executeExpressBatchDispatch = async function (driverName, driverPhone) {
+        const selectedZone = document.getElementById('express-dispatch-zone-sel')?.value || 'ALL';
+        if (typeof window.closeLivePopover === 'function') window.closeLivePopover();
+
+        let targetOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o => {
+            if (!o || o.status !== 'processing' || o.isArchived) return false;
+            if (selectedZone !== 'ALL' && (o.zone || 'غير مسجل').trim() !== selectedZone) return false;
+            const bl = window.findBlacklistedCustomerMatch ? window.findBlacklistedCustomerMatch(o.customerPhone, o.customerPhone2, o.customerName, o.customerAddress) : null;
+            if (bl && bl.type === 'exact' && !o.isPrepaidConfirmed && o.paymentMethod !== 'online') return false;
+            return true;
+        });
+
+        if (targetOrders.length === 0) return alert('لا توجد طلبات مطابقة جاهزة للتوجيه!');
+
+        try {
+            const batch = db.batch();
+            targetOrders.forEach(o => {
+                batch.update(db.collection('orders').doc(o.id), {
+                    driverName: driverName,
+                    driverPhone: driverPhone || '',
+                    status: 'dispatched',
+                    dispatchedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                o.driverName = driverName;
+                o.driverPhone = driverPhone || '';
+                o.status = 'dispatched';
+                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[o.id]) {
+                    globalOrdersMap[o.id].driverName = driverName;
+                    globalOrdersMap[o.id].driverPhone = driverPhone || '';
+                    globalOrdersMap[o.id].status = 'dispatched';
+                }
+            });
+
+            await batch.commit();
+            window.renderOrdersList();
+            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
+            if (typeof window.showToast === 'function') {
+                window.showToast(`🛵 تم توجيه (${targetOrders.length}) طلب إلى المندوب (${driverName}) في لمحة بصر!`);
+            }
+        } catch (e) {
+            alert('حدث خطأ أثناء التوجيه السريع للمندوب!');
+        }
     };
 
     if (document.readyState === 'loading') {
