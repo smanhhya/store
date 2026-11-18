@@ -314,50 +314,49 @@
             
 
 
-            <div id="view-orders" class="page-view h-full flex flex-col max-w-7xl mx-auto relative">
+            <div id="view-orders" class="page-view flex flex-col max-w-7xl mx-auto relative">
                 
-                <div class="sticky top-[-1rem] lg:top-[-2rem] z-40 bg-[#f1f5f9]/95 backdrop-blur-md pt-2.5 pb-2.5 -mx-4 px-3 sm:px-4 lg:-mx-8 lg:px-8 border-b border-slate-200/80 shadow-sm mb-3 space-y-2">
-                    
-                    <!-- الصف 1: شريط البحث الذكي + أزرار أدوات التشغيل المباشرة (تعمل باللمس فوراً بدون قوائم مخفية) -->
-                    <div class="flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-2">
-                        <div class="relative flex-1 flex gap-1.5">
-                            <div class="relative flex-1">
-                                <div class="absolute right-3 top-2.5 w-6 h-6 bg-brand-primary/10 rounded-lg flex items-center justify-center pointer-events-none">
-                                    <i class="fa-solid fa-search text-brand-primary text-xs"></i>
-                                </div>
-                                <button onclick="document.getElementById('search-order').value=''; scheduleSearch();" class="absolute left-2.5 top-2.5 w-6 h-6 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg flex items-center justify-center transition-colors">
-                                    <i class="fa-solid fa-xmark text-xs"></i>
-                                </button>
-                                <input type="search" id="search-order" onkeyup="scheduleSearch()" placeholder="ابحث بالاسم، رقم الموبايل، المنطقة، أو الصنف..." class="w-full pr-10 pl-9 py-2.5 rounded-xl border border-slate-200/90 outline-none text-xs sm:text-sm font-black bg-white focus:ring-2 focus:ring-brand-primary/25 transition-all shadow-sm">
-                            </div>
-                            <button onclick="toggleOrderSort()" id="btn-sort-orders" class="w-10 shrink-0 bg-white border border-slate-200 rounded-xl text-slate-600 hover:text-brand-primary hover:border-brand-primary transition-colors flex items-center justify-center shadow-sm" title="الترتيب الزمني (أحدث/أقدم)">
-                                <i class="fa-solid fa-arrow-down-short-wide text-sm"></i>
-                            </button>
-                        </div>
+                <!-- 1. شريط أدوات التشغيل الرباعي والملخص (ينساب طبيعياً مع الصفحة بدون أن يزاحم الشاشة أثناء النزول) -->
+                <div id="orders-top-tools-area" class="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-soft mb-2.5 space-y-2">
+                    <div class="grid grid-cols-4 gap-1.5">
+                        <button type="button" onclick="openDispatchModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-2.5 rounded-xl text-[10px] sm:text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all">
+                            <i class="fa-solid fa-motorcycle text-sky-200"></i>
+                            <span>توجيه مندوب</span>
+                        </button>
+                        <button type="button" onclick="openPackingListModal()" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-2.5 py-2.5 rounded-xl text-[10px] sm:text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all">
+                            <i class="fa-solid fa-box-open"></i>
+                            <span>ورقة التحضير</span>
+                        </button>
+                        <button type="button" onclick="openFreezerModal()" class="bg-cyan-700 hover:bg-cyan-800 text-white px-2.5 py-2.5 rounded-xl text-[10px] sm:text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all">
+                            <i class="fa-solid fa-snowflake text-cyan-200"></i>
+                            <span>الفريزر</span>
+                        </button>
+                        <button type="button" onclick="openModal('analysis-modal'); if(window.updateBatchSummary) updateBatchSummary();" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-2.5 rounded-xl text-[10px] sm:text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all">
+                            <i class="fa-solid fa-chart-pie text-indigo-200"></i>
+                            <span>التحليل الحي</span>
+                        </button>
+                    </div>
+                </div>
 
-                        <!-- شريط أدوات التشغيل الرباعي (ظاهر دائماً بضغطة واحدة على الموبايل والكمبيوتر) -->
-                        <div class="grid grid-cols-4 gap-1.5 shrink-0">
-                            <button type="button" onclick="openDispatchModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-2 rounded-xl text-[10px] sm:text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all">
-                                <i class="fa-solid fa-motorcycle text-sky-200"></i>
-                                <span>توجيه مندوب</span>
+                <!-- 2. شريط البحث الذكي + تبويبات المراحل (مثبت برشاقة وسهل التحرك باللمس) -->
+                <div id="orders-sticky-search-bar" class="sticky top-[-1rem] lg:top-[-2rem] z-30 bg-[#f1f5f9]/95 backdrop-blur-md pt-2 pb-2 -mx-4 px-3 sm:px-4 lg:-mx-8 lg:px-8 border-b border-slate-200/80 shadow-sm mb-3 space-y-2">
+                    <div class="flex gap-1.5">
+                        <div class="relative flex-1">
+                            <div class="absolute right-3 top-2 w-6 h-6 bg-brand-primary/10 rounded-lg flex items-center justify-center pointer-events-none">
+                                <i class="fa-solid fa-search text-brand-primary text-xs"></i>
+                            </div>
+                            <button onclick="document.getElementById('search-order').value=''; scheduleSearch();" class="absolute left-2.5 top-2 w-6 h-6 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg flex items-center justify-center transition-colors">
+                                <i class="fa-solid fa-xmark text-xs"></i>
                             </button>
-                            <button type="button" onclick="openPackingListModal()" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-2.5 py-2 rounded-xl text-[10px] sm:text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all">
-                                <i class="fa-solid fa-box-open"></i>
-                                <span>ورقة التحضير</span>
-                            </button>
-                            <button type="button" onclick="openFreezerModal()" class="bg-cyan-700 hover:bg-cyan-800 text-white px-2.5 py-2 rounded-xl text-[10px] sm:text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all">
-                                <i class="fa-solid fa-snowflake text-cyan-200"></i>
-                                <span>الفريزر</span>
-                            </button>
-                            <button type="button" onclick="openModal('analysis-modal'); if(window.updateBatchSummary) updateBatchSummary();" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-2 rounded-xl text-[10px] sm:text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all">
-                                <i class="fa-solid fa-chart-pie text-indigo-200"></i>
-                                <span>التحليل الحي</span>
-                            </button>
+                            <input type="search" id="search-order" onkeyup="scheduleSearch()" placeholder="ابحث بالاسم، رقم الموبايل، المنطقة، أو الصنف..." class="w-full pr-10 pl-9 py-2 rounded-xl border border-slate-200/90 outline-none text-xs sm:text-sm font-black bg-white focus:ring-2 focus:ring-brand-primary/25 transition-all shadow-sm">
                         </div>
+                        <button onclick="toggleOrderSort()" id="btn-sort-orders" class="w-10 shrink-0 bg-white border border-slate-200 rounded-xl text-slate-600 hover:text-brand-primary hover:border-brand-primary transition-colors flex items-center justify-center shadow-sm" title="الترتيب الزمني (أحدث/أقدم)">
+                            <i class="fa-solid fa-arrow-down-short-wide text-sm"></i>
+                        </button>
                     </div>
 
-                    <!-- الصف 2: تبويبات مراحل الطلبات (Status Pipeline) -->
-                    <div class="flex gap-1.5 overflow-x-auto custom-scroll pb-0.5 shrink-0">
+                    <!-- تبويبات مراحل الطلبات (Status Pipeline) مع تمرير أفقي فائق النعومة -->
+                    <div class="flex gap-1.5 smooth-tabs-scroll pb-0.5 shrink-0">
                         <button onclick="setOrderTab('all')" id="tab-all" class="order-tab active whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs font-black bg-slate-800 text-white transition-all shadow-sm">الكل</button>
                         <button onclick="setOrderTab('new')" id="tab-new" class="order-tab whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">🆕 جديد <span id="badge-new" class="mr-1 bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-md text-[10px]">0</span></button>
                         <button onclick="setOrderTab('processing')" id="tab-processing" class="order-tab whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">⏳ تجهيز <span id="badge-processing" class="mr-1 bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-md text-[10px]">0</span></button>
@@ -369,7 +368,7 @@
                     </div>
 
                     <!-- شريط الإجراءات الجماعية عند تحديد أكثر من طلب -->
-                    <div id="bulk-actions-bar" class="hidden bg-slate-900 text-white p-2.5 rounded-xl shadow-lg flex flex-wrap justify-between items-center gap-2 transition-all border border-slate-700">
+                    <div id="bulk-actions-bar" class="hidden bg-slate-900 text-white p-2 rounded-xl shadow-lg flex flex-wrap justify-between items-center gap-2 transition-all border border-slate-700">
                         <div class="text-xs font-black flex items-center gap-1.5 pl-2">
                             <span id="bulk-count" class="bg-emerald-500 text-slate-950 px-2 py-0.5 rounded-lg text-[11px]">0</span> طلب محدد
                         </div>
@@ -382,10 +381,9 @@
                             <button onclick="bulkChangeStatus('trash')" class="bg-red-600 hover:bg-red-500 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-colors shadow-sm"><i class="fa-solid fa-trash"></i></button>
                         </div>
                     </div>
-
                 </div>
 
-                <div id="orders-list-vertical" class="flex-1 space-y-3 pr-0.5 pb-16"></div>
+                <div id="orders-list-vertical" class="flex-1 space-y-3 pr-0.5 pb-20"></div>
             </div>
 
 
@@ -1674,6 +1672,273 @@
         try {
             db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
         } catch (e) {}
+
+        // =========================================================================
+        // 🛡️ محرك العمل بدون إنترنت والنت الضعيف الشامل (Offline-First & Outbox Engine)
+        // يضمن تنفيذ كل العمليات (إضافة/تعديل/حذف/تقفيل/شيت/تيك تيك) في 0 ثانية ومزامنتها تلقائياً
+        // =========================================================================
+        (function initSmanOfflineFirstEngine() {
+            const OUTBOX_STORAGE_KEY = 'sman_offline_http_outbox_v1';
+            window._smanPendingCloudWrites = 0;
+
+            // 1. ضمان قراءة التوقيت المحلي فوراً للطلبات المنشأة أوفلاين حتى تظهر في أول القائمة
+            try {
+                const _origSnapData = firebase.firestore.DocumentSnapshot.prototype.data;
+                firebase.firestore.DocumentSnapshot.prototype.data = function (options) {
+                    return _origSnapData.call(this, options || { serverTimestamps: 'estimate' });
+                };
+            } catch (e) {}
+
+            // 2. إدارة طابور الانتظار للطلبات الخارجية (Google Sheets + TickTick Web3Forms)
+            function getHttpOutbox() {
+                try {
+                    return JSON.parse(localStorage.getItem(OUTBOX_STORAGE_KEY) || '[]');
+                } catch (e) {
+                    return [];
+                }
+            }
+
+            function saveHttpOutbox(list) {
+                try {
+                    localStorage.setItem(OUTBOX_STORAGE_KEY, JSON.stringify(list.slice(-150)));
+                } catch (e) {}
+                window.refreshOfflineSyncPillUI();
+            }
+
+            function enqueueOfflineHttpRequest(url, options, label) {
+                const list = getHttpOutbox();
+                list.push({
+                    id: 'req_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+                    url: url,
+                    options: {
+                        method: options?.method || 'POST',
+                        mode: options?.mode || 'cors',
+                        headers: options?.headers || { 'Content-Type': 'application/json' },
+                        body: options?.body || ''
+                    },
+                    label: label || 'تحديث خارجي',
+                    createdAt: Date.now()
+                });
+                saveHttpOutbox(list);
+            }
+
+            // اعتراض ذكي لطلبات fetch الخاصة بشيت جوجل وتيك تيك لحمايتها من الضياع وقت انقطاع النت
+            const _origFetch = window.fetch.bind(window);
+            window.fetch = async function (resource, init) {
+                const urlStr = typeof resource === 'string' ? resource : (resource?.url || '');
+                const isSheetOrTickTick = urlStr.includes('script.google.com') || urlStr.includes('api.web3forms.com');
+
+                if (!isSheetOrTickTick) {
+                    return _origFetch(resource, init);
+                }
+
+                const reqLabel = urlStr.includes('script.google.com') ? 'مزامنة شيت جوجل' : 'مهمة تيك تيك';
+
+                if (!navigator.onLine) {
+                    enqueueOfflineHttpRequest(urlStr, init, reqLabel);
+                    return new Response(JSON.stringify({ ok: true, queuedOffline: true }), { status: 200 });
+                }
+
+                try {
+                    const controller = new AbortController();
+                    const timer = setTimeout(() => controller.abort(), 6000);
+                    const fetchOpts = { ...(init || {}), signal: controller.signal };
+                    const res = await _origFetch(resource, fetchOpts);
+                    clearTimeout(timer);
+                    return res;
+                } catch (err) {
+                    enqueueOfflineHttpRequest(urlStr, init, reqLabel);
+                    return new Response(JSON.stringify({ ok: true, queuedOffline: true }), { status: 200 });
+                }
+            };
+
+            // تفريغ وإرسال طابور الشيت وتيك تيك تلقائياً بمجرد عودة الإنترنت
+            window.flushOfflineHttpOutbox = async function () {
+                if (!navigator.onLine || window._isFlushingOutbox) return;
+                const list = getHttpOutbox();
+                if (list.length === 0) return;
+
+                window._isFlushingOutbox = true;
+                window.refreshOfflineSyncPillUI('syncing');
+
+                const remaining = [];
+                for (let i = 0; i < list.length; i++) {
+                    const item = list[i];
+                    if (!navigator.onLine) {
+                        remaining.push(...list.slice(i));
+                        break;
+                    }
+                    try {
+                        await _origFetch(item.url, item.options);
+                    } catch (e) {
+                        remaining.push(item);
+                    }
+                }
+
+                saveHttpOutbox(remaining);
+                window._isFlushingOutbox = false;
+                window.refreshOfflineSyncPillUI();
+            };
+
+            // 3. تحويل جميع عمليات الحفظ في فايربيس (Batch / Set / Update / Delete) إلى عمليات فورية لا تتوقف على النت الضعيف
+            function wrapFirestoreWritePromise(serverPromise) {
+                window._smanPendingCloudWrites++;
+                window.refreshOfflineSyncPillUI('syncing');
+
+                serverPromise.then(() => {
+                    window._smanPendingCloudWrites = Math.max(0, window._smanPendingCloudWrites - 1);
+                    if (typeof window.saveInventoryFastMirror === 'function') window.saveInventoryFastMirror();
+                    window.refreshOfflineSyncPillUI();
+                }).catch((err) => {
+                    console.warn('Firestore background write error:', err);
+                    window._smanPendingCloudWrites = Math.max(0, window._smanPendingCloudWrites - 1);
+                    window.refreshOfflineSyncPillUI();
+                });
+
+                // إذا كان الجهاز أوفلاين، نُكمل العملية في الواجهة فوراً (خلال 60 ملي ثانية) بعد حفظها في الكاش المحلي
+                const timeoutMs = navigator.onLine ? 550 : 60;
+                return Promise.race([
+                    serverPromise,
+                    new Promise(resolve => setTimeout(() => resolve({ offlineQueued: true }), timeoutMs))
+                ]);
+            }
+
+            try {
+                // تغليف db.batch().commit()
+                const _origBatchFn = db.batch.bind(db);
+                db.batch = function () {
+                    const batchInstance = _origBatchFn();
+                    const _origCommit = batchInstance.commit.bind(batchInstance);
+                    batchInstance.commit = function () {
+                        const p = _origCommit();
+                        return wrapFirestoreWritePromise(p);
+                    };
+                    return batchInstance;
+                };
+
+                // تغليف docRef.set / update / delete
+                const DocRefProto = firebase.firestore.DocumentReference.prototype;
+                const _origSet = DocRefProto.set;
+                const _origUpdate = DocRefProto.update;
+                const _origDelete = DocRefProto.delete;
+
+                DocRefProto.set = function () {
+                    return wrapFirestoreWritePromise(_origSet.apply(this, arguments));
+                };
+                DocRefProto.update = function () {
+                    return wrapFirestoreWritePromise(_origUpdate.apply(this, arguments));
+                };
+                DocRefProto.delete = function () {
+                    return wrapFirestoreWritePromise(_origDelete.apply(this, arguments));
+                };
+
+                // 4. تسريع القراءة (.get) وقت انقطاع أو ضعف الإنترنت بالتحويل التلقائي للكاش المحلي
+                const _origDocGet = DocRefProto.get;
+                DocRefProto.get = function (options) {
+                    if (options && options.source) return _origDocGet.call(this, options);
+                    if (!navigator.onLine) {
+                        return _origDocGet.call(this, { source: 'cache' }).catch(() => _origDocGet.call(this));
+                    }
+                    return Promise.race([
+                        _origDocGet.call(this),
+                        new Promise((resolve, reject) => setTimeout(() => {
+                            _origDocGet.call(this, { source: 'cache' }).then(resolve).catch(reject);
+                        }, 1400))
+                    ]);
+                };
+
+                const QueryProto = firebase.firestore.Query.prototype;
+                const _origQueryGet = QueryProto.get;
+                QueryProto.get = function (options) {
+                    if (options && options.source) return _origQueryGet.call(this, options);
+                    if (!navigator.onLine) {
+                        return _origQueryGet.call(this, { source: 'cache' }).catch(() => _origQueryGet.call(this));
+                    }
+                    return Promise.race([
+                        _origQueryGet.call(this),
+                        new Promise((resolve, reject) => setTimeout(() => {
+                            _origQueryGet.call(this, { source: 'cache' }).then(resolve).catch(reject);
+                        }, 1400))
+                    ]);
+                };
+            } catch (e) {
+                console.log('Firestore offline wrapper info:', e);
+            }
+
+            // 5. كبسولة ونافذة حالة الأوفلاين والمزامنة اللحظية في الهيدر
+            window.refreshOfflineSyncPillUI = function (forcedState) {
+                let badge = document.getElementById('sman-live-sync-pill');
+                if (!badge) {
+                    const hdrTitle = document.getElementById('header-title');
+                    if (hdrTitle && hdrTitle.parentElement) {
+                        badge = document.createElement('button');
+                        badge.type = 'button';
+                        badge.id = 'sman-live-sync-pill';
+                        badge.onclick = () => window.showOfflineSyncStatusDialog();
+                        hdrTitle.parentElement.appendChild(badge);
+                    }
+                }
+                if (!badge) return;
+
+                const outboxCount = getHttpOutbox().length;
+                const totalPending = (window._smanPendingCloudWrites || 0) + outboxCount;
+
+                if (!navigator.onLine || forcedState === 'offline') {
+                    badge.className = 'inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300 shadow-sm shrink-0 cursor-pointer';
+                    badge.innerHTML = `<i class="fa-solid fa-bolt text-amber-600"></i> <span>أوفلاين${totalPending > 0 ? ` (${totalPending} محفوظ)` : ' (جاهز)'}</span>`;
+                } else if (totalPending > 0 || forcedState === 'syncing') {
+                    badge.className = 'inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-200 shadow-sm shrink-0 cursor-pointer';
+                    badge.innerHTML = `<i class="fa-solid fa-cloud-arrow-up fa-fade text-sky-600"></i> <span>مزامنة (${totalPending})...</span>`;
+                } else {
+                    badge.className = 'inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-sm shrink-0 cursor-pointer';
+                    badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> <span class="hidden sm:inline">متصل لايف</span>`;
+                }
+            };
+
+            window.updateLiveSyncStatusUI = window.refreshOfflineSyncPillUI;
+
+            window.showOfflineSyncStatusDialog = function () {
+                const outbox = getHttpOutbox();
+                const fbPending = window._smanPendingCloudWrites || 0;
+                const netStatus = navigator.onLine ? '🟢 متصل بالإنترنت' : '🟠 أوفلاين (بدون إنترنت - الحفظ محلياً)';
+                const msg =
+                    `🛡️ تقرير محرك الأوفلاين والمزامنة الذكي (سمان ههيا):\n\n` +
+                    `• حالة الشبكة: ${netStatus}\n` +
+                    `• تعديلات قاعدة البيانات بانتظار الرفع للسحابة: (${fbPending})\n` +
+                    `• رسائل شيت جوجل وتيك تيك في طابور الانتظار: (${outbox.length})\n\n` +
+                    `💡 ملاحظة: جميع الطلبات والتعديلات التي تقوم بها بدون إنترنت محفوظة بأمان تام على جهازك وتُرفع تلقائياً فور عودة الشبكة.`;
+
+                alert(msg);
+                if (navigator.onLine) {
+                    try { db.enableNetwork().catch(() => {}); } catch (e) {}
+                    window.flushOfflineHttpOutbox();
+                }
+            };
+
+            window.addEventListener('online', () => {
+                window.refreshOfflineSyncPillUI('syncing');
+                try { db.enableNetwork().catch(() => {}); } catch (e) {}
+                window.flushOfflineHttpOutbox();
+                if (typeof window.showQuickAppToast === 'function') {
+                    window.showQuickAppToast('🌐 عاد الاتصال بالإنترنت.. جاري رفع ومزامنة التعديلات المحفوظة تلقائياً!');
+                }
+            });
+
+            window.addEventListener('offline', () => {
+                window.refreshOfflineSyncPillUI('offline');
+                if (typeof window.showQuickAppToast === 'function') {
+                    window.showQuickAppToast('⚡ وضع الأوفلاين نشط: يمكنك إضافة وتعديل الطلبات بشكل طبيعي وسيتم حفظها فوراً!');
+                }
+            });
+
+            setInterval(() => {
+                if (navigator.onLine && getHttpOutbox().length > 0) {
+                    window.flushOfflineHttpOutbox();
+                }
+                window.refreshOfflineSyncPillUI();
+            }, 15000);
+        })();
+
 
         // ==========================================
         // 🔮 دالة سحرية لتوحيد أرقام الهواتف للبحث (Normalization) 🔮
