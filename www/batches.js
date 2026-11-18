@@ -697,13 +697,10 @@
                 const bBooked = (metrics.totalOrders > 0 || savedBooked === 0) ? liveBooked : savedBooked;
                 const remaining = bStock - bBooked;
                 const prodPrice = getProdPrice(pId);
-                const isPinnedPrimary = (typeof window.isProductPrimary === 'function')
-                    ? window.isProductPrimary(p, pId)
-                    : isMainQuailProduct(pId);
-
                 const isPinnedItem = (typeof window.isProductPinnedForAdmin === 'function')
                     ? window.isProductPinnedForAdmin(pId)
-                    : isMainMeat;
+                    : isMainQuailProduct(pId);
+
 
                 if (!showZeros && !isPinnedItem && bStock === 0 && bBooked === 0) {
                     hiddenZeroCount++;
