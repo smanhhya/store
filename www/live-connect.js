@@ -1,7 +1,7 @@
 // =========================================================================
-// ⚡ محرك الترابط الحي، الكبسولات التفاعلية، ونبض النظام (live-connect.js)
-// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM) - النسخة الكاملة المطورة
-// يعمل بتكامل تام مع index.html + orders.js + dashboard.js
+// ⚡ محرك الترابط الحي، الكبسولات التفاعلية، ونبض النظام الموحد (live-connect.js)
+// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM) - النسخة البريميوم المدمجة
+// يدمج الهيدر وشريط الإشعارات في سطر واحد رشيق + الكبسولات الحية + وضع المسابقة
 // =========================================================================
 
 (function () {
@@ -14,7 +14,7 @@
     };
 
     // =========================================================================
-    // 🎨 2. حقن تنسيقات الكبسولات الحية والهيدر الذكي المنزلق (Smart Auto-Hide Header)
+    // 🎨 2. حقن تنسيقات السطر العلوي المدمج والكبسولات الحية (بدون تغطية أو تداخل)
     // =========================================================================
     function injectLiveConnectStyles() {
         if (document.getElementById('live-connect-styles')) return;
@@ -28,7 +28,7 @@
             }
             .lc-capsule:hover {
                 transform: translateY(-1px) scale(1.02);
-                box-shadow: 0 4px 12px -2px rgba(6, 78, 59, 0.18) !important;
+                box-shadow: 0 4px 12px -2px rgba(6, 78, 59, 0.16) !important;
             }
             .lc-capsule:active {
                 transform: scale(0.95);
@@ -41,226 +41,65 @@
                 to { opacity: 1; transform: translateY(0) scale(1); }
             }
 
-            /* تقليص ارتفاع الهيدر العلوي وجعله رشيقاً ومنزلقاً بنعومة عند التمرير */
+            /* السطر العلوي الموحد الرشيق (يدمج الهيدر مع إشعارات الفريزر والمناديب في سطر واحد فقط) */
             header {
-                height: 52px !important;
-                min-height: 52px !important;
-                transition: margin-top 0.26s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease !important;
-            }
-            #lc-top-five-icons-ribbon {
-                transition: margin-top 0.26s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, max-height 0.26s ease !important;
-                max-height: 60px;
+                height: 48px !important;
+                min-height: 48px !important;
+                max-height: 48px !important;
+                padding-left: 0.5rem !important;
+                padding-right: 0.5rem !important;
+                transition: max-height 0.24s cubic-bezier(0.4, 0, 0.2, 1), min-height 0.24s cubic-bezier(0.4, 0, 0.2, 1), height 0.24s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, border-width 0.2s ease !important;
                 overflow: hidden;
             }
+            @media (min-width: 1024px) {
+                header {
+                    padding-left: 1.25rem !important;
+                    padding-right: 1.25rem !important;
+                }
+            }
 
-            /* عند النزول لأسفل في الصفحة يختفي الهيدر وشريط الإشعارات بسلاسة لتوفير الشاشة بالكامل */
+            /* طي السطر العلوي بنعومة عند النزول لأسفل بدون استخدام إزاحة سالبة تغطي الكروت */
             body.lc-bars-hidden-on-scroll header {
-                margin-top: -52px !important;
-                opacity: 0;
-                pointer-events: none;
-            }
-            body.lc-bars-hidden-on-scroll #lc-top-five-icons-ribbon {
-                margin-top: -54px !important;
-                opacity: 0;
-                pointer-events: none;
+                height: 0px !important;
+                min-height: 0px !important;
+                max-height: 0px !important;
+                opacity: 0 !important;
+                border-bottom-width: 0px !important;
+                pointer-events: none !important;
             }
 
-            /* تحسين السحب الأفقي السلس لتبويبات الطلبات */
-            .smooth-tabs-scroll {
+            /* ضبط شريط البحث المثبت في الطلبات الحية لكي لا يغطي على ما تحته */
+            #view-orders .sticky,
+            #orders-sticky-search-bar {
+                top: -1rem !important;
+                z-index: 25 !important;
+                padding-top: 0.45rem !important;
+                padding-bottom: 0.45rem !important;
+            }
+
+            /* تمرير أفقي سلس بدون شريط تمرير مزعج */
+            .lc-no-scrollbar {
                 overflow-x: auto;
                 scroll-behavior: smooth;
                 -webkit-overflow-scrolling: touch;
-                touch-action: pan-x;
                 scrollbar-width: none;
             }
-            .smooth-tabs-scroll::-webkit-scrollbar {
+            .lc-no-scrollbar::-webkit-scrollbar {
                 display: none;
             }
 
-            @media (max-width: 640px) {
-                header {
-                    padding-left: 0.6rem !important;
-                    padding-right: 0.6rem !important;
-                }
-                header #header-title {
-                    font-size: 0.95rem !important;
-                    white-space: nowrap;
-                }
+            /* قناع حماية خصوصية أرقام العملاء أثناء العرض أمام لجنة المسابقة */
+            body.pitch-privacy-mode [dir="ltr"]:not(input):not(textarea) {
+                filter: blur(4px);
+                transition: filter 0.2s ease;
+                user-select: none;
+            }
+            body.pitch-privacy-mode [dir="ltr"]:not(input):not(textarea):hover {
+                filter: blur(0);
             }
         `;
         document.head.appendChild(style);
     }
-
-    function injectExecutivePitchModeButton() {
-        const headerRight = document.querySelector('header .flex.items-center.gap-3') || document.querySelector('header > div:last-child');
-        if (!headerRight || document.getElementById('lc-pitch-mode-btn')) return;
-
-        const pitchBtn = document.createElement('button');
-        pitchBtn.type = 'button';
-        pitchBtn.id = 'lc-pitch-mode-btn';
-        pitchBtn.onclick = () => window.openCompetitionPitchModal();
-        pitchBtn.className = 'lc-capsule bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 px-2.5 sm:px-3.5 py-2 rounded-xl text-xs font-black shadow-md shadow-amber-500/20 flex items-center gap-1.5 shrink-0';
-        pitchBtn.title = 'فتح لوحة العرض التنفيذي للمسابقة واستعراض الابتكارات';
-        pitchBtn.innerHTML = '<i class="fa-solid fa-trophy text-slate-950"></i> <span class="hidden sm:inline">وضع المسابقة</span>';
-        headerRight.insertBefore(pitchBtn, headerRight.firstChild);
-    }
-
-    window.togglePitchPrivacyMask = function () {
-        document.body.classList.toggle('pitch-privacy-mode');
-        const isMasked = document.body.classList.contains('pitch-privacy-mode');
-        const btn = document.getElementById('pitch-privacy-btn');
-        if (btn) {
-            btn.className = isMasked
-                ? 'bg-emerald-500 text-slate-950 px-3 py-2 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-md transition-all'
-                : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 px-3 py-2 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all';
-            btn.innerHTML = isMasked
-                ? '<i class="fa-solid fa-eye-slash"></i> إخفاء أرقام العملاء: مفعّل ✅'
-                : '<i class="fa-solid fa-user-shield text-amber-400"></i> تمويه أرقام العملاء أمام اللجنة';
-        }
-        notifyQuickToast(isMasked ? '🔒 تم تمويه أرقام الهواتف لحماية خصوصية العملاء أثناء العرض' : '🔓 تم إظهار أرقام الهواتف بشكل طبيعي');
-    };
-
-    window.togglePitchFullscreen = function () {
-        if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen().catch(() => {});
-            notifyQuickToast('🖥️ تم تفعيل وضع ملء الشاشة السينمائي للعرض');
-        } else {
-            document.exitFullscreen().catch(() => {});
-        }
-    };
-
-    window.jumpFromPitchModal = function (actionType) {
-        const modal = document.getElementById('competition-pitch-modal');
-        if (modal) modal.classList.add('hidden');
-
-        if (actionType === 'printer') {
-            if (typeof window.openWaybillSettingsModal === 'function') window.openWaybillSettingsModal();
-        } else if (actionType === 'safe') {
-            switchTab('dashboard', document.querySelector('#sidebar button[onclick*="dashboard"]'));
-            if (typeof window.updateDashState === 'function') window.updateDashState('activeSubTab', 'ledger_waste');
-        } else if (actionType === 'batches') {
-            switchTab('batches', document.querySelector('#sidebar button[onclick*="batches"]'));
-        } else if (actionType === 'orders') {
-            switchTab('orders', document.querySelector('#sidebar button[onclick*="orders"]'));
-        } else if (actionType === 'blacklist') {
-            switchTab('blacklist', document.querySelector('#sidebar button[onclick*="blacklist"]'));
-        }
-    };
-
-    window.openCompetitionPitchModal = function () {
-        const t0 = performance.now();
-        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw.filter(o => o && o.status !== 'trash') : [];
-        const custList = (typeof customersData !== 'undefined' && Array.isArray(customersData)) ? customersData : [];
-        const compOrders = ordersList.filter(o => o.status === 'completed').length;
-        const completionRate = ordersList.length > 0 ? Math.round((compOrders / ordersList.length) * 100) : 100;
-        const isMasked = document.body.classList.contains('pitch-privacy-mode');
-        const elapsedMs = Math.max(0.2, (performance.now() - t0)).toFixed(2);
-
-        let modal = document.getElementById('competition-pitch-modal');
-        if (!modal) {
-            modal = document.createElement('div');
-            modal.id = 'competition-pitch-modal';
-            modal.className = 'fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[240] hidden flex items-center justify-center p-3 sm:p-5';
-            document.body.appendChild(modal);
-        }
-
-        modal.innerHTML = `
-            <div class="bg-slate-900 text-white rounded-[2rem] shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[92vh] border-2 border-amber-500/40">
-                <div class="bg-gradient-to-l from-emerald-950 via-slate-900 to-slate-950 p-5 border-b border-white/10 flex flex-wrap justify-between items-center gap-3">
-                    <div class="flex items-center gap-3">
-                        <div class="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-400 text-2xl shadow-lg">
-                            <i class="fa-solid fa-trophy"></i>
-                        </div>
-                        <div>
-                            <div class="flex items-center gap-2">
-                                <h3 class="text-base sm:text-lg font-black text-white">سمان ههيا — نظام تخطيط الموارد والإدارة المركزية (Mini-ERP & CRM)</h3>
-                                <span class="bg-emerald-500 text-slate-950 px-2.5 py-0.5 rounded-full text-[10px] font-black">سرعة الاستجابة: ${elapsedMs} ms ⚡</span>
-                            </div>
-                            <p class="text-xs text-slate-300 font-bold mt-0.5">بنية هجينة فائقة السرعة (Offline-First Mirror + Native Android Hardware Bridge 203 DPI)</p>
-                        </div>
-                    </div>
-                    <button type="button" onclick="document.getElementById('competition-pitch-modal').classList.add('hidden')" class="w-9 h-9 rounded-xl bg-white/10 hover:bg-red-500 text-white flex items-center justify-center transition-colors">
-                        <i class="fa-solid fa-xmark text-lg"></i>
-                    </button>
-                </div>
-
-                <div class="p-5 overflow-y-auto custom-scroll space-y-5 flex-1">
-                    <!-- أدوات التحكم السريع أثناء العرض أمام اللجنة -->
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-white/5 p-3 rounded-2xl border border-white/10">
-                        <button type="button" id="pitch-privacy-btn" onclick="togglePitchPrivacyMask()" class="${isMasked ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-600'} px-3 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all">
-                            <i class="fa-solid ${isMasked ? 'fa-eye-slash' : 'fa-user-shield text-amber-400'}"></i>
-                            <span>${isMasked ? 'إخفاء أرقام العملاء: مفعّل ✅' : 'تمويه أرقام العملاء أمام اللجنة (Privacy Mode)'}</span>
-                        </button>
-                        <button type="button" onclick="togglePitchFullscreen()" class="bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 px-3 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all">
-                            <i class="fa-solid fa-expand text-sky-400"></i>
-                            <span>تفعيل وضع ملء الشاشة السينمائي (Fullscreen)</span>
-                        </button>
-                    </div>
-
-                    <!-- مؤشرات الأداء الحية -->
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-                        <div class="bg-white/5 p-3.5 rounded-2xl border border-white/10">
-                            <span class="text-[10px] text-slate-400 font-bold block">إجمالي الطلبات المدارة</span>
-                            <span class="text-2xl font-black text-amber-400 mt-1 block">${ordersList.length.toLocaleString()}</span>
-                        </div>
-                        <div class="bg-white/5 p-3.5 rounded-2xl border border-white/10">
-                            <span class="text-[10px] text-slate-400 font-bold block">قاعدة بيانات العملاء</span>
-                            <span class="text-2xl font-black text-emerald-400 mt-1 block">${custList.length.toLocaleString()}</span>
-                        </div>
-                        <div class="bg-white/5 p-3.5 rounded-2xl border border-white/10">
-                            <span class="text-[10px] text-slate-400 font-bold block">كفاءة إتمام التسليم</span>
-                            <span class="text-2xl font-black text-sky-400 mt-1 block">${completionRate}%</span>
-                        </div>
-                        <div class="bg-white/5 p-3.5 rounded-2xl border border-white/10">
-                            <span class="text-[10px] text-slate-400 font-bold block">زمن القراءة من الكاش</span>
-                            <span class="text-2xl font-black text-purple-400 mt-1 block">0.0 s</span>
-                        </div>
-                    </div>
-
-                    <!-- الابتكارات الهندسية الـ 5 الفريدة لاستعراضها بضغطة واحدة أمام اللجنة -->
-                    <div class="space-y-2.5">
-                        <h4 class="text-xs font-black text-amber-300 flex items-center gap-1.5">
-                            <i class="fa-solid fa-wand-magic-sparkles"></i> اضغط على أي ابتكار لاستعراضه مباشرة أمام لجنة التحكيم:
-                        </h4>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div onclick="jumpFromPitchModal('printer')" class="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-amber-400 p-3.5 rounded-2xl cursor-pointer transition-all">
-                                <div class="flex justify-between items-center mb-1">
-                                    <span class="text-xs font-black text-amber-300">🖨️ 1. محرك الطباعة الحراري الأصلي (TSPL 203 DPI)</span>
-                                    <i class="fa-solid fa-arrow-up-left-from-square text-[10px] text-slate-400"></i>
-                                </div>
-                                <p class="text-[11px] text-slate-300 font-bold leading-relaxed">يرسم البوليصة وتكت ميزان الفراخ بالجرام على Canvas ويحولها لأوامر هاردوير مباشرة عبر بلوتوث APK وUSB لطابعة Deli E750W.</p>
-                            </div>
-
-                            <div onclick="jumpFromPitchModal('safe')" class="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-emerald-400 p-3.5 rounded-2xl cursor-pointer transition-all">
-                                <div class="flex justify-between items-center mb-1">
-                                    <span class="text-xs font-black text-emerald-300">🏦 2. الخزنة المزدوجة الذكية والجرد السنوي</span>
-                                    <i class="fa-solid fa-arrow-up-left-from-square text-[10px] text-slate-400"></i>
-                                </div>
-                                <p class="text-[11px] text-slate-300 font-bold leading-relaxed">فصل تام لصافي المنتجات عن الشحن، مع تغطية تلقائية للمصروفات من الكاش ثم الأونلاين أو تحويل الباقي لديون آجلة بأقساط مؤرخة.</p>
-                            </div>
-
-                            <div onclick="jumpFromPitchModal('batches')" class="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-teal-400 p-3.5 rounded-2xl cursor-pointer transition-all">
-                                <div class="flex justify-between items-center mb-1">
-                                    <span class="text-xs font-black text-teal-300">🐣 3. التتبع البيولوجي للدفعات ومصفوفة الجرامات</span>
-                                    <i class="fa-solid fa-arrow-up-left-from-square text-[10px] text-slate-400"></i>
-                                </div>
-                                <p class="text-[11px] text-slate-300 font-bold leading-relaxed">يحسب عمر الطائر يومياً من تاريخ الفقس، ويوزع الأصناف ذكياً، ويرحل المذبوح للفريزر الفعلي مع خصم أوزان الفرخات بالجرام.</p>
-                            </div>
-
-                            <div onclick="jumpFromPitchModal('blacklist')" class="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-rose-400 p-3.5 rounded-2xl cursor-pointer transition-all">
-                                <div class="flex justify-between items-center mb-1">
-                                    <span class="text-xs font-black text-rose-300">🛡️ 4. رادار كشف التحايل والبلاك ليست المشروط</span>
-                                    <i class="fa-solid fa-arrow-up-left-from-square text-[10px] text-slate-400"></i>
-                                </div>
-                                <p class="text-[11px] text-slate-300 font-bold leading-relaxed">يكتشف تحايل العميل المحظور حتى لو غيّر رقم هاتفه عبر مطابقة الاسم والعنوان الذكية، ولا يفك الحظر إلا بعد التزامه بطلبات مسبقة الدفع.</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-        modal.classList.remove('hidden');
-    };
 
     // =========================================================================
     // 🎈 3. نظام النافذة الطائرة الموضعية السريعة (Micro-Popover Engine)
@@ -340,7 +179,164 @@
     }
 
     // =========================================================================
-    // 💊 4. تفعيل الكبسولات الحية على كروت الطلبات (في الوضع التفصيلي والمدمج)
+    // 🏆 4. محرك وضع العرض التنفيذي للمسابقة (Competition Pitch Mode)
+    // =========================================================================
+    window.togglePitchPrivacyMask = function () {
+        document.body.classList.toggle('pitch-privacy-mode');
+        const isMasked = document.body.classList.contains('pitch-privacy-mode');
+        const btn = document.getElementById('pitch-privacy-btn');
+        if (btn) {
+            btn.className = isMasked
+                ? 'bg-emerald-500 text-slate-950 px-3 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-md transition-all'
+                : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 px-3 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all';
+            btn.innerHTML = isMasked
+                ? '<i class="fa-solid fa-eye-slash"></i> إخفاء أرقام العملاء: مفعّل ✅'
+                : '<i class="fa-solid fa-user-shield text-amber-400"></i> تمويه أرقام العملاء أمام اللجنة';
+        }
+        notifyQuickToast(isMasked ? '🔒 تم تمويه أرقام الهواتف لحماية خصوصية العملاء أثناء العرض' : '🔓 تم إظهار أرقام الهواتف بشكل طبيعي');
+    };
+
+    window.togglePitchFullscreen = function () {
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+            notifyQuickToast('🖥️ تم تفعيل وضع ملء الشاشة السينمائي للعرض');
+        } else {
+            document.exitFullscreen().catch(() => {});
+        }
+    };
+
+    window.jumpFromPitchModal = function (actionType) {
+        const modal = document.getElementById('competition-pitch-modal');
+        if (modal) modal.classList.add('hidden');
+
+        if (actionType === 'printer') {
+            if (typeof window.openWaybillSettingsModal === 'function') window.openWaybillSettingsModal();
+        } else if (actionType === 'safe') {
+            switchTab('dashboard', document.querySelector('#sidebar button[onclick*="dashboard"]'));
+            if (typeof window.updateDashState === 'function') window.updateDashState('activeSubTab', 'ledger_waste');
+        } else if (actionType === 'batches') {
+            switchTab('batches', document.querySelector('#sidebar button[onclick*="batches"]'));
+        } else if (actionType === 'orders') {
+            switchTab('orders', document.querySelector('#sidebar button[onclick*="orders"]'));
+        } else if (actionType === 'blacklist') {
+            switchTab('blacklist', document.querySelector('#sidebar button[onclick*="blacklist"]'));
+        }
+    };
+
+    window.openCompetitionPitchModal = function () {
+        const t0 = performance.now();
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw.filter(o => o && o.status !== 'trash') : [];
+        const custList = (typeof customersData !== 'undefined' && Array.isArray(customersData)) ? customersData : [];
+        const compOrders = ordersList.filter(o => o.status === 'completed').length;
+        const completionRate = ordersList.length > 0 ? Math.round((compOrders / ordersList.length) * 100) : 100;
+        const isMasked = document.body.classList.contains('pitch-privacy-mode');
+        const elapsedMs = Math.max(0.2, (performance.now() - t0)).toFixed(2);
+
+        let modal = document.getElementById('competition-pitch-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'competition-pitch-modal';
+            modal.className = 'fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[240] hidden flex items-center justify-center p-3 sm:p-5';
+            document.body.appendChild(modal);
+        }
+
+        modal.innerHTML = `
+            <div class="bg-slate-900 text-white rounded-[2rem] shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[92vh] border-2 border-amber-500/40">
+                <div class="bg-gradient-to-l from-emerald-950 via-slate-900 to-slate-950 p-5 border-b border-white/10 flex flex-wrap justify-between items-center gap-3">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-400 text-2xl shadow-lg">
+                            <i class="fa-solid fa-trophy"></i>
+                        </div>
+                        <div>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <h3 class="text-base sm:text-lg font-black text-white">سمان ههيا — نظام تخطيط الموارد والإدارة المركزية (Mini-ERP & CRM)</h3>
+                                <span class="bg-emerald-500 text-slate-950 px-2.5 py-0.5 rounded-full text-[10px] font-black">سرعة الاستجابة: ${elapsedMs} ms ⚡</span>
+                            </div>
+                            <p class="text-xs text-slate-300 font-bold mt-0.5">بنية هجينة فائقة السرعة (Offline-First Mirror + Native Android Hardware Bridge 203 DPI)</p>
+                        </div>
+                    </div>
+                    <button type="button" onclick="document.getElementById('competition-pitch-modal').classList.add('hidden')" class="w-9 h-9 rounded-xl bg-white/10 hover:bg-red-500 text-white flex items-center justify-center transition-colors">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+
+                <div class="p-5 overflow-y-auto custom-scroll space-y-5 flex-1">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-white/5 p-3 rounded-2xl border border-white/10">
+                        <button type="button" id="pitch-privacy-btn" onclick="togglePitchPrivacyMask()" class="${isMasked ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-600'} px-3 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all">
+                            <i class="fa-solid ${isMasked ? 'fa-eye-slash' : 'fa-user-shield text-amber-400'}"></i>
+                            <span>${isMasked ? 'إخفاء أرقام العملاء: مفعّل ✅' : 'تمويه أرقام العملاء أمام اللجنة (Privacy Mode)'}</span>
+                        </button>
+                        <button type="button" onclick="togglePitchFullscreen()" class="bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 px-3 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all">
+                            <i class="fa-solid fa-expand text-sky-400"></i>
+                            <span>تفعيل وضع ملء الشاشة السينمائي (Fullscreen)</span>
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                        <div class="bg-white/5 p-3.5 rounded-2xl border border-white/10">
+                            <span class="text-[10px] text-slate-400 font-bold block">إجمالي الطلبات المدارة</span>
+                            <span class="text-2xl font-black text-amber-400 mt-1 block">${ordersList.length.toLocaleString()}</span>
+                        </div>
+                        <div class="bg-white/5 p-3.5 rounded-2xl border border-white/10">
+                            <span class="text-[10px] text-slate-400 font-bold block">قاعدة بيانات العملاء</span>
+                            <span class="text-2xl font-black text-emerald-400 mt-1 block">${custList.length.toLocaleString()}</span>
+                        </div>
+                        <div class="bg-white/5 p-3.5 rounded-2xl border border-white/10">
+                            <span class="text-[10px] text-slate-400 font-bold block">كفاءة إتمام التسليم</span>
+                            <span class="text-2xl font-black text-sky-400 mt-1 block">${completionRate}%</span>
+                        </div>
+                        <div class="bg-white/5 p-3.5 rounded-2xl border border-white/10">
+                            <span class="text-[10px] text-slate-400 font-bold block">زمن القراءة من الكاش</span>
+                            <span class="text-2xl font-black text-purple-400 mt-1 block">0.0 s</span>
+                        </div>
+                    </div>
+
+                    <div class="space-y-2.5">
+                        <h4 class="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> اضغط على أي ابتكار لاستعراضه مباشرة أمام لجنة التحكيم:
+                        </h4>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div onclick="jumpFromPitchModal('printer')" class="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-amber-400 p-3.5 rounded-2xl cursor-pointer transition-all">
+                                <div class="flex justify-between items-center mb-1">
+                                    <span class="text-xs font-black text-amber-300">🖨️ 1. محرك الطباعة الحراري الأصلي (TSPL 203 DPI)</span>
+                                    <i class="fa-solid fa-arrow-up-left-from-square text-[10px] text-slate-400"></i>
+                                </div>
+                                <p class="text-[11px] text-slate-300 font-bold leading-relaxed">يرسم البوليصة وتكت ميزان الفراخ بالجرام على Canvas ويحولها لأوامر هاردوير مباشرة عبر بلوتوث APK وUSB لطابعة Deli E750W.</p>
+                            </div>
+
+                            <div onclick="jumpFromPitchModal('safe')" class="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-emerald-400 p-3.5 rounded-2xl cursor-pointer transition-all">
+                                <div class="flex justify-between items-center mb-1">
+                                    <span class="text-xs font-black text-emerald-300">🏦 2. الخزنة المزدوجة الذكية والجرد السنوي</span>
+                                    <i class="fa-solid fa-arrow-up-left-from-square text-[10px] text-slate-400"></i>
+                                </div>
+                                <p class="text-[11px] text-slate-300 font-bold leading-relaxed">فصل تام لصافي المنتجات عن الشحن، مع تغطية تلقائية للمصروفات من الكاش ثم الأونلاين أو تحويل الباقي لديون آجلة بأقساط مؤرخة.</p>
+                            </div>
+
+                            <div onclick="jumpFromPitchModal('batches')" class="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-teal-400 p-3.5 rounded-2xl cursor-pointer transition-all">
+                                <div class="flex justify-between items-center mb-1">
+                                    <span class="text-xs font-black text-teal-300">🐣 3. التتبع البيولوجي للدفعات ومصفوفة الجرامات</span>
+                                    <i class="fa-solid fa-arrow-up-left-from-square text-[10px] text-slate-400"></i>
+                                </div>
+                                <p class="text-[11px] text-slate-300 font-bold leading-relaxed">يحسب عمر الطائر يومياً من تاريخ الفقس، ويوزع الأصناف ذكياً، ويرحل المذبوح للفريزر الفعلي مع خصم أوزان الفرخات بالجرام.</p>
+                            </div>
+
+                            <div onclick="jumpFromPitchModal('blacklist')" class="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-rose-400 p-3.5 rounded-2xl cursor-pointer transition-all">
+                                <div class="flex justify-between items-center mb-1">
+                                    <span class="text-xs font-black text-rose-300">🛡️ 4. رادار كشف التحايل والبلاك ليست المشروط</span>
+                                    <i class="fa-solid fa-arrow-up-left-from-square text-[10px] text-slate-400"></i>
+                                </div>
+                                <p class="text-[11px] text-slate-300 font-bold leading-relaxed">يكتشف تحايل العميل المحظور حتى لو غيّر رقم هاتفه عبر مطابقة الاسم والعنوان الذكية، ولا يفك الحظر إلا بعد التزامه بطلبات مسبقة الدفع.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        modal.classList.remove('hidden');
+    };
+
+    // =========================================================================
+    // 💊 5. تفعيل الكبسولات الحية على كروت الطلبات (في الوضع التفصيلي والمدمج)
     // =========================================================================
     window.enhanceOrderCardsLive = function () {
         const container = document.getElementById('orders-list-vertical');
@@ -352,7 +348,6 @@
             const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
             if (!order) return;
 
-            // 1. كبسولة طريقة الدفع + المديونية + نبض المندوب
             const paySpans = card.querySelectorAll('span');
             paySpans.forEach(sp => {
                 const txt = sp.innerText.trim();
@@ -391,7 +386,6 @@
                 }
             });
 
-            // 2. كبسولة المنطقة الذكية (تعمل في التفصيلي والمدمج)
             const zoneSpan = card.querySelector('[data-zone-pill="1"]') || card.querySelector('span[ondblclick*="\'zone\'"]');
             if (zoneSpan && !zoneSpan.hasAttribute('data-lc-zone')) {
                 zoneSpan.setAttribute('data-lc-zone', '1');
@@ -412,7 +406,6 @@
                 };
             }
 
-            // 3. كبسولة تعديل كمية الصنف السريع (+ / -) في الوضعين التفصيلي والمدمج
             if (!['completed', 'canceled', 'trash'].includes(order.status)) {
                 const itemBoxes = card.querySelectorAll('[data-item-idx]');
                 itemBoxes.forEach(box => {
@@ -435,7 +428,6 @@
         });
     };
 
-    // --- 4.1: منطق التوجيه الفوري للمندوب من زر الكارت (تجهيز ⬅️ إرسال للمندوب) ---
     window.openQuickDriverDispatch = function (anchorEl, orderId) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
         if (!order) return;
@@ -491,7 +483,6 @@
         }
     };
 
-    // --- 4.2: منطق كبسولة طريقة الدفع ---
     window.openPaymentCapsulePopover = function (anchorEl, orderId) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
         if (!order) return;
@@ -547,7 +538,6 @@
         }
     };
 
-    // --- 4.3: منطق كبسولة تعديل كمية الصنف (+ / -) الفوري ---
     window.openItemQtyCapsulePopover = function (anchorEl, orderId, itemIdx) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
         if (!order || !Array.isArray(order.items) || !order.items[itemIdx]) return;
@@ -668,7 +658,6 @@
         }
     };
 
-    // --- 4.4: منطق كبسولة تسوية المديونية اللحظية ---
     window.openDebtCapsulePopover = function (anchorEl, customerPhone, orderId = null) {
         const normP = window.normalizePhone ? window.normalizePhone(customerPhone) : customerPhone;
         const cust = (typeof customersData !== 'undefined' ? customersData : []).find(c => window.normalizePhone(c.phone) === normP);
@@ -766,10 +755,9 @@
         const msg = `أهلاً بحضرتك يا ${name || 'فندم'} 🌹\nتذكير ودي من "سمان ههيا" بخصوص باقي الحساب المسجل بقيمة (${amount} ج.م).\nيمكنك التحويل عبر فودافون كاش أو إنستاباي على الرقم:\n*${storePhone}*\nشكراً جزيلاً لذوقك وتعاملك معنا 🤍`;
         const cleanPhone = (phone || '').toString().trim();
         const waNumber = cleanPhone.startsWith('0') ? '2' + cleanPhone : cleanPhone;
-        if (waNumber) window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}`, '_blank');
+        if (waNumber) window.open(`[https://wa.me/$](https://wa.me/$){waNumber}?text=${encodeURIComponent(msg)}`, '_blank');
     };
 
-    // --- 4.5: منطق كبسولة نبض المندوب على كارت الطلب ---
     window.openDriverCapsulePopover = function (anchorEl, orderId, driverName) {
         const dName = (driverName || '').trim();
         const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
@@ -873,7 +861,6 @@
         }, 120);
     };
 
-    // --- 4.6: منطق كبسولة المنطقة السريعة ---
     window.openZoneCapsulePopover = function (anchorEl, orderId, zoneName) {
         const z = (zoneName || 'غير مسجل').trim();
         const procInZone = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(
@@ -913,7 +900,7 @@
     };
 
     // =========================================================================
-    // 💓 5. تصميم الهيدر المزدوج وشريط الأيقونات الـ 5 الظاهر بالكامل + شريط الموبايل السفلي
+    // 💓 6. السطر العلوي الموحد الرشيق (يدمج الهيدر والإشعارات في 48px فقط) + البار السفلي
     // =========================================================================
     window.syncBottomDockActiveTab = function (activeTabId) {
         const cur = activeTabId || window.smanCurrentActiveTab || 'dashboard';
@@ -928,14 +915,31 @@
     };
 
     window.initLiveHeaderAndSidebarUI = function () {
+        // إزالة الشريط الثاني المنفصل القديم إن وجد لعدم أكل مساحة الشاشة
+        const oldSecondRibbon = document.getElementById('lc-top-five-icons-ribbon');
+        if (oldSecondRibbon) oldSecondRibbon.remove();
+
         const headerEl = document.querySelector('header');
-        const headerRight = document.querySelector('header .flex.items-center.gap-3') || document.querySelector('header > div:last-child');
+        const headerLeftGroup = headerEl ? headerEl.firstElementChild : null;
+        const headerRight = document.querySelector('header .flex.items-center.gap-3') || (headerEl ? headerEl.lastElementChild : null);
+
+        if (headerLeftGroup) {
+            headerLeftGroup.className = 'flex items-center gap-1.5 shrink-0 min-w-0';
+            const hdrTitle = document.getElementById('header-title');
+            if (hdrTitle) {
+                hdrTitle.className = 'text-xs sm:text-base font-black text-slate-800 tracking-tight truncate max-w-[90px] sm:max-w-none';
+            }
+            const menuBtn = headerLeftGroup.querySelector('button[onclick*="toggleSidebar"]');
+            if (menuBtn) {
+                menuBtn.className = 'md:hidden w-8 h-8 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 flex items-center justify-center hover:bg-slate-200 transition-colors shrink-0 text-xs';
+            }
+        }
 
         if (headerRight) {
-            headerRight.className = 'flex items-center gap-1.5 sm:gap-2 shrink-0';
+            headerRight.className = 'flex items-center gap-1 sm:gap-1.5 lc-no-scrollbar py-0.5';
 
-            // إخفاء زر التحديث القديم من الهيدر العلوي لأننا وضعناه بوضوح كامل في شريط الأيقونات الـ 5
-            const oldUpdateBtn = headerRight.querySelector('button[onclick*="forceUpdateAppNow"]');
+            // إخفاء الأزرار المكررة القديمة لأننا وضعناها كأيقونات ذكية رشيقة في نفس السطر
+            const oldUpdateBtn = headerRight.querySelector('button[onclick*="forceUpdateAppNow"]:not([data-lc-slim])');
             if (oldUpdateBtn) oldUpdateBtn.classList.add('hidden');
 
             const staticLiveSpan = headerRight.querySelector('span.text-emerald-600');
@@ -943,70 +947,64 @@
 
             const origAddBtn = headerRight.querySelector('button[onclick*="add-order-modal"], button[onclick*="safeOpenAddOrderModal"]');
             if (origAddBtn) {
-                origAddBtn.className = 'bg-brand-primary hover:bg-emerald-800 text-white px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-black shadow-md shadow-brand-primary/20 transition-all flex items-center gap-1.5 active:scale-95 shrink-0';
+                origAddBtn.className = 'hidden md:flex bg-brand-primary hover:bg-emerald-800 text-white px-3 py-1.5 rounded-xl text-xs font-black shadow-sm transition-all items-center gap-1 active:scale-95 shrink-0';
                 origAddBtn.setAttribute('onclick', 'safeOpenAddOrderModal()');
                 origAddBtn.innerHTML = '<i class="fa-solid fa-plus text-amber-300"></i> <span>طلب جديد</span>';
             }
+
+            const saveBtn = document.getElementById('global-save-btn');
+            if (saveBtn) {
+                saveBtn.className = 'bg-slate-900 hover:bg-slate-800 text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black shadow-sm transition-all flex items-center gap-1 shrink-0 hidden';
+                saveBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up text-amber-400"></i> <span>حفظ</span>';
+            }
+
+            // حقن كبسولات الإشعارات المدمجة مباشرة داخل نفس سطر الهيدر بدون سطر إضافي
+            if (!document.getElementById('lc-header-pulse-bar')) {
+                const inlineBar = document.createElement('div');
+                inlineBar.id = 'lc-header-pulse-bar';
+                inlineBar.className = 'flex items-center gap-1 sm:gap-1.5 shrink-0';
+                inlineBar.innerHTML = `
+                    <!-- 1. كبسولة الفريزر المدمجة -->
+                    <button type="button" onclick="openFreezerModal()" id="lc-hdr-freezer-btn" title="مخزن الفريزر الفعلي" class="lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-900 border border-cyan-200/80 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shrink-0">
+                        <i class="fa-solid fa-snowflake text-cyan-600"></i>
+                        <strong id="lc-hdr-freezer-count">0</strong>
+                    </button>
+
+                    <!-- 2. كبسولة رادار وعهدة المناديب -->
+                    <button type="button" onclick="jumpToRadarOrRecon()" id="lc-hdr-drivers-btn" title="رادار وتقفيل المناديب" class="lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200/80 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shrink-0">
+                        <i class="fa-solid fa-motorcycle text-indigo-600"></i>
+                        <strong id="lc-hdr-drivers-count">0</strong>
+                    </button>
+
+                    <!-- 3. كبسولة طابعة البوالص (Deli 750W) -->
+                    <button type="button" onclick="if(window.openWaybillSettingsModal) openWaybillSettingsModal();" id="lc-hdr-printer-btn" title="استوديو طابعة البوالص الحرارية Deli 750W" class="lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/80 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shrink-0">
+                        <i class="fa-solid fa-print text-amber-600"></i>
+                        <span class="hidden sm:inline">Deli</span>
+                    </button>
+
+                    <!-- 4. كبسولة جرس المهام والتنبيهات -->
+                    <button type="button" onclick="openSmartBellNotifications(this)" data-lc-trigger="1" id="lc-hdr-bell-btn" title="رادار المهام والتنبيهات الفوري" class="lc-capsule relative h-8 w-8 sm:w-auto sm:px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200/80 text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 shrink-0">
+                        <i class="fa-solid fa-bell text-emerald-600"></i>
+                        <span class="hidden lg:inline">المهام</span>
+                        <span id="lc-hdr-bell-badge" class="hidden absolute -top-1 -left-1 bg-red-600 text-white text-[9px] font-black min-w-[16px] h-[16px] px-1 rounded-full flex items-center justify-center shadow-sm border border-white">0</span>
+                    </button>
+
+                    <!-- 5. كبسولة عرض المسابقة التنفيذي 🏆 -->
+                    <button type="button" onclick="openCompetitionPitchModal()" id="lc-pitch-mode-btn" title="وضع العرض التنفيذي للمسابقة وإخفاء أرقام العملاء" class="lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 border border-amber-500/30 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0">
+                        <i class="fa-solid fa-trophy text-slate-950"></i>
+                        <span class="hidden xl:inline">المسابقة</span>
+                    </button>
+
+                    <!-- 6. كبسولة تحديث النسخة -->
+                    <button type="button" data-lc-slim="1" onclick="forceUpdateAppNow()" title="تحديث فوري لأحدث نسخة" class="lc-capsule h-8 w-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-[11px] font-black flex items-center justify-center shrink-0">
+                        <i class="fa-solid fa-rotate text-sky-600"></i>
+                    </button>
+                `;
+                headerRight.insertBefore(inlineBar, headerRight.firstChild);
+            }
         }
 
-        // 🌟 إنشاء شريط الأيقونات الـ 5 الظاهر بالكامل (100% بدون أي أيقونة مخفية على الموبايل أو الكمبيوتر)
-        if (headerEl && !document.getElementById('lc-top-five-icons-ribbon')) {
-            const ribbon = document.createElement('div');
-            ribbon.id = 'lc-top-five-icons-ribbon';
-            ribbon.className = 'bg-slate-900 text-white px-2.5 sm:px-6 py-2 border-b border-slate-800 shadow-sm shrink-0 z-10';
-            ribbon.innerHTML = `
-                <div id="lc-header-pulse-bar" class="max-w-7xl mx-auto grid grid-cols-5 gap-1.5 sm:gap-2.5 items-center">
-                    <!-- 1. أيقونة الفريزر -->
-                    <button type="button" onclick="openFreezerModal()" id="lc-hdr-freezer-btn" class="lc-capsule bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-200 border border-cyan-400/30 py-1.5 px-1.5 sm:px-3 rounded-xl text-[10px] sm:text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 truncate">
-                        <div class="flex items-center gap-1">
-                            <i class="fa-solid fa-snowflake text-cyan-400 text-xs"></i>
-                            <span class="text-[9px] sm:text-[11px] text-slate-300">الفريزر</span>
-                        </div>
-                        <strong id="lc-hdr-freezer-count" class="text-white text-[10px] sm:text-xs">0 طبق</strong>
-                    </button>
-
-                    <!-- 2. أيقونة رادار وعهدة المناديب -->
-                    <button type="button" onclick="jumpToRadarOrRecon()" id="lc-hdr-drivers-btn" class="lc-capsule bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-200 border border-indigo-400/30 py-1.5 px-1.5 sm:px-3 rounded-xl text-[10px] sm:text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 truncate">
-                        <div class="flex items-center gap-1">
-                            <i class="fa-solid fa-motorcycle text-amber-400 text-xs"></i>
-                            <span class="text-[9px] sm:text-[11px] text-slate-300">المناديب</span>
-                        </div>
-                        <strong id="lc-hdr-drivers-count" class="text-white text-[10px] sm:text-xs truncate">0</strong>
-                    </button>
-
-                    <!-- 3. أيقونة طابعة البوالص الحرارية (Deli 750W) -->
-                    <button type="button" onclick="if(window.openWaybillSettingsModal) openWaybillSettingsModal();" id="lc-hdr-printer-btn" class="lc-capsule bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border border-amber-400/30 py-1.5 px-1.5 sm:px-3 rounded-xl text-[10px] sm:text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 truncate">
-                        <div class="flex items-center gap-1">
-                            <i class="fa-solid fa-print text-amber-400 text-xs"></i>
-                            <span class="text-[9px] sm:text-[11px] text-slate-300">الطابعة</span>
-                        </div>
-                        <strong class="text-amber-300 text-[10px] sm:text-xs">Deli 750</strong>
-                    </button>
-
-                    <!-- 4. أيقونة رادار وجرس المهام الفوري -->
-                    <button type="button" onclick="openSmartBellNotifications(this)" data-lc-trigger="1" id="lc-hdr-bell-btn" class="lc-capsule relative bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border border-emerald-400/30 py-1.5 px-1.5 sm:px-3 rounded-xl text-[10px] sm:text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5">
-                        <div class="flex items-center gap-1">
-                            <i class="fa-solid fa-bell text-emerald-400 text-xs"></i>
-                            <span class="text-[9px] sm:text-[11px] text-slate-300">المهام</span>
-                        </div>
-                        <strong class="text-white text-[10px] sm:text-xs">التنبيهات</strong>
-                        <span id="lc-hdr-bell-badge" class="hidden absolute -top-1 -left-1 bg-red-600 text-white text-[9px] font-black min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center shadow-md border border-white">0</span>
-                    </button>
-
-                    <!-- 5. أيقونة التحديث الفوري للنظام -->
-                    <button type="button" onclick="forceUpdateAppNow()" class="lc-capsule bg-white/10 hover:bg-white/20 text-white border border-white/15 py-1.5 px-1.5 sm:px-3 rounded-xl text-[10px] sm:text-xs font-black flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 truncate">
-                        <div class="flex items-center gap-1">
-                            <i class="fa-solid fa-rotate text-sky-400 text-xs"></i>
-                            <span class="text-[9px] sm:text-[11px] text-slate-300">النسخة</span>
-                        </div>
-                        <strong class="text-sky-300 text-[10px] sm:text-xs">تحديث</strong>
-                    </button>
-                </div>
-            `;
-            headerEl.after(ribbon);
-        }
-
-        // إزالة الزر العائم القديم واستبداله بشريط تنقل سفلي متكامل للموبايل (Mobile App Dock)
+        // شريط التنقل السفلي للموبايل (Mobile App Dock)
         const oldFab = document.getElementById('lc-mobile-fab-add-order');
         if (oldFab) oldFab.remove();
 
@@ -1041,10 +1039,8 @@
             document.body.appendChild(dock);
         }
 
-        // ربط التبويب النشط مع الشريط السفلي للموبايل
         window.syncBottomDockActiveTab();
 
-        // حقن شارات العدادات الحية داخل أزرار القائمة الجانبية (#sidebar)
         const sidebarMap = [
             { tab: 'orders', id: 'lc-sb-orders', cls: 'bg-amber-500 text-slate-950' },
             { tab: 'notes', id: 'lc-sb-notes', cls: 'bg-rose-500 text-white' },
@@ -1064,7 +1060,6 @@
         });
     };
 
-    // دالة مساعدة لحساب الكاش المطلوب من الطلب بدقة (تدعم الكاش والنص ونص)
     function getOrderCashForDriver(o) {
         if (!o || o.paymentMethod === 'online') return 0;
         if (o.paymentMethod === 'split') {
@@ -1082,7 +1077,6 @@
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
         const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
 
-        // 1. حساب أطباق السمان الفعلي بالفريزر (بنفس معيار لوحة القيادة 100%)
         let totalFreezerMeat = 0;
         Object.keys(freezerObj).forEach(pId => {
             const q = Math.max(0, Number(freezerObj[pId]) || 0);
@@ -1093,9 +1087,8 @@
             }
         });
         const fzEl = document.getElementById('lc-hdr-freezer-count');
-        if (fzEl) fzEl.innerText = `${totalFreezerMeat} طبق`;
+        if (fzEl) fzEl.innerHTML = `${totalFreezerMeat}<span class="hidden sm:inline mr-0.5">طبق</span>`;
 
-        // 2. حساب الطلبات الحية والرادار وعهدة المناديب بدقة
         let newCount = 0, procCount = 0, dispCount = 0, noAnsCount = 0, notesCount = 0;
         let unsettledGrossCash = 0;
 
@@ -1114,23 +1107,21 @@
             }
         });
 
-        // 3. تحديث كبسولة المناديب بالهيدر لتطابق التقفيل والرادار
         const drvBtn = document.getElementById('lc-hdr-drivers-btn');
         const drvCnt = document.getElementById('lc-hdr-drivers-count');
         if (drvCnt) {
             if (unsettledGrossCash > 0) {
-                drvCnt.innerHTML = `<span>${dispCount} بالطريق</span><span class="hidden sm:inline"> • عهدة: ${unsettledGrossCash.toLocaleString()}ج</span>`;
-                if (drvBtn) drvBtn.className = 'lc-capsule bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 shadow-sm shrink-0';
+                drvCnt.innerHTML = `<span>${dispCount}</span><span class="hidden md:inline"> • ${unsettledGrossCash.toLocaleString()}ج</span>`;
+                if (drvBtn) drvBtn.className = 'lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shrink-0';
             } else if (dispCount > 0) {
-                drvCnt.innerHTML = `<span>${dispCount} بالطريق</span>`;
-                if (drvBtn) drvBtn.className = 'lc-capsule bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 shadow-sm shrink-0';
+                drvCnt.innerHTML = `<span>${dispCount}</span><span class="hidden sm:inline"> بالطريق</span>`;
+                if (drvBtn) drvBtn.className = 'lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shrink-0';
             } else {
-                drvCnt.innerHTML = `<span>0 بالشارع</span>`;
-                if (drvBtn) drvBtn.className = 'lc-capsule bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 shadow-sm shrink-0';
+                drvCnt.innerHTML = `<span>0</span>`;
+                if (drvBtn) drvBtn.className = 'lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shrink-0';
             }
         }
 
-        // 4. فحص تنبيهات امتلاء الدفعات المفتوحة
         let batchAlertCount = 0;
         Object.keys(batchesObj).forEach(bId => {
             if (batchesObj[bId]?.isOpen && typeof window.getBatchCeilingAndRemaining === 'function') {
@@ -1139,7 +1130,6 @@
             }
         });
 
-        // 5. تحديث عداد جرس العمليات الفوري (يحسب عدد المهام الفعلية التي تحتاج تدخلك)
         let activeTasksGroups = 0;
         if (newCount > 0) activeTasksGroups++;
         if (procCount > 0) activeTasksGroups++;
@@ -1157,7 +1147,6 @@
             }
         }
 
-        // 6. تحديث عدادات القائمة الجانبية (#sidebar)
         const setSbBadge = (id, val, suffix = '') => {
             const el = document.getElementById(id);
             if (!el) return;
@@ -1210,7 +1199,6 @@
 
         let itemsHtml = '';
 
-        // 1. الطلبات الجديدة
         if (newCount > 0) {
             itemsHtml += `
                 <div onclick="closeLivePopover(); switchTab('orders', document.querySelector('#sidebar button[onclick*=\\'orders\\']')); setOrderTab('new');" class="p-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 cursor-pointer flex justify-between items-center transition-all">
@@ -1222,7 +1210,6 @@
                 </div>`;
         }
 
-        // 2. طلبات قيد التجهيز جاهزة للتوجيه للمندوب
         if (procCount > 0) {
             itemsHtml += `
                 <div onclick="closeLivePopover(); switchTab('orders', document.querySelector('#sidebar button[onclick*=\\'orders\\']')); setOrderTab('processing');" class="p-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 cursor-pointer flex justify-between items-center transition-all">
@@ -1234,7 +1221,6 @@
                 </div>`;
         }
 
-        // 3. عهدة الكاش الجاهزة للتقفيل مع المناديب
         if (unsettledCash > 0) {
             itemsHtml += `
                 <div onclick="closeLivePopover(); switchTab('reconciliation', document.querySelector('#sidebar button[onclick*=\\'reconciliation\\']'));" class="p-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 cursor-pointer flex justify-between items-center transition-all">
@@ -1246,7 +1232,6 @@
                 </div>`;
         }
 
-        // 4. طلبات في الطريق مع المناديب الآن
         if (dispCount > 0) {
             itemsHtml += `
                 <div onclick="closeLivePopover(); switchTab('radar', document.querySelector('#sidebar button[onclick*=\\'radar\\']'));" class="p-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 cursor-pointer flex justify-between items-center transition-all">
@@ -1258,7 +1243,6 @@
                 </div>`;
         }
 
-        // 5. طلبات لم يرد / مؤجل
         if (noAnsCount > 0) {
             itemsHtml += `
                 <div onclick="closeLivePopover(); switchTab('orders', document.querySelector('#sidebar button[onclick*=\\'orders\\']')); setOrderTab('no_answer');" class="p-2.5 rounded-xl bg-purple-50 hover:bg-purple-100 border border-purple-200 cursor-pointer flex justify-between items-center transition-all">
@@ -1270,7 +1254,6 @@
                 </div>`;
         }
 
-        // 6. تنبيهات امتلاء الدفعات المفتوحة
         Object.keys(batchesObj).forEach(bId => {
             const b = batchesObj[bId];
             if (b && b.isOpen && typeof window.getBatchCeilingAndRemaining === 'function') {
@@ -1304,9 +1287,8 @@
         window.openLivePopover(anchorEl, html);
     };
 
-
     // =========================================================================
-    // 🌪️ 6. نظام الإخفاء والظهور الذكي للهيدر وشريط الفريزر والمناديب عند التحرك
+    // 🌪️ 7. نظام الطي النظيف للسطر العلوي عند التمرير (بدون تغطية أي عنصر)
     // =========================================================================
     window.initZeroClutterOrdersScroll = function () {
         const mainScroll = document.querySelector('main > div.flex-1.overflow-y-auto.custom-scroll');
@@ -1320,12 +1302,9 @@
 
                 const activeTag = document.activeElement ? document.activeElement.tagName : '';
                 if (activeTag !== 'INPUT' && activeTag !== 'SELECT' && activeTag !== 'TEXTAREA') {
-                    // عند النزول لأسفل أكثر من 70px يختفي الهيدر وشريط الإشعارات لتوسيع الشاشة
-                    if (st > 70 && st > lastSt + 18) {
+                    if (st > 65 && st > lastSt + 16) {
                         document.body.classList.add('lc-bars-hidden-on-scroll');
-                    }
-                    // بمجرد التحرك لأعلى أو الوصول لأعلى الصفحة يظهران فوراً بنعومة
-                    else if (st < 30 || st < lastSt - 14) {
+                    } else if (st < 25 || st < lastSt - 12) {
                         document.body.classList.remove('lc-bars-hidden-on-scroll');
                     }
                 }
@@ -1350,7 +1329,7 @@
     };
 
     // =========================================================================
-    // 🔗 7. الربط التلقائي السريع مع دوال النظام (بدون تعارض مع drivers.js أو index.html)
+    // 🔗 8. الربط التلقائي السريع مع دوال النظام
     // =========================================================================
     function hookIntoSystemFunctions() {
         if (typeof window.renderOrdersList === 'function' && !window.renderOrdersList._lcHooked) {
