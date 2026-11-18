@@ -517,7 +517,7 @@
     };
 
     // =========================================================================
-    // 🚀 6. المحرك البريميوم لعرض وفلترة بطاقات الطلبات الحية (Royal Order Card)
+    // 🚀 6. المحرك البريميوم الملموم لعرض بطاقات الطلبات الحية (بدون قوائم منسدلة أو مساحات فارغة)
     // =========================================================================
     window.renderOrdersList = function () {
         window.initSmartOrdersToolbar();
@@ -671,7 +671,41 @@
             }
         }
 
+        // تحديث شريط إنجاز اليوم المباشر وعداد التوجيه السريع إن وجد
+        const todayStrEn = new Date().toLocaleDateString('en-US');
+        let compToday = 0;
+        filteredBase.forEach(o => {
+            if (o.status === 'completed' && (o.completedAtStr === todayStrEn || o.orderDate === todayStrEn)) {
+                compToday++;
+            }
+        });
+        const activePipelineTotal = dynamicCounts.new + dynamicCounts.processing + dynamicCounts.dispatched + compToday;
+        const progPct = activePipelineTotal > 0 ? Math.min(100, Math.round(((compToday + (dynamicCounts.dispatched * 0.6) + (dynamicCounts.processing * 0.3)) / activePipelineTotal) * 100)) : 100;
+
+        if (document.getElementById('so-prog-pct')) document.getElementById('so-prog-pct').innerText = progPct + '%';
+        if (document.getElementById('so-prog-bar')) document.getElementById('so-prog-bar').style.width = progPct + '%';
+        if (document.getElementById('so-ready-dispatch-cnt')) document.getElementById('so-ready-dispatch-cnt').innerText = dynamicCounts.processing || 0;
+        if (document.getElementById('so-prog-details')) {
+            document.getElementById('so-prog-details').innerText = `(جاهز: ${dynamicCounts.processing} • بالطريق: ${dynamicCounts.dispatched} • سُلّم اليوم: ${compToday})`;
+        }
+
         if (filtered.length === 0) {
+            if (!window._crmDataReady && (!allOrdersRaw || allOrdersRaw.length === 0)) {
+                container.innerHTML = [1, 2, 3].map(() => `
+                    <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm space-y-2.5">
+                        <div class="flex justify-between items-center">
+                            <div class="h-4 w-40 rounded-lg skeleton-shimmer"></div>
+                            <div class="h-5 w-16 rounded-lg skeleton-shimmer"></div>
+                        </div>
+                        <div class="h-10 w-full rounded-xl skeleton-shimmer"></div>
+                        <div class="flex justify-between items-center pt-1">
+                            <div class="h-7 w-44 rounded-lg skeleton-shimmer"></div>
+                            <div class="h-7 w-24 rounded-lg skeleton-shimmer"></div>
+                        </div>
+                    </div>
+                `).join('');
+                return;
+            }
             container.innerHTML = '<div class="text-center text-slate-400 py-16 font-bold border-2 border-dashed border-slate-200 rounded-[2rem] bg-white">لا توجد طلبات مطابقة في هذا القسم.</div>';
             return;
         }
@@ -706,31 +740,67 @@
                 ? window.getOrderPaymentBreakdown(o)
                 : { method: o.paymentMethod || 'cash', cash: Number(o.total) || 0, online: 0, total: Number(o.total) || 0 };
 
-            // زر الخطوة التالية البارز
+            // 1. زر الخطوة الأساسية + أزرار القرارات المباشرة بجانبه (بدل القائمة المنسدلة الرخمة)
             let nextStepBtnHtml = '';
+            let directDecisionBtnsHtml = '';
+
             if (o.status === 'new') {
-                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3.5 py-2 rounded-xl text-xs font-black shadow-sm transition-all active:scale-95 flex items-center gap-1.5 shrink-0" title="نقل الطلب لقسم التجهيز"><i class="fa-solid fa-fire-burner"></i> للتجهيز</button>`;
+                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1 shrink-0"><i class="fa-solid fa-fire-burner"></i> للتجهيز</button>`;
+                directDecisionBtnsHtml = `
+                    <button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'deferred')" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 shrink-0">📅 تأجيل</button>
+                    <button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'no_answer')" class="bg-purple-50 hover:bg-purple-600 text-purple-800 hover:text-white border border-purple-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 shrink-0">📵 لم يرد</button>
+                    <button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'canceled')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 shrink-0">❌ إلغاء</button>
+                `;
             } else if (o.status === 'processing') {
-                nextStepBtnHtml = `<button data-lc-trigger="1" onclick="event.stopPropagation(); triggerOrderDriverStep(this, '${o.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-black shadow-sm transition-all active:scale-95 flex items-center gap-1.5 shrink-0" title="اختيار المندوب وإرسال الطلب للطريق فوراً"><i class="fa-solid fa-motorcycle"></i> إرسال للمندوب</button>`;
+                nextStepBtnHtml = `<button data-lc-trigger="1" onclick="event.stopPropagation(); triggerOrderDriverStep(this, '${o.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1 shrink-0"><i class="fa-solid fa-motorcycle"></i> للمندوب</button>`;
+                directDecisionBtnsHtml = `
+                    <button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-50 hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 shrink-0">✅ تسليم</button>
+                    <button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'deferred')" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 shrink-0">📅 تأجيل</button>
+                    <button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'canceled')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 shrink-0">❌ إلغاء</button>
+                `;
             } else if (o.status === 'dispatched') {
-                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-black shadow-sm transition-all active:scale-95 flex items-center gap-1.5 shrink-0" title="تأكيد تسليم وتحصيل الطلب"><i class="fa-solid fa-check-double"></i> تم التسليم</button>`;
-            } else if (o.status === 'no_answer' || o.status === 'deferred') {
-                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-black shadow-sm transition-all active:scale-95 flex items-center gap-1.5 shrink-0"><i class="fa-solid fa-rotate-left"></i> للتجهيز</button>`;
+                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1 shrink-0"><i class="fa-solid fa-check-double"></i> تم التسليم</button>`;
+                directDecisionBtnsHtml = `
+                    <button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'no_answer')" class="bg-purple-50 hover:bg-purple-600 text-purple-800 hover:text-white border border-purple-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 shrink-0">📵 لم يرد</button>
+                    <button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'deferred')" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 shrink-0">📅 تأجيل</button>
+                    <button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-slate-100 hover:bg-slate-700 text-slate-700 hover:text-white px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 shrink-0">↩️ لتجهيز</button>
+                `;
+            } else if (o.status === 'deferred') {
+                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1 shrink-0"><i class="fa-solid fa-fire-burner"></i> للتجهيز</button>`;
+                directDecisionBtnsHtml = `
+                    <button onclick="event.stopPropagation(); openDeferredScheduleModal(['${o.id}'])" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 shrink-0">⏰ الموعد</button>
+                    <button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'canceled')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 shrink-0">❌ إلغاء</button>
+                `;
+            } else if (o.status === 'no_answer') {
+                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center gap-1 shrink-0"><i class="fa-solid fa-rotate-left"></i> للتجهيز</button>`;
+                directDecisionBtnsHtml = `
+                    <button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'deferred')" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 shrink-0">📅 تأجيل</button>
+                    <button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'canceled')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 shrink-0">❌ إلغاء</button>
+                `;
+            } else if (o.status === 'completed') {
+                directDecisionBtnsHtml = `
+                    <button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-slate-100 hover:bg-slate-700 text-slate-600 hover:text-white px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 shrink-0" title="إرجاع الطلب لقسم التجهيز">↩️ لتجهيز</button>
+                `;
+            } else if (o.status === 'canceled') {
+                nextStepBtnHtml = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'new')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition-all active:scale-95 shrink-0">↩️ استعادة لجديد</button>`;
+                directDecisionBtnsHtml = `
+                    <button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'trash')" class="bg-red-50 hover:bg-red-600 text-red-600 hover:text-white border border-red-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all active:scale-95 shrink-0">🗑️ للسلة</button>
+                `;
             }
 
-            let sBadge = o.status === 'new' ? '<span class="bg-blue-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm">🆕 جديد</span>' :
-                (o.status === 'processing' ? '<span class="bg-amber-500 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm">⏳ تجهيز</span>' :
-                (o.status === 'dispatched' ? '<span class="bg-indigo-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm"><i class="fa-solid fa-motorcycle mr-1"></i> في الطريق</span>' :
-                (o.status === 'deferred' ? '<span class="bg-orange-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm">📅 مؤجل</span>' :
-                (o.status === 'no_answer' ? '<span class="bg-purple-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm">📵 لم يرد</span>' :
-                (o.status === 'completed' ? '<span class="bg-emerald-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm">✅ مكتمل</span>' :
-                '<span class="bg-rose-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm">❌ ملغي</span>')))));
+            let sBadge = o.status === 'new' ? '<span class="bg-blue-600 text-white px-2 py-0.5 rounded-lg text-[10px] font-black">🆕 جديد</span>' :
+                (o.status === 'processing' ? '<span class="bg-amber-500 text-slate-950 px-2 py-0.5 rounded-lg text-[10px] font-black">⏳ تجهيز</span>' :
+                (o.status === 'dispatched' ? '<span class="bg-indigo-600 text-white px-2 py-0.5 rounded-lg text-[10px] font-black"><i class="fa-solid fa-motorcycle mr-0.5"></i> بالطريق</span>' :
+                (o.status === 'deferred' ? '<span class="bg-orange-600 text-white px-2 py-0.5 rounded-lg text-[10px] font-black">📅 مؤجل</span>' :
+                (o.status === 'no_answer' ? '<span class="bg-purple-600 text-white px-2 py-0.5 rounded-lg text-[10px] font-black">📵 لم يرد</span>' :
+                (o.status === 'completed' ? '<span class="bg-emerald-600 text-white px-2 py-0.5 rounded-lg text-[10px] font-black">✅ مكتمل</span>' :
+                '<span class="bg-rose-600 text-white px-2 py-0.5 rounded-lg text-[10px] font-black">❌ ملغي</span>')))));
 
             let trustInfo = (typeof window.fastAnalyzeOrderTrust === 'function')
                 ? window.fastAnalyzeOrderTrust(o)
                 : { cardClass: 'bg-white border-slate-100', badgeHtml: '', bannerHtml: '', stickyHtml: '' };
 
-            // 📱 1. وضع العرض المدمج السريع (Compact Mode)
+            // 📱 1. وضع العرض المدمج السريع (Compact Mode - خاصية مستقلة)
             if (isCompact) {
                 const compactItemsPills = (o.items && Array.isArray(o.items) && o.items.length > 0)
                     ? o.items.map((i, idx) => `
@@ -751,7 +821,7 @@
                     : '';
 
                 return `
-                <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-3 rounded-2xl shadow-sm border hover:border-brand-primary transition-all space-y-2">
+                <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-2.5 rounded-2xl shadow-sm border hover:border-brand-primary transition-all space-y-1.5">
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div class="flex flex-wrap items-center gap-1.5 min-w-0">
                             <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer shrink-0">
@@ -769,198 +839,154 @@
                         </div>
                     </div>
 
-                    <div class="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-slate-100">
+                    <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100">
                         <div class="flex flex-wrap items-center gap-1.5 flex-1 min-w-[180px]">
                             ${compactItemsPills}
                         </div>
-                        <div class="flex items-center gap-1.5 shrink-0">
+                        <div class="flex items-center gap-1 shrink-0">
                             ${nextStepBtnHtml}
-                            <button onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="bg-[#25D366] hover:bg-[#1ebd57] text-white w-8 h-8 rounded-xl text-xs flex items-center justify-center shadow-sm" title="واتساب"><i class="fa-brands fa-whatsapp"></i></button>
-                            <button onclick="openEditOrderModal('${o.id}')" class="bg-slate-800 hover:bg-slate-900 text-white w-8 h-8 rounded-xl text-[10px] flex items-center justify-center shadow-sm" title="تعديل"><i class="fa-solid fa-pen"></i></button>
-                            <button onclick="printSingleOrderWaybill('${o.id}')" class="bg-amber-50 hover:bg-amber-500 text-amber-800 hover:text-white border border-amber-200 w-8 h-8 rounded-xl text-[10px] flex items-center justify-center shadow-sm" title="بوليصة"><i class="fa-solid fa-print"></i></button>
+                            <button onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="bg-[#25D366] hover:bg-[#1ebd57] text-white w-7 h-7 rounded-lg text-xs flex items-center justify-center shadow-sm" title="واتساب"><i class="fa-brands fa-whatsapp"></i></button>
+                            <button onclick="openEditOrderModal('${o.id}')" class="bg-slate-800 hover:bg-slate-900 text-white w-7 h-7 rounded-lg text-[10px] flex items-center justify-center shadow-sm" title="تعديل"><i class="fa-solid fa-pen"></i></button>
+                            <button onclick="printSingleOrderWaybill('${o.id}')" class="bg-amber-50 hover:bg-amber-500 text-amber-800 hover:text-white border border-amber-200 w-7 h-7 rounded-lg text-[10px] flex items-center justify-center shadow-sm" title="بوليصة"><i class="fa-solid fa-print"></i></button>
                         </div>
                     </div>
                 </div>`;
             }
 
-            // 🖥️ 2. تصميم بطاقة الطلب البريميوم المنظم (Royal Executive Card)
-            let completedDateHtml = '';
-            if (o.status === 'completed') {
-                let cTime = o.completedTimeDisplay || (o.completedAtStr ? o.completedAtStr : 'تم التسليم');
-                completedDateHtml = `<span class="text-[9px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-black"><i class="fa-solid fa-check-double"></i> ${cTime}</span>`;
-            }
-
+            // 🖥️ 2. الكارت الأساسي الملموم (صفر مساحات فاضية + أزرار مباشرة بدون قوائم منسدلة)
             let itemsStr = (o.items && Array.isArray(o.items)) ? o.items.map((i, idx) =>
-                `<div data-item-idx="${idx}" class="bg-white border border-slate-200/90 hover:border-brand-primary px-2.5 py-1.5 rounded-xl text-xs shadow-sm inline-flex items-center gap-1.5 transition-all">
-                    <span class="bg-emerald-50 text-brand-primary border border-emerald-200/70 px-1.5 py-0.5 rounded-lg font-black text-[11px]">${i.quantity}x</span>
-                    <span class="font-black text-slate-800">${i.name}</span>
-                    <span class="text-[10px] text-emerald-700 font-bold bg-slate-50 px-1.5 py-0.5 rounded-md cursor-pointer border border-slate-200 hover:bg-emerald-600 hover:text-white transition-colors" ondblclick="editItemPrice('${o.id}', ${idx})" title="اضغط مرتين لتعديل السعر">${i.price}ج</span>
+                `<div data-item-idx="${idx}" class="bg-white border border-slate-200/90 hover:border-brand-primary px-2 py-1 rounded-xl text-xs shadow-sm inline-flex items-center gap-1 transition-all">
+                    <span class="bg-emerald-50 text-brand-primary border border-emerald-200/70 px-1.5 py-0.5 rounded-md font-black text-[10px]">${i.quantity}x</span>
+                    <span class="font-black text-slate-800 text-[11px] sm:text-xs">${i.name}</span>
+                    <span class="text-[10px] text-emerald-700 font-bold bg-slate-50 px-1.5 py-0.5 rounded cursor-pointer border border-slate-200 hover:bg-emerald-600 hover:text-white transition-colors" ondblclick="editItemPrice('${o.id}', ${idx})" title="اضغط مرتين لتعديل السعر">${i.price}ج</span>
                 </div>`
             ).join('') : '<span class="text-slate-400 text-xs font-bold">لا يوجد تفاصيل</span>';
 
             let paymentBadge = (payBr.method === 'online')
-                ? '<span class="text-[10px] bg-emerald-500 text-white px-2.5 py-0.5 rounded-lg font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-check-double"></i> خالص (أونلاين)</span>'
+                ? '<span class="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded-lg font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-check-double"></i> خالص (أونلاين)</span>'
                 : (payBr.method === 'split'
-                    ? `<span class="text-[10px] bg-indigo-600 text-white px-2.5 py-0.5 rounded-lg font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-scale-balanced"></i> نص ونص (${payBr.cash}ج كاش + ${payBr.online}ج محفظة)</span>`
-                    : '<span class="text-[10px] bg-white text-slate-700 border border-slate-200 px-2.5 py-0.5 rounded-lg font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-money-bill-1-wave text-emerald-600"></i> كاش</span>');
+                    ? `<span class="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-lg font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-scale-balanced"></i> نص (${payBr.cash}ج كاش)</span>`
+                    : '<span class="text-[10px] bg-white text-slate-700 border border-slate-200 px-2 py-0.5 rounded-lg font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-money-bill-1-wave text-emerald-600"></i> كاش</span>');
 
             if (o.debt && o.debt > 0) {
-                paymentBadge += ` <span class="text-[10px] bg-red-600 text-white px-2 py-0.5 rounded-lg font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-solid fa-triangle-exclamation"></i> آجل (${o.debt} ج)</span>`;
+                paymentBadge += ` <span class="text-[10px] bg-red-600 text-white px-2 py-0.5 rounded-lg font-black inline-flex items-center gap-1 shadow-sm">آجل (${o.debt} ج)</span>`;
             }
 
             const safeBatchAttr = realBatchTitle.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
             let batchTagHtml = realBatchTitle
-                ? `<span onclick="setOrdersQuickFilter('batch', '${safeBatchAttr}')" class="text-[10px] bg-teal-50 text-teal-800 border border-teal-200 px-2.5 py-0.5 rounded-lg font-black inline-flex items-center gap-1 cursor-pointer hover:bg-teal-600 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-layer-group text-teal-600"></i> ${realBatchTitle}</span>`
+                ? `<span onclick="setOrdersQuickFilter('batch', '${safeBatchAttr}')" class="text-[10px] bg-teal-50 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-lg font-black inline-flex items-center gap-1 cursor-pointer hover:bg-teal-600 hover:text-white transition-colors"><i class="fa-solid fa-layer-group text-teal-600 text-[9px]"></i> ${realBatchTitle}</span>`
                 : '';
 
             let driverBadgeHtml = o.driverName
-                ? `<span class="text-[10px] bg-blue-50 text-blue-800 border border-blue-200 px-2.5 py-0.5 rounded-lg font-black inline-flex items-center gap-1 cursor-pointer hover:bg-blue-600 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-motorcycle text-blue-600"></i> مع: ${o.driverName}</span>`
+                ? `<span class="text-[10px] bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded-lg font-black inline-flex items-center gap-1 cursor-pointer hover:bg-blue-600 hover:text-white transition-colors"><i class="fa-solid fa-motorcycle text-blue-600 text-[9px]"></i> مع: ${o.driverName}</span>`
                 : '';
-
-            let deliveryWindowBadge = '';
-            if (o.deliveryStart || o.deliveryEnd) {
-                const winTxt = (o.deliveryStart && o.deliveryEnd) ? `${o.deliveryStart} ⬅️ ${o.deliveryEnd}` : (o.deliveryStart || o.deliveryEnd);
-                deliveryWindowBadge = `<span class="text-[10px] bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-0.5 rounded-lg font-black inline-flex items-center gap-1 shadow-sm"><i class="fa-regular fa-calendar-check"></i> تسليم: ${winTxt}</span>`;
-            }
 
             const safeCustomTagAttr = (o.customTag || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
             let customTagHtml = o.customTag
-                ? `<span onclick="document.getElementById('search-order').value='${safeCustomTagAttr}'; renderOrdersList();" class="text-[10px] bg-purple-50 text-purple-700 border border-purple-200 px-2.5 py-0.5 rounded-lg font-black inline-flex items-center gap-1 cursor-pointer hover:bg-purple-600 hover:text-white transition-colors shadow-sm"><i class="fa-solid fa-hashtag"></i> ${o.customTag}</span>`
+                ? `<span onclick="document.getElementById('search-order').value='${safeCustomTagAttr}'; renderOrdersList();" class="text-[10px] bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-lg font-black inline-flex items-center gap-1 cursor-pointer">#${o.customTag}</span>`
                 : '';
 
             let phone2Html = o.customerPhone2 ? `
-                <span class="inline-flex items-center gap-1 bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-200">
-                    <span class="text-[9px] font-black text-purple-700">بديل:</span>
-                    <span class="text-[11px] text-slate-700 font-bold" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone2')">${o.customerPhone2}</span>
-                    <a href="tel:${o.customerPhone2}" class="text-purple-600 hover:text-purple-900 text-[10px]"><i class="fa-solid fa-phone"></i></a>
+                <span class="inline-flex items-center gap-1 bg-purple-50 px-1.5 py-0.5 rounded-lg border border-purple-200">
+                    <span class="text-[10px] text-slate-700 font-bold" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone2')">${o.customerPhone2}</span>
+                    <a href="tel:${o.customerPhone2}" class="text-purple-600 text-[9px]"><i class="fa-solid fa-phone"></i></a>
                 </span>` : '';
 
             const adminNotesCount = o.adminNote ? o.adminNote.split('\n---\n').filter(Boolean).length : 0;
             const driverNotesCount = o.driverNote ? o.driverNote.split('\n---\n').filter(Boolean).length : 0;
             const latestNoteSnippet = o.adminNote ? o.adminNote.split('\n---\n').pop() : (o.driverNote ? o.driverNote.split('\n---\n').pop() : '');
 
+            const timeDisplayStr = (o.status === 'completed' && (o.completedTimeDisplay || o.completedAtStr))
+                ? (o.completedTimeDisplay || o.completedAtStr)
+                : (ageStr ? `${ageStr} • ${d}` : d);
+
             return `
-            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-4 rounded-2xl shadow-sm border border-slate-200/80 hover:shadow-md transition-all relative group cursor-pointer space-y-3">
+            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-3 rounded-2xl shadow-sm border border-slate-200/80 hover:shadow-md transition-all relative group cursor-pointer space-y-2">
 
                 ${trustInfo.bannerHtml}
                 ${trustInfo.stickyHtml}
 
-                <!-- 1. رأس البطاقة المنظم: هوية العميل والمنطقة يميناً + الحالة والتاريخ يساراً -->
-                <div class="flex flex-wrap justify-between items-start gap-2.5 pb-2.5 border-b border-slate-100">
-                    <div class="space-y-1.5 flex-1 min-w-[220px]">
-                        <div class="flex flex-wrap items-center gap-2">
-                            <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer rounded shrink-0" title="تحديد الطلب">
-                            <span class="font-black text-slate-900 text-sm sm:text-base cursor-pointer hover:text-brand-primary border-b border-transparent hover:border-brand-primary border-dashed transition-colors" onclick="smartNameClick(this, '${o.id}', '${o.customerPhone}', 'customerName')">${o.customerName || 'بدون اسم'}</span>
-                            ${trustInfo.badgeHtml}
-
-                            <div class="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-emerald-50 px-2.5 py-0.5 rounded-lg border border-slate-200/80 transition-colors">
-                                <a href="tel:${o.customerPhone}" class="text-emerald-600 hover:text-emerald-800 text-xs flex items-center" title="اتصال مباشر"><i class="fa-solid fa-phone"></i></a>
-                                <span class="text-[11px] text-slate-700 font-black cursor-pointer" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone')" title="اضغط مرتين لتعديل الرقم">${o.customerPhone}</span>
-                            </div>
-                            ${phone2Html}
+                <!-- السطر 1: العميل والموبايل يميناً + شارة الحالة والتاريخ يساراً في سطر واحد -->
+                <div class="flex flex-wrap items-center justify-between gap-1.5">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                        <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer rounded shrink-0">
+                        <span class="font-black text-slate-900 text-sm cursor-pointer hover:text-brand-primary border-b border-transparent hover:border-brand-primary border-dashed" onclick="smartNameClick(this, '${o.id}', '${o.customerPhone}', 'customerName')">${o.customerName || 'بدون اسم'}</span>
+                        ${trustInfo.badgeHtml}
+                        <div class="inline-flex items-center gap-1 bg-slate-100 hover:bg-emerald-50 px-2 py-0.5 rounded-lg border border-slate-200/70">
+                            <a href="tel:${o.customerPhone}" class="text-emerald-600 text-[10px] flex items-center" title="اتصال"><i class="fa-solid fa-phone"></i></a>
+                            <span class="text-[11px] text-slate-700 font-black cursor-pointer" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone')">${o.customerPhone}</span>
                         </div>
-
-                        <div class="flex flex-wrap items-center gap-1.5 text-xs font-bold text-slate-600 pr-6">
-                            <span data-zone-pill="1" class="cursor-pointer text-indigo-900 bg-indigo-50 border border-indigo-200/80 px-2.5 py-0.5 rounded-lg font-black text-[11px]" ondblclick="inlineEdit(this, '${o.id}', 'zone')"><i class="fa-solid fa-location-dot text-indigo-500 ml-1"></i>${o.zone || 'غير مسجل'}</span>
-                            ${o.customerAddress ? `<span class="cursor-pointer text-slate-600 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200/60 text-[11px]" ondblclick="inlineEdit(this, '${o.id}', 'customerAddress')">${o.customerAddress}</span>` : ''}
-                            ${batchTagHtml}
-                            ${driverBadgeHtml}
-                            ${deliveryWindowBadge}
-                            ${customTagHtml}
-                        </div>
+                        ${phone2Html}
                     </div>
 
-                    <!-- يسار الهيدر: شارة الحالة + مغير الحالة المدمج + التاريخ -->
-                    <div class="flex flex-col items-end gap-1.5 shrink-0 mr-auto sm:mr-0">
-                        <div class="flex items-center gap-1.5">
-                            ${sBadge}
-                            <select onchange="updateOrderStatus('${o.id}', this.value)" class="text-[10px] font-black bg-slate-50 hover:bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none text-slate-700 cursor-pointer focus:ring-2 focus:ring-brand-primary/20 transition-all" title="تغيير حالة الطلب">
-                                <option value="new" ${o.status === 'new' ? 'selected' : ''}>جديد</option>
-                                <option value="processing" ${o.status === 'processing' ? 'selected' : ''}>تجهيز</option>
-                                <option value="dispatched" ${o.status === 'dispatched' ? 'selected' : ''}>بالطريق</option>
-                                <option value="deferred" ${o.status === 'deferred' ? 'selected' : ''}>مؤجل</option>
-                                <option value="no_answer" ${o.status === 'no_answer' ? 'selected' : ''}>لم يرد</option>
-                                <option value="completed" ${o.status === 'completed' ? 'selected' : ''}>مكتمل</option>
-                                <option value="canceled" ${o.status === 'canceled' ? 'selected' : ''}>إلغاء</option>
-                                <option value="trash" class="text-red-500 font-black bg-red-50">سلة</option>
-                            </select>
-                        </div>
-                        <div class="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
-                            ${ageStr ? `<span class="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-black">${ageStr}</span>` : ''}
-                            <span>${d}</span>
-                            ${completedDateHtml}
-                        </div>
+                    <div class="flex items-center gap-1.5 mr-auto sm:mr-0 shrink-0">
+                        <span class="text-[10px] font-bold text-slate-400">${timeDisplayStr}</span>
+                        ${sBadge}
                     </div>
                 </div>
 
-                <!-- 2. صندوق الأصناف والملخص المالي للطلب -->
-                <div class="bg-slate-50/90 p-3 rounded-xl border border-slate-200/70 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
-                    <div class="flex flex-wrap gap-1.5 flex-1">
+                <!-- السطر 2: المنطقة والدفعة يميناً + كبسولات الملاحظات المدمجة يساراً في نفس السطر -->
+                <div class="flex flex-wrap items-center justify-between gap-1.5">
+                    <div class="flex flex-wrap items-center gap-1.5 text-xs font-bold text-slate-600">
+                        <span data-zone-pill="1" class="cursor-pointer text-indigo-900 bg-indigo-50 border border-indigo-200/80 px-2 py-0.5 rounded-lg font-black text-[10px]" ondblclick="inlineEdit(this, '${o.id}', 'zone')"><i class="fa-solid fa-location-dot text-indigo-500 ml-1"></i>${o.zone || 'غير مسجل'}</span>
+                        ${o.customerAddress ? `<span class="cursor-pointer text-slate-600 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-200/60 text-[10px]" ondblclick="inlineEdit(this, '${o.id}', 'customerAddress')">${o.customerAddress}</span>` : ''}
+                        ${batchTagHtml}
+                        ${driverBadgeHtml}
+                        ${customTagHtml}
+                    </div>
+
+                    <div class="flex items-center gap-1 mr-auto sm:mr-0 shrink-0">
+                        <button onclick="toggleInlineNotes(event, '${o.id}', 'adminNote')" class="text-[10px] bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/80 px-2 py-0.5 rounded-lg font-black flex items-center gap-1 transition-colors">
+                            <i class="fa-solid fa-lock text-amber-600 text-[9px]"></i> إداري ${adminNotesCount > 0 ? `<span class="bg-amber-200 text-amber-950 px-1 rounded text-[9px]">${adminNotesCount}</span>` : '+'}
+                        </button>
+                        <button onclick="toggleInlineNotes(event, '${o.id}', 'driverNote')" class="text-[10px] bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200/80 px-2 py-0.5 rounded-lg font-black flex items-center gap-1 transition-colors">
+                            <i class="fa-solid fa-motorcycle text-blue-600 text-[9px]"></i> للمندوب ${driverNotesCount > 0 ? `<span class="bg-blue-200 text-blue-950 px-1 rounded text-[9px]">${driverNotesCount}</span>` : '+'}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- السطر 3: صندوق الأصناف والحساب المدمج -->
+                <div class="bg-slate-50/90 px-2.5 py-2 rounded-xl border border-slate-200/70 flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex flex-wrap items-center gap-1.5 flex-1 min-w-[160px]">
                         ${itemsStr}
                     </div>
 
-                    <div class="flex sm:flex-col items-center sm:items-end justify-between gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 sm:border-r border-slate-200/80 sm:pr-3 shrink-0">
-                        <div class="flex flex-wrap items-center gap-1">
-                            ${paymentBadge}
-                        </div>
-                        <div class="flex items-baseline gap-1.5">
-                            <span class="text-[10px] font-bold text-slate-400">(${o.subtotal || o.total || 0} + شحن ${o.deliveryFee || 0}${o.discount > 0 ? ` - خصم ${o.discount}` : ''})</span>
-                            <span class="font-black text-brand-primary text-lg sm:text-xl leading-none">${o.total || 0} <span class="text-[11px]">ج.م</span></span>
+                    <div class="flex items-center gap-2 mr-auto sm:mr-0 shrink-0">
+                        ${paymentBadge}
+                        <div class="flex items-baseline gap-1">
+                            <span class="text-[9px] font-bold text-slate-400">(${o.subtotal || o.total || 0}+${o.deliveryFee || 0}${o.discount > 0 ? `-${o.discount}` : ''})</span>
+                            <span class="font-black text-brand-primary text-base sm:text-lg leading-none">${o.total || 0} <span class="text-[10px]">ج.م</span></span>
                         </div>
                     </div>
                 </div>
 
-                <!-- 3. شريط الملاحظات التفاعلي المدمج -->
-                <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-50/50 px-2.5 py-1.5 rounded-xl border border-slate-100">
-                    <div class="flex items-center gap-1.5">
-                        <button onclick="toggleInlineNotes(event, '${o.id}', 'adminNote')" class="text-[10px] bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/80 px-2.5 py-1 rounded-lg font-black flex items-center gap-1 transition-colors">
-                            <i class="fa-solid fa-lock text-amber-600"></i> إداري ${adminNotesCount > 0 ? `<span class="bg-amber-200 text-amber-950 px-1.5 rounded text-[9px]">${adminNotesCount}</span>` : '+'}
-                        </button>
-                        <button onclick="toggleInlineNotes(event, '${o.id}', 'driverNote')" class="text-[10px] bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200/80 px-2.5 py-1 rounded-lg font-black flex items-center gap-1 transition-colors">
-                            <i class="fa-solid fa-motorcycle text-blue-600"></i> للمندوب ${driverNotesCount > 0 ? `<span class="bg-blue-200 text-blue-950 px-1.5 rounded text-[9px]">${driverNotesCount}</span>` : '+'}
-                        </button>
-                    </div>
-                    ${latestNoteSnippet ? `
-                    <div class="flex-1 min-w-[160px] text-left sm:text-right">
-                        <p class="text-[10px] font-black text-amber-900 bg-amber-50/90 px-2.5 py-1 rounded-lg border border-amber-200/70 truncate">
-                            <i class="fa-solid fa-comment-dots ml-1 text-amber-600"></i> ${latestNoteSnippet}
-                        </p>
-                    </div>` : ''}
-                </div>
+                ${latestNoteSnippet ? `
+                <div class="bg-amber-50/90 px-2.5 py-1 rounded-lg border border-amber-200/70 text-[10px] font-black text-amber-900 truncate">
+                    <i class="fa-solid fa-comment-dots ml-1 text-amber-600"></i> ${latestNoteSnippet}
+                </div>` : ''}
 
                 <div id="inline-notes-container-${o.id}" class="hidden w-full transition-all duration-300 origin-top">
                     <div id="inline-notes-content-${o.id}"></div>
                 </div>
 
-                <!-- 4. شريط أزرار التشغيل الأساسية (واضح، منظم، وبأولوية بصرية) -->
-                <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
-                    <!-- الأزرار الأساسية الأربعة: واتساب + بوليصة + تعديل -->
+                <!-- السطر 4: شريط الأزرار المباشرة المحترمة (أدوات الطلب + قرارات المرحلة بدون قوائم منسدلة) -->
+                <div class="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-slate-100">
+                    <!-- يمين الشريط: واتساب + بوليصة + تعديل -->
                     <div class="flex flex-wrap items-center gap-1.5">
                         ${o.status === 'completed' ? `
-                            <button onclick="sendFollowUpWhatsApp('${o.customerPhone}', '${o.customerName}')" class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-xl font-black shadow-sm flex items-center gap-1.5 active:scale-95 transition-all"><i class="fa-solid fa-heart-circle-check"></i> متابعة</button>
-                            <button onclick="openLinkArchiveModal('${o.id}')" class="text-xs bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-xl font-black shadow-sm flex items-center gap-1.5 active:scale-95 transition-all"><i class="fa-solid fa-link text-amber-400"></i> أرشفة للدفعة</button>
+                            <button onclick="sendFollowUpWhatsApp('${o.customerPhone}', '${o.customerName}')" class="text-[11px] bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-xl font-black shadow-sm flex items-center gap-1 active:scale-95 transition-all"><i class="fa-solid fa-heart-circle-check"></i> متابعة</button>
+                            <button onclick="openLinkArchiveModal('${o.id}')" class="text-[11px] bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1.5 rounded-xl font-black shadow-sm flex items-center gap-1 active:scale-95 transition-all"><i class="fa-solid fa-link text-amber-400"></i> أرشفة</button>
                         ` : `
-                            <div class="inline-flex rounded-xl shadow-sm overflow-hidden">
-                                <button onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="text-xs bg-[#25D366] hover:bg-[#1ebd57] text-white px-3.5 py-2 font-black flex items-center gap-1.5 transition-colors"><i class="fa-brands fa-whatsapp text-sm"></i> واتساب</button>
-                                <select onchange="if(this.value){ sendQuickWhatsAppOption('${o.id}', this.value); this.value=''; }" class="bg-[#1da851] hover:bg-[#178e43] text-white text-[10px] font-black px-1.5 border-r border-white/20 outline-none cursor-pointer" title="رسائل واتساب سريعة">
-                                    <option value="">▼</option>
-                                    <option value="invoice">🧾 إرسال الفاتورة</option>
-                                    <option value="on_way">🛵 الطلب في الطريق</option>
-                                    <option value="no_answer">📵 الهاتف غير متاح</option>
-                                    <option value="prepay">💳 طلب دفع مسبق</option>
-                                </select>
-                            </div>
+                            <button onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="text-[11px] bg-[#25D366] hover:bg-[#1ebd57] text-white px-3 py-1.5 rounded-xl font-black shadow-sm flex items-center gap-1.5 active:scale-95 transition-all"><i class="fa-brands fa-whatsapp text-sm"></i> واتساب</button>
                         `}
-
-                        <button onclick="event.stopPropagation(); printSingleOrderWaybill('${o.id}')" class="text-xs bg-amber-50 text-amber-900 hover:bg-amber-500 hover:text-white px-3 py-2 rounded-xl font-black border border-amber-200 transition-all flex items-center gap-1.5 shadow-sm active:scale-95"><i class="fa-solid fa-print"></i> بوليصة</button>
-                        <button onclick="openEditOrderModal('${o.id}')" class="text-xs bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white px-3 py-2 rounded-xl font-black border border-slate-200 transition-all flex items-center gap-1.5 shadow-sm active:scale-95"><i class="fa-solid fa-pen"></i> تعديل</button>
+                        <button onclick="event.stopPropagation(); printSingleOrderWaybill('${o.id}')" class="text-[11px] bg-amber-50 text-amber-900 hover:bg-amber-500 hover:text-white px-2.5 py-1.5 rounded-xl font-black border border-amber-200 transition-all flex items-center gap-1 shadow-sm active:scale-95"><i class="fa-solid fa-print"></i> بوليصة</button>
+                        <button onclick="openEditOrderModal('${o.id}')" class="text-[11px] bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white px-2.5 py-1.5 rounded-xl font-black border border-slate-200 transition-all flex items-center gap-1 shadow-sm active:scale-95"><i class="fa-solid fa-pen"></i> تعديل</button>
                     </div>
 
-                    <!-- يسار الشريط السفلي: زر الخطوة التالية البارز + أدوات التتبع والحظر -->
-                    <div class="flex items-center gap-1.5 mr-auto sm:mr-0">
+                    <!-- يسار الشريط: زرار التجهيز/المرحلة الأساسي وجنبه (تأجيل / لم يرد / إلغاء) مباشرة -->
+                    <div class="flex flex-wrap items-center gap-1 mr-auto sm:mr-0">
                         ${nextStepBtnHtml}
-                        <button onclick="openOrderTracking('${o.id}')" class="w-8 h-8 rounded-xl bg-sky-50 text-sky-700 hover:bg-sky-600 hover:text-white font-bold border border-sky-200 flex items-center justify-center transition-colors" title="تتبع السجل الزمني للطلب"><i class="fa-solid fa-route text-xs"></i></button>
-                        <button onclick="event.stopPropagation(); quickBanFromOrderCard('${o.id}')" class="w-8 h-8 rounded-xl bg-red-50 text-red-500 hover:bg-red-600 hover:text-white border border-red-100 font-black flex items-center justify-center transition-colors" title="إدراج في البلاك ليست"><i class="fa-solid fa-ban text-xs"></i></button>
+                        ${directDecisionBtnsHtml}
                     </div>
                 </div>
             </div>`;
@@ -979,6 +1005,7 @@
             setTimeout(() => { window.toggleInlineNotes(null, openInlineNoteId, openInlineNoteField, true); }, 50);
         }
     };
+
 
     // =========================================================================
     // 🛠️ 7. تطوير نافذتي "إنشاء طلب" (مساعد العميل والنقاط) و"تعديل طلب"
