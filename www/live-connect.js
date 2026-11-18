@@ -14,7 +14,7 @@
     };
 
     // =========================================================================
-    // 🎨 2. حقن تنسيقات الكبسولات الحية + محرك العرض التنفيذي للمسابقة (Pitch Mode)
+    // 🎨 2. حقن تنسيقات الكبسولات الحية والهيدر الذكي المنزلق (Smart Auto-Hide Header)
     // =========================================================================
     function injectLiveConnectStyles() {
         if (document.getElementById('live-connect-styles')) return;
@@ -27,7 +27,7 @@
                 user-select: none;
             }
             .lc-capsule:hover {
-                transform: translateY(-1px) scale(1.03);
+                transform: translateY(-1px) scale(1.02);
                 box-shadow: 0 4px 12px -2px rgba(6, 78, 59, 0.18) !important;
             }
             .lc-capsule:active {
@@ -40,10 +40,47 @@
                 from { opacity: 0; transform: translateY(6px) scale(0.96); }
                 to { opacity: 1; transform: translateY(0) scale(1); }
             }
+
+            /* تقليص ارتفاع الهيدر العلوي وجعله رشيقاً ومنزلقاً بنعومة عند التمرير */
+            header {
+                height: 52px !important;
+                min-height: 52px !important;
+                transition: margin-top 0.26s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease !important;
+            }
+            #lc-top-five-icons-ribbon {
+                transition: margin-top 0.26s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, max-height 0.26s ease !important;
+                max-height: 60px;
+                overflow: hidden;
+            }
+
+            /* عند النزول لأسفل في الصفحة يختفي الهيدر وشريط الإشعارات بسلاسة لتوفير الشاشة بالكامل */
+            body.lc-bars-hidden-on-scroll header {
+                margin-top: -52px !important;
+                opacity: 0;
+                pointer-events: none;
+            }
+            body.lc-bars-hidden-on-scroll #lc-top-five-icons-ribbon {
+                margin-top: -54px !important;
+                opacity: 0;
+                pointer-events: none;
+            }
+
+            /* تحسين السحب الأفقي السلس لتبويبات الطلبات */
+            .smooth-tabs-scroll {
+                overflow-x: auto;
+                scroll-behavior: smooth;
+                -webkit-overflow-scrolling: touch;
+                touch-action: pan-x;
+                scrollbar-width: none;
+            }
+            .smooth-tabs-scroll::-webkit-scrollbar {
+                display: none;
+            }
+
             @media (max-width: 640px) {
                 header {
-                    padding-left: 0.5rem !important;
-                    padding-right: 0.5rem !important;
+                    padding-left: 0.6rem !important;
+                    padding-right: 0.6rem !important;
                 }
                 header #header-title {
                     font-size: 0.95rem !important;
@@ -52,7 +89,6 @@
             }
         `;
         document.head.appendChild(style);
-        injectExecutivePitchModeButton();
     }
 
     function injectExecutivePitchModeButton() {
@@ -1270,44 +1306,48 @@
 
 
     // =========================================================================
-    // 🌪️ 6. نظام الطي الذكي المتزامن لدرج الفلاتر عند التمرير (متوافق 100% مع orders.js)
+    // 🌪️ 6. نظام الإخفاء والظهور الذكي للهيدر وشريط الفريزر والمناديب عند التحرك
     // =========================================================================
     window.initZeroClutterOrdersScroll = function () {
         const mainScroll = document.querySelector('main > div.flex-1.overflow-y-auto.custom-scroll');
         if (mainScroll && !mainScroll.hasAttribute('data-lc-scroll-bound')) {
             mainScroll.setAttribute('data-lc-scroll-bound', '1');
             mainScroll.addEventListener('scroll', () => {
-                const ordersView = document.getElementById('view-orders');
-                if (!ordersView || !ordersView.classList.contains('active')) return;
-
                 const st = mainScroll.scrollTop;
                 const lastSt = (window.liveConnectState && typeof window.liveConnectState.lastScrollTop === 'number')
                     ? window.liveConnectState.lastScrollTop
                     : 0;
 
-                // لا نغلق الدرج إذا كان المستخدم يضغط حالياً داخل قائمة select مفتوحة
                 const activeTag = document.activeElement ? document.activeElement.tagName : '';
-                const drawer = document.getElementById('so-advanced-filters-drawer');
-
-                if (activeTag !== 'SELECT' && drawer && !drawer.classList.contains('hidden') && st > lastSt + 95) {
-                    drawer.classList.add('hidden');
-                    if (window.ordersFilterState) {
-                        window.ordersFilterState.filtersExpanded = false;
-                        window.ordersFilterState.filtersOpen = false;
+                if (activeTag !== 'INPUT' && activeTag !== 'SELECT' && activeTag !== 'TEXTAREA') {
+                    // عند النزول لأسفل أكثر من 70px يختفي الهيدر وشريط الإشعارات لتوسيع الشاشة
+                    if (st > 70 && st > lastSt + 18) {
+                        document.body.classList.add('lc-bars-hidden-on-scroll');
                     }
-                    const btn = document.getElementById('so-btn-toggle-filters');
-                    if (btn) {
-                        btn.className = 'bg-white/10 hover:bg-white/20 text-white border border-white/15 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all flex items-center gap-1';
+                    // بمجرد التحرك لأعلى أو الوصول لأعلى الصفحة يظهران فوراً بنعومة
+                    else if (st < 30 || st < lastSt - 14) {
+                        document.body.classList.remove('lc-bars-hidden-on-scroll');
+                    }
+                }
+
+                const ordersView = document.getElementById('view-orders');
+                if (ordersView && ordersView.classList.contains('active')) {
+                    const drawer = document.getElementById('so-advanced-filters-drawer');
+                    if (activeTag !== 'SELECT' && drawer && !drawer.classList.contains('hidden') && st > lastSt + 95) {
+                        drawer.classList.add('hidden');
+                        if (window.ordersFilterState) {
+                            window.ordersFilterState.filtersExpanded = false;
+                            window.ordersFilterState.filtersOpen = false;
+                        }
                     }
                 }
 
                 if (window.liveConnectState) {
-                    window.liveConnectState.lastScrollTop = st;
+                    window.liveConnectState.lastScrollTop = Math.max(0, st);
                 }
             }, { passive: true });
         }
     };
-
 
     // =========================================================================
     // 🔗 7. الربط التلقائي السريع مع دوال النظام (بدون تعارض مع drivers.js أو index.html)
