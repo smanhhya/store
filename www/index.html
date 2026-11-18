@@ -2059,24 +2059,7 @@
             });
         });
 
-        // مراقب ذكي للنوافذ المنبثقة لربطها بزر الرجوع في الأندرويد بدون أخطاء
-        const _modalAttrObserver = new MutationObserver((mutations) => {
-            mutations.forEach((m) => {
-                if (m.type === 'attributes' && m.attributeName === 'class' && m.target) {
-                    const el = m.target;
-                    const isNowVisible = !el.classList.contains('hidden');
-                    const wasVisible = el.getAttribute('data-was-visible') === '1';
-                    if (isNowVisible && !wasVisible) {
-                        el.setAttribute('data-was-visible', '1');
-                        if (!isHandlingPopState) {
-                            try { history.pushState({ guard: 'modal', modal: el.id }, ''); } catch (e) {}
-                        }
-                    } else if (!isNowVisible && wasVisible) {
-                        el.setAttribute('data-was-visible', '0');
-                    }
-                }
-            });
-        });
+
 
         // مؤشر حالة الاتصال والمزامنة اللحظية (Zero-Wait Cloud Sync Indicator)
         window.updateLiveSyncStatusUI = function (state) {
