@@ -1,11 +1,10 @@
 // =========================================================================
-// ⚡ محرك الترابط الحي، الكبسولات التفاعلية، ونبض النظام الموحد (live-connect.js)
-// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM) - النسخة البريميوم المدمجة
-// يدمج الهيدر وشريط الإشعارات في سطر واحد رشيق + الكبسولات الحية + وضع المسابقة
+// ⚡ محرك الترابط الحي، تثبيت تبويبات الطلبات الذكي، الكبسولات، ووضع المسابقة (live-connect.js)
+// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM) - النسخة البريميوم الكاملة
 // =========================================================================
 
 (function () {
-    // 1. حالة نظام الترابط الحي
+    // 1. حالة نظام الترابط الحي والتمرير الذكي
     window.liveConnectState = {
         toolbarCollapsed: false,
         autoCollapseOnScroll: true,
@@ -14,7 +13,7 @@
     };
 
     // =========================================================================
-    // 🎨 2. حقن تنسيقات السطر العلوي المدمج والكبسولات الحية (بدون تغطية أو تداخل)
+    // 🎨 2. حقن تنسيقات التثبيت الدائم لتبويبات (جديد ومكتمل) والطي الذكي للبحث
     // =========================================================================
     function injectLiveConnectStyles() {
         if (document.getElementById('live-connect-styles')) return;
@@ -41,14 +40,14 @@
                 to { opacity: 1; transform: translateY(0) scale(1); }
             }
 
-            /* السطر العلوي الموحد الرشيق (يدمج الهيدر مع إشعارات الفريزر والمناديب في سطر واحد فقط) */
+            /* السطر العلوي الموحد الرشيق (46px فقط) */
             header {
-                height: 48px !important;
-                min-height: 48px !important;
-                max-height: 48px !important;
+                height: 46px !important;
+                min-height: 46px !important;
+                max-height: 46px !important;
                 padding-left: 0.5rem !important;
                 padding-right: 0.5rem !important;
-                transition: max-height 0.24s cubic-bezier(0.4, 0, 0.2, 1), min-height 0.24s cubic-bezier(0.4, 0, 0.2, 1), height 0.24s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, border-width 0.2s ease !important;
+                transition: max-height 0.22s cubic-bezier(0.4, 0, 0.2, 1), min-height 0.22s cubic-bezier(0.4, 0, 0.2, 1), height 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s ease, border-width 0.18s ease !important;
                 overflow: hidden;
             }
             @media (min-width: 1024px) {
@@ -58,7 +57,7 @@
                 }
             }
 
-            /* طي السطر العلوي بنعومة عند النزول لأسفل بدون استخدام إزاحة سالبة تغطي الكروت */
+            /* إخفاء الهيدر العلوي عند النزول لأسفل ويظهر فوراً مع أول حركة لأعلى */
             body.lc-bars-hidden-on-scroll header {
                 height: 0px !important;
                 min-height: 0px !important;
@@ -68,20 +67,71 @@
                 pointer-events: none !important;
             }
 
-            /* ضبط شريط البحث المثبت في الطلبات الحية لكي لا يغطي على ما تحته */
-            #view-orders .sticky,
-            #orders-sticky-search-bar {
-                top: -1rem !important;
-                z-index: 25 !important;
-                padding-top: 0.45rem !important;
-                padding-bottom: 0.45rem !important;
+            /* 🔥 الإصلاح الجذري: إلغاء قفل الارتفاع (h-full) عن شاشة الطلبات لتظل تبويبات (جديد ومكتمل) ثابتة لآخر طلب في الصفحة */
+            #view-orders.page-view.active {
+                height: auto !important;
+                min-height: 100% !important;
+                overflow: visible !important;
+                transform: none !important;
+                animation: none !important;
             }
 
-            /* تمرير أفقي سلس بدون شريط تمرير مزعج */
+            /* الحاوية المثبتة دائماً في أعلى شاشة الطلبات */
+            #lc-orders-sticky-shell {
+                position: sticky !important;
+                top: -1rem !important;
+                z-index: 40 !important;
+                background: rgba(241, 245, 249, 0.97) !important;
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                margin-left: -1rem !important;
+                margin-right: -1rem !important;
+                padding-left: 0.75rem !important;
+                padding-right: 0.75rem !important;
+                padding-top: 0.45rem !important;
+                padding-bottom: 0.45rem !important;
+                border-bottom: 1px solid rgba(203, 213, 225, 0.85) !important;
+                box-shadow: 0 4px 15px -4px rgba(15, 23, 42, 0.07) !important;
+            }
+            @media (min-width: 1024px) {
+                #lc-orders-sticky-shell {
+                    top: -2rem !important;
+                    margin-left: -2rem !important;
+                    margin-right: -2rem !important;
+                    padding-left: 2rem !important;
+                    padding-right: 2rem !important;
+                }
+            }
+
+            /* درج مربع البحث داخل الشريط المثبت: ينطوي عند النزول، وينزل فوراً أول ما تطلع سنة لفوق */
+            #lc-collapsible-search-row {
+                max-height: 60px;
+                opacity: 1;
+                overflow: hidden;
+                margin-bottom: 0.45rem;
+                transition: max-height 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s ease, margin-bottom 0.22s ease !important;
+            }
+            body.lc-bars-hidden-on-scroll #lc-collapsible-search-row {
+                max-height: 0px !important;
+                opacity: 0 !important;
+                margin-bottom: 0px !important;
+                pointer-events: none !important;
+            }
+
+            /* زر العدسة السريع يظهر بجانب تبويب (الكل) عندما يكون مربع البحث مطوياً */
+            #lc-quick-unfold-search-btn {
+                display: none;
+            }
+            body.lc-bars-hidden-on-scroll #lc-quick-unfold-search-btn {
+                display: inline-flex !important;
+            }
+
+            /* تمرير أفقي فائق النعومة لتبويبات المراحل */
             .lc-no-scrollbar {
                 overflow-x: auto;
                 scroll-behavior: smooth;
                 -webkit-overflow-scrolling: touch;
+                touch-action: pan-x;
                 scrollbar-width: none;
             }
             .lc-no-scrollbar::-webkit-scrollbar {
@@ -102,7 +152,113 @@
     }
 
     // =========================================================================
-    // 🎈 3. نظام النافذة الطائرة الموضعية السريعة (Micro-Popover Engine)
+    // 🧩 3. فصل الخانات العلوية عن تبويبات (جديد ومكتمل) لتثبيت التبويبات وحدها
+    // =========================================================================
+    window.restructureOrdersStickyLayout = function () {
+        const ordersView = document.getElementById('view-orders');
+        if (!ordersView) return;
+
+        // إزالة h-full من شاشة الطلبات حتى لا ينكسر التثبيت بعد أول شاشة
+        ordersView.classList.remove('h-full');
+
+        const searchInput = document.getElementById('search-order');
+        const tabAllBtn = document.getElementById('tab-all');
+        const bulkBar = document.getElementById('bulk-actions-bar');
+        const ordersListContainer = document.getElementById('orders-list-vertical');
+
+        if (!searchInput || !tabAllBtn || !ordersListContainer) return;
+
+        // إذا تم تقسيم الهيكل بنجاح من قبل، نتأكد فقط من نقل شريط الملخص الأسود للأعلى
+        if (document.getElementById('lc-orders-sticky-shell')) {
+            const smartToolbar = document.getElementById('smart-orders-toolbar');
+            const nonStickyTop = document.getElementById('lc-orders-nonsticky-top');
+            if (smartToolbar && nonStickyTop && smartToolbar.parentElement !== nonStickyTop) {
+                nonStickyTop.appendChild(smartToolbar);
+            }
+            return;
+        }
+
+        // العثور على الحاوية العلوية الأصلية
+        const origStickyWrapper = searchInput.closest('.sticky') || document.getElementById('orders-sticky-search-bar') || ordersView.firstElementChild;
+        if (!origStickyWrapper) return;
+
+        // 1. إنشاء حاوية غير مثبتة في أعلى الصفحة للأدوات الرباعية وشريط الملخص الأسود (تتحرك طبيعياً مع السكرول ولا تأكل الشاشة)
+        const nonStickyTop = document.createElement('div');
+        nonStickyTop.id = 'lc-orders-nonsticky-top';
+        nonStickyTop.className = 'bg-white p-3 rounded-2xl border border-slate-200/80 shadow-soft mb-2.5 space-y-2';
+
+        // 2. إنشاء الحاوية المثبتة الرشيقة التي تلازم أعلى الشاشة دائماً
+        const stickyShell = document.createElement('div');
+        stickyShell.id = 'lc-orders-sticky-shell';
+        stickyShell.className = 'mb-3';
+
+        // أ) صف البحث المنزلق (يطوى عند النزول، وينزل فوراً أول ما تطلع سنة لفوق)
+        const searchRowDrawer = document.createElement('div');
+        searchRowDrawer.id = 'lc-collapsible-search-row';
+
+        const searchFlexRow = searchInput.parentElement?.parentElement;
+        const toolsFourGrid = origStickyWrapper.querySelector('.grid.grid-cols-4') || document.querySelector('#orders-top-tools-area .grid.grid-cols-4');
+
+        if (toolsFourGrid) {
+            nonStickyTop.appendChild(toolsFourGrid);
+        }
+
+        // وضع حقل البحث وزر الترتيب في درج البحث المنزلق
+        const searchBarWrap = document.createElement('div');
+        searchBarWrap.className = 'flex gap-1.5 items-center';
+        const searchInputBox = searchInput.parentElement;
+        const sortBtn = document.getElementById('btn-sort-orders');
+        if (searchInputBox) searchBarWrap.appendChild(searchInputBox);
+        if (sortBtn) searchBarWrap.appendChild(sortBtn);
+        searchRowDrawer.appendChild(searchBarWrap);
+
+        // ب) صف تبويبات (الكل، جديد، تجهيز، في الطريق، مؤجل، لم يرد، مكتمل، ملغي) المثبت دائماً
+        const tabsRow = tabAllBtn.parentElement;
+        if (tabsRow) {
+            tabsRow.className = 'flex items-center gap-1.5 lc-no-scrollbar pb-0.5 shrink-0';
+
+            // إضافة زر عدسة صغير في أول سطر التبويبات يظهر فقط عندما يكون البحث مطوياً لفتحه بلمسة واحدة
+            if (!document.getElementById('lc-quick-unfold-search-btn')) {
+                const unfoldBtn = document.createElement('button');
+                unfoldBtn.type = 'button';
+                unfoldBtn.id = 'lc-quick-unfold-search-btn';
+                unfoldBtn.onclick = () => {
+                    document.body.classList.remove('lc-bars-hidden-on-scroll');
+                    setTimeout(() => document.getElementById('search-order')?.focus(), 80);
+                };
+                unfoldBtn.className = 'bg-brand-primary text-white w-8 h-8 rounded-xl text-xs font-black items-center justify-center shrink-0 shadow-sm active:scale-90 transition-transform';
+                unfoldBtn.title = 'إظهار مربع البحث والشريط العلوي فوراً';
+                unfoldBtn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i>';
+                tabsRow.insertBefore(unfoldBtn, tabsRow.firstChild);
+            }
+        }
+
+        stickyShell.appendChild(searchRowDrawer);
+        if (tabsRow) stickyShell.appendChild(tabsRow);
+        if (bulkBar) {
+            bulkBar.classList.add('mt-2');
+            stickyShell.appendChild(bulkBar);
+        }
+
+        // نقل شريط الملخص الأسود والفلاتر إلى الحاوية العلوية غير المثبتة
+        const smartToolbar = document.getElementById('smart-orders-toolbar');
+        if (smartToolbar) {
+            nonStickyTop.appendChild(smartToolbar);
+        }
+
+        // إدراج الحاويتين قبل قائمة كروت الطلبات وإزالة الحاوية القديمة الفارغة
+        ordersView.insertBefore(nonStickyTop, ordersListContainer);
+        ordersView.insertBefore(stickyShell, ordersListContainer);
+
+        const oldToolsArea = document.getElementById('orders-top-tools-area');
+        if (oldToolsArea && oldToolsArea !== nonStickyTop) oldToolsArea.remove();
+        if (origStickyWrapper && origStickyWrapper !== stickyShell && origStickyWrapper !== nonStickyTop) {
+            origStickyWrapper.remove();
+        }
+    };
+
+    // =========================================================================
+    // 🎈 4. نظام النافذة الطائرة الموضعية السريعة (Micro-Popover Engine)
     // =========================================================================
     function getOrCreatePopover() {
         let pop = document.getElementById('lc-floating-popover');
@@ -179,7 +335,7 @@
     }
 
     // =========================================================================
-    // 🏆 4. محرك وضع العرض التنفيذي للمسابقة (Competition Pitch Mode)
+    // 🏆 5. محرك وضع العرض التنفيذي للمسابقة (Competition Pitch Mode)
     // =========================================================================
     window.togglePitchPrivacyMask = function () {
         document.body.classList.toggle('pitch-privacy-mode');
@@ -336,7 +492,7 @@
     };
 
     // =========================================================================
-    // 💊 5. تفعيل الكبسولات الحية على كروت الطلبات (في الوضع التفصيلي والمدمج)
+    // 💊 6. تفعيل الكبسولات الحية على كروت الطلبات
     // =========================================================================
     window.enhanceOrderCardsLive = function () {
         const container = document.getElementById('orders-list-vertical');
@@ -755,7 +911,7 @@
         const msg = `أهلاً بحضرتك يا ${name || 'فندم'} 🌹\nتذكير ودي من "سمان ههيا" بخصوص باقي الحساب المسجل بقيمة (${amount} ج.م).\nيمكنك التحويل عبر فودافون كاش أو إنستاباي على الرقم:\n*${storePhone}*\nشكراً جزيلاً لذوقك وتعاملك معنا 🤍`;
         const cleanPhone = (phone || '').toString().trim();
         const waNumber = cleanPhone.startsWith('0') ? '2' + cleanPhone : cleanPhone;
-        if (waNumber) window.open(`[https://wa.me/$](https://wa.me/$){waNumber}?text=${encodeURIComponent(msg)}`, '_blank');
+        if (waNumber) window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}`, '_blank');
     };
 
     window.openDriverCapsulePopover = function (anchorEl, orderId, driverName) {
@@ -900,7 +1056,7 @@
     };
 
     // =========================================================================
-    // 💓 6. السطر العلوي الموحد الرشيق (يدمج الهيدر والإشعارات في 48px فقط) + البار السفلي
+    // 💓 7. السطر العلوي الموحد الرشيق (46px فقط) + شريط الموبايل السفلي
     // =========================================================================
     window.syncBottomDockActiveTab = function (activeTabId) {
         const cur = activeTabId || window.smanCurrentActiveTab || 'dashboard';
@@ -915,7 +1071,6 @@
     };
 
     window.initLiveHeaderAndSidebarUI = function () {
-        // إزالة الشريط الثاني المنفصل القديم إن وجد لعدم أكل مساحة الشاشة
         const oldSecondRibbon = document.getElementById('lc-top-five-icons-ribbon');
         if (oldSecondRibbon) oldSecondRibbon.remove();
 
@@ -938,7 +1093,6 @@
         if (headerRight) {
             headerRight.className = 'flex items-center gap-1 sm:gap-1.5 lc-no-scrollbar py-0.5';
 
-            // إخفاء الأزرار المكررة القديمة لأننا وضعناها كأيقونات ذكية رشيقة في نفس السطر
             const oldUpdateBtn = headerRight.querySelector('button[onclick*="forceUpdateAppNow"]:not([data-lc-slim])');
             if (oldUpdateBtn) oldUpdateBtn.classList.add('hidden');
 
@@ -958,19 +1112,18 @@
                 saveBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up text-amber-400"></i> <span>حفظ</span>';
             }
 
-            // حقن كبسولات الإشعارات المدمجة مباشرة داخل نفس سطر الهيدر بدون سطر إضافي
             if (!document.getElementById('lc-header-pulse-bar')) {
                 const inlineBar = document.createElement('div');
                 inlineBar.id = 'lc-header-pulse-bar';
                 inlineBar.className = 'flex items-center gap-1 sm:gap-1.5 shrink-0';
                 inlineBar.innerHTML = `
-                    <!-- 1. كبسولة الفريزر المدمجة -->
+                    <!-- 1. كبسولة الفريزر -->
                     <button type="button" onclick="openFreezerModal()" id="lc-hdr-freezer-btn" title="مخزن الفريزر الفعلي" class="lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-900 border border-cyan-200/80 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shrink-0">
                         <i class="fa-solid fa-snowflake text-cyan-600"></i>
                         <strong id="lc-hdr-freezer-count">0</strong>
                     </button>
 
-                    <!-- 2. كبسولة رادار وعهدة المناديب -->
+                    <!-- 2. كبسولة المناديب -->
                     <button type="button" onclick="jumpToRadarOrRecon()" id="lc-hdr-drivers-btn" title="رادار وتقفيل المناديب" class="lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200/80 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shrink-0">
                         <i class="fa-solid fa-motorcycle text-indigo-600"></i>
                         <strong id="lc-hdr-drivers-count">0</strong>
@@ -982,20 +1135,20 @@
                         <span class="hidden sm:inline">Deli</span>
                     </button>
 
-                    <!-- 4. كبسولة جرس المهام والتنبيهات -->
+                    <!-- 4. كبسولة جرس المهام -->
                     <button type="button" onclick="openSmartBellNotifications(this)" data-lc-trigger="1" id="lc-hdr-bell-btn" title="رادار المهام والتنبيهات الفوري" class="lc-capsule relative h-8 w-8 sm:w-auto sm:px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200/80 text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 shrink-0">
                         <i class="fa-solid fa-bell text-emerald-600"></i>
                         <span class="hidden lg:inline">المهام</span>
                         <span id="lc-hdr-bell-badge" class="hidden absolute -top-1 -left-1 bg-red-600 text-white text-[9px] font-black min-w-[16px] h-[16px] px-1 rounded-full flex items-center justify-center shadow-sm border border-white">0</span>
                     </button>
 
-                    <!-- 5. كبسولة عرض المسابقة التنفيذي 🏆 -->
+                    <!-- 5. كبسولة وضع المسابقة 🏆 -->
                     <button type="button" onclick="openCompetitionPitchModal()" id="lc-pitch-mode-btn" title="وضع العرض التنفيذي للمسابقة وإخفاء أرقام العملاء" class="lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 border border-amber-500/30 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0">
                         <i class="fa-solid fa-trophy text-slate-950"></i>
                         <span class="hidden xl:inline">المسابقة</span>
                     </button>
 
-                    <!-- 6. كبسولة تحديث النسخة -->
+                    <!-- 6. كبسولة التحديث -->
                     <button type="button" data-lc-slim="1" onclick="forceUpdateAppNow()" title="تحديث فوري لأحدث نسخة" class="lc-capsule h-8 w-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-[11px] font-black flex items-center justify-center shrink-0">
                         <i class="fa-solid fa-rotate text-sky-600"></i>
                     </button>
@@ -1004,7 +1157,6 @@
             }
         }
 
-        // شريط التنقل السفلي للموبايل (Mobile App Dock)
         const oldFab = document.getElementById('lc-mobile-fab-add-order');
         if (oldFab) oldFab.remove();
 
@@ -1070,6 +1222,7 @@
 
     window.updateLiveHeaderAndSidebar = function () {
         window.initLiveHeaderAndSidebarUI();
+        window.restructureOrdersStickyLayout();
 
         const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
         const custList = (typeof customersData !== 'undefined' && Array.isArray(customersData)) ? customersData : [];
@@ -1288,7 +1441,7 @@
     };
 
     // =========================================================================
-    // 🌪️ 7. نظام الطي النظيف للسطر العلوي عند التمرير (بدون تغطية أي عنصر)
+    // 🌪️ 8. نظام التمرير الذكي: تبويبات (جديد ومكتمل) ثابتة دائماً، وأول ما تطلع سنة ينزل البحث
     // =========================================================================
     window.initZeroClutterOrdersScroll = function () {
         const mainScroll = document.querySelector('main > div.flex-1.overflow-y-auto.custom-scroll');
@@ -1300,11 +1453,17 @@
                     ? window.liveConnectState.lastScrollTop
                     : 0;
 
-                const activeTag = document.activeElement ? document.activeElement.tagName : '';
-                if (activeTag !== 'INPUT' && activeTag !== 'SELECT' && activeTag !== 'TEXTAREA') {
-                    if (st > 65 && st > lastSt + 16) {
+                const activeEl = document.activeElement;
+                const activeTag = activeEl ? activeEl.tagName : '';
+                const isSearchFocused = activeEl && activeEl.id === 'search-order';
+
+                if (!isSearchFocused && activeTag !== 'SELECT' && activeTag !== 'TEXTAREA') {
+                    // عند النزول لأسفل: يختفي مربع البحث والهيدر، وتبقى تبويبات (جديد ومكتمل) وحدها ثابتة في الأعلى!
+                    if (st > 75 && st > lastSt + 14) {
                         document.body.classList.add('lc-bars-hidden-on-scroll');
-                    } else if (st < 25 || st < lastSt - 12) {
+                    }
+                    // أول ما تطلع سنة صغيرة لفوق (8px فقط): ينزل مربع البحث والهيدر فوراً بدون الرجوع لأول الصفحة!
+                    else if (st < 35 || st < lastSt - 8) {
                         document.body.classList.remove('lc-bars-hidden-on-scroll');
                     }
                 }
@@ -1312,7 +1471,7 @@
                 const ordersView = document.getElementById('view-orders');
                 if (ordersView && ordersView.classList.contains('active')) {
                     const drawer = document.getElementById('so-advanced-filters-drawer');
-                    if (activeTag !== 'SELECT' && drawer && !drawer.classList.contains('hidden') && st > lastSt + 95) {
+                    if (activeTag !== 'SELECT' && drawer && !drawer.classList.contains('hidden') && st > lastSt + 85) {
                         drawer.classList.add('hidden');
                         if (window.ordersFilterState) {
                             window.ordersFilterState.filtersExpanded = false;
@@ -1329,13 +1488,14 @@
     };
 
     // =========================================================================
-    // 🔗 8. الربط التلقائي السريع مع دوال النظام
+    // 🔗 9. الربط التلقائي السريع مع دوال النظام
     // =========================================================================
     function hookIntoSystemFunctions() {
         if (typeof window.renderOrdersList === 'function' && !window.renderOrdersList._lcHooked) {
             const _origRenderOrders = window.renderOrdersList;
             const wrappedRenderOrders = function () {
                 const res = _origRenderOrders.apply(this, arguments);
+                window.restructureOrdersStickyLayout();
                 window.initZeroClutterOrdersScroll();
                 window.enhanceOrderCardsLive();
                 window.updateLiveHeaderAndSidebar();
@@ -1363,14 +1523,15 @@
         injectLiveConnectStyles();
         hookIntoSystemFunctions();
         window.initLiveHeaderAndSidebarUI();
+        window.restructureOrdersStickyLayout();
         window.initZeroClutterOrdersScroll();
         window.enhanceOrderCardsLive();
         window.updateLiveHeaderAndSidebar();
     }
 
     if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', () => setTimeout(bootLiveConnect, 450));
+        window.addEventListener('DOMContentLoaded', () => setTimeout(bootLiveConnect, 350));
     } else {
-        setTimeout(bootLiveConnect, 450);
+        setTimeout(bootLiveConnect, 350);
     }
 })();
