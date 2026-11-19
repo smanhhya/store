@@ -137,6 +137,9 @@
     // 🥩 1. إدارة كتالوج الأصناف والأسعار والأوزان (مقسّم ومرتب ومتناسق 100% للموبايل)
     // =========================================================================
     function classifyInventoryProduct(id, p) {
+        if (p && p.categoryType === 'custom') {
+            return { group: 'custom', rank: 50 };
+        }
         if (typeof window.getOrderProductCategoryAndRank === 'function') {
             return window.getOrderProductCategoryAndRank(id, p);
         }
@@ -144,6 +147,7 @@
         const safeName = String(p?.name || '').toLowerCase();
 
         if (p && p.isWeightBased) {
+
             let wRank = 50;
             if (safeName.includes('فراخ') || safeName.includes('فرخ') || safeName.includes('تسمين')) wRank = 10;
             else if (safeName.includes('رومي')) wRank = 20;
@@ -218,7 +222,7 @@
         const prodIds = Object.keys(prodsObj).filter(id => Boolean(prodsObj[id]));
 
         let activeCount = 0, hiddenCount = 0;
-        let quailCount = 0, eggsChicksCount = 0, weightCount = 0;
+        let quailCount = 0, eggsChicksCount = 0, weightCount = 0, customCount = 0;
 
         prodIds.forEach(id => {
             const p = prodsObj[id];
@@ -226,10 +230,12 @@
             else activeCount++;
 
             const cls = classifyInventoryProduct(id, p);
-            if (cls.group === 'weight') weightCount++;
+            if (cls.group === 'custom') customCount++;
+            else if (cls.group === 'weight') weightCount++;
             else if (cls.group === 'eggs_chicks') eggsChicksCount++;
             else quailCount++;
         });
+
 
         const st = window.inventoryUIState;
         if (st.category === 'main') st.category = 'quail';
@@ -278,6 +284,7 @@
                     <button type="button" onclick="setInventoryCategoryFilter('quail')" class="whitespace-nowrap px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all ${tabCls('quail')}">🥩 سمان بالجوز (${quailCount})</button>
                     <button type="button" onclick="setInventoryCategoryFilter('eggs_chicks')" class="whitespace-nowrap px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all ${tabCls('eggs_chicks')}">🥚 بيض وكتاكيت (${eggsChicksCount})</button>
                     <button type="button" onclick="setInventoryCategoryFilter('weight')" class="whitespace-nowrap px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all ${tabCls('weight')}">⚖️ بالوزن (${weightCount})</button>
+                    <button type="button" onclick="setInventoryCategoryFilter('custom')" class="whitespace-nowrap px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all ${tabCls('custom')}">✨ مستقل (${customCount})</button>
                     ${hiddenCount > 0 ? `<button type="button" onclick="setInventoryCategoryFilter('hidden')" class="whitespace-nowrap px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all ${tabCls('hidden')}">🚫 مخفي (${hiddenCount})</button>` : ''}
                 </div>
             </div>
@@ -326,7 +333,8 @@
         const groups = {
             quail: [],
             eggs_chicks: [],
-            weight: []
+            weight: [],
+            custom: []
         };
 
         prodIds.forEach(id => {
@@ -336,21 +344,24 @@
             if (st.category === 'quail' && cls.group !== 'quail') return;
             if (st.category === 'eggs_chicks' && cls.group !== 'eggs_chicks') return;
             if (st.category === 'weight' && cls.group !== 'weight') return;
+            if (st.category === 'custom' && cls.group !== 'custom') return;
             if (st.category === 'hidden' && !p.isHidden) return;
 
             if (rawQ) {
-                const hay = `${p.name || ''} ${p.weight || ''} ${pricesObj[id] || p.basePrice || ''}`.toLowerCase();
+                const hay = `${p.name || ''} ${p.weight || ''} ${p.customGroupTitle || ''} ${pricesObj[id] || p.basePrice || ''}`.toLowerCase();
                 if (!hay.includes(rawQ)) return;
             }
 
-            groups[cls.group].push({ id, p, group: cls.group, rank: cls.rank });
+            if (!groups[cls.group]) groups.custom.push({ id, p, group: 'custom', rank: cls.rank });
+            else groups[cls.group].push({ id, p, group: cls.group, rank: cls.rank });
         });
 
         groups.quail.sort((a, b) => a.rank - b.rank);
         groups.eggs_chicks.sort((a, b) => a.rank - b.rank);
         groups.weight.sort((a, b) => a.rank - b.rank);
+        groups.custom.sort((a, b) => a.rank - b.rank);
 
-        const totalShown = groups.quail.length + groups.eggs_chicks.length + groups.weight.length;
+        const totalShown = groups.quail.length + groups.eggs_chicks.length + groups.weight.length + groups.custom.length;
         if (totalShown === 0) {
             wrap.innerHTML = `<div class="text-center py-10 text-slate-400 font-bold bg-white rounded-2xl border border-dashed border-slate-200">لا توجد أصناف تطابق هذا البحث أو الفلتر.</div>`;
             return;
@@ -512,6 +523,24 @@
 
                 </div>
 
+                <!-- تحديد قسم ومسار الصنف (يسمح بإضافة أي صنف مستقل مثل سمان شوي أو علف أو منتجات أخرى) -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-purple-50/60 p-2.5 rounded-xl border border-purple-200/80">
+                    <div>
+                        <label class="text-[10px] font-black text-purple-900 block mb-1">🧭 قسم ومسار الصنف في المتجر:</label>
+                        <select onchange="storeProducts['${id}'].categoryType = this.value; if(this.value === 'custom') { storeProducts['${id}'].isExtra = true; } renderInventoryUI(); if(window.generateDynamicOrderInputs) generateDynamicOrderInputs();" class="w-full border border-purple-200 bg-white rounded-xl p-2 text-xs font-black text-slate-800 outline-none">
+                            <option value="auto" ${(!p.categoryType || p.categoryType === 'auto') ? 'selected' : ''}>🤖 تلقائي (الوضع الافتراضي)</option>
+                            <option value="quail" ${p.categoryType === 'quail' ? 'selected' : ''}>🥩 سمان مذبوح بالجوز (مرتبط بدفعة الذبح)</option>
+                            <option value="eggs_chicks" ${p.categoryType === 'eggs_chicks' ? 'selected' : ''}>🥚 بيض وكتاكيت</option>
+                            <option value="weight" ${p.categoryType === 'weight' ? 'selected' : ''}>⚖️ طيور بالوزن</option>
+                            <option value="custom" ${p.categoryType === 'custom' ? 'selected' : ''}>✨ صنف مستقل (قسم خاص — لا يتأثر بالدفعات)</option>
+                        </select>
+                    </div>
+                    <div class="${p.categoryType === 'custom' ? '' : 'hidden'}">
+                        <label class="text-[10px] font-black text-purple-900 block mb-1">🏷️ اسم القسم الذي سيظهر للعميل في المتجر:</label>
+                        <input type="text" value="${p.customGroupTitle || ''}" onchange="storeProducts['${id}'].customGroupTitle = this.value.trim();" placeholder="مثال: 🔥 سمان شوي ومتبل أو 🌾 أعلاف..." class="w-full border border-purple-200 bg-white rounded-xl p-2 text-xs font-bold text-slate-800 outline-none">
+                    </div>
+                </div>
+
                 <!-- مفاتيح التحكم في شبكة متناسقة بدون انكسار -->
                 <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-[11px] font-black">
                     <label class="flex items-center gap-1.5 cursor-pointer text-amber-900 bg-amber-50 px-2 py-1.5 rounded-lg border border-amber-200">
@@ -574,8 +603,16 @@
                 icon: 'fa-scale-balanced text-indigo-600',
                 headerCls: 'bg-indigo-50/90 text-indigo-900 border-indigo-200',
                 items: groups.weight
+            },
+            {
+                key: 'custom',
+                title: 'أصناف مستقلة ومنتجات خاصة (لا تتأثر بالدفعات)',
+                icon: 'fa-sparkles text-purple-600',
+                headerCls: 'bg-purple-50/90 text-purple-900 border-purple-200',
+                items: groups.custom
             }
         ];
+
 
         let groupsHtml = '';
         sectionsMeta.forEach(sec => {
