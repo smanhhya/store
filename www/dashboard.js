@@ -2073,7 +2073,7 @@
                     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-white/10">
                         <div>
                             <h4 class="text-sm font-black text-amber-300 flex items-center gap-2">
-                                <i class="fa-solid fa-Folder-tree"></i> الجرد السنوي وتصفير الحسابات لبداية جديدة (حفظ القديم في بند مستقل)
+                                <i class="fa-solid fa-folder-tree"></i> الجرد السنوي وتصفير الحسابات لبداية جديدة (حفظ القديم في بند مستقل)
                             </h4>
                             <p class="text-[11px] text-slate-300 font-bold mt-0.5">يصفر لك الخزنة والمبيعات والمصاريف الحالية إلى (0 ج) لتبدأ من الصفر وتحسب عمالتك ومصاريفك على نظافة، مع حفظ كل الحسابات السابقة في أرشيف (مثل: جرد سنة 2026).</p>
                         </div>
@@ -2821,26 +2821,21 @@
         // صافي الربح الحقيقي = صافي مبيعات المنتجات ناقص (المصاريف + الديون عليا + الهالك) بدون تكرار
         const trueNetProfit = shownTotalRev - totalPeriodExpensesAndDebts - periodWasteCost;
 
-        // 7. تحديث كبسولات الخزنة والديون الـ 5 العلوية (مع التغطية التلقائية بين الكاش والأونلاين)
+        // 7. تحديث كبسولات الخزنة والديون الـ 5 العلوية (فصل تام للرصيد التراكمي الحقيقي للدرج والمحفظة بدون استلاف وهمي)
         let streetCashNow = 0;
         activeFiscalOrdersList.forEach(o => {
-            if (o && o.status === 'dispatched' && o.paymentMethod !== 'online') {
-                streetCashNow += window.getAccurateOrderFinancials(o).total;
+            if (o && o.status === 'dispatched') {
+                const fin = window.getAccurateOrderFinancials(o);
+                if (fin.cashTotal > 0) streetCashNow += fin.cashTotal;
             }
         });
         const totalMarketDebtNow = custArr.reduce((s, c) => s + (Number(c.debt) || 0), 0);
 
-        // إذا سُحب مصروف أكبر من الكاش المتاح في الفترة، يتم تغطية العجز تلقائياً من الأونلاين
-        let rawNetCash = cashCompletedRev - periodExpensesCash;
-        let rawNetOnline = onlineCompletedRev - periodExpensesOnline;
-        if (rawNetCash < 0 && rawNetOnline > 0) {
-            const coverFromOnline = Math.min(rawNetOnline, Math.abs(rawNetCash));
-            rawNetCash += coverFromOnline;
-            rawNetOnline -= coverFromOnline;
-        }
+        // قراءة الرصيد التراكمي الحقيقي للدرج والمحفظة منذ آخر جرد سنوي بشكل منفصل تماماً
+        const liveSafes = window.getLiveAvailableSafeBalances();
 
-        setElHtml('sm-safe-net-cash', `${rawNetCash.toLocaleString()} ج`);
-        setElHtml('sm-safe-net-online', `${rawNetOnline.toLocaleString()} ج`);
+        setElHtml('sm-safe-net-cash', `${liveSafes.netCash.toLocaleString()} ج`);
+        setElHtml('sm-safe-net-online', `${liveSafes.netOnline.toLocaleString()} ج`);
         setElHtml('sm-safe-owner-debt', `${totalOwnerPayableDebtNow.toLocaleString()} ج`);
         setElHtml('sm-safe-street-cash', `${streetCashNow.toLocaleString()} ج`);
         setElHtml('sm-safe-market-debt', `${totalMarketDebtNow.toLocaleString()} ج`);
