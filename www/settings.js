@@ -886,9 +886,11 @@
         if (document.getElementById('wb-show-driver-note')) document.getElementById('wb-show-driver-note').checked = wbCfg.showDriverNote !== false;
 
         if (typeof window.renderGalleryStudioUI === 'function') window.renderGalleryStudioUI();
+        if (typeof window.renderPromoCodesStudioUI === 'function') window.renderPromoCodesStudioUI();
         initInteractiveTemplateVariables();
         if (typeof window.syncWaybillSettingsUI === 'function') window.syncWaybillSettingsUI();
     };
+
 
 
     window.addNewZoneUI = function () {
@@ -1851,6 +1853,240 @@
         storeSettings.galleryImages.push(url.trim());
         window.renderGalleryStudioUI();
         await window.saveAllSettings(true);
+    };
+
+    // =========================================================================
+    // 🎟️ 10. لوحة إدارة الكوبونات وأكواد الخصم (مربوطة مباشرة مع متجر العملاء)
+    // =========================================================================
+    window.renderPromoCodesStudioUI = function () {
+        const storePanel = document.getElementById('st-panel-store');
+        if (!storePanel) return;
+
+        let card = document.getElementById('st-promo-codes-studio-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'st-promo-codes-studio-card';
+            card.className = 'bg-white rounded-2xl p-4 sm:p-5 border-2 border-amber-200/80 shadow-soft space-y-4';
+            storePanel.appendChild(card);
+        }
+
+        const showPromoField = storeSettings.showPromoField !== false;
+        const promos = Array.isArray(storeSettings.promoCodes) ? storeSettings.promoCodes : [];
+        const todayStart = new Date(new Date().toDateString()).getTime();
+
+        const listHtml = promos.length === 0
+            ? `<div class="text-center py-6 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-xl">لا توجد أكواد خصم مسجلة حالياً — اضغط (+ كوبون جديد) لإنشاء أول كود.</div>`
+            : promos.map((p, idx) => {
+                if (!p) return '';
+                const codeStr = String(p.code || '').toUpperCase();
+                const isExpired = Boolean(p.expiryDate && new Date(p.expiryDate).getTime() < todayStart);
+                const isPaused = Boolean(p.isPaused);
+                const isExhausted = !isPaused && p.usesLeft !== null && p.usesLeft !== undefined && Number(p.usesLeft) <= 0;
+
+                let statusBadge = '<span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md text-[10px] font-black">🟢 شغال</span>';
+                if (isPaused) statusBadge = '<span class="bg-amber-100 text-amber-900 px-2 py-0.5 rounded-md text-[10px] font-black">⏸️ متوقف</span>';
+                else if (isExpired) statusBadge = '<span class="bg-rose-100 text-rose-700 px-2 py-0.5 rounded-md text-[10px] font-black">🔴 منتهي الصلاحية</span>';
+                else if (isExhausted) statusBadge = '<span class="bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md text-[10px] font-black">🔒 مستهلك بالكامل</span>';
+
+                let valueLabel = `خصم ${Number(p.discount) || 0} ج.م`;
+                if (p.type === 'free_delivery') valueLabel = '🚚 توصيل مجاني';
+                else if (p.type === 'percent') valueLabel = `خصم ${Number(p.discount) || 0}%`;
+
+                const usesText = (p.usesLeft === null || p.usesLeft === undefined)
+                    ? 'غير محدود'
+                    : (isPaused ? `متوقف (كان متبقي: ${p.pausedUsesLeft === null || p.pausedUsesLeft === undefined ? 'غير محدود' : p.pausedUsesLeft})` : `متبقي: ${p.usesLeft}`);
+
+                return `
+                <div class="bg-slate-50/90 border ${isPaused || isExpired || isExhausted ? 'border-slate-200 opacity-80' : 'border-amber-200'} rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2.5">
+                    <div class="space-y-1 min-w-0 flex-1">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <span class="bg-slate-900 text-amber-300 px-2.5 py-0.5 rounded-lg text-xs font-black tracking-wider" dir="ltr">${escSettingsHtml(codeStr)}</span>
+                            <span class="bg-white border border-amber-200 text-amber-900 px-2 py-0.5 rounded-md text-[10px] font-black">${valueLabel}</span>
+                            ${statusBadge}
+                            ${p.isAuto ? '<span class="bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded-md text-[9px] font-black">VIP تلقائي</span>' : ''}
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2 text-[10px] font-bold text-slate-500">
+                            <span>🔢 الاستخدام: <strong class="text-slate-700">${usesText}</strong></span>
+                            ${Number(p.minOrder) > 0 ? `<span>• 🛒 حد أدنى: <strong class="text-slate-700">${p.minOrder} ج</strong></span>` : ''}
+                            ${p.expiryDate ? `<span>• 📅 ينتهي: <strong class="text-slate-700" dir="ltr">${escSettingsHtml(p.expiryDate)}</strong></span>` : ''}
+                            ${p.customerPhone ? `<span>• 📱 لرقم: <strong class="text-indigo-700" dir="ltr">${escSettingsHtml(p.customerPhone)}</strong></span>` : ''}
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <button type="button" onclick="copyPromoCodeQuick('${escSettingsHtml(codeStr)}')" title="نسخ الكود" class="w-8 h-8 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-800 hover:text-white flex items-center justify-center text-xs transition-colors">
+                            <i class="fa-regular fa-copy"></i>
+                        </button>
+                        <button type="button" onclick="togglePromoCodePause(${idx})" class="px-2.5 h-8 rounded-xl text-[10px] font-black border transition-colors ${isPaused ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-500 hover:text-white'}">
+                            ${isPaused ? '▶️ تشغيل' : '⏸️ إيقاف'}
+                        </button>
+                        <button type="button" onclick="deletePromoCodeItem(${idx})" title="حذف الكود" class="w-8 h-8 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-600 hover:text-white flex items-center justify-center text-xs transition-colors">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
+                </div>`;
+            }).join('');
+
+        card.innerHTML = `
+            <div class="flex flex-wrap justify-between items-center gap-2 pb-2.5 border-b border-amber-100">
+                <div>
+                    <h4 class="font-black text-amber-950 text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-ticket text-amber-500"></i> إدارة الكوبونات وأكواد الخصم
+                    </h4>
+                    <p class="text-[10px] font-bold text-slate-500 mt-0.5">أنشئ أكواد خصم (مبلغ ثابت أو نسبة أو توصيل مجاني) وتتحكم في إيقافها فوراً.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <label class="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black text-slate-700 cursor-pointer">
+                        <input type="checkbox" ${showPromoField ? 'checked' : ''} onchange="toggleStorePromoFieldVisibility(this.checked)" class="w-3.5 h-3.5 accent-amber-500 rounded">
+                        <span>إظهار بالمتجر</span>
+                    </label>
+                    <button type="button" onclick="toggleNewPromoFormBox()" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-1.5 rounded-xl text-xs font-black shadow-sm flex items-center gap-1 active:scale-95">
+                        <i class="fa-solid fa-plus"></i> كوبون جديد
+                    </button>
+                </div>
+            </div>
+
+            <!-- نموذج إنشاء كوبون جديد -->
+            <div id="st-new-promo-form-box" class="hidden bg-amber-50/60 border border-amber-200 rounded-2xl p-3 space-y-2.5">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div>
+                        <label class="text-[10px] font-black text-slate-600 block mb-1">كود الخصم *</label>
+                        <div class="flex gap-1">
+                            <input type="text" id="np-code" dir="ltr" placeholder="مثال: SMAN20" class="flex-1 min-w-0 border border-amber-300 rounded-xl px-2.5 py-2 text-xs font-black uppercase bg-white outline-none text-left">
+                            <button type="button" onclick="document.getElementById('np-code').value='SMAN'+Math.floor(10+Math.random()*90)" title="توليد كود عشوائي" class="w-9 h-9 rounded-xl bg-white border border-amber-300 text-amber-700 hover:bg-amber-500 hover:text-white flex items-center justify-center shrink-0"><i class="fa-solid fa-dice text-xs"></i></button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-slate-600 block mb-1">نوع الخصم</label>
+                        <select id="np-type" onchange="document.getElementById('np-val-wrap').classList.toggle('opacity-40', this.value==='free_delivery'); document.getElementById('np-value').disabled=(this.value==='free_delivery');" class="w-full border border-amber-300 rounded-xl p-2 text-xs font-black bg-white outline-none">
+                            <option value="fixed">💵 مبلغ ثابت (ج.م)</option>
+                            <option value="percent">📊 نسبة مئوية (%)</option>
+                            <option value="free_delivery">🚚 توصيل مجاني</option>
+                        </select>
+                    </div>
+                    <div id="np-val-wrap">
+                        <label class="text-[10px] font-black text-slate-600 block mb-1">قيمة الخصم</label>
+                        <input type="number" id="np-value" min="0" placeholder="مثال: 20" class="w-full border border-amber-300 rounded-xl p-2 text-xs font-black bg-white text-center outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 block mb-1">حد أدنى للطلب (ج)</label>
+                        <input type="number" id="np-min-order" min="0" placeholder="0 (بدون)" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-white text-center outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 block mb-1">عدد الاستخدامات</label>
+                        <input type="number" id="np-uses" min="1" placeholder="فارغ = مفتوح" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-white text-center outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 block mb-1">تاريخ الانتهاء</label>
+                        <input type="date" id="np-expiry" class="w-full border border-slate-200 rounded-xl p-2 text-[11px] font-bold bg-white outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 block mb-1">لرقم عميل محدد</label>
+                        <input type="tel" id="np-phone" dir="ltr" placeholder="اختياري" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-white text-left outline-none">
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-2 pt-1">
+                    <button type="button" onclick="toggleNewPromoFormBox()" class="px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-600 text-xs font-black">إلغاء</button>
+                    <button type="button" onclick="saveNewPromoCodeFromUI()" class="px-4 py-1.5 rounded-xl bg-slate-900 hover:bg-emerald-700 text-white text-xs font-black shadow-sm flex items-center gap-1.5 active:scale-95">
+                        <i class="fa-solid fa-check text-amber-400"></i> حفظ وتفعيل الكوبون
+                    </button>
+                </div>
+            </div>
+
+            <div class="space-y-2">${listHtml}</div>
+        `;
+    };
+
+    window.toggleNewPromoFormBox = function () {
+        const box = document.getElementById('st-new-promo-form-box');
+        if (box) box.classList.toggle('hidden');
+    };
+
+    window.toggleStorePromoFieldVisibility = async function (checked) {
+        storeSettings.showPromoField = Boolean(checked);
+        await window.saveAllSettings(true);
+        if (typeof window.showToast === 'function') {
+            window.showToast(checked ? '✅ تم إظهار خانة كود الخصم في المتجر' : '🚫 تم إخفاء خانة كود الخصم من المتجر');
+        }
+    };
+
+    window.saveNewPromoCodeFromUI = async function () {
+        const code = String(document.getElementById('np-code')?.value || '').trim().toUpperCase();
+        const type = document.getElementById('np-type')?.value || 'fixed';
+        const val = parseFloat(document.getElementById('np-value')?.value) || 0;
+        const minOrder = parseFloat(document.getElementById('np-min-order')?.value) || 0;
+        const usesRaw = String(document.getElementById('np-uses')?.value || '').trim();
+        const usesLeft = usesRaw === '' ? null : Math.max(1, parseInt(usesRaw, 10) || 1);
+        const expiryDate = String(document.getElementById('np-expiry')?.value || '').trim();
+        const customerPhone = String(document.getElementById('np-phone')?.value || '').trim();
+
+        if (!code || code.length < 2) return alert('يرجى كتابة كود الخصم (حرفين على الأقل).');
+        if (type !== 'free_delivery' && val <= 0) return alert('يرجى إدخال قيمة خصم صحيحة أكبر من صفر.');
+
+        if (!Array.isArray(storeSettings.promoCodes)) storeSettings.promoCodes = [];
+        const exists = storeSettings.promoCodes.some(p => p && String(p.code || '').toUpperCase() === code);
+        if (exists) return alert('هذا الكود موجود بالفعل! اختر اسماً آخر أو احذف القديم.');
+
+        storeSettings.promoCodes.unshift({
+            code,
+            type,
+            discount: type === 'free_delivery' ? 0 : val,
+            minOrder,
+            usesLeft,
+            expiryDate,
+            customerPhone,
+            isPaused: false,
+            isAuto: false
+        });
+
+        window.renderPromoCodesStudioUI();
+        await window.saveAllSettings(true);
+        if (typeof window.showToast === 'function') {
+            window.showToast(`🎟️ تم إنشاء وتفعيل الكوبون (${code}) بنجاح!`);
+        }
+    };
+
+    window.togglePromoCodePause = async function (idx) {
+        if (!Array.isArray(storeSettings.promoCodes) || !storeSettings.promoCodes[idx]) return;
+        const p = storeSettings.promoCodes[idx];
+        if (!p.isPaused) {
+            p.pausedUsesLeft = p.usesLeft !== undefined ? p.usesLeft : null;
+            p.usesLeft = 0;
+            p.isPaused = true;
+        } else {
+            p.usesLeft = p.pausedUsesLeft !== undefined ? p.pausedUsesLeft : null;
+            delete p.pausedUsesLeft;
+            p.isPaused = false;
+        }
+        window.renderPromoCodesStudioUI();
+        await window.saveAllSettings(true);
+        if (typeof window.showToast === 'function') {
+            window.showToast(p.isPaused ? `⏸️ تم إيقاف الكوبون (${p.code}) مؤقتاً` : `▶️ تم إعادة تشغيل الكوبون (${p.code})`);
+        }
+    };
+
+    window.deletePromoCodeItem = async function (idx) {
+        if (!Array.isArray(storeSettings.promoCodes) || !storeSettings.promoCodes[idx]) return;
+        const code = storeSettings.promoCodes[idx].code || '';
+        const ok = (typeof window.execConfirm === 'function')
+            ? await window.execConfirm(`هل تريد حذف كود الخصم (${code}) نهائياً؟`, { title: 'حذف كوبون', tone: 'danger', confirmText: 'نعم، احذف' })
+            : confirm(`هل تريد حذف كود الخصم (${code}) نهائياً؟`);
+        if (!ok) return;
+
+        storeSettings.promoCodes.splice(idx, 1);
+        window.renderPromoCodesStudioUI();
+        await window.saveAllSettings(true);
+        if (typeof window.showToast === 'function') {
+            window.showToast(`🗑️ تم حذف الكوبون (${code})`);
+        }
+    };
+
+    window.copyPromoCodeQuick = function (code) {
+        if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => {});
+        if (typeof window.showToast === 'function') window.showToast(`📋 تم نسخ الكود: ${code}`);
     };
 
 
