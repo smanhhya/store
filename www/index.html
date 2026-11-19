@@ -232,61 +232,24 @@
                 </div>
                 <!-- نهاية كشاف الطوارئ -->
 
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 lg:gap-6">
-                    <div class="bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft flex flex-col justify-between hover:shadow-card transition-shadow">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="w-10 h-10 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center text-lg"><i class="fa-solid fa-check-double"></i></div>
-                        </div>
-                        <div><p class="text-xs font-bold text-slate-400 mb-1">تم تسليمه اليوم</p><h3 id="dash-completed-today" class="text-3xl font-black text-slate-800">0</h3></div>
+                <!-- هيكل تحميل ناعم يظهر لجزء من الثانية حتى يكتمل بناء لوحة القيادة الذكية بدون وميض -->
+                <div id="dash-initial-skeleton" class="space-y-4">
+                    <div class="h-16 w-full rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                        <div class="h-16 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
+                        <div class="h-16 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
+                        <div class="h-16 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
+                        <div class="h-16 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
+                        <div class="col-span-2 sm:col-span-1 h-16 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
                     </div>
-                    
-                    <div class="bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft flex flex-col justify-between hover:shadow-card transition-shadow relative overflow-hidden">
-                        <div class="absolute -right-4 -top-4 w-24 h-24 bg-emerald-50 rounded-full opacity-50 pointer-events-none"></div>
-                        <div class="flex justify-between items-start mb-4 relative z-10">
-                            <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-lg"><i class="fa-solid fa-sack-dollar"></i></div>
-                        </div>
-                        <div class="relative z-10"><p class="text-xs font-bold text-slate-500 mb-1">إجمالي المنتجات (بدون توصيل)</p><h3 id="dash-products-today" class="text-3xl font-black text-brand-primary">0 <span class="text-sm text-slate-400">ج</span></h3></div>
-                    </div>
-
-                    <div class="bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft flex flex-col justify-between hover:shadow-card transition-shadow relative overflow-hidden">
-                        <div class="absolute -right-4 -top-4 w-24 h-24 bg-indigo-50 rounded-full opacity-50 pointer-events-none"></div>
-                        <div class="flex justify-between items-start mb-4 relative z-10">
-                            <div class="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-lg"><i class="fa-solid fa-motorcycle"></i></div>
-                        </div>
-                        <div class="relative z-10"><p class="text-xs font-bold text-slate-500 mb-1">إيرادات التوصيل (اليوم)</p><h3 id="dash-delivery-today" class="text-3xl font-black text-indigo-600">0 <span class="text-sm text-slate-400">ج</span></h3></div>
-                    </div>
-
-                    <div class="bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft flex flex-col justify-between hover:shadow-card transition-all relative overflow-hidden">
-                        <div class="absolute -right-4 -top-4 w-24 h-24 bg-amber-50 rounded-full opacity-50 pointer-events-none"></div>
-                        <div class="flex justify-between items-start mb-4 relative z-10">
-                            <div class="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-lg"><i class="fa-solid fa-wallet"></i></div>
-                            <span class="text-[10px] bg-slate-50 text-slate-400 px-2 py-1 rounded-lg font-bold border border-slate-100">الصافي الكلي للدرج</span>
-                        </div>
-                        <div class="relative z-10"><p class="text-xs font-bold text-slate-500 mb-1">إجمالي تحصيل اليوم</p><h3 id="dash-total-today" class="text-3xl font-black text-amber-600">0 <span class="text-sm text-slate-400">ج</span></h3></div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        <div class="h-28 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
+                        <div class="h-28 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
+                        <div class="h-28 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
+                        <div class="h-28 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
                     </div>
                 </div>
-                
-                <div class="w-full bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft mt-2">
-                    <h4 class="text-sm font-black text-slate-800 mb-4 pb-2 border-b border-slate-50"><i class="fa-solid fa-boxes-packing text-brand-primary mr-2"></i> إجمالي المنتجات المسلمة اليوم</h4>
-                    <div id="dash-items-today" class="grid grid-cols-2 md:grid-cols-6 gap-3"></div>
-                </div>
 
-                <div class="w-full bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft mt-2 mb-6">
-                    <h4 class="text-sm font-black text-slate-800 mb-4 pb-2 border-b border-slate-50"><i class="fa-solid fa-list-check text-indigo-500 mr-2"></i> سجل تسليمات اليوم التفصيلي (من استلم اليوم؟)</h4>
-                    <div class="overflow-x-auto custom-scroll">
-                        <table class="w-full text-right text-sm whitespace-nowrap">
-                            <thead class="bg-slate-50 text-slate-500">
-                                <tr>
-                                    <th class="py-3 px-4 font-black rounded-r-xl">العميل</th>
-                                    <th class="py-3 px-4 font-black text-center">المنتجات التي استلمها</th>
-                                    <th class="py-3 px-4 font-black text-center">تاريخ الطلب الأصلي</th>
-                                    <th class="py-3 px-4 font-black text-center rounded-l-xl">المدفوع</th>
-                                </tr>
-                            </thead>
-                            <tbody id="dash-today-orders-tbody" class="divide-y divide-slate-50"></tbody>
-                        </table>
-                    </div>
-                </div>
             </div>
 
             <!-- شاشة مركز الملاحظات الذكي (إضافة جديدة فقط) -->
@@ -8865,7 +8828,7 @@ window.deleteProductUI = async (id) => {
             if (debtTotalEl) debtTotalEl.innerText = totalMarketDebt.toLocaleString();
         };
         // ========================================================
-        // 🔗 دوال الربط اليدوي للطلبات المكتملة بالأرشيف 🔗
+        // ?? دوال الربط اليدوي للطلبات المكتملة بالأرشيف 🔗
         // ========================================================
         window.openLinkArchiveModal = (orderId) => {
             if (archivedBatchesData.length === 0) {
