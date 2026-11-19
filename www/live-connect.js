@@ -57,6 +57,19 @@
                 }
             }
 
+            /* منع ارتداد المتصفح التلقائي (Scroll Anchoring) المسبب للرعشة أثناء السحب */
+            main > div.flex-1.overflow-y-auto.custom-scroll {
+                overflow-anchor: none !important;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior-y: contain;
+            }
+
+            /* تثبيت الكروت بدون اهتزاز التكبير والتصغير عند اللمس على الموبايل */
+            .order-card {
+                transform: none !important;
+                contain: layout style;
+            }
+
             /* إخفاء الهيدر العلوي عند النزول لأسفل ويظهر فوراً مع أول حركة لأعلى */
             body.lc-bars-hidden-on-scroll header {
                 height: 0px !important;
@@ -66,6 +79,7 @@
                 border-bottom-width: 0px !important;
                 pointer-events: none !important;
             }
+
 
             /* 🔥 الإصلاح الجذري: إلغاء قفل الارتفاع (h-full) عن شاشة الطلبات لتظل تبويبات (جديد ومكتمل) ثابتة لآخر طلب في الصفحة */
             #view-orders.page-view.active {
@@ -1441,37 +1455,83 @@
     };
 
     // =========================================================================
-    // 🌪️ 8. نظام التمرير الذكي: تبويبات (جديد ومكتمل) ثابتة دائماً، وأول ما تطلع سنة ينزل البحث
+    // 🌪️ 8. نظام التمرير المستقر المضاد للاهتزاز (Zero-Jitter Hysteresis Scroll)
     // =========================================================================
     window.initZeroClutterOrdersScroll = function () {
         const mainScroll = document.querySelector('main > div.flex-1.overflow-y-auto.custom-scroll');
         if (mainScroll && !mainScroll.hasAttribute('data-lc-scroll-bound')) {
             mainScroll.setAttribute('data-lc-scroll-bound', '1');
-            mainScroll.addEventListener('scroll', () => {
-                const st = mainScroll.scrollTop;
-                const lastSt = (window.liveConnectState && typeof window.liveConnectState.lastScrollTop === 'number')
-                    ? window.liveConnectState.lastScrollTop
-                    : 0;
+
+            let lastScrollY = mainScroll.scrollTop || 0;
+            let accDelta = 0;
+            let lockUntilMs = 0;
+            let rafPending = false;
+
+            const processScrollFrame = () => {
+                rafPending = false;
+                const nowMs = Date.now();
+                const st = Math.max(0, mainScroll.scrollTop);
+                const maxScroll = Math.max(0, mainScroll.scrollHeight - mainScroll.clientHeight);
+                const delta = st - lastScrollY;
+                lastScrollY = st;
+
+                // أثناء قفل الحركة (400ms) نتجاهل ارتدادات تغيير الارتفاع تماماً لمنع أي رعشة
+                if (nowMs < lockUntilMs) {
+                    accDelta = 0;
+                    return;
+                }
+
+                // إذا كانت القائمة قصيرة ولا يوجد محتوى كافٍ للتمرير، نُبقي كل شيء ظاهراً وثابتاً
+                if (maxScroll < 180) {
+                    if (document.body.classList.contains('lc-bars-hidden-on-scroll')) {
+                        document.body.classList.remove('lc-bars-hidden-on-scroll');
+                        lockUntilMs = nowMs + 400;
+                    }
+                    accDelta = 0;
+                    return;
+                }
 
                 const activeEl = document.activeElement;
                 const activeTag = activeEl ? activeEl.tagName : '';
                 const isSearchFocused = activeEl && activeEl.id === 'search-order';
 
                 if (!isSearchFocused && activeTag !== 'SELECT' && activeTag !== 'TEXTAREA') {
-                    // عند النزول لأسفل: يختفي مربع البحث والهيدر، وتبقى تبويبات (جديد ومكتمل) وحدها ثابتة في الأعلى!
-                    if (st > 75 && st > lastSt + 14) {
-                        document.body.classList.add('lc-bars-hidden-on-scroll');
+                    // تجميع مسافة السحب في نفس الاتجاه وتصفيرها عند عكس الاتجاه
+                    if ((delta > 0 && accDelta < 0) || (delta < 0 && accDelta > 0)) {
+                        accDelta = delta;
+                    } else {
+                        accDelta += delta;
                     }
-                    // أول ما تطلع سنة صغيرة لفوق (8px فقط): ينزل مربع البحث والهيدر فوراً بدون الرجوع لأول الصفحة!
-                    else if (st < 35 || st < lastSt - 8) {
+
+                    const isHidden = document.body.classList.contains('lc-bars-hidden-on-scroll');
+                    const isNearBottom = st >= (maxScroll - 75);
+
+                    // إظهار فوري عند الوصول لأعلى الصفحة
+                    if (st <= 20) {
+                        if (isHidden) {
+                            document.body.classList.remove('lc-bars-hidden-on-scroll');
+                            lockUntilMs = nowMs + 400;
+                        }
+                        accDelta = 0;
+                    }
+                    // عند النزول المتعمد بمقدار 45px (وليس عند ارتداد آخر الصفحة): نطوي الهيدر والبحث وتبقى التبويبات فقط
+                    else if (!isHidden && st > 90 && !isNearBottom && accDelta >= 45) {
+                        document.body.classList.add('lc-bars-hidden-on-scroll');
+                        lockUntilMs = nowMs + 400;
+                        accDelta = 0;
+                    }
+                    // عند الصعود المتعمد بمقدار 35px (وليس بسبب ارتداد أسفل الصفحة): يظهر البحث والهيدر بنعومة
+                    else if (isHidden && !isNearBottom && accDelta <= -35) {
                         document.body.classList.remove('lc-bars-hidden-on-scroll');
+                        lockUntilMs = nowMs + 400;
+                        accDelta = 0;
                     }
                 }
 
                 const ordersView = document.getElementById('view-orders');
                 if (ordersView && ordersView.classList.contains('active')) {
                     const drawer = document.getElementById('so-advanced-filters-drawer');
-                    if (activeTag !== 'SELECT' && drawer && !drawer.classList.contains('hidden') && st > lastSt + 85) {
+                    if (activeTag !== 'SELECT' && drawer && !drawer.classList.contains('hidden') && accDelta > 80) {
                         drawer.classList.add('hidden');
                         if (window.ordersFilterState) {
                             window.ordersFilterState.filtersExpanded = false;
@@ -1481,7 +1541,14 @@
                 }
 
                 if (window.liveConnectState) {
-                    window.liveConnectState.lastScrollTop = Math.max(0, st);
+                    window.liveConnectState.lastScrollTop = st;
+                }
+            };
+
+            mainScroll.addEventListener('scroll', () => {
+                if (!rafPending) {
+                    rafPending = true;
+                    requestAnimationFrame(processScrollFrame);
                 }
             }, { passive: true });
         }
