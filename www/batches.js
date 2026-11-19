@@ -1,6 +1,6 @@
 // =========================================================================
 // 🐣 مركز القيادة الشامل للدفعات، الذبح، التوزيع الذكي، والترحيل (www/batches.js)
-// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM) - النسخة المدمجة فائقة السرعة
+// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM) - النسخة التنفيذية (Focus Workspace)
 // =========================================================================
 
 (function () {
@@ -11,15 +11,19 @@
         statusFilter: 'all_valid'
     };
 
-    // 2. حالة واجهة الدفعات (شريط التبديل السريع، الطي، وإخفاء الأصناف الصفرية لمنع التوهان)
+    // 2. حالة واجهة مركز الدفعات (التركيز على دفعة واحدة + 3 تبويبات داخلية + وضع مقارنة الكل)
     window.batchUIState = {
-        selectedFilter: 'all',      // 'all' | 'open_only' | 'slaughtered' | 'batch:BATCH_ID'
-        collapsedCards: {},         // { [bId]: true/false }
-        expandedZonesDrawer: {},    // { [bId]: true/false }
+        viewMode: 'focus',          // 'focus' (التركيز على دفعة واحدة) | 'compare_all' (مقارنة سريعة لكل الدفعات)
+        focusedBatchId: null,       // معرف الدفعة المفتوحة حالياً
+        activeInnerTab: 'stock',    // 'stock' | 'orders_zones' | 'lifecycle'
         showZeroProducts: {}        // { [bId]: true/false }
     };
 
-    // دالة مساعدة لتصنيف الصنف (سمان لحم أساسي مقابل إضافات كالبيض والكتاكيت)
+    function escapeJsAttr(str) {
+        return String(str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+
+    // تصنيف الصنف (سمان لحم أساسي مقابل إضافات كالبيض والكتاكيت)
     function isMainQuailProduct(pId) {
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
         const p = prodsObj[pId];
@@ -32,14 +36,31 @@
         return true;
     }
 
-    // جلب السعر الفعلي للصنف
+    // ترتيب الأصناف بنفس الترتيب الموحد في النظام (سوبر -> جامبو -> سبشيال -> سوبر سبشيال -> بيض وكتاكيت -> وزن)
+    function getBatchProductRank(pId, p) {
+        if (typeof window.getOrderProductCategoryAndRank === 'function') {
+            const meta = window.getOrderProductCategoryAndRank(pId, p);
+            const groupOffset = meta.group === 'quail' ? 0 : (meta.group === 'eggs_chicks' ? 100 : 200);
+            return groupOffset + meta.rank;
+        }
+        const safeId = String(pId || '').toLowerCase();
+        const safeName = String(p?.name || '').toLowerCase();
+        if (p && p.isWeightBased) return 250;
+        if (safeId === 'eggs' || safeName.includes('بيض')) return 110;
+        if (safeId === 'chicks' || safeName.includes('كتكوت') || safeName.includes('كتاكيت')) return 120;
+        if (safeId === 'super' || (safeName.includes('سوبر') && !safeName.includes('سبشيال') && !safeName.includes('اسبيشيال'))) return 10;
+        if (safeId === 'jumbo' || safeName.includes('جامبو')) return 20;
+        if (safeId === 'special' || ((safeName.includes('سبشيال') || safeName.includes('اسبيشيال')) && !safeName.includes('سوبر'))) return 30;
+        if (safeId === 'superspecial' || (safeName.includes('سوبر') && (safeName.includes('سبشيال') || safeName.includes('اسبيشيال')))) return 40;
+        return 50;
+    }
+
     function getProdPrice(pId) {
         const pricesObj = (typeof storePrices !== 'undefined' && storePrices) ? storePrices : {};
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
         return Number(pricesObj[pId] || (prodsObj[pId] ? prodsObj[pId].basePrice : 0)) || 0;
     }
 
-    // حساب صافي قيمة المنتجات للطلب (بدون التوصيل) ليتطابق مع لوحة القيادة
     function getOrderNetProductsTotal(o) {
         if (!o) return 0;
         if (typeof window.getAccurateOrderFinancials === 'function') {
@@ -51,7 +72,6 @@
         return Math.max(0, Math.round(sub - disc));
     }
 
-    // التحقق من انتماء الطلب للدفعة (بالكود أو بالاسم معاً لضمان دقة 100%)
     function doesOrderBelongToBatch(o, bId, bName) {
         if (!o || o.status === 'trash') return false;
         if (o.batchId && o.batchId === bId) return true;
@@ -61,6 +81,20 @@
             if (typeof window.resolveOrderBatchName === 'function' && window.resolveOrderBatchName(o) === cleanBName) return true;
         }
         return false;
+    }
+
+    async function askConfirmSafe(msg, opts) {
+        if (typeof window.execConfirm === 'function') {
+            return await window.execConfirm(msg, opts || {});
+        }
+        return confirm(msg);
+    }
+
+    async function askPromptSafe(msg, defVal, opts) {
+        if (typeof window.execPrompt === 'function') {
+            return await window.execPrompt(msg, defVal, opts || {});
+        }
+        return prompt(msg, defVal);
     }
 
     // =========================================================================
@@ -81,10 +115,10 @@
         const realCompletedByProd = {};
         const realBookedByName = {};
 
-        let totalRevenue = 0;         // الإجمالي شامل التوصيل
-        let netProductsRevenue = 0;   // صافي المنتجات بدون التوصيل
-        let collectedNetRevenue = 0;  // المحصل الصافي (المكتمل بدون توصيل)
-        let pendingNetRevenue = 0;    // الحي المنتظر (بدون توصيل)
+        let totalRevenue = 0;
+        let netProductsRevenue = 0;
+        let collectedNetRevenue = 0;
+        let pendingNetRevenue = 0;
         let collectedGrossRevenue = 0;
         let pendingGrossRevenue = 0;
         let totalDiscounts = 0;
@@ -173,9 +207,8 @@
         };
     };
 
-    // حساب المرحلة البيولوجية والرسالة التلقائية للدفعة
     function getBatchBioStatus(b) {
-        if (!b) return { ageDays: null, targetAge: 40, remainingDays: null, stageLabel: 'غير محدد', stageColor: 'bg-slate-100 text-slate-600', autoMsg: '' };
+        if (!b) return { ageDays: null, targetAge: 40, remainingDays: null, stageLabel: 'غير محدد', stageColor: 'bg-slate-100 text-slate-600 border-slate-200', autoMsg: '' };
 
         const targetAge = Number(b.slaughterAge) || 40;
         let ageDays = null;
@@ -206,7 +239,7 @@
                 autoMsg = '🛵 تم الذبح وجاري التوزيع.. انتظروا تواصل المناديب للتسليم!';
             }
         } else if (!b.isOpen) {
-            stageLabel = '🔒 مكتملة الحجز (تجهيز وذبح)';
+            stageLabel = '🔒 مكتملة الحجز';
             stageColor = 'bg-amber-50 text-amber-800 border-amber-200';
             autoMsg = '✅ الدورة اكتملت واكتفينا بالحجز! السمان الآن في مرحلة التجهيز والذبح وجاري ترتيب مواعيد التسليم.';
         } else if (ageDays !== null) {
@@ -215,8 +248,8 @@
                 stageColor = 'bg-rose-50 text-rose-700 border-rose-200';
                 autoMsg = '🔪 السمان وصل لمرحلة النضج وجاهز فريش! سيتم قفل الحجز وتحديد مواعيد التسليم قريباً.';
             } else if (remainingDays <= 5) {
-                stageLabel = `⏳ اقترب الذبح (باقي ${remainingDays}ي)`;
-                stageColor = 'bg-amber-50 text-amber-700 border-amber-200';
+                stageLabel = `⏳ باقي ${remainingDays}ي للذبح`;
+                stageColor = 'bg-amber-50 text-amber-800 border-amber-200';
                 autoMsg = '⏳ أيام بسيطة جداً والسمان يكون جاهز! استعدوا لاستلام أوردراتكم قريباً.';
             } else if (ageDays <= 15) {
                 stageLabel = `🐣 تحضين (${ageDays} يوم)`;
@@ -236,35 +269,21 @@
         return { ageDays, targetAge, remainingDays, stageLabel, stageColor, autoMsg };
     }
 
-    // دوال التحكم السريع في العرض والطيّ والتبديل بين الدفعات
-    window.setBatchUIFilter = function (filterVal) {
-        window.batchUIState.selectedFilter = filterVal;
-        if (filterVal.startsWith('batch:')) {
-            const targetId = filterVal.replace('batch:', '');
-            window.batchUIState.collapsedCards[targetId] = false;
-        }
+    // دوال التنقل السريع داخل مركز قيادة الدفعات
+    window.selectFocusedBatch = function (bId) {
+        window.batchUIState.viewMode = 'focus';
+        window.batchUIState.focusedBatchId = bId;
         window.renderBatchesUI();
     };
 
-    window.toggleBatchCardCollapse = function (bId) {
-        window.batchUIState.collapsedCards[bId] = !window.batchUIState.collapsedCards[bId];
+    window.setBatchesViewMode = function (mode) {
+        window.batchUIState.viewMode = mode;
         window.renderBatchesUI();
     };
 
-    window.expandOrCollapseAllBatchCards = function (collapseAll) {
-        const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
-        Object.keys(batchesObj).forEach(bId => {
-            window.batchUIState.collapsedCards[bId] = Boolean(collapseAll);
-        });
+    window.setBatchInnerTab = function (tabKey) {
+        window.batchUIState.activeInnerTab = tabKey;
         window.renderBatchesUI();
-    };
-
-    window.toggleBatchZonesDrawer = function (bId) {
-        window.batchUIState.expandedZonesDrawer[bId] = !window.batchUIState.expandedZonesDrawer[bId];
-        const el = document.getElementById(`batch-zones-drawer-${bId}`);
-        const arrow = document.getElementById(`batch-zones-arrow-${bId}`);
-        if (el) el.classList.toggle('hidden', !window.batchUIState.expandedZonesDrawer[bId]);
-        if (arrow) arrow.style.transform = window.batchUIState.expandedZonesDrawer[bId] ? 'rotate(180deg)' : 'rotate(0deg)';
     };
 
     window.toggleBatchZeroProducts = function (bId) {
@@ -272,7 +291,28 @@
         window.renderBatchesUI();
     };
 
-    // حساب سقف الدفعة الكلي (يعتمد الرقم المسجل في سقف الدفعة مباشرة دون أن يلغيه مجموع الخانات القديمة)
+    window.toggleBatchBooleanFlag = async function (bId, field, checkedVal) {
+        if (!storeBatches[bId]) return;
+        storeBatches[bId][field] = Boolean(checkedVal);
+        window.renderBatchesUI();
+        try {
+            await db.collection('inventory').doc('batches').update({
+                [`${bId}.${field}`]: Boolean(checkedVal)
+            });
+            if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
+            if (typeof window.showToast === 'function') {
+                if (field === 'isOpen') {
+                    window.showToast(checkedVal ? '🟢 تم فتح الحجز على الدفعة' : '🔒 تم إغلاق الحجز على الدفعة');
+                } else {
+                    window.showToast(checkedVal ? '👁️ الدفعة ظاهرة الآن في المتجر' : '🚫 تم إخفاء الدفعة من المتجر');
+                }
+            }
+        } catch (e) {
+            console.error('Toggle batch flag error:', e);
+        }
+    };
+
+    // حساب سقف الدفعة الكلي بالجوز والفردة
     window.getBatchCeilingAndRemaining = function (bId) {
         const b = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches[bId] : null;
         if (!b) return { ceilingPairs: 0, ceilingBirds: 0, bookedPairs: 0, bookedBirds: 0, remainingPairs: 0, remainingBirds: 0, allocatedPairs: 0 };
@@ -296,7 +336,6 @@
         const explicitPairs = Number(b.actualPairs);
         const publicPairs = Number(b.publicPairs);
 
-        // الأولوية القصوى للرقم الذي كتبه المالك في سقف الدفعة (سواء كان أكبر أو أصغر من مجموع الخانات)
         let effectiveCeilingPairs = 0;
         if (!isNaN(explicitPairs) && explicitPairs > 0) {
             effectiveCeilingPairs = explicitPairs;
@@ -319,7 +358,7 @@
         };
     };
 
-    // تعديل سقف الدفعة الكلي مباشرة وحفظه بشكل قاطع مع مزامنة الخانات الفرعية
+    // تعديل سقف الدفعة الكلي مباشرة وحفظه مع مزامنة الخانات الفرعية
     window.updateBatchTotalPairsCeiling = async function (bId, val) {
         if (!storeBatches[bId]) return;
         const b = storeBatches[bId];
@@ -328,7 +367,6 @@
         b.actualPairs = pairs;
         b.publicPairs = pairs;
 
-        // فحص ما إذا كانت خانات الأصناف الفرعية تحتفظ بأرقام قديمة مخالفة للسقف الجديد
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
         let oldAllocatedSum = 0;
         const mainIds = [];
@@ -340,10 +378,11 @@
         });
 
         if (pairs > 0 && oldAllocatedSum > 0 && oldAllocatedSum !== pairs) {
-            const syncChoice = confirm(
+            const syncChoice = await askConfirmSafe(
                 `🎯 تم تغيير سقف الدفعة إلى (${pairs} جوز = ${pairs * 2} فردة).\n\n` +
                 `مجموع خانات الأصناف بالأسفل ما زال مسجلاً على الرقم القديم (${oldAllocatedSum} جوز).\n` +
-                `اضغط (موافق) لتعديل وتوزيع الـ ${pairs} جوز تلقائياً على خانات الأصناف، أو (إلغاء) لتصفير الخانات القديمة والاعتماد على السقف الكلي (${pairs}) فقط.`
+                `اضغط "توزيع تلقائي" لتعديل خانات الأصناف تلقائياً بنسبة السقف الجديد، أو "تراجع" لتصفير الخانات القديمة والاعتماد على السقف الكلي (${pairs}) فقط.`,
+                { title: 'مزامنة سقف الدفعة مع الأصناف', tone: 'brand', confirmText: 'توزيع تلقائي', cancelText: 'تصفير الخانات' }
             );
             if (!b.stock) b.stock = {};
             if (syncChoice) {
@@ -396,7 +435,6 @@
         const bId = bSel.value;
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
 
-        // تحديث شارات المتاح الصغيرة فوق كل صنف في نافذة الطلب الجديد
         Object.keys(prodsObj).forEach(id => {
             const badgeEl = document.getElementById(`no-avail-badge-${id}`);
             if (!badgeEl) return;
@@ -461,9 +499,21 @@
     };
 
     // =========================================================================
-    // 🎛️ 2. رسم مركز قيادة الدفعات المدمج والسريع (renderBatchesUI)
+    // 🎛️ 2. رسم مركز قيادة الدفعات بنظام التركيز (صفر توهان + 3 تبويبات منظمة)
     // =========================================================================
     window.renderBatchesUI = function () {
+        const batchesView = document.getElementById('view-batches');
+        if (batchesView) {
+            batchesView.classList.add('overflow-x-hidden');
+            const topStaticCard = batchesView.firstElementChild;
+            if (topStaticCard && !topStaticCard.hasAttribute('data-batches-slimmed')) {
+                topStaticCard.setAttribute('data-batches-slimmed', '1');
+                topStaticCard.className = 'flex items-center justify-between gap-2 bg-white px-3.5 py-2.5 rounded-2xl border border-slate-200/80 shadow-soft shrink-0';
+                const pDesc = topStaticCard.querySelector('p');
+                if (pDesc) pDesc.classList.add('hidden', 'sm:block');
+            }
+        }
+
         const cont = document.getElementById('batches-list-container');
         if (!cont) return;
 
@@ -495,39 +545,24 @@
         const batchIds = Object.keys(batchesObj).reverse();
 
         if (batchIds.length === 0) {
-            cont.innerHTML = '<div class="w-full text-center py-16 text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-[2rem] bg-white">لا توجد دفعات حالياً. اضغط على (دورة جديدة) بالأعلى للبدء بالتنظيم.</div>';
+            cont.innerHTML = '<div class="w-full text-center py-14 text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-[2rem] bg-white">لا توجد دفعات حالياً. اضغط على (دورة جديدة) بالأعلى للبدء بالتنظيم.</div>';
             return;
         }
 
-        const currentFilter = window.batchUIState.selectedFilter || 'all';
-        if (currentFilter.startsWith('batch:')) {
-            const fId = currentFilter.replace('batch:', '');
-            if (!batchesObj[fId]) window.batchUIState.selectedFilter = 'all';
-        }
-
-        let globalOpenBatches = 0;
-        let globalMeatStock = 0;
-        let globalMeatBooked = 0;
-        let globalBookedNetRev = 0;
-        let globalCollectedNetRev = 0;
-        let globalCapacityNetRev = 0;
-        const globalOverbookedAlerts = [];
-
+        // حساب مؤشرات كل دفعة مرة واحدة
         const batchMetaMap = {};
+        const globalOverbookedAlerts = [];
+        let globalOpenCount = 0;
 
         batchIds.forEach(bId => {
             const b = batchesObj[bId];
-            if (b.isOpen) globalOpenBatches++;
-
+            if (b.isOpen) globalOpenCount++;
             const metrics = window.getBatchDeepMetrics(bId, b.name);
             const bio = getBatchBioStatus(b);
             const cap = window.getBatchCeilingAndRemaining(bId);
 
-            let totalMeatCompletedInBatch = 0;
-            let potentialRemainingRev = 0;
             let hasBookingMismatch = false;
-            let avgMeatPriceSum = 0;
-            let avgMeatPriceCount = 0;
+            const overbookedItems = [];
 
             Object.keys(prodsObj).forEach(pId => {
                 const p = prodsObj[pId];
@@ -535,403 +570,432 @@
                 const bStock = b.stock ? (Number(b.stock[pId]) || 0) : 0;
                 const savedBooked = b.booked ? (Number(b.booked[pId]) || 0) : 0;
                 const liveBooked = metrics.realBookedByProd[pId] || 0;
-                const liveComp = metrics.realCompletedByProd[pId] || 0;
-
                 const bBooked = (metrics.totalOrders > 0 || savedBooked === 0) ? liveBooked : savedBooked;
+
                 if (Math.abs(savedBooked - liveBooked) > 0.01) hasBookingMismatch = true;
-
-                const remaining = bStock - bBooked;
-                const prodPrice = getProdPrice(pId);
-                const isMainMeat = isMainQuailProduct(pId);
-
-                if (isMainMeat) {
-                    totalMeatCompletedInBatch += liveComp;
-                    if (prodPrice > 0) { avgMeatPriceSum += prodPrice; avgMeatPriceCount++; }
-                }
-                if (remaining > 0) {
-                    potentialRemainingRev += (remaining * prodPrice);
-                } else if (remaining < 0 && bStock > 0) {
-                    globalOverbookedAlerts.push(`${b.name}: عجز ${Math.abs(remaining)} في (${p.name})`);
+                if (bStock > 0 && bStock - bBooked < 0) {
+                    const msg = `${p.name} (عجز ${Math.abs(Number((bStock - bBooked).toFixed(1)))})`;
+                    overbookedItems.push(msg);
+                    globalOverbookedAlerts.push(`${b.name}: ${msg}`);
                 }
             });
 
-            // إذا كان المستخدم قد حدد سقف الدفعة (مثلاً 200 جوز) ولم يوزع المقاسات بعد، نحسب الطاقة المتبقية بمتوسط سعر الطبق
-            const unallocatedRemPairs = Math.max(0, cap.remainingPairs - Math.max(0, cap.allocatedPairs - cap.bookedPairs));
-            const avgPrice = avgMeatPriceCount > 0 ? (avgMeatPriceSum / avgMeatPriceCount) : 115;
-            if (unallocatedRemPairs > 0) {
-                potentialRemainingRev += Math.round(unallocatedRemPairs * avgPrice);
-            }
             if (cap.ceilingPairs > 0 && cap.remainingPairs < 0) {
-                globalOverbookedAlerts.push(`${b.name}: تخطت السقف الكلي بـ ${Math.abs(cap.remainingPairs)} جوز!`);
+                const capMsg = `تخطى السقف بـ ${Math.abs(cap.remainingPairs)} جوز`;
+                overbookedItems.push(capMsg);
+                globalOverbookedAlerts.push(`${b.name}: ${capMsg}`);
             }
 
-            const totalMeatStockInBatch = cap.ceilingPairs;
-            const totalMeatBookedInBatch = cap.bookedPairs;
+            const sellProgress = cap.ceilingPairs > 0 ? Math.min(100, Math.round((cap.bookedPairs / cap.ceilingPairs) * 100)) : 0;
 
-            const batchMaxCapacityRev = metrics.netProductsRevenue + potentialRemainingRev;
-            globalMeatStock += totalMeatStockInBatch;
-            globalMeatBooked += totalMeatBookedInBatch;
-            globalBookedNetRev += metrics.netProductsRevenue;
-            globalCollectedNetRev += metrics.collectedRevenue;
-            globalCapacityNetRev += batchMaxCapacityRev;
-
-            batchMetaMap[bId] = {
-                b,
-                metrics,
-                bio,
-                cap,
-                totalMeatStockInBatch,
-                totalMeatBookedInBatch,
-                totalMeatCompletedInBatch,
-                potentialRemainingRev,
-                batchMaxCapacityRev,
-                hasBookingMismatch
-            };
+            batchMetaMap[bId] = { b, metrics, bio, cap, hasBookingMismatch, overbookedItems, sellProgress };
         });
 
+        // اختيار الدفعة النشطة تلقائياً إذا لم يختَر المستخدم دفعة بعد
+        if (!window.batchUIState.focusedBatchId || !batchesObj[window.batchUIState.focusedBatchId]) {
+            const firstOpenId = batchIds.find(id => batchesObj[id]?.isOpen);
+            window.batchUIState.focusedBatchId = firstOpenId || batchIds[0];
+        }
 
-        // 3. بناء شريط التنقل السريع بين الدفعات (Batch Switcher Bar) لمنع التقليب والتوهان
-        const activeFilter = window.batchUIState.selectedFilter || 'all';
-        const btnCls = (isActive) => isActive
-            ? 'bg-slate-900 text-white shadow-sm border-slate-900'
-            : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-200';
+        const focusedId = window.batchUIState.focusedBatchId;
+        const viewMode = window.batchUIState.viewMode || 'focus';
 
-        let batchSwitcherPills = `
-            <button type="button" onclick="setBatchUIFilter('all')" class="px-3 py-1.5 rounded-xl text-xs font-black border transition-all whitespace-nowrap ${btnCls(activeFilter === 'all')}">
-                📋 كل الدفعات (${batchIds.length})
-            </button>
-            <button type="button" onclick="setBatchUIFilter('open_only')" class="px-3 py-1.5 rounded-xl text-xs font-black border transition-all whitespace-nowrap ${btnCls(activeFilter === 'open_only')}">
-                🟢 مفتوحة للحجز (${globalOpenBatches})
-            </button>
-        `;
+        // 1. شريط اختيار الدفعات الأنيق في الأعلى (تبديل بلمسة واحدة بدون تقليب)
+        const selectorPillsHtml = batchIds.map(bId => {
+            const m = batchMetaMap[bId];
+            const isSel = (viewMode === 'focus' && focusedId === bId);
+            const dot = m.b.isOpen ? '🟢' : (m.b.slaughteredAt ? '🛵' : '🔒');
+            const remTxt = m.cap.ceilingPairs > 0 ? `• متبقي ${m.cap.remainingPairs}` : `• ${m.metrics.totalOrders} طلب`;
 
-        batchIds.forEach(bId => {
-            const meta = batchMetaMap[bId];
-            const b = meta.b;
-            const fKey = 'batch:' + bId;
-            const isSel = (activeFilter === fKey);
-            const dot = b.isOpen ? '🟢' : (b.slaughteredAt ? '🛵' : '🔒');
-            batchSwitcherPills += `
-                <button type="button" onclick="setBatchUIFilter('${fKey}')" class="px-3 py-1.5 rounded-xl text-xs font-black border transition-all whitespace-nowrap ${isSel ? 'bg-teal-600 text-white border-teal-600 shadow-sm ring-2 ring-teal-500/20' : 'bg-white text-slate-700 border-slate-200 hover:border-teal-400'}">
-                    ${dot} ${b.name} <span class="text-[10px] opacity-80">(${meta.metrics.totalOrders} طلب)</span>
+            return `
+                <button type="button" onclick="selectFocusedBatch('${bId}')" class="whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black border transition-all flex items-center gap-1.5 shrink-0 ${isSel ? 'bg-teal-600 text-white border-teal-600 shadow-md' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'}">
+                    <span>${dot} ${m.b.name}</span>
+                    <span class="text-[10px] px-1.5 py-0.5 rounded-md ${isSel ? 'bg-white/20 text-amber-200' : 'bg-white text-slate-500 border border-slate-200'}">${remTxt}</span>
                 </button>
             `;
-        });
+        }).join('');
 
-        const switcherBarHtml = `
-            <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-soft flex flex-wrap items-center justify-between gap-2 mb-4">
-                <div class="flex items-center gap-1.5 overflow-x-auto custom-scroll pb-1 flex-1">
-                    <span class="text-[11px] font-black text-slate-400 ml-1 shrink-0"><i class="fa-solid fa-compass text-teal-600"></i> انتقال سريع:</span>
-                    ${batchSwitcherPills}
+        const topSelectorBarHtml = `
+            ${globalOverbookedAlerts.length > 0 ? `
+            <div class="bg-red-600 text-white px-3.5 py-2 rounded-xl text-[11px] font-black shadow-sm flex items-center gap-2">
+                <i class="fa-solid fa-triangle-exclamation text-amber-300 shrink-0"></i>
+                <span class="truncate">تنبيه عجز كميات: ${globalOverbookedAlerts.join(' | ')}</span>
+            </div>` : ''}
+
+            <div class="w-full max-w-full overflow-hidden bg-white p-2.5 rounded-2xl border border-slate-200/80 shadow-soft flex items-center justify-between gap-2">
+                <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5 flex-1" style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
+                    ${selectorPillsHtml}
                 </div>
-                <div class="flex items-center gap-1.5 shrink-0">
-                    <button type="button" onclick="expandOrCollapseAllBatchCards(false)" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg text-[10px] font-black" title="فرد تفاصيل كل الدفعات">
-                        <i class="fa-solid fa-expand mr-0.5"></i> فرد الكل
-                    </button>
-                    <button type="button" onclick="expandOrCollapseAllBatchCards(true)" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg text-[10px] font-black" title="طي كل الدفعات في سطور مختصرة">
-                        <i class="fa-solid fa-compress mr-0.5"></i> طي الكل
-                    </button>
-                </div>
+                ${batchIds.length > 1 ? `
+                <button type="button" onclick="setBatchesViewMode('${viewMode === 'compare_all' ? 'focus' : 'compare_all'}')" class="shrink-0 px-2.5 py-1.5 rounded-xl text-[11px] font-black border transition-all flex items-center gap-1 ${viewMode === 'compare_all' ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}">
+                    <i class="fa-solid ${viewMode === 'compare_all' ? 'fa-crosshairs text-amber-400' : 'fa-table-cells-large text-teal-600'} text-[10px]"></i>
+                    <span>${viewMode === 'compare_all' ? 'عودة للدفعة' : `مقارنة (${batchIds.length})`}</span>
+                </button>` : ''}
             </div>
         `;
 
-        // 4. فلترة الدفعات المعروضة حسب اختيار المستخدم من الشريط العلوي
-        const visibleBatchIds = batchIds.filter(bId => {
-            const b = batchesObj[bId];
-            if (activeFilter === 'all') return true;
-            if (activeFilter === 'open_only') return Boolean(b.isOpen);
-            if (activeFilter.startsWith('batch:')) return bId === activeFilter.replace('batch:', '');
-            return true;
-        });
-
-        let cardsHtml = '';
-
-        visibleBatchIds.forEach(bId => {
-            const meta = batchMetaMap[bId];
-            const b = meta.b;
-            const metrics = meta.metrics;
-            const bio = meta.bio;
-            const isCollapsed = Boolean(window.batchUIState.collapsedCards[bId]);
-            const showZeros = Boolean(window.batchUIState.showZeroProducts[bId]);
-            const isZonesOpen = Boolean(window.batchUIState.expandedZonesDrawer[bId]);
-
-            const totalMeatStock = meta.totalMeatStockInBatch;
-            const totalMeatBooked = meta.totalMeatBookedInBatch;
-            const totalMeatRem = totalMeatStock - totalMeatBooked;
-            const sellProgress = totalMeatStock > 0 ? Math.min(100, Math.round((totalMeatBooked / totalMeatStock) * 100)) : 0;
-
-            // 🅰️ في حالة طيّ الكارت (Collapsed Mode): يظهر سطر واحد غني وواضح جداً بدون أي زحام!
-            if (isCollapsed) {
-                cardsHtml += `
-                <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200/90 hover:border-teal-500 transition-all relative overflow-hidden">
-                    <div class="absolute top-0 right-0 w-2 h-full ${b.isOpen ? 'bg-emerald-500' : 'bg-slate-300'}"></div>
-                    <div class="flex flex-wrap items-center justify-between gap-3 pl-2">
-                        <div onclick="toggleBatchCardCollapse('${bId}')" class="flex flex-wrap items-center gap-2.5 cursor-pointer flex-1">
-                            <span class="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center text-xs"><i class="fa-solid fa-chevron-left"></i></span>
-                            <h4 class="font-black text-slate-800 text-sm sm:text-base">${b.name}</h4>
-                            <span class="px-2.5 py-0.5 rounded-lg text-[10px] font-black border ${bio.stageColor}">${bio.stageLabel}</span>
-                            <span class="bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded-lg text-[11px] font-black">📦 ${metrics.totalOrders} طلب</span>
-                            <span class="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-lg text-[11px] font-black">🥩 حُجز ${Number(totalMeatBooked.toFixed(1))} من ${totalMeatStock} (متبقي: ${Number(totalMeatRem.toFixed(1))})</span>
-                            <span class="bg-amber-50 text-amber-900 border border-amber-200 px-2.5 py-0.5 rounded-lg text-[11px] font-black">💰 صافي الحجوزات: ${metrics.netProductsRevenue.toLocaleString()} ج</span>
+        // 2. وضع مقارنة جميع الدفعات (Compare All Mode - كروت مختصرة بلمحة عين)
+        if (viewMode === 'compare_all') {
+            const compareCardsHtml = batchIds.map(bId => {
+                const m = batchMetaMap[bId];
+                const b = m.b;
+                return `
+                    <div onclick="selectFocusedBatch('${bId}')" class="bg-white p-4 rounded-2xl border-2 ${b.isOpen ? 'border-emerald-200 hover:border-emerald-500' : 'border-slate-200 hover:border-teal-500'} shadow-sm cursor-pointer transition-all space-y-3">
+                        <div class="flex items-start justify-between gap-2">
+                            <div>
+                                <h4 class="font-black text-slate-900 text-sm sm:text-base">${b.name}</h4>
+                                <span class="inline-block mt-1 px-2 py-0.5 rounded-lg text-[10px] font-black border ${m.bio.stageColor}">${m.bio.stageLabel}</span>
+                            </div>
+                            <span class="bg-slate-900 text-amber-300 px-2.5 py-1 rounded-xl text-[11px] font-black shrink-0">${m.metrics.totalOrders} طلب</span>
                         </div>
-                        <div class="flex items-center gap-1.5 shrink-0">
-                            <button onclick="viewBatchBookings('${bId}')" class="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded-xl text-[11px] font-black border border-blue-100 transition-all">📋 الكشف</button>
-                            <button onclick="toggleBatchCardCollapse('${bId}')" class="bg-slate-900 text-white px-3 py-1.5 rounded-xl text-[11px] font-black">فتح التفاصيل ▼</button>
+
+                        <div class="space-y-1">
+                            <div class="flex justify-between text-[11px] font-black">
+                                <span class="text-slate-600">محجوز: ${m.cap.bookedPairs} / ${m.cap.ceilingPairs} جوز</span>
+                                <span class="${m.cap.remainingPairs < 0 ? 'text-rose-600' : 'text-emerald-700'}">متبقي: ${m.cap.remainingPairs} جوز</span>
+                            </div>
+                            <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div class="h-full ${m.sellProgress >= 90 ? 'bg-amber-500' : 'bg-emerald-500'} rounded-full" style="width: ${m.sellProgress}%"></div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-1.5 text-center text-[10px] font-black pt-1 border-t border-slate-100">
+                            <div class="bg-emerald-50 text-emerald-800 p-1.5 rounded-xl">
+                                <span class="block text-[9px] opacity-75">مسلّم</span>
+                                <span>${m.metrics.collectedRevenue.toLocaleString()} ج</span>
+                            </div>
+                            <div class="bg-amber-50 text-amber-800 p-1.5 rounded-xl">
+                                <span class="block text-[9px] opacity-75">حي منتظر</span>
+                                <span>${m.metrics.pendingRevenue.toLocaleString()} ج</span>
+                            </div>
+                            <div class="bg-slate-900 text-white p-1.5 rounded-xl flex items-center justify-center">
+                                <span>إدارة ⬅️</span>
+                            </div>
                         </div>
                     </div>
-                </div>`;
-                return;
-            }
+                `;
+            }).join('');
 
-            // 🅱️ في حالة الكارت المفتوح (Expanded Mode): يشمل كل الأصناف (حتى المخفي من المتجر العام) وباسم كامل واضح
-            const allProdIds = Object.keys(prodsObj).filter(pId => Boolean(prodsObj[pId]));
-            let hiddenZeroCount = 0;
+            cont.innerHTML = topSelectorBarHtml + `<div class="grid grid-cols-1 md:grid-cols-2 gap-3">${compareCardsHtml}</div>`;
+            return;
+        }
 
-            let stockCardsHtml = '';
-            allProdIds.forEach(pId => {
+        // 3. وضع التركيز على الدفعة المختارة (Focus Workspace)
+        const meta = batchMetaMap[focusedId];
+        const b = meta.b;
+        const metrics = meta.metrics;
+        const bio = meta.bio;
+        const cap = meta.cap;
+        const activeTab = window.batchUIState.activeInnerTab || 'stock';
+        const showZeros = Boolean(window.batchUIState.showZeroProducts[focusedId]);
+        const safeBName = escapeJsAttr(b.name);
+
+        // بناء محتوى التبويب الداخلي المختار
+        let innerTabContentHtml = '';
+
+        // --- التبويب 1: الكميات والأصناف (مرتب بالنظام الموحد) ---
+        if (activeTab === 'stock') {
+            const sortedProdIds = Object.keys(prodsObj)
+                .filter(pId => Boolean(prodsObj[pId]))
+                .sort((a, b2) => getBatchProductRank(a, prodsObj[a]) - getBatchProductRank(b2, prodsObj[b2]));
+
+            let mainCardsHtml = '';
+            let extraCardsHtml = '';
+            let extraHiddenCount = 0;
+
+            sortedProdIds.forEach(pId => {
                 const p = prodsObj[pId];
-                const pName = p.name;
                 const bStock = b.stock ? (Number(b.stock[pId]) || 0) : 0;
                 const savedBooked = b.booked ? (Number(b.booked[pId]) || 0) : 0;
                 const liveBooked = metrics.realBookedByProd[pId] || 0;
                 const bBooked = (metrics.totalOrders > 0 || savedBooked === 0) ? liveBooked : savedBooked;
                 const remaining = bStock - bBooked;
                 const prodPrice = getProdPrice(pId);
+
                 const isPinnedItem = (typeof window.isProductPinnedForAdmin === 'function')
                     ? window.isProductPinnedForAdmin(pId)
                     : isMainQuailProduct(pId);
 
-
-                if (!showZeros && !isPinnedItem && bStock === 0 && bBooked === 0) {
-                    hiddenZeroCount++;
-                    return;
-                }
-
-
-
-                const remColor = remaining < 0
+                const remCls = remaining < 0
                     ? 'bg-red-600 text-white border-red-600 animate-pulse'
                     : (remaining === 0 && bStock > 0
-                        ? 'bg-amber-50 border-amber-200 text-amber-700'
-                        : 'bg-emerald-50 border-emerald-200 text-emerald-700');
+                        ? 'bg-amber-50 border-amber-200 text-amber-800'
+                        : 'bg-emerald-50 border-emerald-200 text-emerald-800');
 
-                const hiddenStoreBadge = p.isHidden ? `<span class="text-[8px] bg-rose-50 text-rose-600 border border-rose-200 px-1 py-0.5 rounded font-black" title="مخفي عن الجمهور في المتجر العام ولكنه متاح لك في الإدارة">مخفي بالمتجر</span>` : '';
-
-                stockCardsHtml += `
-                <div class="bg-slate-50/90 p-2.5 rounded-xl border ${remaining < 0 ? 'border-red-300 bg-red-50/30' : 'border-slate-200/80'} flex flex-col justify-between">
-                    <div class="mb-2 text-right">
-                        <label class="text-xs font-black text-slate-800 block leading-snug mb-1">${pName}</label>
-                        <div class="flex flex-wrap items-center justify-between gap-1">
-                            <span class="text-[9px] font-black text-emerald-700 bg-white px-1.5 py-0.5 rounded border border-slate-200">${prodPrice} ج</span>
-                            ${hiddenStoreBadge}
+                const safePName = escapeJsAttr(p.name);
+                const cardHtml = `
+                    <div class="bg-slate-50/90 p-2.5 rounded-2xl border ${remaining < 0 ? 'border-red-300 bg-red-50/30' : 'border-slate-200/80'} space-y-2">
+                        <div class="flex items-center justify-between gap-1">
+                            <span class="text-xs font-black text-slate-900 truncate">${p.name}</span>
+                            <span class="text-[10px] font-black text-emerald-700 bg-white px-1.5 py-0.5 rounded-md border border-slate-200 shrink-0">${prodPrice} ج</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1.5">
+                            <div>
+                                <span class="text-[9px] text-slate-400 font-bold block text-center mb-0.5">المتاح</span>
+                                <input type="number" value="${bStock}" onchange="updateBatchStock('${focusedId}', '${pId}', this.value)" class="w-full border border-slate-200 bg-white rounded-xl py-1 px-1 text-xs font-black text-slate-800 text-center outline-none focus:border-brand-primary shadow-sm">
+                            </div>
+                            <button type="button" onclick="filterOrdersByBatchAndItem('${safeBName}', '${safePName}')" class="text-center bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded-xl py-1 px-1 shadow-sm transition-colors" title="عرض الطلبات التي حجزت هذا الصنف">
+                                <span class="text-[9px] text-slate-400 font-bold block mb-0.5">محجوز</span>
+                                <span class="text-xs font-black text-blue-600">${Number(bBooked.toFixed(1))}</span>
+                            </button>
+                            <div class="text-center border rounded-xl py-1 px-1 shadow-sm ${remCls}">
+                                <span class="text-[9px] font-bold block mb-0.5">${remaining < 0 ? 'عجز!' : 'متبقي'}</span>
+                                <span class="text-xs font-black">${Number(remaining.toFixed(1))}</span>
+                            </div>
                         </div>
                     </div>
+                `;
 
-                    <div class="grid grid-cols-3 gap-1">
-                        <div>
-                            <span class="text-[8px] text-slate-400 font-bold block text-center mb-0.5">المتاح</span>
-                            <input type="number" value="${bStock}" onchange="updateBatchStock('${bId}', '${pId}', this.value)" class="w-full border border-slate-200 bg-white rounded-lg p-1 text-xs font-black text-slate-800 text-center outline-none focus:ring-2 focus:ring-brand-primary/20 shadow-sm">
-                        </div>
-                        <div onclick="filterOrdersByBatchAndItem('${b.name}', '${pName}')" class="text-center bg-white border border-slate-200 rounded-lg p-1 shadow-sm cursor-pointer hover:border-blue-400" title="اضغط لعرض الطلبات التي حجزت هذا الصنف">
-                            <span class="text-[8px] text-slate-400 font-bold block mb-0.5">محجوز</span>
-                            <span class="text-xs font-black text-blue-600">${Number(bBooked.toFixed(1))}</span>
-                        </div>
-                        <div class="text-center border rounded-lg p-1 shadow-sm ${remColor}">
-                            <span class="text-[8px] font-bold block mb-0.5">${remaining < 0 ? 'عجز!' : 'متبقي'}</span>
-                            <span class="text-xs font-black">${Number(remaining.toFixed(1))}</span>
-                        </div>
-                    </div>
-                </div>`;
+                if (isPinnedItem || bStock > 0 || bBooked > 0) {
+                    mainCardsHtml += cardHtml;
+                } else {
+                    extraHiddenCount++;
+                    if (showZeros) extraCardsHtml += cardHtml;
+                }
             });
 
-            // شريط مراحل الطلبات المدمج
+            innerTabContentHtml = `
+                <div class="space-y-3">
+                    <!-- أدوات التحكم السريع في الكميات -->
+                    <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200/70">
+                        <div class="flex items-center gap-1.5 text-[11px] font-black text-teal-900">
+                            <span>🎯 السقف الكلي للدفعة:</span>
+                            <input type="number" value="${cap.ceilingPairs || ''}" onchange="updateBatchTotalPairsCeiling('${focusedId}', this.value)" placeholder="200" class="w-16 bg-white border-2 border-teal-300 rounded-lg py-0.5 px-1 text-center font-black text-xs text-teal-900 outline-none">
+                            <span class="text-[10px] text-slate-500">جوز (${cap.ceilingBirds} فردة)</span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <button type="button" onclick="smartDistributeBatch('${focusedId}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm flex items-center gap-1 active:scale-95">
+                                <i class="fa-solid fa-wand-magic-sparkles text-amber-300 text-[10px]"></i> توزيع ذكي
+                            </button>
+                            ${meta.hasBookingMismatch ? `
+                            <button type="button" onclick="syncAndHealBatchBooked('${focusedId}', '${safeBName}')" class="bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black shadow-sm animate-pulse flex items-center gap-1">
+                                <i class="fa-solid fa-rotate text-[10px]"></i> مطابقة المحجوز
+                            </button>` : ''}
+                        </div>
+                    </div>
+
+                    <!-- شبكة الأصناف الأساسية المرتبة -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                        ${mainCardsHtml || '<div class="col-span-full text-center py-6 text-xs font-bold text-slate-400">لا توجد أصناف مسجلة</div>'}
+                    </div>
+
+                    ${extraHiddenCount > 0 ? `
+                    <div class="pt-1">
+                        <button type="button" onclick="toggleBatchZeroProducts('${focusedId}')" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black border border-dashed border-slate-300 transition-all">
+                            ${showZeros ? 'إخفاء الأصناف الإضافية الصفرية ▲' : `+ إظهار باقي الأصناف الأخرى (${extraHiddenCount} صنف) ▼`}
+                        </button>
+                        ${showZeros ? `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 mt-2.5">${extraCardsHtml}</div>` : ''}
+                    </div>` : ''}
+                </div>
+            `;
+        }
+
+        // --- التبويب 2: الطلبات والمناطق والكشف ---
+        else if (activeTab === 'orders_zones') {
             const sc = metrics.statusCounts;
             const sortedZones = Object.keys(metrics.zonesMap).sort((a, z2) => metrics.zonesMap[z2].count - metrics.zonesMap[a].count);
-
-            const zPillsHtml = sortedZones.length > 0
+            const zonesChipsHtml = sortedZones.length > 0
                 ? sortedZones.map(z => {
                     const zInfo = metrics.zonesMap[z];
-                    return `<span onclick="jumpToBatchZoneOrders('${b.name}', '${z}')" class="bg-white hover:bg-indigo-600 text-slate-700 hover:text-white border border-slate-200 px-2.5 py-1 rounded-lg text-[10px] font-black cursor-pointer transition-all shadow-sm">📍 ${z}: ${zInfo.count} طلب (صافي ${zInfo.netRevenue.toLocaleString()} ج)</span>`;
+                    const safeZ = escapeJsAttr(z);
+                    return `
+                        <button type="button" onclick="jumpToBatchZoneOrders('${safeBName}', '${safeZ}')" class="bg-white hover:bg-indigo-600 text-slate-800 hover:text-white border border-slate-200 hover:border-indigo-600 p-2.5 rounded-xl text-right transition-all shadow-sm flex items-center justify-between gap-2">
+                            <span class="text-xs font-black"><i class="fa-solid fa-location-dot text-indigo-500 ml-1"></i>${z}</span>
+                            <span class="text-[10px] font-black bg-indigo-50 text-indigo-800 px-2 py-0.5 rounded-lg">${zInfo.count} طلب • ${zInfo.netRevenue.toLocaleString()} ج</span>
+                        </button>
+                    `;
                 }).join('')
-                : '<span class="text-[11px] font-bold text-slate-400">لا توجد طلبات مسجلة في مناطق بعد.</span>';
+                : '<div class="col-span-full text-center py-6 text-xs font-bold text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">لا توجد طلبات مسجلة على هذه الدفعة حتى الآن.</div>';
 
-            const delWindowStr = (b.deliveryStart || b.deliveryEnd)
-                ? `📅 تسليم: ${b.deliveryStart || ''}${b.deliveryEnd ? ' ⬅️ ' + b.deliveryEnd : ''}`
-                : '';
-
-            cardsHtml += `
-            <div class="bg-white p-4 sm:p-5 rounded-[1.5rem] shadow-soft border-2 border-slate-200/80 relative overflow-hidden transition-all space-y-3">
-                <div class="absolute top-0 right-0 w-2 h-full ${b.isOpen ? 'bg-emerald-500' : 'bg-slate-300'}"></div>
-
-                <!-- 1. صف الرأس والأزرار القيادية المدمجة -->
-                <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-2.5 pl-1">
-                    <div class="flex flex-wrap items-center gap-2 flex-1 w-full">
-                        <button type="button" onclick="toggleBatchCardCollapse('${bId}')" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center text-xs shrink-0" title="طي كارت الدفعة">
-                            <i class="fa-solid fa-chevron-down"></i>
+            innerTabContentHtml = `
+                <div class="space-y-3.5">
+                    <!-- أزرار تشغيل سريعة للطلبات -->
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <button type="button" onclick="viewBatchBookings('${focusedId}')" class="bg-blue-600 hover:bg-blue-700 text-white py-2.5 px-3 rounded-xl text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95">
+                            <i class="fa-solid fa-file-pdf text-amber-300"></i> كشف التسليمات والطباعة (${metrics.totalOrders})
                         </button>
-                        <div class="relative flex-1 min-w-[170px] max-w-xs">
-                            <i class="fa-solid fa-pen absolute right-3 top-2.5 text-slate-400 text-[10px]"></i>
-                            <input type="text" value="${b.name}" onchange="updateBatchNameAndOrders('${bId}', this.value)" class="border border-slate-200 bg-slate-50 hover:bg-white focus:bg-white rounded-xl py-1.5 pr-7 pl-2 text-xs sm:text-sm font-black text-slate-800 w-full outline-none focus:ring-2 focus:ring-brand-primary/20 transition-all">
-                        </div>
-
-                        <span class="px-2.5 py-1 rounded-xl text-[10px] font-black border ${bio.stageColor}">${bio.stageLabel}</span>
-
-                        ${bio.ageDays !== null ? `
-                        <div class="inline-flex items-center gap-1 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-xl text-[10px] font-black text-purple-800" title="تعديل سريع لعمر السمان بالدفعة">
-                            <button onclick="quickStepBatchAge('${bId}', -1)" class="w-5 h-5 bg-white rounded text-purple-700 hover:bg-purple-600 hover:text-white">-</button>
-                            <span class="px-1">${bio.ageDays} يوم</span>
-                            <button onclick="quickStepBatchAge('${bId}', 1)" class="w-5 h-5 bg-white rounded text-purple-700 hover:bg-purple-600 hover:text-white">+</button>
-                        </div>` : ''}
-
-                        <div class="inline-flex items-center gap-1 bg-teal-50 border border-teal-200 px-2 py-1 rounded-xl text-[10px] font-black text-teal-900" title="اكتب العدد الإجمالي للدفعة بالجوز (مثلاً 200 جوز = 400 فردة) وسيخصم السيستم منه تلقائياً مع كل طلب">
-                            <span>🎯 سقف الدفعة:</span>
-                            <input type="number" value="${meta.cap.ceilingPairs || ''}" onchange="updateBatchTotalPairsCeiling('${bId}', this.value)" placeholder="200" class="w-14 bg-white border border-teal-300 rounded-lg px-1 py-0.5 text-center font-black text-teal-800 outline-none">
-                            <span>جوز (${meta.cap.ceilingBirds} فردة)</span>
-                        </div>
-                        ${delWindowStr ? `<span class="bg-slate-100 text-slate-600 px-2 py-1 rounded-xl text-[10px] font-black">${delWindowStr}</span>` : ''}
-                    </div>
-
-
-                    <!-- مفاتيح الظهور والحجز + أزرار التحكم -->
-                    <div class="flex flex-wrap items-center gap-1.5 w-full lg:w-auto justify-between lg:justify-end shrink-0">
-                        <div class="flex items-center gap-2.5 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-200/70">
-                            <label class="flex items-center gap-1 text-[10px] font-black cursor-pointer text-blue-600">
-                                <input type="checkbox" ${b.isVisible !== false ? 'checked' : ''} onchange="storeBatches['${bId}'].isVisible = this.checked; db.collection('inventory').doc('batches').update({[\`${bId}.isVisible\`]: this.checked}); renderBatchesUI();" class="w-3.5 h-3.5 accent-blue-600 rounded"> بالمتجر
-                            </label>
-                            <div class="w-px h-3.5 bg-slate-300"></div>
-                            <label class="flex items-center gap-1 text-[10px] font-black cursor-pointer text-emerald-600">
-                                <input type="checkbox" ${b.isOpen ? 'checked' : ''} onchange="storeBatches['${bId}'].isOpen = this.checked; db.collection('inventory').doc('batches').update({[\`${bId}.isOpen\`]: this.checked}); renderBatchesUI();" class="w-3.5 h-3.5 accent-emerald-600 rounded"> الحجز مفتوح
-                            </label>
-                        </div>
-
-                        <div class="flex flex-wrap items-center gap-1">
-                            <button onclick="viewBatchBookings('${bId}')" class="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black shadow-sm flex items-center gap-1" title="كشف التسليمات والتحضير"><i class="fa-solid fa-list-check"></i> الكشف</button>
-                            <button onclick="openSlaughterModal('${bId}')" class="bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black border border-rose-200 transition-all flex items-center gap-1" title="تسجيل الذبح والترحيل للفريزر"><i class="fa-solid fa-knife-kitchen"></i> الذبح</button>
-                            <button onclick="smartDistributeBatch('${bId}')" class="bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black border border-indigo-200 transition-all flex items-center gap-1" title="توزيع العدد الكلي على الأصناف ذكياً"><i class="fa-solid fa-wand-magic-sparkles"></i> توزيع</button>
-                            <button onclick="openBatchSettings('${bId}')" class="bg-purple-50 text-purple-600 hover:bg-purple-600 hover:text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black border border-purple-200 transition-all flex items-center gap-1" title="إعدادات العمر والتواريخ والرسالة"><i class="fa-solid fa-sliders"></i> إعدادات</button>
-                            <button onclick="openBatchBroadcastUI('${bId}')" class="bg-[#25D366]/15 text-[#1da851] hover:bg-[#25D366] hover:text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black border border-[#25D366]/30 transition-all flex items-center gap-1" title="رسالة واتساب جماعية لعملاء الدفعة"><i class="fa-brands fa-whatsapp"></i></button>
-                            <button onclick="archiveBatch('${bId}')" class="bg-amber-50 text-amber-700 hover:bg-amber-500 hover:text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black border border-amber-200 transition-all flex items-center gap-1" title="إغلاق وترحيل الدفعة للأرشيف"><i class="fa-solid fa-box-archive"></i> أرشفة</button>
-                            <button onclick="deleteBatchUI('${bId}')" class="bg-red-50 text-red-500 hover:bg-red-600 hover:text-white w-7 h-7 rounded-xl text-xs font-bold flex items-center justify-center border border-red-100 transition-all" title="حذف الدفعة نهائياً"><i class="fa-solid fa-trash"></i></button>
-                        </div>
-                    </div>
-                </div>
-                <!-- 2. شريط الحسابات الصافية والقدرة الاستيعابية للدفعة (متطابق 100% مع لوحة القيادة) -->
-                <div class="bg-gradient-to-l from-slate-900 via-slate-800 to-emerald-950 text-white p-3 rounded-2xl grid grid-cols-2 sm:grid-cols-4 gap-2 text-center shadow-sm">
-                    <div class="bg-white/5 p-2 rounded-xl border border-white/10">
-                        <span class="text-[9px] text-slate-300 font-bold block">🥩 حجز الدفعة (بالجوز والفردة)</span>
-                        <span class="text-xs sm:text-sm font-black text-emerald-300">حُجز ${meta.cap.bookedPairs} <span class="text-white">من ${meta.cap.ceilingPairs} جوز</span></span>
-                        <span class="block text-[10px] font-black ${meta.cap.remainingPairs < 0 ? 'text-rose-400 animate-pulse' : 'text-amber-300'}">متبقي: ${meta.cap.remainingPairs} جوز (${meta.cap.remainingBirds} فردة)</span>
-                    </div>
-
-
-                    <div class="bg-white/5 p-2 rounded-xl border border-white/10">
-                        <span class="text-[9px] text-slate-300 font-bold block">✅ صافي المسلّم (محصل)</span>
-                        <span class="text-xs sm:text-sm font-black text-emerald-400">${metrics.collectedRevenue.toLocaleString()} ج <span class="text-[9px] text-slate-300">(${metrics.completedOrders} طلب)</span></span>
-                    </div>
-                    <div class="bg-white/5 p-2 rounded-xl border border-white/10">
-                        <span class="text-[9px] text-slate-300 font-bold block">⏳ صافي الحجوزات الحية</span>
-                        <span class="text-xs sm:text-sm font-black text-amber-300">${metrics.pendingRevenue.toLocaleString()} ج <span class="text-[9px] text-slate-300">(${metrics.activeOrders} طلب)</span></span>
-                    </div>
-                    <div class="bg-white/5 p-2 rounded-xl border border-white/10 flex flex-col justify-center">
-                        <div class="flex justify-between text-[9px] font-black px-1 mb-1">
-                            <span class="text-sky-300">إجمالي الدفعة: ${metrics.netProductsRevenue.toLocaleString()} ج</span>
-                            <span class="text-emerald-300">${sellProgress}%</span>
-                        </div>
-                        <div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-                            <div class="h-full ${sellProgress >= 90 ? 'bg-amber-400' : 'bg-emerald-400'} rounded-full" style="width: ${sellProgress}%"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 3. شريط مراحل طلبات الدفعة + درج المناطق والرسالة القابل للطي -->
-                <div class="flex flex-wrap items-center justify-between gap-1.5 bg-slate-50 p-2 rounded-xl border border-slate-200/70">
-                    <div class="flex flex-wrap items-center gap-1">
-                        <button onclick="jumpToBatchOrdersWithStatus('${b.name}', 'all')" class="bg-slate-800 text-white px-2.5 py-1 rounded-lg text-[10px] font-black hover:bg-slate-900">الكل (${metrics.totalOrders})</button>
-                        <button onclick="jumpToBatchOrdersWithStatus('${b.name}', 'new')" class="bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded-lg text-[10px] font-black hover:bg-blue-600 hover:text-white">🆕 جديد (${sc.new})</button>
-                        <button onclick="jumpToBatchOrdersWithStatus('${b.name}', 'processing')" class="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-1 rounded-lg text-[10px] font-black hover:bg-amber-500 hover:text-white">⏳ تجهيز (${sc.processing})</button>
-                        <button onclick="jumpToBatchOrdersWithStatus('${b.name}', 'dispatched')" class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-1 rounded-lg text-[10px] font-black hover:bg-indigo-600 hover:text-white">🛵 بالطريق (${sc.dispatched})</button>
-                        ${(sc.deferred + sc.no_answer) > 0 ? `<button onclick="jumpToBatchOrdersWithStatus('${b.name}', 'deferred')" class="bg-purple-50 text-purple-700 border border-purple-200 px-2 py-1 rounded-lg text-[10px] font-black hover:bg-purple-600 hover:text-white">📵 مؤجل (${sc.deferred + sc.no_answer})</button>` : ''}
-                        <button onclick="jumpToBatchOrdersWithStatus('${b.name}', 'completed')" class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-1 rounded-lg text-[10px] font-black hover:bg-emerald-600 hover:text-white">✅ مكتمل (${sc.completed})</button>
-                    </div>
-
-                    <div class="flex flex-wrap items-center gap-1">
-                        ${sc.new > 0 ? `<button onclick="bulkMoveBatchNewToProcessing('${bId}', '${b.name}')" class="bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm"><i class="fa-solid fa-bolt"></i> تجهيز الـ (${sc.new}) الجديد</button>` : ''}
-                        ${metrics.activeOrders > 0 ? `<button onclick="rolloverBatchActiveOrders('${bId}', '${b.name}')" class="bg-teal-50 hover:bg-teal-600 text-teal-800 hover:text-white border border-teal-200 px-2 py-1 rounded-lg text-[10px] font-black"><i class="fa-solid fa-share-from-square"></i> ترحيل المتبقي (${metrics.activeOrders})</button>` : ''}
-                        ${meta.hasBookingMismatch ? `<button onclick="syncAndHealBatchBooked('${bId}', '${b.name}')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 px-2 py-1 rounded-lg text-[10px] font-black animate-pulse"><i class="fa-solid fa-rotate"></i> مطابقة المحجوز</button>` : ''}
-                        <button type="button" onclick="toggleBatchZonesDrawer('${bId}')" class="bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1">
-                            <i class="fa-solid fa-map-location-dot"></i> المناطق والرسالة (${sortedZones.length})
-                            <i id="batch-zones-arrow-${bId}" class="fa-solid fa-chevron-down text-[9px] transition-transform" style="transform: ${isZonesOpen ? 'rotate(180deg)' : 'rotate(0deg)'};"></i>
+                        <button type="button" onclick="bulkMoveBatchNewToProcessing('${focusedId}', '${safeBName}')" class="${sc.new > 0 ? 'bg-amber-500 hover:bg-amber-600 text-slate-950' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} py-2.5 px-3 rounded-xl text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95" ${sc.new > 0 ? '' : 'disabled'}>
+                            <i class="fa-solid fa-bolt"></i> تجهيز كل الجديد (${sc.new} طلب)
+                        </button>
+                        <button type="button" onclick="rolloverBatchActiveOrders('${focusedId}', '${safeBName}')" class="${metrics.activeOrders > 0 ? 'bg-teal-600 hover:bg-teal-700 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} py-2.5 px-3 rounded-xl text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95" ${metrics.activeOrders > 0 ? '' : 'disabled'}>
+                            <i class="fa-solid fa-share-from-square"></i> ترحيل المتبقي لدفعة أخرى (${metrics.activeOrders})
                         </button>
                     </div>
-                </div>
 
-                <!-- درج المناطق ورسالة العميل (يفتح عند الضغط فقط لمنع زحام الشاشة) -->
-                <div id="batch-zones-drawer-${bId}" class="${isZonesOpen ? '' : 'hidden'} bg-indigo-50/50 p-3 rounded-xl border border-indigo-100 space-y-2">
-                    <div class="text-[11px] font-bold text-purple-900 bg-white px-3 py-1.5 rounded-lg border border-purple-100">
-                        <i class="fa-solid fa-bullhorn text-purple-600 ml-1"></i> <strong>رسالة المتجر للعميل:</strong> ${b.urgentNote ? `<span class="text-amber-700 font-black">[${b.urgentNote}]</span> ` : ''}${bio.autoMsg}
+                    <!-- مراحل طلبات الدفعة (اضغط للانتقال مباشرة) -->
+                    <div>
+                        <span class="text-[11px] font-black text-slate-500 block mb-2">📊 اضغط على أي مرحلة لعرض طلباتها في شاشة الطلبات الحية:</span>
+                        <div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-center">
+                            <button type="button" onclick="jumpToBatchOrdersWithStatus('${safeBName}', 'all')" class="bg-slate-900 text-white p-2 rounded-xl text-[11px] font-black">الكل<span class="block text-base text-amber-300">${metrics.totalOrders}</span></button>
+                            <button type="button" onclick="jumpToBatchOrdersWithStatus('${safeBName}', 'new')" class="bg-blue-50 text-blue-800 border border-blue-200 p-2 rounded-xl text-[11px] font-black">🆕 جديد<span class="block text-base">${sc.new}</span></button>
+                            <button type="button" onclick="jumpToBatchOrdersWithStatus('${safeBName}', 'processing')" class="bg-amber-50 text-amber-900 border border-amber-200 p-2 rounded-xl text-[11px] font-black">⏳ تجهيز<span class="block text-base">${sc.processing}</span></button>
+                            <button type="button" onclick="jumpToBatchOrdersWithStatus('${safeBName}', 'dispatched')" class="bg-indigo-50 text-indigo-800 border border-indigo-200 p-2 rounded-xl text-[11px] font-black">🛵 بالطريق<span class="block text-base">${sc.dispatched}</span></button>
+                            <button type="button" onclick="jumpToBatchOrdersWithStatus('${safeBName}', 'deferred')" class="bg-purple-50 text-purple-800 border border-purple-200 p-2 rounded-xl text-[11px] font-black">📵 مؤجل<span class="block text-base">${sc.deferred + sc.no_answer}</span></button>
+                            <button type="button" onclick="jumpToBatchOrdersWithStatus('${safeBName}', 'completed')" class="bg-emerald-50 text-emerald-800 border border-emerald-200 p-2 rounded-xl text-[11px] font-black">✅ مكتمل<span class="block text-base">${sc.completed}</span></button>
+                        </div>
                     </div>
-                    <div class="flex flex-wrap items-center gap-1.5">
-                        <span class="text-[10px] font-black text-indigo-900 ml-1">📍 توزيع المناطق (اضغط للفلترة):</span>
-                        ${zPillsHtml}
-                    </div>
-                </div>
 
-                <!-- 4. شبكة كميات الأصناف المدمجة -->
-                <div>
-                    <div class="flex justify-between items-center mb-2 px-1">
-                        <span class="text-[11px] font-black text-slate-600"><i class="fa-solid fa-boxes-stacked text-teal-600 ml-1"></i> كميات الأصناف في الدفعة (المتاح / المحجوز / المتبقي):</span>
-                        ${(hiddenZeroCount > 0 || showZeros) ? `
-                        <button type="button" onclick="toggleBatchZeroProducts('${bId}')" class="text-[10px] font-black text-indigo-600 hover:underline">
-                            ${showZeros ? 'إخفاء الأصناف الإضافية الصفرية ▲' : `+ إظهار الأصناف الإضافية (${hiddenZeroCount}) ▼`}
-                        </button>` : ''}
-                    </div>
-                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-                        ${stockCardsHtml}
-                    </div>
-                </div>
-            </div>`;
-        });
-
-        // 5. بناء لوحة الملخص العلوي الشاملة لكل الدفعات النشطة
-        const globalRemMeat = globalMeatStock - globalMeatBooked;
-        const globalProgress = globalMeatStock > 0 ? Math.min(100, Math.round((globalMeatBooked / globalMeatStock) * 100)) : 0;
-
-        let overbookBanner = '';
-        if (globalOverbookedAlerts.length > 0) {
-            overbookBanner = `
-                <div class="bg-red-600 text-white p-3 rounded-2xl shadow-md mb-3 flex items-center justify-between gap-3">
-                    <div class="text-xs font-black">
-                        <i class="fa-solid fa-triangle-exclamation text-amber-300 mr-1"></i>
-                        تنبيه تخطي الكمية المتاحة (Overbooking): ${globalOverbookedAlerts.join(' ، ')}
+                    <!-- توزيع المناطق الجغرافي للدفعة -->
+                    <div>
+                        <span class="text-[11px] font-black text-slate-500 block mb-2">📍 توزيع الطلبات حسب المنطقة (${sortedZones.length} منطقة):</span>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                            ${zonesChipsHtml}
+                        </div>
                     </div>
                 </div>
             `;
         }
 
-        const topCommandSummaryHtml = `
-            ${overbookBanner}
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-soft text-center">
-                    <span class="text-[10px] font-bold text-slate-400 block mb-0.5">الدورات المفتوحة للحجز</span>
-                    <span class="text-xl font-black text-teal-600">${globalOpenBatches} <span class="text-xs text-slate-400">من ${batchIds.length}</span></span>
+        // --- التبويب 3: الذبح، الواتساب، إعدادات العرض، والإغلاق ---
+        else {
+            const delWindowStr = (b.deliveryStart || b.deliveryEnd)
+                ? `${b.deliveryStart || ''} ${b.deliveryEnd ? '⬅️ ' + b.deliveryEnd : ''}`
+                : 'غير محدد بعد';
+
+            innerTabContentHtml = `
+                <div class="space-y-3">
+                    <!-- معاينة رسالة المتجر الحالية للعميل -->
+                    <div class="bg-purple-50/70 border border-purple-200 p-3 rounded-2xl space-y-1">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <span class="text-[11px] font-black text-purple-900"><i class="fa-solid fa-bullhorn text-purple-600 ml-1"></i> رسالة الدفعة الظاهرة للعملاء بالمتجر الآن:</span>
+                            <span class="text-[10px] font-black bg-white text-slate-600 px-2 py-0.5 rounded-lg border border-purple-200">📅 التسليم: ${delWindowStr}</span>
+                        </div>
+                        <p class="text-xs font-bold text-slate-700 leading-relaxed bg-white p-2.5 rounded-xl border border-purple-100">
+                            ${b.urgentNote ? `<strong class="text-amber-700 block mb-0.5">📌 تنبيه: ${b.urgentNote}</strong>` : ''}${bio.autoMsg}
+                        </p>
+                    </div>
+
+                    <!-- خطوات التشغيل الأساسية مرتبة بوضوح -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <button type="button" onclick="openBatchSettings('${focusedId}')" class="bg-white hover:bg-purple-50 border-2 border-purple-200 p-3.5 rounded-2xl text-right flex items-center justify-between gap-3 transition-all shadow-sm">
+                            <div>
+                                <span class="text-xs font-black text-purple-900 block">1. إعدادات العمر والتواريخ والرسالة</span>
+                                <span class="text-[10px] font-bold text-slate-500">تعديل عمر السمان، مواعيد التسليم، والتنبيه الطارئ</span>
+                            </div>
+                            <span class="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0"><i class="fa-solid fa-sliders"></i></span>
+                        </button>
+
+                        <button type="button" onclick="openBatchBroadcastUI('${focusedId}')" class="bg-white hover:bg-emerald-50 border-2 border-emerald-200 p-3.5 rounded-2xl text-right flex items-center justify-between gap-3 transition-all shadow-sm">
+                            <div>
+                                <span class="text-xs font-black text-emerald-900 block">2. إرسال واتساب لعملاء الدفعة</span>
+                                <span class="text-[10px] font-bold text-slate-500">إرسال رسالة تأكيد أو موعد التسليم للمحددين</span>
+                            </div>
+                            <span class="w-9 h-9 rounded-xl bg-[#25D366]/15 text-[#1da851] flex items-center justify-center shrink-0 text-lg"><i class="fa-brands fa-whatsapp"></i></span>
+                        </button>
+
+                        <button type="button" onclick="openSlaughterModal('${focusedId}')" class="bg-white hover:bg-rose-50 border-2 border-rose-200 p-3.5 rounded-2xl text-right flex items-center justify-between gap-3 transition-all shadow-sm">
+                            <div>
+                                <span class="text-xs font-black text-rose-900 block">3. إتمام الذبح والترحيل للفريزر</span>
+                                <span class="text-[10px] font-bold text-slate-500">${b.expectedValue ? `تم الذبح (قيمة متوقعة: ${b.expectedValue.toLocaleString()} ج)` : 'تسجيل المذبوح الفعلي وقفل الحجز تلقائياً'}</span>
+                            </div>
+                            <span class="w-9 h-9 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0"><i class="fa-solid fa-knife-kitchen"></i></span>
+                        </button>
+
+                        <button type="button" onclick="archiveBatch('${focusedId}')" class="bg-white hover:bg-amber-50 border-2 border-amber-300 p-3.5 rounded-2xl text-right flex items-center justify-between gap-3 transition-all shadow-sm">
+                            <div>
+                                <span class="text-xs font-black text-amber-950 block">4. إغلاق وترحيل الدفعة للأرشيف</span>
+                                <span class="text-[10px] font-bold text-slate-500">حفظ التقرير الختامي وأرشفة الطلبات المكتملة فقط</span>
+                            </div>
+                            <span class="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0"><i class="fa-solid fa-box-archive"></i></span>
+                        </button>
+                    </div>
+
+                    <!-- منطقة الخطر المعزولة للحذف -->
+                    <div class="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 bg-rose-50/40 px-3 py-2 rounded-xl border border-rose-100">
+                        <span class="text-[10px] font-bold text-rose-700">حذف هذه الدفعة نهائياً من قاعدة البيانات:</span>
+                        <button type="button" onclick="deleteBatchUI('${focusedId}')" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm flex items-center gap-1">
+                            <i class="fa-solid fa-trash text-[10px]"></i> حذف الدفعة
+                        </button>
+                    </div>
                 </div>
-                <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-soft text-center">
-                    <span class="text-[10px] font-bold text-slate-400 block mb-0.5">إجمالي السمان المحجوز / المتاح</span>
-                    <span class="text-xl font-black text-brand-primary">${Number(globalMeatBooked.toFixed(1))} <span class="text-xs text-slate-400">/ ${globalMeatStock} طبق (${globalProgress}%)</span></span>
+            `;
+        }
+
+        const innerTabBtnCls = (k) => activeTab === k
+            ? 'bg-slate-900 text-white shadow-sm'
+            : 'bg-slate-100 text-slate-600 hover:bg-slate-200';
+
+        // بطاقة القيادة الموحدة للدفعة المختارة
+        const focusedWorkspaceHtml = `
+            <div class="w-full max-w-full overflow-hidden bg-white rounded-[1.5rem] shadow-soft border-2 ${b.isOpen ? 'border-emerald-500/35' : 'border-slate-200'} p-3.5 sm:p-5 space-y-3.5">
+                <!-- 1. رأس الدفعة: الاسم + العمر + مفاتيح المتجر والحجز -->
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-slate-100">
+                    <div class="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+                        <div class="relative flex-1 min-w-[160px] max-w-xs">
+                            <i class="fa-solid fa-pen absolute right-2.5 top-2.5 text-slate-400 text-[10px] pointer-events-none"></i>
+                            <input type="text" value="${b.name}" onchange="updateBatchNameAndOrders('${focusedId}', this.value)" class="w-full bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded-xl py-1.5 pr-7 pl-2 text-sm font-black text-slate-900 outline-none focus:border-brand-primary">
+                        </div>
+                        <span class="px-2.5 py-1 rounded-xl text-[10px] font-black border ${bio.stageColor}">${bio.stageLabel}</span>
+                        ${bio.ageDays !== null ? `
+                        <div class="inline-flex items-center gap-1 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-xl text-[10px] font-black text-purple-900">
+                            <button type="button" onclick="quickStepBatchAge('${focusedId}', -1)" class="w-5 h-5 bg-white rounded text-purple-700 hover:bg-purple-600 hover:text-white">-</button>
+                            <span class="px-1">${bio.ageDays} يوم</span>
+                            <button type="button" onclick="quickStepBatchAge('${focusedId}', 1)" class="w-5 h-5 bg-white rounded text-purple-700 hover:bg-purple-600 hover:text-white">+</button>
+                        </div>` : ''}
+                    </div>
+
+                    <!-- مفتاحا الحالة الواضحان -->
+                    <div class="grid grid-cols-2 gap-1.5 shrink-0">
+                        <label class="flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-black cursor-pointer transition-colors ${b.isVisible !== false ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-slate-50 border-slate-200 text-slate-500'}">
+                            <input type="checkbox" ${b.isVisible !== false ? 'checked' : ''} onchange="toggleBatchBooleanFlag('${focusedId}', 'isVisible', this.checked)" class="w-3.5 h-3.5 accent-blue-600 rounded">
+                            <span>بالمتجر</span>
+                        </label>
+                        <label class="flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-black cursor-pointer transition-colors ${b.isOpen ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-slate-50 border-slate-200 text-slate-500'}">
+                            <input type="checkbox" ${b.isOpen ? 'checked' : ''} onchange="toggleBatchBooleanFlag('${focusedId}', 'isOpen', this.checked)" class="w-3.5 h-3.5 accent-emerald-600 rounded">
+                            <span>حجز مفتوح</span>
+                        </label>
+                    </div>
                 </div>
-                <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-soft text-center">
-                    <span class="text-[10px] font-bold text-slate-400 block mb-0.5">المتبقي المتاح للبيع الآن</span>
-                    <span class="text-xl font-black ${globalRemMeat <= 0 ? 'text-rose-600' : 'text-emerald-600'}">${Number(globalRemMeat.toFixed(1))} <span class="text-xs">طبق سمان</span></span>
+
+                <!-- 2. شريط المؤشرات الصافية ونسبة الامتلاء -->
+                <div class="bg-gradient-to-l from-slate-900 via-slate-800 to-emerald-950 text-white p-3.5 rounded-2xl space-y-2.5 shadow-sm">
+                    <div class="flex flex-wrap items-center justify-between gap-2 text-xs font-black">
+                        <span>🥩 حُجز <strong class="text-emerald-300 text-sm">${cap.bookedPairs}</strong> من <strong class="text-white">${cap.ceilingPairs} جوز</strong> (${cap.ceilingBirds} فردة)</span>
+                        <span class="px-2.5 py-0.5 rounded-lg text-[11px] ${cap.remainingPairs < 0 ? 'bg-red-500 text-white animate-pulse' : 'bg-white/15 text-amber-300'}">
+                            ${cap.remainingPairs < 0 ? `عجز ${Math.abs(cap.remainingPairs)} جوز!` : `متبقي: ${cap.remainingPairs} جوز (${cap.remainingBirds} فردة)`}
+                        </span>
+                    </div>
+                    <div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div class="h-full ${meta.sellProgress >= 90 ? 'bg-amber-400' : 'bg-emerald-400'} rounded-full transition-all duration-500" style="width: ${meta.sellProgress}%"></div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 text-center pt-1">
+                        <div class="bg-white/10 p-2 rounded-xl">
+                            <span class="text-[9px] text-slate-300 font-bold block">✅ صافي المسلّم</span>
+                            <span class="text-xs sm:text-sm font-black text-emerald-300">${metrics.collectedRevenue.toLocaleString()} ج</span>
+                            <span class="block text-[9px] text-slate-300">(${metrics.completedOrders} طلب)</span>
+                        </div>
+                        <div class="bg-white/10 p-2 rounded-xl">
+                            <span class="text-[9px] text-slate-300 font-bold block">⏳ حي منتظر</span>
+                            <span class="text-xs sm:text-sm font-black text-amber-300">${metrics.pendingRevenue.toLocaleString()} ج</span>
+                            <span class="block text-[9px] text-slate-300">(${metrics.activeOrders} طلب)</span>
+                        </div>
+                        <div class="bg-white/10 p-2 rounded-xl">
+                            <span class="text-[9px] text-slate-300 font-bold block">💰 إجمالي الدفعة</span>
+                            <span class="text-xs sm:text-sm font-black text-sky-300">${metrics.netProductsRevenue.toLocaleString()} ج</span>
+                            <span class="block text-[9px] text-slate-300">(${meta.sellProgress}% ممتلئ)</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200 shadow-soft text-center">
-                    <span class="text-[10px] font-black text-amber-800 block mb-0.5">صافي الحجوزات / طاقة الدفعات</span>
-                    <span class="text-lg font-black text-amber-700">${globalBookedNetRev.toLocaleString()} <span class="text-[10px] text-slate-500">/ ${Math.round(globalCapacityNetRev).toLocaleString()} ج</span></span>
+
+                <!-- 3. شريط التبويبات الداخلية الـ 3 (بدون أي زحمة) -->
+                <div class="grid grid-cols-3 gap-1.5 bg-slate-50 p-1 rounded-2xl border border-slate-200/80">
+                    <button type="button" onclick="setBatchInnerTab('stock')" class="py-2 px-2 rounded-xl text-[11px] sm:text-xs font-black transition-all ${innerTabBtnCls('stock')}">
+                        📦 الكميات والأصناف
+                    </button>
+                    <button type="button" onclick="setBatchInnerTab('orders_zones')" class="py-2 px-2 rounded-xl text-[11px] sm:text-xs font-black transition-all ${innerTabBtnCls('orders_zones')}">
+                        📋 الطلبات (${metrics.totalOrders})
+                    </button>
+                    <button type="button" onclick="setBatchInnerTab('lifecycle')" class="py-2 px-2 rounded-xl text-[11px] sm:text-xs font-black transition-all ${innerTabBtnCls('lifecycle')}">
+                        ⚙️ الذبح والإغلاق
+                    </button>
                 </div>
+
+                <!-- 4. محتوى التبويب النشط -->
+                <div>${innerTabContentHtml}</div>
             </div>
-            ${switcherBarHtml}
         `;
 
-        cont.innerHTML = topCommandSummaryHtml + `<div class="space-y-4">${cardsHtml}</div>`;
+        cont.innerHTML = topSelectorBarHtml + focusedWorkspaceHtml;
     };
 
     // =========================================================================
@@ -939,9 +1003,8 @@
     // =========================================================================
     window.addNewBatchUI = async function () {
         const defaultName = `دفعة ${new Date().toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' })}`;
-        const batchNameInput = await window.execPrompt('🐣 اكتب اسم الدورة / الدفعة الجديدة (مثال: دفعة الخميس 20 نوفمبر):', defaultName, { title: 'إنشاء دورة جديدة', tone: 'brand', confirmText: 'إنشاء الدفعة' });
+        const batchNameInput = await askPromptSafe('🐣 اكتب اسم الدورة / الدفعة الجديدة (مثال: دفعة الخميس 20 نوفمبر):', defaultName, { title: 'إنشاء دورة جديدة', tone: 'brand', confirmText: 'إنشاء الدفعة' });
         if (batchNameInput === null) return;
-
         const cleanName = batchNameInput.trim() || defaultName;
 
         const bId = 'batch_' + Date.now();
@@ -958,8 +1021,9 @@
             if (typeof db !== 'undefined') {
                 await db.collection('inventory').doc('batches').set({ [bId]: storeBatches[bId] }, { merge: true });
             }
-            window.batchUIState.selectedFilter = 'all';
-            window.batchUIState.collapsedCards[bId] = false;
+            window.batchUIState.viewMode = 'focus';
+            window.batchUIState.focusedBatchId = bId;
+            window.batchUIState.activeInnerTab = 'stock';
             window.renderBatchesUI();
             if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
             if (typeof window.showToast === 'function') window.showToast(`🎉 تم إنشاء (${cleanName}) بنجاح!`);
@@ -974,7 +1038,6 @@
         if (!b.stock) b.stock = {};
         b.stock[pId] = Math.max(0, parseInt(val) || 0);
 
-        // حساب مجموع خانات الأصناف الأساسية وتحديث سقف الدفعة تلقائياً ليتطابق معها
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
         let newMainSum = 0;
         Object.keys(prodsObj).forEach(k => {
@@ -1004,7 +1067,6 @@
         if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
     };
 
-    // تعديل عمر السمان يوماً للأمام أو الخلف بضغطة زر
     window.quickStepBatchAge = async function (bId, deltaDays) {
         const b = storeBatches[bId];
         if (!b) return;
@@ -1022,7 +1084,6 @@
         } catch (e) {}
     };
 
-    // الانتقال لشاشة الطلبات الحية مع فلتر الدفعة والحالة المطلوبة
     window.jumpToBatchOrdersWithStatus = function (batchName, statusTab) {
         const ordersBtn = document.querySelector('#sidebar button[onclick*="switchTab(\'orders\'"]');
         if (ordersBtn && typeof window.switchTab === 'function') {
@@ -1042,7 +1103,6 @@
         }, 80);
     };
 
-    // الانتقال لشاشة الطلبات الحية مع فلتر (الدفعة + المنطقة)
     window.jumpToBatchZoneOrders = function (batchName, zoneName) {
         const ordersBtn = document.querySelector('#sidebar button[onclick*="switchTab(\'orders\'"]');
         if (ordersBtn && typeof window.switchTab === 'function') {
@@ -1060,7 +1120,6 @@
         }, 80);
     };
 
-    // الانتقال لشاشة الطلبات الحية مع فلتر (الدفعة + الصنف)
     window.filterOrdersByBatchAndItem = function (batchName, itemName) {
         const ordersBtn = document.querySelector('#sidebar button[onclick*="switchTab(\'orders\'"]');
         if (ordersBtn && typeof window.switchTab === 'function') {
@@ -1077,13 +1136,12 @@
         }, 80);
     };
 
-    // تحويل كل الطلبات (الجديدة) في الدفعة إلى (قيد التجهيز) بضغطة زر واحدة يوم الذبح
     window.bulkMoveBatchNewToProcessing = async function (bId, bName) {
         const metrics = window.getBatchDeepMetrics(bId, bName);
         const newOrders = metrics.batchOrdersList.filter(o => o.status === 'new');
         if (newOrders.length === 0) return alert('لا توجد طلبات في حالة (جديد) داخل هذه الدفعة!');
 
-        if (!confirm(`⚡ هل تريد تحويل كل الطلبات الجديدة في دفعة (${bName}) وعددها (${newOrders.length} طلب) إلى قسم (جاري التجهيز) الآن؟`)) return;
+        if (!(await askConfirmSafe(`⚡ هل تريد تحويل كل الطلبات الجديدة في دفعة (${bName}) وعددها (${newOrders.length} طلب) إلى قسم (جاري التجهيز) الآن؟`, { title: 'نقل جماعي للتجهيز', tone: 'brand', confirmText: 'تأكيد النقل' }))) return;
 
         try {
             const batchWrite = db.batch();
@@ -1121,7 +1179,6 @@
         }
     };
 
-    // مزامنة وإصلاح أرقام المحجوز للدفعة في قاعدة البيانات لتطابق مجموع الطلبات الفعلية
     window.syncAndHealBatchBooked = async function (bId, bName) {
         const b = storeBatches[bId];
         if (!b) return;
@@ -1145,7 +1202,6 @@
         }
     };
 
-    // ترحيل الطلبات الحية المتبقية/المؤجلة من هذه الدفعة إلى دفعة أخرى مفتوحة
     window.rolloverBatchActiveOrders = async function (fromBatchId, fromBatchName) {
         const metrics = window.getBatchDeepMetrics(fromBatchId, fromBatchName);
         const activeOrders = metrics.batchOrdersList.filter(o => !['completed', 'canceled', 'trash'].includes(o.status));
@@ -1156,19 +1212,19 @@
             return alert('لا توجد دفعة أخرى مسجلة حالياً! أنشئ الدورة الجديدة أولاً ثم اضغط ترحيل المتبقي.');
         }
 
-        let promptMsg = `🔀 ترحيل الطلبات المتبقية غير المسلمة من (${fromBatchName}) وعددها (${activeOrders.length} طلب):\n\nاختر رقم الدفعة الجديدة التي تريد نقل الطلبات إليها:\n`;
+        let promptMsg = `🔀 ترحيل الطلبات المتبقية غير المسلمة من (${fromBatchName}) وعددها (${activeOrders.length} طلب):\n\nاكتب رقم الدفعة الجديدة التي تريد نقل الطلبات إليها:\n`;
         otherBatches.forEach((id, idx) => {
             promptMsg += `${idx + 1} = ${storeBatches[id].name}\n`;
         });
 
-        const choice = prompt(promptMsg, '1');
+        const choice = await askPromptSafe(promptMsg, '1', { title: 'ترحيل الطلبات المتبقية', tone: 'brand', inputType: 'number', confirmText: 'التالي' });
         if (!choice) return;
         const targetIdx = parseInt(choice) - 1;
         const targetBatchId = otherBatches[targetIdx];
         if (!targetBatchId || !storeBatches[targetBatchId]) return alert('اختيار غير صحيح!');
 
         const targetBatchName = storeBatches[targetBatchId].name;
-        if (!confirm(`سيتم نقل (${activeOrders.length}) طلب بكامل أصنافها من (${fromBatchName}) إلى (${targetBatchName}). تأكيد؟`)) return;
+        if (!(await askConfirmSafe(`سيتم نقل (${activeOrders.length}) طلب بكامل أصنافها من (${fromBatchName}) إلى (${targetBatchName}). تأكيد؟`, { title: 'تأكيد الترحيل', tone: 'warning', confirmText: 'تأكيد ونقل' }))) return;
 
         try {
             const batchWrite = db.batch();
@@ -1349,7 +1405,7 @@
         if (!currentBatch) return;
 
         const defaultTotal = currentBatch.actualPairs || currentBatch.expectedPairs || '';
-        const totalInput = prompt(`🔮 نظام التوزيع الذكي لدفعة (${currentBatch.name}):\n\nأدخل العدد الكلي للسمان المراد توزيعه على الأصناف (مثال: 200):`, defaultTotal);
+        const totalInput = await askPromptSafe(`🔮 نظام التوزيع الذكي لدفعة (${currentBatch.name}):\n\nأدخل العدد الكلي للسمان المراد توزيعه على الأصناف (مثال: 200):`, defaultTotal, { title: 'التوزيع الذكي للدفعة', tone: 'brand', inputType: 'number', confirmText: 'احسب التوزيع' });
         if (!totalInput) return;
 
         const totalTarget = parseInt(totalInput);
@@ -1359,14 +1415,16 @@
         const validMainProducts = {};
         const mainProdIds = [];
 
-        Object.keys(prodsObj).forEach(id => {
-            if (isMainQuailProduct(id) && !prodsObj[id].isHidden) {
-                validMainProducts[prodsObj[id].name] = id;
-                mainProdIds.push(id);
-            }
-        });
+        Object.keys(prodsObj)
+            .sort((a, b2) => getBatchProductRank(a, prodsObj[a]) - getBatchProductRank(b2, prodsObj[b2]))
+            .forEach(id => {
+                if (isMainQuailProduct(id) && !prodsObj[id].isHidden && !prodsObj[id].isWeightBased) {
+                    validMainProducts[prodsObj[id].name] = id;
+                    mainProdIds.push(id);
+                }
+            });
 
-        if (mainProdIds.length === 0) return alert('لا توجد أصناف أساسية مسجلة في المتجر!');
+        if (mainProdIds.length === 0) return alert('لا توجد أصناف سمان أساسية مسجلة في المتجر!');
 
         const historyWeightsById = {};
         let grandTotalHistory = 0;
@@ -1441,13 +1499,14 @@
         });
         textLog += `\nهل توافق على اعتماد هذا التوزيع وحفظه؟`;
 
-        if (!confirm(textLog)) return;
+        if (!(await askConfirmSafe(textLog, { title: 'اعتماد التوزيع الذكي', tone: 'success', confirmText: 'اعتماد وحفظ' }))) return;
 
         currentBatch.stock = newStock;
         currentBatch.actualPairs = totalTarget;
+        currentBatch.publicPairs = totalTarget;
         try {
             await db.collection('inventory').doc('batches').set({
-                [bId]: { stock: newStock, actualPairs: totalTarget }
+                [bId]: { stock: newStock, actualPairs: totalTarget, publicPairs: totalTarget }
             }, { merge: true });
             window.renderBatchesUI();
             if (typeof window.showToast === 'function') window.showToast('✨ تم التوزيع الذكي للدفعة بنجاح!');
@@ -1470,10 +1529,13 @@
         const metrics = window.getBatchDeepMetrics(bId, b.name);
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
 
+        const sortedIds = Object.keys(prodsObj)
+            .filter(id => Boolean(prodsObj[id]))
+            .sort((a, b2) => getBatchProductRank(a, prodsObj[a]) - getBatchProductRank(b2, prodsObj[b2]));
+
         let html = '';
-        Object.keys(prodsObj).forEach(id => {
+        sortedIds.forEach(id => {
             const p = prodsObj[id];
-            if (!p) return;
             const plannedStock = (b.stock && b.stock[id]) ? Number(b.stock[id]) : 0;
             const bookedNow = metrics.realBookedByProd[id] || (b.booked && b.booked[id] ? Number(b.booked[id]) : 0);
             const currentSlaughtered = (b.slaughtered && b.slaughtered[id] !== undefined)
@@ -1487,7 +1549,7 @@
                     <span class="text-[10px] font-bold text-slate-400">المتاح بالدفعة: ${plannedStock} | محجوز للعملاء: <strong class="text-blue-600">${Number(bookedNow.toFixed(1))}</strong></span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <span class="text-[10px] font-bold text-rose-600">المذبوح الفعلي:</span>
+                    <span class="text-[10px] font-bold text-rose-600">المذبوح:</span>
                     <input type="number" id="slaughter-q-${id}" value="${currentSlaughtered}" min="0" class="w-20 border border-rose-200 bg-rose-50/40 text-center font-black text-rose-700 text-base rounded-lg py-1 outline-none focus:ring-2 focus:ring-rose-300 focus:bg-white transition-all">
                 </div>
             </div>`;
@@ -1575,12 +1637,12 @@
         btn.disabled = false;
     };
 
-    // دالة الحذف الجذري للدفعة (تمسحها من الفايربيس والكاش وتفك ارتباط الطلبات القديمة بها)
+    // دالة الحذف الجذري للدفعة
     window.deleteBatchUI = async function (bId) {
         const targetBatch = storeBatches[bId];
         const batchTitle = targetBatch && targetBatch.name ? targetBatch.name : 'هذه الدفعة';
 
-        if (!(await window.execConfirm(`⚠️ هل أنت متأكد من حذف (${batchTitle}) نهائياً من النظام؟`, { title: 'حذف الدفعة نهائياً', tone: 'danger', confirmText: 'نعم، حذف نهائي' }))) return;
+        if (!(await askConfirmSafe(`⚠️ هل أنت متأكد من حذف (${batchTitle}) نهائياً من النظام؟`, { title: 'حذف الدفعة نهائياً', tone: 'danger', confirmText: 'نعم، حذف نهائي' }))) return;
 
         try {
             delete storeBatches[bId];
@@ -1614,7 +1676,8 @@
                 }
             }
 
-            window.batchUIState.selectedFilter = 'all';
+            window.batchUIState.focusedBatchId = null;
+            window.batchUIState.viewMode = 'focus';
             window.renderBatchesUI();
             if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
             if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
@@ -1629,7 +1692,6 @@
         }
     };
 
-    // إعادة رسم شاشة الدفعات تلقائياً عند تحديث الطلبات لتظل الأرقام حية دائماً
     const _prevScheduleRenderBatches = window.scheduleSystemRender;
     window.scheduleSystemRender = function () {
         if (typeof _prevScheduleRenderBatches === 'function') {
