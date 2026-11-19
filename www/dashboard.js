@@ -303,7 +303,7 @@
             ? `\n\n📌 ملاحظة: يوجد (${activeRemaining.length}) طلب حي (جديد/تجهيز/في الطريق) سيظل كما هو في شاشة الطلبات الحية، وعندما يكتمل يمكنك ترحيله يدوياً بزر (أرشفة للدفعة).`
             : '';
 
-        if (!confirm(`⚠️ هل أنت متأكد من إغلاق وأرشفة دفعة (${b.name})؟\n\nسيتم ترحيل الطلبات (المكتملة والملغية فقط) للأرشيف، مع بقاء أي طلبات حية كما هي بدون تغيير حالتها.${activeNote}`)) return;
+        if (!(await window.execConfirm(`⚠️ هل أنت متأكد من إغلاق وأرشفة دفعة (${b.name})؟\n\nسيتم ترحيل الطلبات (المكتملة والملغية فقط) للأرشيف، مع بقاء أي طلبات حية كما هي بدون تغيير حالتها.${activeNote}`, { title: 'إغلاق وترحيل الدفعة', tone: 'warning', confirmText: 'تأكيد الأرشفة' }))) return;
 
         try {
             let totalRev = 0, totalDel = 0, totalDisc = 0, itemsMap = {}, zonesMap = {};
@@ -715,7 +715,8 @@
         if (typeof storeSettings === 'undefined') return;
         const newState = !(storeSettings.storeOpen !== false);
         const msg = newState ? 'هل تريد فتح المتجر الآن لاستقبال طلبات العملاء؟' : 'هل تريد إغلاق المتجر مؤقتاً أمام العملاء؟';
-        if (!confirm(msg)) return;
+        if (!(await window.execConfirm(msg, { title: newState ? 'فتح المتجر للعملاء' : 'إغلاق المتجر مؤقتاً', tone: newState ? 'success' : 'warning', confirmText: newState ? 'فتح المتجر' : 'إغلاق المتجر' }))) return;
+
 
         try {
             storeSettings.storeOpen = newState;
@@ -1522,7 +1523,7 @@
     };
 
     window.deleteLedgerRecord = async function (recId) {
-        if (!confirm('هل أنت متأكد من حذف هذا السجل نهائياً؟')) return;
+        if (!(await window.execConfirm('هل أنت متأكد من حذف هذا السجل المالي نهائياً؟', { title: 'حذف سجل من الخزنة', tone: 'danger', confirmText: 'نعم، احذف السجل' }))) return;
         try {
             delete window.storeLedgerRecords[recId];
             await db.collection('inventory').doc('ledger_records').update({
