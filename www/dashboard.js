@@ -54,10 +54,16 @@
         return Number(pricesObj[pId] || (prodsObj[pId] ? prodsObj[pId].basePrice : 0)) || 0;
     };
 
-    // تصنيف الصنف (سمان لحم / كتاكيت / بيض) لمنع خلط الأعداد في المتوسطات
+    // تصنيف الصنف (سمان لحم / كتاكيت / بيض / صنف مستقل) لمنع خلط الأعداد في المتوسطات
     window.classifyOrderItem = function (item) {
-        const id = String(item?.id || '').toLowerCase();
+        const rawId = item?.id || '';
+        const id = String(rawId).toLowerCase();
         const name = String(item?.name || '').toLowerCase();
+        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
+
+        if (rawId && prodsObj[rawId] && prodsObj[rawId].categoryType === 'custom') {
+            return { type: 'custom', unitLabel: 'وحدة', isMeat: false };
+        }
         if (id === 'eggs' || name.includes('بيض')) {
             return { type: 'egg', unitLabel: 'طبق بيض', isMeat: false };
         }
@@ -66,6 +72,7 @@
         }
         return { type: 'meat', unitLabel: 'طبق/جوز', isMeat: true };
     };
+
 
     // تدقيق حسابات الطلب الواحد (صافي حساب المالك بدون التوصيل + توزيع الكاش والفيزا/المحفظة حسب تقفيل المندوب)
     window.getAccurateOrderFinancials = function (o) {
