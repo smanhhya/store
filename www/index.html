@@ -4122,8 +4122,14 @@
             const safeId = String(id || '').toLowerCase();
             const safeName = String(p?.name || '').toLowerCase();
 
+            // 0. الأصناف المستقلة المخصصة (سمان شوي، متبل، علف، منتجات أخرى...)
+            if (p && p.categoryType === 'custom') {
+                return { group: 'custom', rank: 50 };
+            }
+
             // 1. الطيور المباعة بالوزن (فراخ تسمين، رومي، بط...)
-            if (p && p.isWeightBased) {
+            if ((p && p.isWeightBased) || (p && p.categoryType === 'weight')) {
+
                 let wRank = 50;
                 if (safeName.includes('فراخ') || safeName.includes('فرخ') || safeName.includes('تسمين')) wRank = 10;
                 else if (safeName.includes('رومي')) wRank = 20;
@@ -4178,6 +4184,7 @@
                 quail: [],
                 eggs_chicks: [],
                 weight: [],
+                custom: [],
                 unpinnedRegular: [],
                 unpinnedWeight: []
             };
@@ -4189,7 +4196,8 @@
                 const entry = { id, p, group: meta.group, rank: meta.rank };
 
                 if (isPinnedFn(id)) {
-                    groups[meta.group].push(entry);
+                    if (!groups[meta.group]) groups.custom.push(entry);
+                    else groups[meta.group].push(entry);
                 } else {
                     if (p.isWeightBased) groups.unpinnedWeight.push(entry);
                     else groups.unpinnedRegular.push(entry);
@@ -4199,6 +4207,7 @@
             groups.quail.sort((a, b) => a.rank - b.rank);
             groups.eggs_chicks.sort((a, b) => a.rank - b.rank);
             groups.weight.sort((a, b) => a.rank - b.rank);
+            groups.custom.sort((a, b) => a.rank - b.rank);
             groups.unpinnedRegular.sort((a, b) => a.rank - b.rank);
             groups.unpinnedWeight.sort((a, b) => a.rank - b.rank);
 
@@ -4329,6 +4338,20 @@
                     </div>
                     <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         ${groups.weight.map(buildNewOrderCardHtml).join('')}
+                    </div>
+                </div>`;
+            }
+
+            // 3-ب. قسم الأصناف المستقلة الخاصة (سمان شوي / علف / منتجات أخرى)
+            if (groups.custom.length > 0) {
+                finalHtml += `
+                <div class="col-span-2 sm:col-span-3 space-y-2">
+                    <div class="flex items-center gap-1.5 text-[11px] font-black text-purple-900 bg-purple-50/80 border border-purple-200/70 px-2.5 py-1 rounded-lg">
+                        <i class="fa-solid fa-sparkles text-purple-600"></i>
+                        <span>أصناف مستقلة ومنتجات خاصة</span>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        ${groups.custom.map(buildNewOrderCardHtml).join('')}
                     </div>
                 </div>`;
             }
