@@ -3881,34 +3881,103 @@
             calcTotal('no');
         };
 
+        // دالة تصنيف وترتيب الأصناف تلقائياً (سمان بالجوز -> بيض وكتاكيت -> فراخ وطيور بالوزن)
+        window.getOrderProductCategoryAndRank = (id, p) => {
+            const safeId = String(id || '').toLowerCase();
+            const safeName = String(p?.name || '').toLowerCase();
+
+            // 1. الطيور المباعة بالوزن (فراخ تسمين، رومي، بط...)
+            if (p && p.isWeightBased) {
+                let wRank = 50;
+                if (safeName.includes('فراخ') || safeName.includes('فرخ') || safeName.includes('تسمين')) wRank = 10;
+                else if (safeName.includes('رومي')) wRank = 20;
+                else if (safeName.includes('بط')) wRank = 30;
+                return { group: 'weight', rank: wRank };
+            }
+
+            // 2. بيض سمان وكتاكيت عمر يوم
+            if (
+                safeId === 'eggs' || safeId === 'chicks' ||
+                safeName.includes('بيض') || safeName.includes('كتكوت') ||
+                safeName.includes('كتاكيت') || safeName.includes('عمر')
+            ) {
+                let ecRank = 50;
+                if (safeId === 'eggs' || safeName.includes('بيض')) ecRank = 10;
+                else if (safeId === 'chicks' || safeName.includes('كتكوت') || safeName.includes('كتاكيت') || safeName.includes('عمر')) ecRank = 20;
+                return { group: 'eggs_chicks', rank: ecRank };
+            }
+
+            // 3. سمان مذبوح بالجوز (مرتب تصاعدياً: سوبر -> جامبو -> سبشيال -> سوبر سبشيال)
+            let qRank = 50;
+            if (safeId === 'super' || (safeName.includes('سوبر') && !safeName.includes('سبشيال') && !safeName.includes('اسبيشيال'))) qRank = 10;
+            else if (safeId === 'jumbo' || safeName.includes('جامبو')) qRank = 20;
+            else if (safeId === 'special' || ((safeName.includes('سبشيال') || safeName.includes('اسبيشيال')) && !safeName.includes('سوبر'))) qRank = 30;
+            else if (safeId === 'superspecial' || (safeName.includes('سوبر') && (safeName.includes('سبشيال') || safeName.includes('اسبيشيال')))) qRank = 40;
+            else qRank = 50 + (Number(storePrices[id] || p?.basePrice) || 0) / 1000;
+
+            return { group: 'quail', rank: qRank };
+        };
+
+        // فتح أو طي كارت الصنف المباع بالوزن (فراخ تسمين / رومي) لمنع زحمة النافذة
+        window.toggleOrderWeightCardBody = (prefix, id) => {
+            const body = document.getElementById(`${prefix}-weight-card-body-${id}`);
+            const arrow = document.getElementById(`${prefix}-weight-card-arrow-${id}`);
+            if (!body) return;
+            body.classList.toggle('hidden');
+            if (arrow) {
+                arrow.style.transform = body.classList.contains('hidden') ? 'rotate(0deg)' : 'rotate(180deg)';
+            }
+        };
+
         window.generateDynamicOrderInputs = () => {
             const container = document.getElementById('dynamic-order-items');
             if (!container) return;
             container.innerHTML = '';
 
-            let pinnedHtml = '';
-            let unpinnedHtml = '';
-            let unpinnedCount = 0;
-
             const isPinnedFn = (id) => (typeof window.isProductPinnedForAdmin === 'function')
                 ? window.isProductPinnedForAdmin(id)
                 : (!storeProducts[id]?.isExtra);
 
+            const groups = {
+                quail: [],
+                eggs_chicks: [],
+                weight: [],
+                unpinnedRegular: [],
+                unpinnedWeight: []
+            };
+
             Object.keys(storeProducts).forEach(id => {
-                let p = storeProducts[id];
+                const p = storeProducts[id];
                 if (!p) return;
-                let kiloPrice = storePrices[id] || p.basePrice || 0;
-                let isPinned = isPinnedFn(id);
-                let itemCardMarkup = '';
+                const meta = window.getOrderProductCategoryAndRank(id, p);
+                const entry = { id, p, group: meta.group, rank: meta.rank };
+
+                if (isPinnedFn(id)) {
+                    groups[meta.group].push(entry);
+                } else {
+                    if (p.isWeightBased) groups.unpinnedWeight.push(entry);
+                    else groups.unpinnedRegular.push(entry);
+                }
+            });
+
+            groups.quail.sort((a, b) => a.rank - b.rank);
+            groups.eggs_chicks.sort((a, b) => a.rank - b.rank);
+            groups.weight.sort((a, b) => a.rank - b.rank);
+            groups.unpinnedRegular.sort((a, b) => a.rank - b.rank);
+            groups.unpinnedWeight.sort((a, b) => a.rank - b.rank);
+
+            const buildNewOrderCardHtml = (entry) => {
+                const { id, p } = entry;
+                const kiloPrice = storePrices[id] || p.basePrice || 0;
 
                 if (p.isWeightBased) {
-                    let weightsArr = window.parseWeightsArray(p.weightsList);
-                    let totalStockCount = weightsArr.length;
-                    let totalStockKg = (weightsArr.reduce((s, v) => s + v, 0) / 1000).toFixed(2);
+                    const weightsArr = window.parseWeightsArray(p.weightsList);
+                    const totalStockCount = weightsArr.length;
+                    const totalStockKg = (weightsArr.reduce((s, v) => s + v, 0) / 1000).toFixed(2);
 
-                    let checkboxesHtml = weightsArr.map((w, idx) => {
-                        let itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
-                        let itemPriceEGP = Math.round((w / 1000) * kiloPrice);
+                    const checkboxesHtml = weightsArr.map((w, idx) => {
+                        const itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
+                        const itemPriceEGP = Math.round((w / 1000) * kiloPrice);
                         return `
                         <label class="flex items-center justify-between gap-2 bg-slate-50 hover:bg-indigo-50/80 border border-slate-200 px-3 py-2 rounded-xl cursor-pointer transition-all select-none">
                             <div class="flex items-center gap-2">
@@ -3919,88 +3988,131 @@
                         </label>`;
                     }).join('');
 
-                    let dropdownContentHtml = `
-                    <div class="space-y-2.5 mt-2">
-                        <div class="flex flex-wrap items-center justify-between gap-2 bg-white p-2.5 rounded-xl border border-indigo-100 shadow-sm">
-                            <span class="text-[11px] font-black text-slate-700"><i class="fa-solid fa-wand-magic-sparkles text-indigo-500 ml-1"></i> الزبون عايز كام واحدة؟</span>
-                            <div class="flex items-center gap-1.5">
-                                <button type="button" onclick="stepWeightQuickCount('${id}', -1)" class="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-500 text-rose-600 hover:text-white font-black text-sm transition-colors">-</button>
-                                <input type="number" id="weight-quick-count-${id}" min="0" max="${totalStockCount}" placeholder="العدد" oninput="autoPickCountOfWeights('${id}', this.value, 'first')" class="w-16 border border-indigo-200 rounded-lg p-1 text-center font-black text-xs text-indigo-700 outline-none bg-indigo-50/30">
-                                <button type="button" onclick="stepWeightQuickCount('${id}', 1)" class="w-7 h-7 rounded-lg bg-emerald-50 hover:bg-emerald-500 text-emerald-600 hover:text-white font-black text-sm transition-colors">+</button>
-                            </div>
-                            <div class="flex gap-1 w-full sm:w-auto justify-end pt-1 sm:pt-0">
-                                <button type="button" onclick="autoPickCountOfWeights('${id}', document.getElementById('weight-quick-count-${id}').value || 1, 'light')" class="text-[9px] bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 font-black px-2 py-1 rounded-lg transition-colors">الأخف</button>
-                                <button type="button" onclick="autoPickCountOfWeights('${id}', document.getElementById('weight-quick-count-${id}').value || 1, 'heavy')" class="text-[9px] bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 font-black px-2 py-1 rounded-lg transition-colors">الأثقل</button>
-                                <button type="button" onclick="autoPickCountOfWeights('${id}', 0)" class="text-[9px] bg-red-50 hover:bg-red-500 hover:text-white text-red-500 font-black px-2 py-1 rounded-lg transition-colors">مسح</button>
-                            </div>
-                        </div>
-
-                        <div class="relative">
-                            <button type="button" onclick="toggleWeightDropdownMenu('${id}')" class="w-full bg-white hover:bg-indigo-50/50 border-2 border-indigo-200 rounded-xl p-2.5 flex items-center justify-between text-right transition-all shadow-sm">
-                                <div class="flex items-center gap-2">
-                                    <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
-                                    <span id="weight-summary-label-${id}" class="text-xs font-black text-slate-700">اضغط لفتح قائمة الأوزان المنسدلة (${totalStockCount} متاح)</span>
-                                </div>
-                                <i id="weight-dropdown-arrow-${id}" class="fa-solid fa-chevron-down text-indigo-500 text-xs transition-transform duration-200"></i>
-                            </button>
-
-                            <div id="weight-dropdown-menu-${id}" class="hidden mt-1.5 bg-white border-2 border-indigo-200 rounded-2xl p-2.5 shadow-xl max-h-60 overflow-y-auto custom-scroll space-y-2 z-30">
-                                <div class="flex items-center gap-1.5 bg-slate-50 p-2 rounded-xl border border-indigo-100">
-                                    <input type="number" id="no-custom-gram-${id}" placeholder="وزن خاص بالجرام (مثال: 1450)..." onkeydown="if(event.key==='Enter'){event.preventDefault(); addCustomWeightInNewOrder('${id}');}" class="flex-1 text-xs font-black text-slate-700 outline-none bg-white px-2 py-1 rounded border border-slate-200">
-                                    <button type="button" onclick="addCustomWeightInNewOrder('${id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0">+ إضافة</button>
-                                </div>
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                                    ${checkboxesHtml || '<div class="col-span-full text-center py-2 text-xs font-bold text-slate-400">اكتب الوزن بالجرام في الخانة بالأعلى واضغط إضافة</div>'}
-                                </div>
-                            </div>
-                        </div>
+                    return `
+                    <div class="col-span-2 sm:col-span-3 bg-indigo-50/50 border border-indigo-200/90 p-3 rounded-2xl text-right space-y-2 shadow-sm">
+                        <button type="button" onclick="toggleOrderWeightCardBody('no', '${id}')" class="w-full flex flex-wrap justify-between items-center gap-2 text-right">
+                            <span class="text-xs font-black text-indigo-950 flex items-center gap-1.5">
+                                <i class="fa-solid fa-weight-scale text-indigo-600"></i> ${p.name}
+                                <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full">الكيلو: ${kiloPrice} ج</span>
+                            </span>
+                            <span class="flex items-center gap-1.5">
+                                <span class="text-[10px] font-black ${totalStockCount > 0 ? 'text-indigo-700 bg-white border-indigo-200' : 'text-slate-400 bg-slate-100 border-slate-200'} px-2 py-0.5 rounded-lg border">المتاح: ${totalStockCount} (${totalStockKg} كجم)</span>
+                                <span class="w-6 h-6 rounded-lg bg-white border border-indigo-200 text-indigo-600 flex items-center justify-center"><i id="no-weight-card-arrow-${id}" class="fa-solid fa-chevron-down text-[10px] transition-transform duration-200"></i></span>
+                            </span>
+                        </button>
 
                         <div id="weight-live-bar-${id}" class="hidden bg-indigo-900 text-white px-3 py-2 rounded-xl text-[11px] font-black flex flex-wrap items-center justify-between gap-2 shadow-sm"></div>
-                        <input type="hidden" id="no-q-${id}" value="0">
-                    </div>`;
 
-                    itemCardMarkup = `
-                    <div class="col-span-2 sm:col-span-3 bg-indigo-50/60 border-2 border-indigo-200/80 p-3.5 rounded-2xl text-right flex flex-col justify-between shadow-sm">
-                        <div class="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-indigo-100">
-                            <span class="text-xs font-black text-indigo-950 flex items-center gap-1.5"><i class="fa-solid fa-weight-scale text-indigo-600"></i> ${p.name} <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full">سعر الكيلو: ${kiloPrice} ج</span></span>
-                            <span class="text-[10px] font-black text-indigo-700 bg-white px-2.5 py-1 rounded-lg border border-indigo-200">المتاح بالمصفوفة: ${totalStockCount} عدد (${totalStockKg} كجم)</span>
+                        <div id="no-weight-card-body-${id}" class="hidden space-y-2.5 pt-2 border-t border-indigo-100">
+                            <div class="flex flex-wrap items-center justify-between gap-2 bg-white p-2.5 rounded-xl border border-indigo-100 shadow-sm">
+                                <span class="text-[11px] font-black text-slate-700"><i class="fa-solid fa-wand-magic-sparkles text-indigo-500 ml-1"></i> الزبون عايز كام واحدة؟</span>
+                                <div class="flex items-center gap-1.5">
+                                    <button type="button" onclick="stepWeightQuickCount('${id}', -1)" class="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-500 text-rose-600 hover:text-white font-black text-sm transition-colors">-</button>
+                                    <input type="number" id="weight-quick-count-${id}" min="0" max="${totalStockCount}" placeholder="العدد" oninput="autoPickCountOfWeights('${id}', this.value, 'first')" class="w-16 border border-indigo-200 rounded-lg p-1 text-center font-black text-xs text-indigo-700 outline-none bg-indigo-50/30">
+                                    <button type="button" onclick="stepWeightQuickCount('${id}', 1)" class="w-7 h-7 rounded-lg bg-emerald-50 hover:bg-emerald-500 text-emerald-600 hover:text-white font-black text-sm transition-colors">+</button>
+                                </div>
+                                <div class="flex gap-1 w-full sm:w-auto justify-end pt-1 sm:pt-0">
+                                    <button type="button" onclick="autoPickCountOfWeights('${id}', document.getElementById('weight-quick-count-${id}').value || 1, 'light')" class="text-[9px] bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 font-black px-2 py-1 rounded-lg transition-colors">الأخف</button>
+                                    <button type="button" onclick="autoPickCountOfWeights('${id}', document.getElementById('weight-quick-count-${id}').value || 1, 'heavy')" class="text-[9px] bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 font-black px-2 py-1 rounded-lg transition-colors">الأثقل</button>
+                                    <button type="button" onclick="autoPickCountOfWeights('${id}', 0)" class="text-[9px] bg-red-50 hover:bg-red-500 hover:text-white text-red-500 font-black px-2 py-1 rounded-lg transition-colors">مسح</button>
+                                </div>
+                            </div>
+
+                            <div class="relative">
+                                <button type="button" onclick="toggleWeightDropdownMenu('${id}')" class="w-full bg-white hover:bg-indigo-50/50 border-2 border-indigo-200 rounded-xl p-2 flex items-center justify-between text-right transition-all shadow-sm">
+                                    <div class="flex items-center gap-2">
+                                        <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
+                                        <span id="weight-summary-label-${id}" class="text-xs font-black text-slate-700">قائمة الأوزان المنسدلة (${totalStockCount} متاح)</span>
+                                    </div>
+                                    <i id="weight-dropdown-arrow-${id}" class="fa-solid fa-chevron-down text-indigo-500 text-xs transition-transform duration-200"></i>
+                                </button>
+
+                                <div id="weight-dropdown-menu-${id}" class="hidden mt-1.5 bg-white border-2 border-indigo-200 rounded-2xl p-2.5 shadow-xl max-h-60 overflow-y-auto custom-scroll space-y-2 z-30">
+                                    <div class="flex items-center gap-1.5 bg-slate-50 p-2 rounded-xl border border-indigo-100">
+                                        <input type="number" id="no-custom-gram-${id}" placeholder="وزن خاص بالجرام (مثال: 1450)..." onkeydown="if(event.key==='Enter'){event.preventDefault(); addCustomWeightInNewOrder('${id}');}" class="flex-1 text-xs font-black text-slate-700 outline-none bg-white px-2 py-1 rounded border border-slate-200">
+                                        <button type="button" onclick="addCustomWeightInNewOrder('${id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0">+ إضافة</button>
+                                    </div>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                        ${checkboxesHtml || '<div class="col-span-full text-center py-2 text-xs font-bold text-slate-400">اكتب الوزن بالجرام في الخانة بالأعلى واضغط إضافة</div>'}
+                                    </div>
+                                </div>
+                            </div>
+                            <input type="hidden" id="no-q-${id}" value="0">
                         </div>
-                        ${dropdownContentHtml}
-                    </div>`;
-                } else {
-                    itemCardMarkup = `
-                    <div id="no-item-card-${id}" class="bg-slate-50 border border-slate-200/80 p-3 rounded-2xl text-center flex flex-col justify-between transition-all">
-                        <div class="mb-2">
-                            <span class="text-xs sm:text-sm font-black text-slate-800 block leading-snug mb-1">${p.name}</span>
-                            <span class="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md inline-block">${kiloPrice} ج</span>
-                            <span id="no-avail-badge-${id}" class="hidden"></span>
-                        </div>
-                        <input type="number" id="no-q-${id}" min="0" step="1" class="w-full border border-slate-200 bg-white rounded-xl p-2 text-center font-black text-base text-brand-primary outline-none focus:ring-2 focus:ring-brand-primary/20 shadow-sm transition-all" placeholder="0" oninput="styleNewOrderItemCard('${id}', this.value); calcTotal('no')">
                     </div>`;
                 }
 
-                if (isPinned) {
-                    pinnedHtml += itemCardMarkup;
-                } else {
-                    unpinnedCount++;
-                    unpinnedHtml += itemCardMarkup;
-                }
-            });
+                return `
+                <div id="no-item-card-${id}" class="bg-slate-50 border border-slate-200/80 p-2.5 rounded-2xl text-center flex flex-col justify-between transition-all">
+                    <div class="mb-2">
+                        <span class="text-xs sm:text-sm font-black text-slate-800 block leading-snug mb-1">${p.name}</span>
+                        <span class="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md inline-block">${kiloPrice} ج</span>
+                        <span id="no-avail-badge-${id}" class="hidden"></span>
+                    </div>
+                    <input type="number" id="no-q-${id}" min="0" step="1" class="w-full border border-slate-200 bg-white rounded-xl p-2 text-center font-black text-base text-brand-primary outline-none focus:ring-2 focus:ring-brand-primary/20 shadow-sm transition-all" placeholder="0" oninput="styleNewOrderItemCard('${id}', this.value); calcTotal('no')">
+                </div>`;
+            };
 
-            if (unpinnedCount > 0) {
-                pinnedHtml += `
-                <div class="col-span-2 sm:col-span-3 pt-1">
-                    <button type="button" onclick="document.getElementById('no-unpinned-items-drawer').classList.toggle('hidden')" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black border border-dashed border-slate-300 flex items-center justify-center gap-2 transition-all">
-                        <i class="fa-solid fa-layer-group text-indigo-500"></i>
-                        <span>➕ عرض باقي الأصناف الأخرى (${unpinnedCount} صنف) ▼</span>
-                    </button>
-                    <div id="no-unpinned-items-drawer" class="hidden grid grid-cols-2 sm:grid-cols-3 gap-2.5 mt-2.5 pt-2.5 border-t border-slate-200">
-                        ${unpinnedHtml}
+            let finalHtml = '';
+
+            // 1. قسم السمان المذبوح بالجوز
+            if (groups.quail.length > 0) {
+                finalHtml += `
+                <div class="col-span-2 sm:col-span-3 space-y-2">
+                    <div class="flex items-center gap-1.5 text-[11px] font-black text-emerald-800 bg-emerald-50/80 border border-emerald-200/70 px-2.5 py-1 rounded-lg">
+                        <i class="fa-solid fa-drumstick-bite text-emerald-600"></i>
+                        <span>سمان مذبوح بالجوز (الأطباق)</span>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        ${groups.quail.map(buildNewOrderCardHtml).join('')}
                     </div>
                 </div>`;
             }
 
-            container.innerHTML = pinnedHtml;
+            // 2. قسم بيض السمان والكتاكيت
+            if (groups.eggs_chicks.length > 0) {
+                finalHtml += `
+                <div class="col-span-2 sm:col-span-3 space-y-2">
+                    <div class="flex items-center gap-1.5 text-[11px] font-black text-amber-800 bg-amber-50/80 border border-amber-200/70 px-2.5 py-1 rounded-lg">
+                        <i class="fa-solid fa-egg text-amber-600"></i>
+                        <span>بيض سمان وكتاكيت عمر يوم</span>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        ${groups.eggs_chicks.map(buildNewOrderCardHtml).join('')}
+                    </div>
+                </div>`;
+            }
+
+            // 3. قسم فراخ التسمين والطيور المباعة بالوزن
+            if (groups.weight.length > 0) {
+                finalHtml += `
+                <div class="col-span-2 sm:col-span-3 space-y-2">
+                    <div class="flex items-center gap-1.5 text-[11px] font-black text-indigo-800 bg-indigo-50/80 border border-indigo-200/70 px-2.5 py-1 rounded-lg">
+                        <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
+                        <span>فراخ تسمين وطيور بالوزن (اضغط لفتح الأوزان)</span>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        ${groups.weight.map(buildNewOrderCardHtml).join('')}
+                    </div>
+                </div>`;
+            }
+
+            // 4. باقي الأصناف غير المثبتة (تبقى منظمة أيضاً داخل الدرج القابل للفتح)
+            const unpinnedAll = [...groups.unpinnedRegular, ...groups.unpinnedWeight];
+            if (unpinnedAll.length > 0) {
+                finalHtml += `
+                <div class="col-span-2 sm:col-span-3 pt-1">
+                    <button type="button" onclick="document.getElementById('no-unpinned-items-drawer').classList.toggle('hidden')" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black border border-dashed border-slate-300 flex items-center justify-center gap-2 transition-all">
+                        <i class="fa-solid fa-layer-group text-indigo-500"></i>
+                        <span>➕ عرض باقي الأصناف الأخرى (${unpinnedAll.length} صنف) ▼</span>
+                    </button>
+                    <div id="no-unpinned-items-drawer" class="hidden grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2.5 pt-2.5 border-t border-slate-200">
+                        ${unpinnedAll.map(buildNewOrderCardHtml).join('')}
+                    </div>
+                </div>`;
+            }
+
+            container.innerHTML = finalHtml;
 
             const zSel = document.getElementById('no-zone');
             if (zSel) {
@@ -4037,6 +4149,7 @@
                 if (typeof window.updateNewOrderBatchMeter === 'function') window.updateNewOrderBatchMeter();
             }
         };
+
 
         window.calcTotal = (prefix) => {
             let itemsTotal = 0;
@@ -5529,7 +5642,6 @@ window.deleteProductUI = async (id) => {
                 arrow.style.transform = menu.classList.contains('hidden') ? 'rotate(0deg)' : 'rotate(180deg)';
             }
         };
-
         window.openEditOrderModal = (id) => {
             editingOrderData = allOrdersRaw.find(o => o.id === id);
             if (!editingOrderData) return;
@@ -5558,41 +5670,54 @@ window.deleteProductUI = async (id) => {
                 ? window.isProductPinnedForAdmin(pId)
                 : (!storeProducts[pId]?.isExtra);
 
-            let primaryHtml = '';
-            let extraUnpinnedHtml = '';
-            let extraUnpinnedCount = 0;
+            const groups = {
+                quail: [],
+                eggs_chicks: [],
+                weight: [],
+                unpinnedRegular: [],
+                unpinnedWeight: []
+            };
 
-            const allProdIds = Object.keys(storeProducts);
-            allProdIds.sort((aId, bId) => {
-                const pA = storeProducts[aId], pB = storeProducts[bId];
-                const hasA = editingOrderData.items && editingOrderData.items.some(i => i.id === aId || i.name === pA?.name || (i.name && pA?.name && String(i.name).startsWith(pA.name + ' [')));
-                const hasB = editingOrderData.items && editingOrderData.items.some(i => i.id === bId || i.name === pB?.name || (i.name && pB?.name && String(i.name).startsWith(pB.name + ' [')));
-                if (hasA && !hasB) return -1;
-                if (!hasA && hasB) return 1;
-                return 0;
-            });
-
-            allProdIds.forEach(pId => {
-                let p = storeProducts[pId];
+            Object.keys(storeProducts).forEach(pId => {
+                const p = storeProducts[pId];
                 if (!p) return;
 
-                let existingItem = editingOrderData.items ? editingOrderData.items.find(i =>
+                const existingItem = editingOrderData.items ? editingOrderData.items.find(i =>
                     i.id === pId || i.name === p.name || (i.name && p.name && String(i.name).startsWith(p.name + ' ['))
                 ) : null;
 
-                let q = existingItem ? Number(existingItem.quantity) : 0;
-                let unitPrice = existingItem ? Number(existingItem.price) : (storePrices[pId] || p.basePrice || 0);
-                let isPrimaryOrSelected = (q > 0) || isPinnedFn(pId);
-                let cardMarkup = '';
+                const q = existingItem ? Number(existingItem.quantity) : 0;
+                const unitPrice = existingItem ? Number(existingItem.price) : (storePrices[pId] || p.basePrice || 0);
+                const isPrimaryOrSelected = (q > 0) || isPinnedFn(pId);
+                const meta = window.getOrderProductCategoryAndRank(pId, p);
+                const entry = { pId, p, existingItem, q, unitPrice, group: meta.group, rank: meta.rank };
+
+                if (isPrimaryOrSelected) {
+                    groups[meta.group].push(entry);
+                } else {
+                    if (p.isWeightBased) groups.unpinnedWeight.push(entry);
+                    else groups.unpinnedRegular.push(entry);
+                }
+            });
+
+            groups.quail.sort((a, b) => a.rank - b.rank);
+            groups.eggs_chicks.sort((a, b) => a.rank - b.rank);
+            groups.weight.sort((a, b) => (b.q > 0 ? 1 : 0) - (a.q > 0 ? 1 : 0) || (a.rank - b.rank));
+            groups.unpinnedRegular.sort((a, b) => a.rank - b.rank);
+            groups.unpinnedWeight.sort((a, b) => a.rank - b.rank);
+
+            const buildEditCardHtml = (entry) => {
+                const { pId, p, existingItem, q, unitPrice } = entry;
 
                 if (p.isWeightBased) {
                     const orderWeightsGrams = existingItem ? window.extractExistingOrderWeightsGrams(existingItem) : [];
                     const stockWeightsGrams = window.parseWeightsArray(p.weightsList);
+                    const isBookedInOrder = q > 0;
 
                     let checkboxesHtml = '';
                     orderWeightsGrams.forEach((w, idx) => {
-                        let itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
-                        let itemPriceEGP = Math.round((w / 1000) * unitPrice);
+                        const itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
+                        const itemPriceEGP = Math.round((w / 1000) * unitPrice);
                         checkboxesHtml += `
                         <label class="flex items-center justify-between gap-2 bg-emerald-50 hover:bg-emerald-100/80 border-2 border-emerald-400 px-3 py-2 rounded-xl cursor-pointer transition-all select-none">
                             <div class="flex items-center gap-2">
@@ -5604,8 +5729,8 @@ window.deleteProductUI = async (id) => {
                     });
 
                     stockWeightsGrams.forEach((w, idx) => {
-                        let itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
-                        let itemPriceEGP = Math.round((w / 1000) * unitPrice);
+                        const itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
+                        const itemPriceEGP = Math.round((w / 1000) * unitPrice);
                         checkboxesHtml += `
                         <label class="flex items-center justify-between gap-2 bg-slate-50 hover:bg-indigo-50/80 border border-slate-200 px-3 py-2 rounded-xl cursor-pointer transition-all select-none">
                             <div class="flex items-center gap-2">
@@ -5616,86 +5741,130 @@ window.deleteProductUI = async (id) => {
                         </label>`;
                     });
 
-                    cardMarkup = `
-                    <div class="col-span-2 sm:col-span-3 ${q > 0 ? 'bg-indigo-50/80 border-2 border-indigo-400' : 'bg-slate-50 border border-slate-200'} p-3.5 rounded-2xl space-y-2.5 shadow-sm">
-                        <div class="flex flex-wrap justify-between items-center gap-2">
+                    return `
+                    <div class="col-span-2 sm:col-span-3 ${isBookedInOrder ? 'bg-indigo-50/80 border-2 border-indigo-400' : 'bg-indigo-50/40 border border-indigo-200/80'} p-3 rounded-2xl space-y-2 shadow-sm">
+                        <button type="button" onclick="toggleOrderWeightCardBody('edit', '${pId}')" class="w-full flex flex-wrap justify-between items-center gap-2 text-right">
                             <span class="text-xs sm:text-sm font-black text-indigo-950 flex items-center gap-1.5">
                                 <i class="fa-solid fa-weight-scale text-indigo-600"></i> ${p.name}
-                                <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full">سعر الكيلو: ${unitPrice} ج</span>
+                                <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full">الكيلو: ${unitPrice} ج</span>
                             </span>
-                            <span class="text-[10px] font-black text-indigo-700 bg-white px-2.5 py-1 rounded-lg border border-indigo-200">
-                                بالطلب: ${orderWeightsGrams.length} فرخة | متاح بالمخزن: ${stockWeightsGrams.length} فرخة
+                            <span class="flex items-center gap-1.5">
+                                <span class="text-[10px] font-black ${isBookedInOrder ? 'text-emerald-800 bg-emerald-100 border-emerald-300' : 'text-indigo-700 bg-white border-indigo-200'} px-2 py-0.5 rounded-lg border">
+                                    ${isBookedInOrder ? `✔ بالطلب (${q} كجم)` : `متاح: ${stockWeightsGrams.length} فرخة`}
+                                </span>
+                                <span class="w-6 h-6 rounded-lg bg-white border border-indigo-200 text-indigo-600 flex items-center justify-center"><i id="edit-weight-card-arrow-${pId}" class="fa-solid fa-chevron-down text-[10px] transition-transform duration-200" style="transform: ${isBookedInOrder ? 'rotate(180deg)' : 'rotate(0deg)'};"></i></span>
                             </span>
-                        </div>
+                        </button>
 
-                        <div id="edit-weight-live-bar-${pId}" class="${q > 0 ? '' : 'hidden'} bg-indigo-900 text-white px-3 py-2 rounded-xl text-[11px] font-black flex flex-wrap items-center justify-between gap-2 shadow-sm"></div>
+                        <div id="edit-weight-live-bar-${pId}" class="${isBookedInOrder ? '' : 'hidden'} bg-indigo-900 text-white px-3 py-2 rounded-xl text-[11px] font-black flex flex-wrap items-center justify-between gap-2 shadow-sm"></div>
 
-                        <div class="relative">
-                            <button type="button" onclick="toggleEditWeightDropdownMenu('${pId}')" class="w-full bg-white hover:bg-indigo-50/50 border-2 border-indigo-200 rounded-xl p-2.5 flex items-center justify-between text-right transition-all shadow-sm">
-                                <div class="flex items-center gap-2">
-                                    <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
-                                    <span id="edit-weight-summary-label-${pId}" class="text-xs font-black text-slate-700">
-                                        ${orderWeightsGrams.length > 0 ? `✅ محجوز (${orderWeightsGrams.length}) فرخة: (${orderWeightsGrams.join(' + ')} جم) — اضغط للتعديل` : `اضغط لاختيار أو تعديل أوزان (${p.name})`}
-                                    </span>
-                                </div>
-                                <i id="edit-weight-dropdown-arrow-${pId}" class="fa-solid fa-chevron-down text-indigo-500 text-xs transition-transform duration-200"></i>
-                            </button>
-
-                            <div id="edit-weight-dropdown-menu-${pId}" class="hidden mt-2 bg-white border-2 border-indigo-200 rounded-2xl p-3 shadow-xl space-y-2.5">
-                                <div class="flex flex-wrap items-center gap-2 bg-slate-50 p-2 rounded-xl border border-indigo-100">
-                                    <input type="number" id="edit-custom-gram-${pId}" placeholder="إضافة وزن جديد بالجرام (مثال: 1550)..." onkeydown="if(event.key==='Enter'){event.preventDefault(); addCustomWeightInEditOrder('${pId}');}" class="flex-1 text-xs font-black text-slate-800 outline-none bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
-                                    <button type="button" onclick="addCustomWeightInEditOrder('${pId}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shrink-0">+ أضف وزن</button>
-                                    <div class="flex items-center gap-1 border-r border-slate-200 pr-2">
-                                        <span class="text-[10px] font-black text-slate-500">أو الإجمالي (كجم):</span>
-                                        <input type="number" id="edit-q-${pId}" min="0" step="0.01" value="${q}" oninput="calcEditTotal(true, '${pId}')" class="w-16 border border-indigo-300 bg-indigo-50/50 rounded-lg p-1 text-center font-black text-xs text-indigo-900 outline-none">
+                        <div id="edit-weight-card-body-${pId}" class="${isBookedInOrder ? '' : 'hidden'} pt-1">
+                            <div class="relative">
+                                <button type="button" onclick="toggleEditWeightDropdownMenu('${pId}')" class="w-full bg-white hover:bg-indigo-50/50 border-2 border-indigo-200 rounded-xl p-2 flex items-center justify-between text-right transition-all shadow-sm">
+                                    <div class="flex items-center gap-2">
+                                        <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
+                                        <span id="edit-weight-summary-label-${pId}" class="text-xs font-black text-slate-700">
+                                            ${orderWeightsGrams.length > 0 ? `✅ محجوز (${orderWeightsGrams.length}) فرخة: (${orderWeightsGrams.join(' + ')} جم) — اضغط للتعديل` : `اضغط لاختيار أو تعديل أوزان (${p.name})`}
+                                        </span>
                                     </div>
-                                </div>
+                                    <i id="edit-weight-dropdown-arrow-${pId}" class="fa-solid fa-chevron-down text-indigo-500 text-xs transition-transform duration-200"></i>
+                                </button>
 
-                                <div id="edit-weight-grid-${pId}" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-48 overflow-y-auto custom-scroll p-0.5">
-                                    ${checkboxesHtml || '<div class="col-span-full text-center py-2 text-xs font-bold text-slate-400">يمكنك إضافة وزن بالجرام من الخانة بالأعلى</div>'}
+                                <div id="edit-weight-dropdown-menu-${pId}" class="hidden mt-2 bg-white border-2 border-indigo-200 rounded-2xl p-3 shadow-xl space-y-2.5">
+                                    <div class="flex flex-wrap items-center gap-2 bg-slate-50 p-2 rounded-xl border border-indigo-100">
+                                        <input type="number" id="edit-custom-gram-${pId}" placeholder="إضافة وزن جديد بالجرام (مثال: 1550)..." onkeydown="if(event.key==='Enter'){event.preventDefault(); addCustomWeightInEditOrder('${pId}');}" class="flex-1 text-xs font-black text-slate-800 outline-none bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
+                                        <button type="button" onclick="addCustomWeightInEditOrder('${pId}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shrink-0">+ أضف وزن</button>
+                                        <div class="flex items-center gap-1 border-r border-slate-200 pr-2">
+                                            <span class="text-[10px] font-black text-slate-500">أو الإجمالي (كجم):</span>
+                                            <input type="number" id="edit-q-${pId}" min="0" step="0.01" value="${q}" oninput="calcEditTotal(true, '${pId}')" class="w-16 border border-indigo-300 bg-indigo-50/50 rounded-lg p-1 text-center font-black text-xs text-indigo-900 outline-none">
+                                        </div>
+                                    </div>
+
+                                    <div id="edit-weight-grid-${pId}" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-48 overflow-y-auto custom-scroll p-0.5">
+                                        ${checkboxesHtml || '<div class="col-span-full text-center py-2 text-xs font-bold text-slate-400">يمكنك إضافة وزن بالجرام من الخانة بالأعلى</div>'}
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>`;
-                } else {
-                    let isSelected = q > 0;
-                    cardMarkup = `
-                    <div id="edit-item-card-${pId}" class="${isSelected ? 'bg-emerald-50 border-2 border-brand-primary shadow-md' : 'bg-slate-50 border border-slate-200/80'} p-3 rounded-2xl flex flex-col justify-between transition-all">
-                        <div class="text-center mb-2">
-                            <span id="edit-req-badge-${pId}" class="${isSelected ? 'inline-block' : 'hidden'} bg-brand-primary text-white text-[9px] font-black px-2 py-0.5 rounded-full mb-1">✔ مطلوب بالطلب</span>
-                            <span class="text-xs sm:text-sm font-black text-slate-800 block leading-snug">${p.name}</span>
-                            <span class="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md inline-block mt-0.5">${unitPrice} ج</span>
-                        </div>
-                        <div class="flex items-center justify-between bg-white border border-slate-200 rounded-xl p-1">
-                            <button type="button" onclick="changeEditQty('${pId}', -1, false)" class="w-8 h-8 bg-slate-50 shadow-sm rounded-lg text-red-500 hover:bg-red-500 hover:text-white transition-colors flex items-center justify-center font-black"><i class="fa-solid fa-minus text-xs"></i></button>
-                            <input type="number" id="edit-q-${pId}" min="0" step="1" value="${q > 0 ? q : ''}" placeholder="0" class="w-12 border-none bg-transparent text-center font-black text-base outline-none text-brand-primary" oninput="calcEditTotal()">
-                            <button type="button" onclick="changeEditQty('${pId}', 1, false)" class="w-8 h-8 bg-slate-50 shadow-sm rounded-lg text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors flex items-center justify-center font-black"><i class="fa-solid fa-plus text-xs"></i></button>
-                        </div>
-                    </div>`;
                 }
 
-                if (isPrimaryOrSelected) {
-                    primaryHtml += cardMarkup;
-                } else {
-                    extraUnpinnedCount++;
-                    extraUnpinnedHtml += cardMarkup;
-                }
-            });
+                const isSelected = q > 0;
+                return `
+                <div id="edit-item-card-${pId}" class="${isSelected ? 'bg-emerald-50 border-2 border-brand-primary shadow-md' : 'bg-slate-50 border border-slate-200/80'} p-2.5 rounded-2xl flex flex-col justify-between transition-all">
+                    <div class="text-center mb-2">
+                        <span id="edit-req-badge-${pId}" class="${isSelected ? 'inline-block' : 'hidden'} bg-brand-primary text-white text-[9px] font-black px-2 py-0.5 rounded-full mb-1">✔ مطلوب بالطلب</span>
+                        <span class="text-xs sm:text-sm font-black text-slate-800 block leading-snug">${p.name}</span>
+                        <span class="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md inline-block mt-0.5">${unitPrice} ج</span>
+                    </div>
+                    <div class="flex items-center justify-between bg-white border border-slate-200 rounded-xl p-1">
+                        <button type="button" onclick="changeEditQty('${pId}', -1, false)" class="w-7 h-7 bg-slate-50 shadow-sm rounded-lg text-red-500 hover:bg-red-500 hover:text-white transition-colors flex items-center justify-center font-black"><i class="fa-solid fa-minus text-xs"></i></button>
+                        <input type="number" id="edit-q-${pId}" min="0" step="1" value="${q > 0 ? q : ''}" placeholder="0" class="w-11 border-none bg-transparent text-center font-black text-base outline-none text-brand-primary" oninput="calcEditTotal()">
+                        <button type="button" onclick="changeEditQty('${pId}', 1, false)" class="w-7 h-7 bg-slate-50 shadow-sm rounded-lg text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors flex items-center justify-center font-black"><i class="fa-solid fa-plus text-xs"></i></button>
+                    </div>
+                </div>`;
+            };
 
-            if (extraUnpinnedCount > 0) {
-                primaryHtml += `
-                <div class="col-span-2 sm:col-span-3 pt-1">
-                    <button type="button" onclick="document.getElementById('edit-unpinned-items-drawer').classList.toggle('hidden')" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black border border-dashed border-slate-300 flex items-center justify-center gap-2 transition-all">
-                        <i class="fa-solid fa-layer-group text-indigo-500"></i>
-                        <span>➕ عرض باقي الأصناف الأخرى (${extraUnpinnedCount} صنف) ▼</span>
-                    </button>
-                    <div id="edit-unpinned-items-drawer" class="hidden grid grid-cols-2 sm:grid-cols-3 gap-2.5 mt-2.5 pt-2.5 border-t border-slate-200">
-                        ${extraUnpinnedHtml}
+            let finalHtml = '';
+
+            // 1. قسم السمان المذبوح بالجوز
+            if (groups.quail.length > 0) {
+                finalHtml += `
+                <div class="col-span-2 sm:col-span-3 space-y-2">
+                    <div class="flex items-center gap-1.5 text-[11px] font-black text-emerald-800 bg-emerald-50/80 border border-emerald-200/70 px-2.5 py-1 rounded-lg">
+                        <i class="fa-solid fa-drumstick-bite text-emerald-600"></i>
+                        <span>سمان مذبوح بالجوز (الأطباق)</span>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        ${groups.quail.map(buildEditCardHtml).join('')}
                     </div>
                 </div>`;
             }
 
-            container.innerHTML = primaryHtml;
+            // 2. قسم بيض السمان والكتاكيت
+            if (groups.eggs_chicks.length > 0) {
+                finalHtml += `
+                <div class="col-span-2 sm:col-span-3 space-y-2">
+                    <div class="flex items-center gap-1.5 text-[11px] font-black text-amber-800 bg-amber-50/80 border border-amber-200/70 px-2.5 py-1 rounded-lg">
+                        <i class="fa-solid fa-egg text-amber-600"></i>
+                        <span>بيض سمان وكتاكيت عمر يوم</span>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        ${groups.eggs_chicks.map(buildEditCardHtml).join('')}
+                    </div>
+                </div>`;
+            }
+
+            // 3. قسم فراخ التسمين والطيور بالوزن
+            if (groups.weight.length > 0) {
+                finalHtml += `
+                <div class="col-span-2 sm:col-span-3 space-y-2">
+                    <div class="flex items-center gap-1.5 text-[11px] font-black text-indigo-800 bg-indigo-50/80 border border-indigo-200/70 px-2.5 py-1 rounded-lg">
+                        <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
+                        <span>فراخ تسمين وطيور بالوزن</span>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        ${groups.weight.map(buildEditCardHtml).join('')}
+                    </div>
+                </div>`;
+            }
+
+            // 4. باقي الأصناف غير المثبتة
+            const unpinnedAll = [...groups.unpinnedRegular, ...groups.unpinnedWeight];
+            if (unpinnedAll.length > 0) {
+                finalHtml += `
+                <div class="col-span-2 sm:col-span-3 pt-1">
+                    <button type="button" onclick="document.getElementById('edit-unpinned-items-drawer').classList.toggle('hidden')" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black border border-dashed border-slate-300 flex items-center justify-center gap-2 transition-all">
+                        <i class="fa-solid fa-layer-group text-indigo-500"></i>
+                        <span>➕ عرض باقي الأصناف الأخرى (${unpinnedAll.length} صنف) ▼</span>
+                    </button>
+                    <div id="edit-unpinned-items-drawer" class="hidden grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2.5 pt-2.5 border-t border-slate-200">
+                        ${unpinnedAll.map(buildEditCardHtml).join('')}
+                    </div>
+                </div>`;
+            }
+
+            container.innerHTML = finalHtml;
 
             let bSel = document.getElementById('edit-batch');
             bSel.innerHTML = '<option value="">-- بدون دورة مسجلة --</option>';
