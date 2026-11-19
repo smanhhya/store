@@ -623,23 +623,67 @@
         return timestampMs >= resetMs;
     };
 
-    // حساب السيولة الحية المتاحة الآن في (خزنة الكاش) و(محفظة الأونلاين) منذ آخر جرد
+    // حساب السيولة الحية المتاحة الآن في (خزنة الكاش) و(محفظة الأونلاين) بعد استبعاد الآجل غير المسدّد
     window.getLiveAvailableSafeBalances = function () {
         const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const custArr = (typeof customersData !== 'undefined' && Array.isArray(customersData)) ? customersData : [];
         const ledgerList = Object.values(window.storeLedgerRecords || {});
         let cashIn = 0, onlineIn = 0;
         let cashOut = 0, onlineOut = 0;
+        let deferredUnpaidTotal = 0;
 
-        ordersList.forEach(o => {
-            if (!o || o.status !== 'completed') return;
-            const oMs = (o.completedAt && typeof o.completedAt.toMillis === 'function')
-                ? o.completedAt.toMillis()
-                : (o.createdAt && typeof o.createdAt.toMillis === 'function' ? o.createdAt.toMillis() : (o.completedAtStr ? new Date(o.completedAtStr).getTime() : 0));
-            if (!window.isAfterFiscalReset(oMs)) return;
+        // بناء خريطة الديون المتبقية حالياً على كل عميل (لكي يدخل المبلغ للدرج تلقائياً فور سداده)
+        const custRemainingDebtMap = {};
+        custArr.forEach(c => {
+            if (!c || !c.phone) return;
+            const p = (typeof window.normalizePhone === 'function') ? window.normalizePhone(c.phone) : String(c.phone).trim();
+            const d = Math.max(0, Number(c.debt) || 0);
+            if (p) custRemainingDebtMap[p] = (custRemainingDebtMap[p] || 0) + d;
+        });
 
+        // ترتيب الطلبات المكتملة من الأحدث للأقدم لربط الدين المتبقي بأحدث طلبات العميل بدقة
+        const completedOrders = ordersList
+            .filter(o => {
+                if (!o || o.status !== 'completed') return false;
+                const oMs = (o.completedAt && typeof o.completedAt.toMillis === 'function')
+                    ? o.completedAt.toMillis()
+                    : (o.createdAt && typeof o.createdAt.toMillis === 'function' ? o.createdAt.toMillis() : (o.completedAtStr ? new Date(o.completedAtStr).getTime() : 0));
+                return window.isAfterFiscalReset(oMs);
+            })
+            .sort((a, b) => {
+                const tA = (a.createdAt && typeof a.createdAt.toMillis === 'function') ? a.createdAt.toMillis() : 0;
+                const tB = (b.createdAt && typeof b.createdAt.toMillis === 'function') ? b.createdAt.toMillis() : 0;
+                return tB - tA;
+            });
+
+        completedOrders.forEach(o => {
             const fin = window.getAccurateOrderFinancials(o);
-            cashIn += fin.cashTotal;
-            onlineIn += fin.onlineTotal;
+            let orderCash = fin.cashTotal;
+            let orderOnline = fin.onlineTotal;
+            const rawOrderDebt = Math.max(0, Number(o.debt) || 0);
+
+            if (rawOrderDebt > 0) {
+                const p = (typeof window.normalizePhone === 'function') ? window.normalizePhone(o.customerPhone) : String(o.customerPhone || '').trim();
+                let unpaidDebtForOrder = rawOrderDebt;
+
+                if (custArr.length > 0 && p) {
+                    const custCurrentDebt = custRemainingDebtMap[p] || 0;
+                    unpaidDebtForOrder = Math.min(rawOrderDebt, custCurrentDebt);
+                    custRemainingDebtMap[p] = Math.max(0, custCurrentDebt - unpaidDebtForOrder);
+                }
+
+                // خصم الآجل غير المسدّد من الكاش المحصّل أولاً، وإن تبقى شيء يُخصم من الأونلاين
+                const deductCash = Math.min(orderCash, unpaidDebtForOrder);
+                orderCash -= deductCash;
+                const remDeduct = unpaidDebtForOrder - deductCash;
+                if (remDeduct > 0) {
+                    orderOnline = Math.max(0, orderOnline - remDeduct);
+                }
+                deferredUnpaidTotal += unpaidDebtForOrder;
+            }
+
+            cashIn += orderCash;
+            onlineIn += orderOnline;
         });
 
         ledgerList.forEach(r => {
@@ -659,12 +703,18 @@
             }
         });
 
+        const netCash = Math.round(cashIn - cashOut);
+        const netOnline = Math.round(onlineIn - onlineOut);
+
         return {
-            netCash: Math.round(cashIn - cashOut),
-            netOnline: Math.round(onlineIn - onlineOut),
+            netCash,
+            netOnline,
+            totalLiquidity: netCash + netOnline,
+            deferredUnpaidTotal: Math.round(deferredUnpaidTotal),
             cashIn, onlineIn, cashOut, onlineOut
         };
     };
+
 
     // دالة التوزيع الذكي للدفع: تسحب من الكاش أولاً، فإذا لم يكفِ تسحب الباقي تلقائياً من الأونلاين!
     window.allocateSmartPaymentSplit = function (amountNeeded, preferredSource = 'auto') {
@@ -1600,11 +1650,19 @@
                 </div>
             </div>
 
-            <!-- 🏦 2. شريط الخزن والديون اللحظي (5 كبسولات صغيرة وواضحة جداً) -->
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-                <div class="bg-gradient-to-br from-emerald-900 to-brand-dark text-white p-3 rounded-2xl shadow-sm flex items-center justify-between">
+            <!-- 🏦 2. شريط الخزن والسيولة والديون اللحظي (6 كبسولات متوازنة 100%) -->
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                <div class="bg-gradient-to-br from-slate-900 via-emerald-950 to-brand-dark text-white p-3 rounded-2xl border-2 border-amber-400/50 shadow-md flex items-center justify-between" title="مجموع السيولة الحاضرة معك الآن: كاش الدرج الفعلي + محفظة الأونلاين (بدون الآجل)">
                     <div>
-                        <p class="text-[9px] font-bold text-emerald-200">💵 صافي كاش الدرج</p>
+                        <p class="text-[9px] font-black text-amber-300">💰 إجمالي السيولة معايا</p>
+                        <h4 id="sm-safe-total-liquidity" class="text-base sm:text-lg font-black text-white mt-0.5">0 ج</h4>
+                        <span class="text-[8px] font-bold text-emerald-300/80 block">كاش + أونلاين فعلياً</span>
+                    </div>
+                    <i class="fa-solid fa-wallet text-base text-amber-400"></i>
+                </div>
+                <div class="bg-emerald-900 text-white p-3 rounded-2xl shadow-sm flex items-center justify-between" title="النقدية الفعلية في الدرج بعد استبعاد الآجل والمصروفات">
+                    <div>
+                        <p class="text-[9px] font-bold text-emerald-200">💵 كاش الدرج (بدون آجل)</p>
                         <h4 id="sm-safe-net-cash" class="text-base sm:text-lg font-black text-white mt-0.5">0 ج</h4>
                     </div>
                     <i class="fa-solid fa-cash-register text-sm text-emerald-400/80"></i>
@@ -1625,12 +1683,12 @@
                 </div>
                 <div onclick="switchTab('debts', document.querySelector('button[onclick*=\\'debts\\']'))" class="bg-white p-3 rounded-2xl border border-red-200 shadow-sm flex items-center justify-between cursor-pointer hover:border-red-400 transition-all">
                     <div>
-                        <p class="text-[9px] font-black text-red-700">📕 ديون ليا (عند العملاء)</p>
+                        <p class="text-[9px] font-black text-red-700">📕 ديون ليا (آجل العملاء)</p>
                         <h4 id="sm-safe-market-debt" class="text-base sm:text-lg font-black text-red-600 mt-0.5">0 ج</h4>
                     </div>
                     <i class="fa-solid fa-hand-holding-dollar text-sm text-red-500/70"></i>
                 </div>
-                <div onclick="switchTab('radar', document.querySelector('button[onclick*=\\'radar\\']'))" class="col-span-2 sm:col-span-1 bg-white p-3 rounded-2xl border border-amber-200 shadow-sm flex items-center justify-between cursor-pointer hover:border-amber-400 transition-all">
+                <div onclick="switchTab('radar', document.querySelector('button[onclick*=\\'radar\\']'))" class="bg-white p-3 rounded-2xl border border-amber-200 shadow-sm flex items-center justify-between cursor-pointer hover:border-amber-400 transition-all">
                     <div>
                         <p class="text-[9px] font-black text-amber-700">🛵 مع المناديب بالشارع</p>
                         <h4 id="sm-safe-street-cash" class="text-base sm:text-lg font-black text-amber-600 mt-0.5">0 ج</h4>
@@ -2291,7 +2349,7 @@
         if (isWaitingForFirstOrders) {
             const smBar = '<span class="inline-block h-5 w-16 rounded-lg bg-slate-200/80 animate-pulse skeleton-shimmer align-middle"></span>';
             const lgBar = '<span class="inline-block h-7 w-24 rounded-lg bg-slate-200/80 animate-pulse skeleton-shimmer align-middle"></span>';
-            ['sm-safe-net-cash', 'sm-safe-net-online', 'sm-safe-owner-debt', 'sm-safe-street-cash', 'sm-safe-market-debt'].forEach(id => {
+            ['sm-safe-total-liquidity', 'sm-safe-net-cash', 'sm-safe-net-online', 'sm-safe-owner-debt', 'sm-safe-street-cash', 'sm-safe-market-debt'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.innerHTML = smBar;
             });
@@ -2855,6 +2913,7 @@
         // قراءة الرصيد التراكمي الحقيقي للدرج والمحفظة منذ آخر جرد سنوي بشكل منفصل تماماً
         const liveSafes = window.getLiveAvailableSafeBalances();
 
+        setElHtml('sm-safe-total-liquidity', `${liveSafes.totalLiquidity.toLocaleString()} ج`);
         setElHtml('sm-safe-net-cash', `${liveSafes.netCash.toLocaleString()} ج`);
         setElHtml('sm-safe-net-online', `${liveSafes.netOnline.toLocaleString()} ج`);
         setElHtml('sm-safe-owner-debt', `${totalOwnerPayableDebtNow.toLocaleString()} ج`);
