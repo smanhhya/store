@@ -1,6 +1,6 @@
 // =========================================================================
-// 🐣 مركز القيادة الشامل للدفعات، الذبح، التوزيع الذكي، والترحيل (www/batches.js)
-// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM) - النسخة التنفيذية (Focus Workspace)
+// 🐣 مركز القيادة الشامل للدفعات، المسارات المستقلة، الذبح، والتوزيع الذكي (www/batches.js)
+// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM) - النسخة التنفيذية (3 Independent Tracks)
 // =========================================================================
 
 (function () {
@@ -23,17 +23,92 @@
         return String(str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
     }
 
+    function escapeHtmlSafe(str) {
+        return String(str === null || str === undefined ? '' : str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    // =========================================================================
+    // 🧭 محرك تصنيف المسارات الـ 3 المستقلة (متوافق 100% مع الدفعات القديمة بدون تعديلها)
+    // =========================================================================
+    window.getBatchTrackType = function (batch) {
+        if (!batch) return 'quail';
+        if (batch.batchType === 'quail' || batch.batchType === 'chicks' || batch.batchType === 'weight') {
+            return batch.batchType;
+        }
+        const n = String(batch.name || '').toLowerCase();
+        if (n.includes('كتكوت') || n.includes('كتاكيت') || n.includes('عمر يوم') || n.includes('تفريخ') || n.includes('فقس')) {
+            return 'chicks';
+        }
+        if (n.includes('فراخ') || n.includes('تسمين') || n.includes('رومي') || n.includes('بط')) {
+            return 'weight';
+        }
+        return 'quail';
+    };
+
+    window.getProductTrackType = function (pId, pObj) {
+        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
+        const p = pObj || prodsObj[pId];
+        if (!p) return 'quail';
+        const safeId = String(pId || '').toLowerCase();
+        const safeName = String(p.name || '').toLowerCase();
+
+        if (p.isWeightBased) return 'weight';
+        if (safeId === 'chicks' || safeName.includes('كتكوت') || safeName.includes('كتاكيت') || safeName.includes('عمر يوم') || safeName.includes('عمر')) {
+            return 'chicks';
+        }
+        if (p.isExtra || safeId === 'eggs' || safeName.includes('بيض')) {
+            return 'immediate';
+        }
+        return 'quail';
+    };
+
+    function getTrackMeta(trackType) {
+        if (trackType === 'chicks') {
+            return {
+                key: 'chicks',
+                icon: '🐣',
+                label: 'دورة تفريخ (عمر يوم)',
+                shortLabel: 'تفريخ عمر يوم',
+                unitLabel: 'كتكوت',
+                badgeCls: 'bg-amber-100 text-amber-900 border-amber-300',
+                hasBirdsPairConversion: false
+            };
+        }
+        if (trackType === 'weight') {
+            return {
+                key: 'weight',
+                icon: '⚖️',
+                label: 'دورة فراخ / رومي (بالوزن)',
+                shortLabel: 'فراخ / رومي',
+                unitLabel: 'طائر',
+                badgeCls: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+                hasBirdsPairConversion: false
+            };
+        }
+        return {
+            key: 'quail',
+            icon: '🥩',
+            label: 'دورة سمان مذبوح',
+            shortLabel: 'سمان مذبوح',
+            unitLabel: 'جوز',
+            badgeCls: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+            hasBirdsPairConversion: true
+        };
+    }
+
+    function doesProductMatchBatchTrack(pId, trackType) {
+        const pTrack = window.getProductTrackType(pId);
+        return pTrack === trackType;
+    }
+
     // تصنيف الصنف (سمان لحم أساسي مقابل إضافات كالبيض والكتاكيت)
     function isMainQuailProduct(pId) {
-        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
-        const p = prodsObj[pId];
-        if (!p) return true;
-        if (p.isExtra) return false;
-        const name = String(p.name || '').toLowerCase();
-        if (pId === 'eggs' || pId === 'chicks' || name.includes('بيض') || name.includes('كتكوت') || name.includes('كتاكيت')) {
-            return false;
-        }
-        return true;
+        return window.getProductTrackType(pId) === 'quail';
     }
 
     // ترتيب الأصناف بنفس الترتيب الموحد في النظام (سوبر -> جامبو -> سبشيال -> سوبر سبشيال -> بيض وكتاكيت -> وزن)
@@ -174,9 +249,10 @@
                         targetPid = Object.keys(prodsObj).find(k => prodsObj[k]?.name === i.name);
                     }
                     if (targetPid) {
-                        realBookedByProd[targetPid] = (realBookedByProd[targetPid] || 0) + q;
+                        const addQty = (prodsObj[targetPid]?.isWeightBased && Number(i.birdsCount) > 0) ? Number(i.birdsCount) : q;
+                        realBookedByProd[targetPid] = (realBookedByProd[targetPid] || 0) + addQty;
                         if (st === 'completed') {
-                            realCompletedByProd[targetPid] = (realCompletedByProd[targetPid] || 0) + q;
+                            realCompletedByProd[targetPid] = (realCompletedByProd[targetPid] || 0) + addQty;
                         }
                     }
                     const iName = i.name || 'صنف';
@@ -210,6 +286,7 @@
     function getBatchBioStatus(b) {
         if (!b) return { ageDays: null, targetAge: 40, remainingDays: null, stageLabel: 'غير محدد', stageColor: 'bg-slate-100 text-slate-600 border-slate-200', autoMsg: '' };
 
+        const trackType = window.getBatchTrackType(b);
         const targetAge = Number(b.slaughterAge) || 40;
         let ageDays = null;
         let remainingDays = null;
@@ -227,6 +304,30 @@
             stageLabel = '🚫 مخفية عن المتجر';
             stageColor = 'bg-red-50 text-red-600 border-red-200';
             autoMsg = 'هذه الدفعة مخفية حالياً ولا تظهر للعملاء في المتجر.';
+        } else if (trackType === 'chicks') {
+            if (!b.isOpen) {
+                stageLabel = '🔒 اكتمل حجز التفريخ';
+                stageColor = 'bg-amber-50 text-amber-800 border-amber-200';
+                autoMsg = '🐣 اكتمل حجز دورة الكتاكيت وجاري التجهيز للتسليم حسب الموعد.';
+            } else {
+                stageLabel = '🐣 حجز تفريخ مفتوح';
+                stageColor = 'bg-amber-50 text-amber-900 border-amber-300';
+                autoMsg = '🐣 متاح حجز كتاكيت عمر يوم في هذه الدورة بشكل مستقل عن السمان المذبوح.';
+            }
+        } else if (trackType === 'weight') {
+            if (b.slaughteredAt) {
+                stageLabel = '⚖️ تم التجهيز والوزن';
+                stageColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+                autoMsg = '⚖️ تم تجهيز الأوزان الطازجة ومتاحة للطلب المباشر بالجرام.';
+            } else if (!b.isOpen) {
+                stageLabel = '🔒 دورة مغلقة';
+                stageColor = 'bg-slate-100 text-slate-700 border-slate-200';
+                autoMsg = 'تم إغلاق الحجز على هذه الدورة حالياً.';
+            } else {
+                stageLabel = '⚖️ دورة بالوزن متاحة';
+                stageColor = 'bg-indigo-50 text-indigo-800 border-indigo-200';
+                autoMsg = '⚖️ متاح الطلب بالوزن الطازج مباشرة.';
+            }
         } else if (b.slaughteredAt) {
             const daysSinceSlaughter = (Date.now() - b.slaughteredAt) / (1000 * 60 * 60 * 24);
             if (daysSinceSlaughter >= 3) {
@@ -269,7 +370,7 @@
         return { ageDays, targetAge, remainingDays, stageLabel, stageColor, autoMsg };
     }
 
-    // دوال التنقل السريع داخل مركز قيادة الدفعات
+    // دوال التنقل وتغيير نوع المسار داخل مركز قيادة الدفعات
     window.selectFocusedBatch = function (bId) {
         window.batchUIState.viewMode = 'focus';
         window.batchUIState.focusedBatchId = bId;
@@ -289,6 +390,24 @@
     window.toggleBatchZeroProducts = function (bId) {
         window.batchUIState.showZeroProducts[bId] = !window.batchUIState.showZeroProducts[bId];
         window.renderBatchesUI();
+    };
+
+    window.updateBatchTrackType = async function (bId, newType) {
+        if (!storeBatches[bId] || !['quail', 'chicks', 'weight'].includes(newType)) return;
+        storeBatches[bId].batchType = newType;
+        window.renderBatchesUI();
+        try {
+            await db.collection('inventory').doc('batches').set({
+                [bId]: { batchType: newType }
+            }, { merge: true });
+            if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
+            const tMeta = getTrackMeta(newType);
+            if (typeof window.showToast === 'function') {
+                window.showToast(`${tMeta.icon} تم ضبط مسار الدفعة إلى: ${tMeta.label}`);
+            }
+        } catch (e) {
+            console.error('Update batch track type error:', e);
+        }
     };
 
     window.toggleBatchBooleanFlag = async function (bId, field, checkedVal) {
@@ -312,96 +431,110 @@
         }
     };
 
-    // حساب سقف الدفعة الكلي بالجوز والفردة
+    // حساب سقف الدفعة الكلي حسب مسارها (جوز وفردة للسمان، كتكوت للتفريخ، طائر للوزن)
     window.getBatchCeilingAndRemaining = function (bId) {
         const b = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches[bId] : null;
-        if (!b) return { ceilingPairs: 0, ceilingBirds: 0, bookedPairs: 0, bookedBirds: 0, remainingPairs: 0, remainingBirds: 0, allocatedPairs: 0 };
+        if (!b) {
+            return { ceilingPairs: 0, ceilingBirds: 0, bookedPairs: 0, bookedBirds: 0, remainingPairs: 0, remainingBirds: 0, allocatedPairs: 0, trackType: 'quail', unitLabel: 'جوز' };
+        }
 
+        const trackType = window.getBatchTrackType(b);
+        const tMeta = getTrackMeta(trackType);
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
         const metrics = window.getBatchDeepMetrics(bId, b.name);
 
-        let allocatedMeatPairs = 0;
-        let bookedMeatPairs = 0;
+        let allocatedTrackUnits = 0;
+        let bookedTrackUnits = 0;
 
         Object.keys(prodsObj).forEach(pId => {
             if (!prodsObj[pId]) return;
-            if (isMainQuailProduct(pId)) {
-                allocatedMeatPairs += (Number(b.stock?.[pId]) || 0);
+            if (doesProductMatchBatchTrack(pId, trackType)) {
+                allocatedTrackUnits += (Number(b.stock?.[pId]) || 0);
                 const savedB = Number(b.booked?.[pId]) || 0;
                 const liveB = metrics.realBookedByProd[pId] || 0;
-                bookedMeatPairs += ((metrics.totalOrders > 0 || savedB === 0) ? liveB : savedB);
+                bookedTrackUnits += ((metrics.totalOrders > 0 || savedB === 0) ? liveB : savedB);
             }
         });
 
-        const explicitPairs = Number(b.actualPairs);
-        const publicPairs = Number(b.publicPairs);
+        const explicitUnits = Number(b.actualPairs);
+        const publicUnits = Number(b.publicPairs);
 
-        let effectiveCeilingPairs = 0;
-        if (!isNaN(explicitPairs) && explicitPairs > 0) {
-            effectiveCeilingPairs = explicitPairs;
-        } else if (allocatedMeatPairs > 0) {
-            effectiveCeilingPairs = allocatedMeatPairs;
-        } else if (!isNaN(publicPairs) && publicPairs > 0) {
-            effectiveCeilingPairs = publicPairs;
+        let effectiveCeiling = 0;
+        if (!isNaN(explicitUnits) && explicitUnits > 0) {
+            effectiveCeiling = explicitUnits;
+        } else if (allocatedTrackUnits > 0) {
+            effectiveCeiling = allocatedTrackUnits;
+        } else if (!isNaN(publicUnits) && publicUnits > 0) {
+            effectiveCeiling = publicUnits;
         }
 
-        const remainingPairs = Number((effectiveCeilingPairs - bookedMeatPairs).toFixed(1));
+        const remainingUnits = Number((effectiveCeiling - bookedTrackUnits).toFixed(1));
+        const birdsMult = tMeta.hasBirdsPairConversion ? 2 : 1;
 
         return {
-            ceilingPairs: effectiveCeilingPairs,
-            ceilingBirds: Math.round(effectiveCeilingPairs * 2),
-            allocatedPairs: allocatedMeatPairs,
-            bookedPairs: Number(bookedMeatPairs.toFixed(1)),
-            bookedBirds: Math.round(bookedMeatPairs * 2),
-            remainingPairs: remainingPairs,
-            remainingBirds: Math.round(remainingPairs * 2)
+            trackType: trackType,
+            unitLabel: tMeta.unitLabel,
+            ceilingPairs: effectiveCeiling,
+            ceilingBirds: Math.round(effectiveCeiling * birdsMult),
+            allocatedPairs: allocatedTrackUnits,
+            bookedPairs: Number(bookedTrackUnits.toFixed(1)),
+            bookedBirds: Math.round(bookedTrackUnits * birdsMult),
+            remainingPairs: remainingUnits,
+            remainingBirds: Math.round(remainingUnits * birdsMult)
         };
     };
 
-    // تعديل سقف الدفعة الكلي مباشرة وحفظه مع مزامنة الخانات الفرعية
+    // تعديل سقف الدفعة الكلي مباشرة وحفظه مع مزامنة الخانات الفرعية لنفس المسار فقط
     window.updateBatchTotalPairsCeiling = async function (bId, val) {
         if (!storeBatches[bId]) return;
         const b = storeBatches[bId];
-        const pairs = Math.max(0, parseInt(val) || 0);
+        const trackType = window.getBatchTrackType(b);
+        const tMeta = getTrackMeta(trackType);
+        const units = Math.max(0, parseInt(val) || 0);
 
-        b.actualPairs = pairs;
-        b.publicPairs = pairs;
+        b.actualPairs = units;
+        b.publicPairs = units;
 
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
         let oldAllocatedSum = 0;
-        const mainIds = [];
+        const trackIds = [];
         Object.keys(prodsObj).forEach(pId => {
-            if (prodsObj[pId] && isMainQuailProduct(pId)) {
-                mainIds.push(pId);
+            if (prodsObj[pId] && doesProductMatchBatchTrack(pId, trackType)) {
+                trackIds.push(pId);
                 oldAllocatedSum += (Number(b.stock?.[pId]) || 0);
             }
         });
 
-        if (pairs > 0 && oldAllocatedSum > 0 && oldAllocatedSum !== pairs) {
+        // إذا كان المسار به صنف واحد فقط (مثل الكتاكيت عمر يوم)، نضبط خانته تلقائياً بدون إزعاج
+        if (trackIds.length === 1) {
+            if (!b.stock) b.stock = {};
+            b.stock[trackIds[0]] = units;
+        } else if (units > 0 && oldAllocatedSum > 0 && oldAllocatedSum !== units) {
+            const birdsTxt = tMeta.hasBirdsPairConversion ? ` = ${units * 2} فردة` : '';
             const syncChoice = await askConfirmSafe(
-                `🎯 تم تغيير سقف الدفعة إلى (${pairs} جوز = ${pairs * 2} فردة).\n\n` +
-                `مجموع خانات الأصناف بالأسفل ما زال مسجلاً على الرقم القديم (${oldAllocatedSum} جوز).\n` +
-                `اضغط "توزيع تلقائي" لتعديل خانات الأصناف تلقائياً بنسبة السقف الجديد، أو "تراجع" لتصفير الخانات القديمة والاعتماد على السقف الكلي (${pairs}) فقط.`,
+                `🎯 تم تغيير سقف الدفعة إلى (${units} ${tMeta.unitLabel}${birdsTxt}).\n\n` +
+                `مجموع خانات الأصناف بالأسفل ما زال مسجلاً على الرقم القديم (${oldAllocatedSum} ${tMeta.unitLabel}).\n` +
+                `اضغط "توزيع تلقائي" لتعديل خانات الأصناف تلقائياً بنسبة السقف الجديد، أو "تصفير الخانات" للاعتماد على السقف الكلي (${units}) فقط.`,
                 { title: 'مزامنة سقف الدفعة مع الأصناف', tone: 'brand', confirmText: 'توزيع تلقائي', cancelText: 'تصفير الخانات' }
             );
             if (!b.stock) b.stock = {};
             if (syncChoice) {
                 let runningSum = 0;
-                mainIds.forEach((pId, idx) => {
+                trackIds.forEach((pId, idx) => {
                     const oldVal = Number(b.stock[pId]) || 0;
-                    if (idx === mainIds.length - 1) {
-                        b.stock[pId] = Math.max(0, pairs - runningSum);
+                    if (idx === trackIds.length - 1) {
+                        b.stock[pId] = Math.max(0, units - runningSum);
                     } else {
-                        const scaled = Math.round((oldVal / oldAllocatedSum) * pairs);
+                        const scaled = Math.round((oldVal / oldAllocatedSum) * units);
                         b.stock[pId] = scaled;
                         runningSum += scaled;
                     }
                 });
             } else {
-                mainIds.forEach(pId => { b.stock[pId] = 0; });
+                trackIds.forEach(pId => { b.stock[pId] = 0; });
             }
-        } else if (pairs === 0 && oldAllocatedSum > 0) {
-            mainIds.forEach(pId => { if (b.stock) b.stock[pId] = 0; });
+        } else if (units === 0 && oldAllocatedSum > 0) {
+            trackIds.forEach(pId => { if (b.stock) b.stock[pId] = 0; });
         }
 
         try {
@@ -422,11 +555,12 @@
         if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
         if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
         if (typeof window.showToast === 'function') {
-            window.showToast(`🎯 تم تثبيت سقف الدفعة على (${pairs} جوز = ${pairs * 2} فردة) بنجاح!`);
+            const extraTxt = tMeta.hasBirdsPairConversion ? ` = ${units * 2} فردة` : '';
+            window.showToast(`🎯 تم تثبيت سقف الدفعة على (${units} ${tMeta.unitLabel}${extraTxt}) بنجاح!`);
         }
     };
 
-    // تحديث شريط عداد الدفعة الحي داخل نافذة "إنشاء طلب جديد" لحظياً أثناء كتابة الطلب
+    // تحديث شريط عداد الدفعة الحي داخل نافذة "إنشاء طلب جديد" لحظياً حسب مسار الدفعة
     window.updateNewOrderBatchMeter = function () {
         const bSel = document.getElementById('no-batch');
         const meterDiv = document.getElementById('no-batch-live-meter');
@@ -458,48 +592,53 @@
             return;
         }
 
+        const batchObj = storeBatches[bId];
+        const trackType = window.getBatchTrackType(batchObj);
+        const tMeta = getTrackMeta(trackType);
         const cap = window.getBatchCeilingAndRemaining(bId);
-        let currentOrderMeatPairs = 0;
+
+        let currentOrderTrackUnits = 0;
         Object.keys(prodsObj).forEach(id => {
-            if (isMainQuailProduct(id)) {
+            if (doesProductMatchBatchTrack(id, trackType)) {
                 const qInput = document.getElementById(`no-q-${id}`);
                 const q = Number(qInput?.value) || 0;
                 if (q > 0) {
                     const birds = Number(qInput?.getAttribute('data-count')) || q;
-                    currentOrderMeatPairs += prodsObj[id].isWeightBased ? birds : q;
+                    currentOrderTrackUnits += prodsObj[id].isWeightBased ? birds : q;
                 }
             }
         });
 
-        const afterOrderBookedPairs = Number((cap.bookedPairs + currentOrderMeatPairs).toFixed(1));
-        const afterOrderRemPairs = Number((cap.ceilingPairs - afterOrderBookedPairs).toFixed(1));
-        const afterOrderRemBirds = Math.round(afterOrderRemPairs * 2);
-        const isOver = cap.ceilingPairs > 0 && afterOrderRemPairs < 0;
+        const afterOrderBooked = Number((cap.bookedPairs + currentOrderTrackUnits).toFixed(1));
+        const afterOrderRem = Number((cap.ceilingPairs - afterOrderBooked).toFixed(1));
+        const afterOrderRemBirds = tMeta.hasBirdsPairConversion ? ` (${Math.round(afterOrderRem * 2)} فردة)` : '';
+        const ceilBirdsTxt = tMeta.hasBirdsPairConversion ? ` (${cap.ceilingBirds} فردة)` : '';
+        const isOver = cap.ceilingPairs > 0 && afterOrderRem < 0;
 
         meterDiv.classList.remove('hidden');
         if (cap.ceilingPairs <= 0) {
             meterDiv.innerHTML = `
                 <div class="bg-amber-50 border border-amber-200 text-amber-900 p-2.5 rounded-xl text-xs font-black flex items-center justify-between">
-                    <span>📌 محجوز بالدفعة حالياً: ${cap.bookedPairs} جوز (${cap.bookedBirds} فردة) + طلبك الحالي (${currentOrderMeatPairs})</span>
+                    <span>${tMeta.icon} محجوز بالدفعة حالياً: ${cap.bookedPairs} ${tMeta.unitLabel} + طلبك الحالي (${currentOrderTrackUnits})</span>
                     <span class="text-[10px] text-amber-700">لم يحدد سقف كلي للدفعة بعد</span>
                 </div>`;
         } else {
             meterDiv.innerHTML = `
                 <div class="${isOver ? 'bg-red-600 text-white animate-pulse' : 'bg-teal-900 text-white'} p-3 rounded-xl text-xs font-black flex flex-wrap items-center justify-between gap-2 shadow-sm">
                     <div>
-                        <span>🎯 سقف (${storeBatches[bId].name}): <strong class="text-amber-300">${cap.ceilingPairs} جوز (${cap.ceilingBirds} فردة)</strong></span>
+                        <span>${tMeta.icon} سقف (${escapeHtmlSafe(batchObj.name)}): <strong class="text-amber-300">${cap.ceilingPairs} ${tMeta.unitLabel}${ceilBirdsTxt}</strong></span>
                         <span class="mx-1.5 opacity-50">|</span>
-                        <span>محجوز شامل طلبك: <strong class="text-emerald-300">${afterOrderBookedPairs} جوز</strong></span>
+                        <span>محجوز شامل طلبك: <strong class="text-emerald-300">${afterOrderBooked} ${tMeta.unitLabel}</strong></span>
                     </div>
                     <span class="px-2.5 py-1 rounded-lg ${isOver ? 'bg-white text-red-700' : 'bg-white/15 text-amber-300'}">
-                        ${isOver ? `⚠️ تخطى سقف الدفعة بـ ${Math.abs(afterOrderRemPairs)} جوز!` : `🟢 متبقي بالدفعة: ${afterOrderRemPairs} جوز (${afterOrderRemBirds} فردة)`}
+                        ${isOver ? `⚠️ تخطى سقف الدفعة بـ ${Math.abs(afterOrderRem)} ${tMeta.unitLabel}!` : `🟢 متبقي بالدفعة: ${afterOrderRem} ${tMeta.unitLabel}${afterOrderRemBirds}`}
                     </span>
                 </div>`;
         }
     };
 
     // =========================================================================
-    // 🎛️ 2. رسم مركز قيادة الدفعات بنظام التركيز (صفر توهان + 3 تبويبات منظمة)
+    // 🎛️ 2. رسم مركز قيادة الدفعات بنظام التركيز والمسارات الـ 3 المستقلة
     // =========================================================================
     window.renderBatchesUI = function () {
         const batchesView = document.getElementById('view-batches');
@@ -552,11 +691,11 @@
         // حساب مؤشرات كل دفعة مرة واحدة
         const batchMetaMap = {};
         const globalOverbookedAlerts = [];
-        let globalOpenCount = 0;
 
         batchIds.forEach(bId => {
             const b = batchesObj[bId];
-            if (b.isOpen) globalOpenCount++;
+            const trackType = window.getBatchTrackType(b);
+            const tMeta = getTrackMeta(trackType);
             const metrics = window.getBatchDeepMetrics(bId, b.name);
             const bio = getBatchBioStatus(b);
             const cap = window.getBatchCeilingAndRemaining(bId);
@@ -581,35 +720,36 @@
             });
 
             if (cap.ceilingPairs > 0 && cap.remainingPairs < 0) {
-                const capMsg = `تخطى السقف بـ ${Math.abs(cap.remainingPairs)} جوز`;
+                const capMsg = `تخطى السقف بـ ${Math.abs(cap.remainingPairs)} ${tMeta.unitLabel}`;
                 overbookedItems.push(capMsg);
                 globalOverbookedAlerts.push(`${b.name}: ${capMsg}`);
             }
 
             const sellProgress = cap.ceilingPairs > 0 ? Math.min(100, Math.round((cap.bookedPairs / cap.ceilingPairs) * 100)) : 0;
 
-            batchMetaMap[bId] = { b, metrics, bio, cap, hasBookingMismatch, overbookedItems, sellProgress };
+            batchMetaMap[bId] = { b, trackType, tMeta, metrics, bio, cap, hasBookingMismatch, overbookedItems, sellProgress };
         });
 
         // اختيار الدفعة النشطة تلقائياً إذا لم يختَر المستخدم دفعة بعد
         if (!window.batchUIState.focusedBatchId || !batchesObj[window.batchUIState.focusedBatchId]) {
-            const firstOpenId = batchIds.find(id => batchesObj[id]?.isOpen);
-            window.batchUIState.focusedBatchId = firstOpenId || batchIds[0];
+            const firstOpenQuail = batchIds.find(id => batchesObj[id]?.isOpen && window.getBatchTrackType(batchesObj[id]) === 'quail');
+            const firstOpenAny = batchIds.find(id => batchesObj[id]?.isOpen);
+            window.batchUIState.focusedBatchId = firstOpenQuail || firstOpenAny || batchIds[0];
         }
 
         const focusedId = window.batchUIState.focusedBatchId;
         const viewMode = window.batchUIState.viewMode || 'focus';
 
-        // 1. شريط اختيار الدفعات الأنيق في الأعلى (تبديل بلمسة واحدة بدون تقليب)
+        // 1. شريط اختيار الدفعات الأنيق في الأعلى (يميز كل مسار بأيقونته: 🥩 / 🐣 / ⚖️)
         const selectorPillsHtml = batchIds.map(bId => {
             const m = batchMetaMap[bId];
             const isSel = (viewMode === 'focus' && focusedId === bId);
-            const dot = m.b.isOpen ? '🟢' : (m.b.slaughteredAt ? '🛵' : '🔒');
-            const remTxt = m.cap.ceilingPairs > 0 ? `• متبقي ${m.cap.remainingPairs}` : `• ${m.metrics.totalOrders} طلب`;
+            const statusDot = m.b.isOpen ? '🟢' : (m.b.slaughteredAt ? '🛵' : '🔒');
+            const remTxt = m.cap.ceilingPairs > 0 ? `متبقي ${m.cap.remainingPairs} ${m.tMeta.unitLabel}` : `${m.metrics.totalOrders} طلب`;
 
             return `
                 <button type="button" onclick="selectFocusedBatch('${bId}')" class="whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black border transition-all flex items-center gap-1.5 shrink-0 ${isSel ? 'bg-teal-600 text-white border-teal-600 shadow-md' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'}">
-                    <span>${dot} ${m.b.name}</span>
+                    <span>${m.tMeta.icon} ${statusDot} ${escapeHtmlSafe(m.b.name)}</span>
                     <span class="text-[10px] px-1.5 py-0.5 rounded-md ${isSel ? 'bg-white/20 text-amber-200' : 'bg-white text-slate-500 border border-slate-200'}">${remTxt}</span>
                 </button>
             `;
@@ -619,7 +759,7 @@
             ${globalOverbookedAlerts.length > 0 ? `
             <div class="bg-red-600 text-white px-3.5 py-2 rounded-xl text-[11px] font-black shadow-sm flex items-center gap-2">
                 <i class="fa-solid fa-triangle-exclamation text-amber-300 shrink-0"></i>
-                <span class="truncate">تنبيه عجز كميات: ${globalOverbookedAlerts.join(' | ')}</span>
+                <span class="truncate">تنبيه عجز كميات: ${escapeHtmlSafe(globalOverbookedAlerts.join(' | '))}</span>
             </div>` : ''}
 
             <div class="w-full max-w-full overflow-hidden bg-white p-2.5 rounded-2xl border border-slate-200/80 shadow-soft flex items-center justify-between gap-2">
@@ -634,7 +774,7 @@
             </div>
         `;
 
-        // 2. وضع مقارنة جميع الدفعات (Compare All Mode - كروت مختصرة بلمحة عين)
+        // 2. وضع مقارنة جميع الدفعات (Compare All Mode)
         if (viewMode === 'compare_all') {
             const compareCardsHtml = batchIds.map(bId => {
                 const m = batchMetaMap[bId];
@@ -643,7 +783,10 @@
                     <div onclick="selectFocusedBatch('${bId}')" class="bg-white p-4 rounded-2xl border-2 ${b.isOpen ? 'border-emerald-200 hover:border-emerald-500' : 'border-slate-200 hover:border-teal-500'} shadow-sm cursor-pointer transition-all space-y-3">
                         <div class="flex items-start justify-between gap-2">
                             <div>
-                                <h4 class="font-black text-slate-900 text-sm sm:text-base">${b.name}</h4>
+                                <div class="flex flex-wrap items-center gap-1.5">
+                                    <h4 class="font-black text-slate-900 text-sm sm:text-base">${escapeHtmlSafe(b.name)}</h4>
+                                    <span class="px-2 py-0.5 rounded-lg text-[9px] font-black border ${m.tMeta.badgeCls}">${m.tMeta.icon} ${m.tMeta.shortLabel}</span>
+                                </div>
                                 <span class="inline-block mt-1 px-2 py-0.5 rounded-lg text-[10px] font-black border ${m.bio.stageColor}">${m.bio.stageLabel}</span>
                             </div>
                             <span class="bg-slate-900 text-amber-300 px-2.5 py-1 rounded-xl text-[11px] font-black shrink-0">${m.metrics.totalOrders} طلب</span>
@@ -651,8 +794,8 @@
 
                         <div class="space-y-1">
                             <div class="flex justify-between text-[11px] font-black">
-                                <span class="text-slate-600">محجوز: ${m.cap.bookedPairs} / ${m.cap.ceilingPairs} جوز</span>
-                                <span class="${m.cap.remainingPairs < 0 ? 'text-rose-600' : 'text-emerald-700'}">متبقي: ${m.cap.remainingPairs} جوز</span>
+                                <span class="text-slate-600">محجوز: ${m.cap.bookedPairs} / ${m.cap.ceilingPairs} ${m.tMeta.unitLabel}</span>
+                                <span class="${m.cap.remainingPairs < 0 ? 'text-rose-600' : 'text-emerald-700'}">متبقي: ${m.cap.remainingPairs} ${m.tMeta.unitLabel}</span>
                             </div>
                             <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                                 <div class="h-full ${m.sellProgress >= 90 ? 'bg-amber-500' : 'bg-emerald-500'} rounded-full" style="width: ${m.sellProgress}%"></div>
@@ -683,6 +826,8 @@
         // 3. وضع التركيز على الدفعة المختارة (Focus Workspace)
         const meta = batchMetaMap[focusedId];
         const b = meta.b;
+        const trackType = meta.trackType;
+        const tMeta = meta.tMeta;
         const metrics = meta.metrics;
         const bio = meta.bio;
         const cap = meta.cap;
@@ -690,10 +835,9 @@
         const showZeros = Boolean(window.batchUIState.showZeroProducts[focusedId]);
         const safeBName = escapeJsAttr(b.name);
 
-        // بناء محتوى التبويب الداخلي المختار
         let innerTabContentHtml = '';
 
-        // --- التبويب 1: الكميات والأصناف (مرتب بالنظام الموحد) ---
+        // --- التبويب 1: الكميات والأصناف (معزولة بذكاء حسب مسار الدورة) ---
         if (activeTab === 'stock') {
             const sortedProdIds = Object.keys(prodsObj)
                 .filter(pId => Boolean(prodsObj[pId]))
@@ -712,9 +856,7 @@
                 const remaining = bStock - bBooked;
                 const prodPrice = getProdPrice(pId);
 
-                const isPinnedItem = (typeof window.isProductPinnedForAdmin === 'function')
-                    ? window.isProductPinnedForAdmin(pId)
-                    : isMainQuailProduct(pId);
+                const matchesThisTrack = doesProductMatchBatchTrack(pId, trackType);
 
                 const remCls = remaining < 0
                     ? 'bg-red-600 text-white border-red-600 animate-pulse'
@@ -723,12 +865,20 @@
                         : 'bg-emerald-50 border-emerald-200 text-emerald-800');
 
                 const safePName = escapeJsAttr(p.name);
+                let weightHelperLine = '';
+                if (p.isWeightBased && typeof window.parseWeightsArray === 'function') {
+                    const wArr = window.parseWeightsArray(p.weightsList);
+                    const kgSum = (wArr.reduce((s, v) => s + v, 0) / 1000).toFixed(2);
+                    weightHelperLine = `<div class="text-[9px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-1 rounded-lg text-center">⚖️ بمصفوفة المتجر حالياً: ${wArr.length} قطعة (${kgSum} كجم)</div>`;
+                }
+
                 const cardHtml = `
                     <div class="bg-slate-50/90 p-2.5 rounded-2xl border ${remaining < 0 ? 'border-red-300 bg-red-50/30' : 'border-slate-200/80'} space-y-2">
                         <div class="flex items-center justify-between gap-1">
-                            <span class="text-xs font-black text-slate-900 truncate">${p.name}</span>
+                            <span class="text-xs font-black text-slate-900 truncate">${escapeHtmlSafe(p.name)}</span>
                             <span class="text-[10px] font-black text-emerald-700 bg-white px-1.5 py-0.5 rounded-md border border-slate-200 shrink-0">${prodPrice} ج</span>
                         </div>
+                        ${weightHelperLine}
                         <div class="grid grid-cols-3 gap-1.5">
                             <div>
                                 <span class="text-[9px] text-slate-400 font-bold block text-center mb-0.5">المتاح</span>
@@ -746,7 +896,8 @@
                     </div>
                 `;
 
-                if (isPinnedItem || bStock > 0 || bBooked > 0) {
+                // نظهر فقط أصناف المسار المختار + أي صنف قديم عليه كمية أو حجوزات حتى لا يختفي شيء من القديم
+                if (matchesThisTrack || bStock > 0 || bBooked > 0) {
                     mainCardsHtml += cardHtml;
                 } else {
                     extraHiddenCount++;
@@ -754,19 +905,28 @@
                 }
             });
 
+            const trackIsolationNotice = trackType === 'chicks'
+                ? `<div class="bg-amber-50 border border-amber-200 text-amber-900 px-3 py-2 rounded-xl text-[11px] font-bold flex items-center gap-2"><i class="fa-solid fa-circle-info text-amber-600"></i> <span>هذه <strong>دورة تفريخ (عمر يوم)</strong> مستقلة؛ ستظهر للعميل على كارت الكتاكيت فقط ولن تخفي السمان المذبوح أو البيض.</span></div>`
+                : (trackType === 'weight'
+                    ? `<div class="bg-indigo-50 border border-indigo-200 text-indigo-900 px-3 py-2 rounded-xl text-[11px] font-bold flex items-center gap-2"><i class="fa-solid fa-scale-balanced text-indigo-600"></i> <span>هذه <strong>دورة طيور بالوزن</strong> مستقلة؛ البيع بالجرام يتم من مصفوفة الأوزان في شاشة (الأصناف والأسعار).</span></div>`
+                    : '');
+
             innerTabContentHtml = `
                 <div class="space-y-3">
+                    ${trackIsolationNotice}
+
                     <!-- أدوات التحكم السريع في الكميات -->
                     <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200/70">
                         <div class="flex items-center gap-1.5 text-[11px] font-black text-teal-900">
-                            <span>🎯 السقف الكلي للدفعة:</span>
+                            <span>🎯 السقف الكلي للدورة:</span>
                             <input type="number" value="${cap.ceilingPairs || ''}" onchange="updateBatchTotalPairsCeiling('${focusedId}', this.value)" placeholder="200" class="w-16 bg-white border-2 border-teal-300 rounded-lg py-0.5 px-1 text-center font-black text-xs text-teal-900 outline-none">
-                            <span class="text-[10px] text-slate-500">جوز (${cap.ceilingBirds} فردة)</span>
+                            <span class="text-[10px] text-slate-500">${tMeta.unitLabel}${tMeta.hasBirdsPairConversion ? ` (${cap.ceilingBirds} فردة)` : ''}</span>
                         </div>
                         <div class="flex items-center gap-1.5">
+                            ${trackType === 'quail' ? `
                             <button type="button" onclick="smartDistributeBatch('${focusedId}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm flex items-center gap-1 active:scale-95">
                                 <i class="fa-solid fa-wand-magic-sparkles text-amber-300 text-[10px]"></i> توزيع ذكي
-                            </button>
+                            </button>` : ''}
                             ${meta.hasBookingMismatch ? `
                             <button type="button" onclick="syncAndHealBatchBooked('${focusedId}', '${safeBName}')" class="bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black shadow-sm animate-pulse flex items-center gap-1">
                                 <i class="fa-solid fa-rotate text-[10px]"></i> مطابقة المحجوز
@@ -774,15 +934,15 @@
                         </div>
                     </div>
 
-                    <!-- شبكة الأصناف الأساسية المرتبة -->
+                    <!-- شبكة أصناف هذا المسار فقط -->
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-                        ${mainCardsHtml || '<div class="col-span-full text-center py-6 text-xs font-bold text-slate-400">لا توجد أصناف مسجلة</div>'}
+                        ${mainCardsHtml || `<div class="col-span-full text-center py-6 text-xs font-bold text-slate-400">لا توجد أصناف مسجلة تحت مسار (${tMeta.label}) حالياً.</div>`}
                     </div>
 
                     ${extraHiddenCount > 0 ? `
                     <div class="pt-1">
                         <button type="button" onclick="toggleBatchZeroProducts('${focusedId}')" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black border border-dashed border-slate-300 transition-all">
-                            ${showZeros ? 'إخفاء الأصناف الإضافية الصفرية ▲' : `+ إظهار باقي الأصناف الأخرى (${extraHiddenCount} صنف) ▼`}
+                            ${showZeros ? 'إخفاء أصناف المسارات الأخرى ▲' : `+ إظهار باقي أصناف المسارات الأخرى (${extraHiddenCount} صنف) ▼`}
                         </button>
                         ${showZeros ? `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 mt-2.5">${extraCardsHtml}</div>` : ''}
                     </div>` : ''}
@@ -800,7 +960,7 @@
                     const safeZ = escapeJsAttr(z);
                     return `
                         <button type="button" onclick="jumpToBatchZoneOrders('${safeBName}', '${safeZ}')" class="bg-white hover:bg-indigo-600 text-slate-800 hover:text-white border border-slate-200 hover:border-indigo-600 p-2.5 rounded-xl text-right transition-all shadow-sm flex items-center justify-between gap-2">
-                            <span class="text-xs font-black"><i class="fa-solid fa-location-dot text-indigo-500 ml-1"></i>${z}</span>
+                            <span class="text-xs font-black"><i class="fa-solid fa-location-dot text-indigo-500 ml-1"></i>${escapeHtmlSafe(z)}</span>
                             <span class="text-[10px] font-black bg-indigo-50 text-indigo-800 px-2 py-0.5 rounded-lg">${zInfo.count} طلب • ${zInfo.netRevenue.toLocaleString()} ج</span>
                         </button>
                     `;
@@ -809,7 +969,6 @@
 
             innerTabContentHtml = `
                 <div class="space-y-3.5">
-                    <!-- أزرار تشغيل سريعة للطلبات -->
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <button type="button" onclick="viewBatchBookings('${focusedId}')" class="bg-blue-600 hover:bg-blue-700 text-white py-2.5 px-3 rounded-xl text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95">
                             <i class="fa-solid fa-file-pdf text-amber-300"></i> كشف التسليمات والطباعة (${metrics.totalOrders})
@@ -822,7 +981,6 @@
                         </button>
                     </div>
 
-                    <!-- مراحل طلبات الدفعة (اضغط للانتقال مباشرة) -->
                     <div>
                         <span class="text-[11px] font-black text-slate-500 block mb-2">📊 اضغط على أي مرحلة لعرض طلباتها في شاشة الطلبات الحية:</span>
                         <div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-center">
@@ -835,7 +993,6 @@
                         </div>
                     </div>
 
-                    <!-- توزيع المناطق الجغرافي للدفعة -->
                     <div>
                         <span class="text-[11px] font-black text-slate-500 block mb-2">📍 توزيع الطلبات حسب المنطقة (${sortedZones.length} منطقة):</span>
                         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -846,31 +1003,34 @@
             `;
         }
 
-        // --- التبويب 3: الذبح، الواتساب، إعدادات العرض، والإغلاق ---
+        // --- التبويب 3: الذبح / التجهيز، الواتساب، إعدادات العرض، والإغلاق ---
         else {
             const delWindowStr = (b.deliveryStart || b.deliveryEnd)
                 ? `${b.deliveryStart || ''} ${b.deliveryEnd ? '⬅️ ' + b.deliveryEnd : ''}`
                 : 'غير محدد بعد';
 
+            const step3Title = trackType === 'chicks' ? '3. تأكيد الفقس والتجهيز للتسليم' : '3. إتمام الذبح والترحيل للفريزر';
+            const step3Desc = b.expectedValue
+                ? `تم التسجيل (قيمة متوقعة: ${b.expectedValue.toLocaleString()} ج)`
+                : (trackType === 'chicks' ? 'تسجيل الأعداد الجاهزة وإغلاق الحجز تلقائياً' : 'تسجيل المذبوح الفعلي وقفل الحجز تلقائياً');
+
             innerTabContentHtml = `
                 <div class="space-y-3">
-                    <!-- معاينة رسالة المتجر الحالية للعميل -->
                     <div class="bg-purple-50/70 border border-purple-200 p-3 rounded-2xl space-y-1">
                         <div class="flex flex-wrap items-center justify-between gap-2">
-                            <span class="text-[11px] font-black text-purple-900"><i class="fa-solid fa-bullhorn text-purple-600 ml-1"></i> رسالة الدفعة الظاهرة للعملاء بالمتجر الآن:</span>
-                            <span class="text-[10px] font-black bg-white text-slate-600 px-2 py-0.5 rounded-lg border border-purple-200">📅 التسليم: ${delWindowStr}</span>
+                            <span class="text-[11px] font-black text-purple-900"><i class="fa-solid fa-bullhorn text-purple-600 ml-1"></i> رسالة الدورة الظاهرة للعملاء بالمتجر الآن:</span>
+                            <span class="text-[10px] font-black bg-white text-slate-600 px-2 py-0.5 rounded-lg border border-purple-200">📅 التسليم: ${escapeHtmlSafe(delWindowStr)}</span>
                         </div>
                         <p class="text-xs font-bold text-slate-700 leading-relaxed bg-white p-2.5 rounded-xl border border-purple-100">
-                            ${b.urgentNote ? `<strong class="text-amber-700 block mb-0.5">📌 تنبيه: ${b.urgentNote}</strong>` : ''}${bio.autoMsg}
+                            ${b.urgentNote ? `<strong class="text-amber-700 block mb-0.5">📌 تنبيه: ${escapeHtmlSafe(b.urgentNote)}</strong>` : ''}${escapeHtmlSafe(bio.autoMsg)}
                         </p>
                     </div>
 
-                    <!-- خطوات التشغيل الأساسية مرتبة بوضوح -->
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         <button type="button" onclick="openBatchSettings('${focusedId}')" class="bg-white hover:bg-purple-50 border-2 border-purple-200 p-3.5 rounded-2xl text-right flex items-center justify-between gap-3 transition-all shadow-sm">
                             <div>
                                 <span class="text-xs font-black text-purple-900 block">1. إعدادات العمر والتواريخ والرسالة</span>
-                                <span class="text-[10px] font-bold text-slate-500">تعديل عمر السمان، مواعيد التسليم، والتنبيه الطارئ</span>
+                                <span class="text-[10px] font-bold text-slate-500">تعديل مواعيد التسليم، العمر، والتنبيه الطارئ</span>
                             </div>
                             <span class="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0"><i class="fa-solid fa-sliders"></i></span>
                         </button>
@@ -885,10 +1045,10 @@
 
                         <button type="button" onclick="openSlaughterModal('${focusedId}')" class="bg-white hover:bg-rose-50 border-2 border-rose-200 p-3.5 rounded-2xl text-right flex items-center justify-between gap-3 transition-all shadow-sm">
                             <div>
-                                <span class="text-xs font-black text-rose-900 block">3. إتمام الذبح والترحيل للفريزر</span>
-                                <span class="text-[10px] font-bold text-slate-500">${b.expectedValue ? `تم الذبح (قيمة متوقعة: ${b.expectedValue.toLocaleString()} ج)` : 'تسجيل المذبوح الفعلي وقفل الحجز تلقائياً'}</span>
+                                <span class="text-xs font-black text-rose-900 block">${step3Title}</span>
+                                <span class="text-[10px] font-bold text-slate-500">${step3Desc}</span>
                             </div>
-                            <span class="w-9 h-9 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0"><i class="fa-solid fa-knife-kitchen"></i></span>
+                            <span class="w-9 h-9 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0"><i class="fa-solid ${trackType === 'chicks' ? 'fa-egg' : 'fa-knife-kitchen'}"></i></span>
                         </button>
 
                         <button type="button" onclick="archiveBatch('${focusedId}')" class="bg-white hover:bg-amber-50 border-2 border-amber-300 p-3.5 rounded-2xl text-right flex items-center justify-between gap-3 transition-all shadow-sm">
@@ -900,7 +1060,6 @@
                         </button>
                     </div>
 
-                    <!-- منطقة الخطر المعزولة للحذف -->
                     <div class="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 bg-rose-50/40 px-3 py-2 rounded-xl border border-rose-100">
                         <span class="text-[10px] font-bold text-rose-700">حذف هذه الدفعة نهائياً من قاعدة البيانات:</span>
                         <button type="button" onclick="deleteBatchUI('${focusedId}')" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm flex items-center gap-1">
@@ -915,18 +1074,29 @@
             ? 'bg-slate-900 text-white shadow-sm'
             : 'bg-slate-100 text-slate-600 hover:bg-slate-200';
 
+        const ceilBirdsParen = tMeta.hasBirdsPairConversion ? ` (${cap.ceilingBirds} فردة)` : '';
+        const remBirdsParen = tMeta.hasBirdsPairConversion ? ` (${cap.remainingBirds} فردة)` : '';
+
         // بطاقة القيادة الموحدة للدفعة المختارة
         const focusedWorkspaceHtml = `
             <div class="w-full max-w-full overflow-hidden bg-white rounded-[1.5rem] shadow-soft border-2 ${b.isOpen ? 'border-emerald-500/35' : 'border-slate-200'} p-3.5 sm:p-5 space-y-3.5">
-                <!-- 1. رأس الدفعة: الاسم + العمر + مفاتيح المتجر والحجز -->
+                <!-- 1. رأس الدفعة: الاسم + اختيار نوع المسار + العمر + مفاتيح المتجر والحجز -->
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-slate-100">
                     <div class="flex flex-wrap items-center gap-2 flex-1 min-w-0">
-                        <div class="relative flex-1 min-w-[160px] max-w-xs">
+                        <div class="relative flex-1 min-w-[155px] max-w-xs">
                             <i class="fa-solid fa-pen absolute right-2.5 top-2.5 text-slate-400 text-[10px] pointer-events-none"></i>
-                            <input type="text" value="${b.name}" onchange="updateBatchNameAndOrders('${focusedId}', this.value)" class="w-full bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded-xl py-1.5 pr-7 pl-2 text-sm font-black text-slate-900 outline-none focus:border-brand-primary">
+                            <input type="text" value="${escapeHtmlSafe(b.name)}" onchange="updateBatchNameAndOrders('${focusedId}', this.value)" class="w-full bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 rounded-xl py-1.5 pr-7 pl-2 text-sm font-black text-slate-900 outline-none focus:border-brand-primary">
                         </div>
+
+                        <!-- مبدّل نوع المسار المباشر (لتعديل نوع أي دفعة قديمة أو جديدة بضغطة واحدة) -->
+                        <select onchange="updateBatchTrackType('${focusedId}', this.value)" title="نوع مسار هذه الدورة في المتجر والـ CRM" class="px-2.5 py-1.5 rounded-xl text-[11px] font-black border outline-none cursor-pointer ${tMeta.badgeCls}">
+                            <option value="quail" ${trackType === 'quail' ? 'selected' : ''}>🥩 دورة سمان مذبوح</option>
+                            <option value="chicks" ${trackType === 'chicks' ? 'selected' : ''}>🐣 دورة تفريخ (عمر يوم)</option>
+                            <option value="weight" ${trackType === 'weight' ? 'selected' : ''}>⚖️ دورة فراخ / رومي</option>
+                        </select>
+
                         <span class="px-2.5 py-1 rounded-xl text-[10px] font-black border ${bio.stageColor}">${bio.stageLabel}</span>
-                        ${bio.ageDays !== null ? `
+                        ${bio.ageDays !== null && trackType === 'quail' ? `
                         <div class="inline-flex items-center gap-1 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-xl text-[10px] font-black text-purple-900">
                             <button type="button" onclick="quickStepBatchAge('${focusedId}', -1)" class="w-5 h-5 bg-white rounded text-purple-700 hover:bg-purple-600 hover:text-white">-</button>
                             <span class="px-1">${bio.ageDays} يوم</span>
@@ -950,9 +1120,9 @@
                 <!-- 2. شريط المؤشرات الصافية ونسبة الامتلاء -->
                 <div class="bg-gradient-to-l from-slate-900 via-slate-800 to-emerald-950 text-white p-3.5 rounded-2xl space-y-2.5 shadow-sm">
                     <div class="flex flex-wrap items-center justify-between gap-2 text-xs font-black">
-                        <span>🥩 حُجز <strong class="text-emerald-300 text-sm">${cap.bookedPairs}</strong> من <strong class="text-white">${cap.ceilingPairs} جوز</strong> (${cap.ceilingBirds} فردة)</span>
+                        <span>${tMeta.icon} حُجز <strong class="text-emerald-300 text-sm">${cap.bookedPairs}</strong> من <strong class="text-white">${cap.ceilingPairs} ${tMeta.unitLabel}</strong>${ceilBirdsParen}</span>
                         <span class="px-2.5 py-0.5 rounded-lg text-[11px] ${cap.remainingPairs < 0 ? 'bg-red-500 text-white animate-pulse' : 'bg-white/15 text-amber-300'}">
-                            ${cap.remainingPairs < 0 ? `عجز ${Math.abs(cap.remainingPairs)} جوز!` : `متبقي: ${cap.remainingPairs} جوز (${cap.remainingBirds} فردة)`}
+                            ${cap.remainingPairs < 0 ? `عجز ${Math.abs(cap.remainingPairs)} ${tMeta.unitLabel}!` : `متبقي: ${cap.remainingPairs} ${tMeta.unitLabel}${remBirdsParen}`}
                         </span>
                     </div>
                     <div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
@@ -977,7 +1147,7 @@
                     </div>
                 </div>
 
-                <!-- 3. شريط التبويبات الداخلية الـ 3 (بدون أي زحمة) -->
+                <!-- 3. شريط التبويبات الداخلية الـ 3 -->
                 <div class="grid grid-cols-3 gap-1.5 bg-slate-50 p-1 rounded-2xl border border-slate-200/80">
                     <button type="button" onclick="setBatchInnerTab('stock')" class="py-2 px-2 rounded-xl text-[11px] sm:text-xs font-black transition-all ${innerTabBtnCls('stock')}">
                         📦 الكميات والأصناف
@@ -986,7 +1156,7 @@
                         📋 الطلبات (${metrics.totalOrders})
                     </button>
                     <button type="button" onclick="setBatchInnerTab('lifecycle')" class="py-2 px-2 rounded-xl text-[11px] sm:text-xs font-black transition-all ${innerTabBtnCls('lifecycle')}">
-                        ⚙️ الذبح والإغلاق
+                        ⚙️ ${trackType === 'chicks' ? 'التجهيز والإغلاق' : 'الذبح والإغلاق'}
                     </button>
                 </div>
 
@@ -999,20 +1169,140 @@
     };
 
     // =========================================================================
-    // ➕ 3. إنشاء دورة جديدة وتحديث الكميات والأسماء بأمان تام
+    // ➕ 3. نافذة إنشاء دورة جديدة باختيار المسار (سمان مذبوح / عمر يوم / فراخ ورومي)
     // =========================================================================
-    window.addNewBatchUI = async function () {
-        const defaultName = `دفعة ${new Date().toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' })}`;
-        const batchNameInput = await askPromptSafe('🐣 اكتب اسم الدورة / الدفعة الجديدة (مثال: دفعة الخميس 20 نوفمبر):', defaultName, { title: 'إنشاء دورة جديدة', tone: 'brand', confirmText: 'إنشاء الدفعة' });
-        if (batchNameInput === null) return;
-        const cleanName = batchNameInput.trim() || defaultName;
+    let selectedNewBatchTrack = 'quail';
+
+    function ensureNewBatchTrackModal() {
+        let modal = document.getElementById('new-batch-track-modal');
+        if (modal) return modal;
+
+        modal = document.createElement('div');
+        modal.id = 'new-batch-track-modal';
+        modal.className = 'fixed inset-0 bg-slate-900/75 backdrop-blur-sm z-[235] hidden flex items-center justify-center p-4';
+        modal.innerHTML = `
+            <div class="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-md overflow-hidden border border-slate-200">
+                <div class="bg-gradient-to-l from-slate-900 via-slate-800 to-teal-950 text-white px-5 py-4 flex items-center justify-between">
+                    <div>
+                        <h3 class="text-sm sm:text-base font-black text-white">إنشاء دورة جديدة مستقلة</h3>
+                        <p class="text-[10px] text-teal-200 font-bold mt-0.5">اختر نوع المسار حتى لا تتعارض الدورات مع بعضها في المتجر</p>
+                    </div>
+                    <button type="button" onclick="closeModal('new-batch-track-modal')" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-red-500 text-white flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+
+                <div class="p-4 sm:p-5 space-y-4 bg-slate-50/60">
+                    <div>
+                        <label class="text-[11px] font-black text-slate-600 block mb-2">1. اختر نوع الدورة / المسار:</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <button type="button" data-nb-track="quail" onclick="selectNewBatchTrackType('quail')" class="nb-track-card p-2.5 rounded-2xl border-2 border-emerald-600 bg-emerald-50 text-emerald-950 text-center transition-all shadow-sm">
+                                <span class="text-xl block">🥩</span>
+                                <span class="text-[11px] font-black block mt-1">سمان مذبوح</span>
+                                <span class="text-[9px] font-bold text-emerald-700 block">أطباق بالجوز</span>
+                            </button>
+                            <button type="button" data-nb-track="chicks" onclick="selectNewBatchTrackType('chicks')" class="nb-track-card p-2.5 rounded-2xl border-2 border-slate-200 bg-white text-slate-600 text-center transition-all">
+                                <span class="text-xl block">🐣</span>
+                                <span class="text-[11px] font-black block mt-1">تفريخ عمر يوم</span>
+                                <span class="text-[9px] font-bold text-slate-400 block">حجز كتاكيت فقط</span>
+                            </button>
+                            <button type="button" data-nb-track="weight" onclick="selectNewBatchTrackType('weight')" class="nb-track-card p-2.5 rounded-2xl border-2 border-slate-200 bg-white text-slate-600 text-center transition-all">
+                                <span class="text-xl block">⚖️</span>
+                                <span class="text-[11px] font-black block mt-1">فراخ / رومي</span>
+                                <span class="text-[9px] font-bold text-slate-400 block">بالوزن الدقيق</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-[11px] font-black text-slate-600 block mb-1.5">2. اسم الدورة (مثال: دفعة ديسمبر / تفريخ 25 نوفمبر):</label>
+                        <input type="text" id="nb-track-name-input" onkeydown="if(event.key==='Enter'){event.preventDefault(); confirmCreateNewBatchWithTrack();}" class="w-full border-2 border-slate-200 focus:border-teal-600 rounded-xl p-2.5 text-sm font-black text-slate-900 bg-white outline-none">
+                    </div>
+
+                    <div>
+                        <label id="nb-track-cap-label" class="text-[11px] font-black text-slate-600 block mb-1.5">3. العدد المستهدف للدورة (اختياري — بالجوز):</label>
+                        <input type="number" id="nb-track-cap-input" min="0" placeholder="مثال: 200" class="w-full border border-slate-200 focus:border-teal-600 rounded-xl p-2.5 text-sm font-black text-teal-900 bg-white text-center outline-none">
+                    </div>
+                </div>
+
+                <div class="p-4 bg-white border-t border-slate-100 flex gap-2">
+                    <button type="button" onclick="confirmCreateNewBatchWithTrack()" class="flex-1 bg-teal-600 hover:bg-teal-700 text-white font-black py-3 rounded-xl text-xs sm:text-sm shadow-md active:scale-95">
+                        <i class="fa-solid fa-plus ml-1"></i> إنشاء الدورة الآن
+                    </button>
+                    <button type="button" onclick="closeModal('new-batch-track-modal')" class="bg-slate-100 hover:bg-slate-200 text-slate-600 font-black px-4 py-3 rounded-xl text-xs">إلغاء</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    window.selectNewBatchTrackType = function (trackKey) {
+        selectedNewBatchTrack = trackKey || 'quail';
+        document.querySelectorAll('.nb-track-card').forEach(btn => {
+            const isSel = btn.getAttribute('data-nb-track') === selectedNewBatchTrack;
+            if (isSel) {
+                const activeCls = trackKey === 'chicks'
+                    ? 'border-amber-500 bg-amber-50 text-amber-950 shadow-sm'
+                    : (trackKey === 'weight' ? 'border-indigo-500 bg-indigo-50 text-indigo-950 shadow-sm' : 'border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm');
+                btn.className = `nb-track-card p-2.5 rounded-2xl border-2 text-center transition-all ${activeCls}`;
+            } else {
+                btn.className = 'nb-track-card p-2.5 rounded-2xl border-2 border-slate-200 bg-white text-slate-600 text-center transition-all';
+            }
+        });
+
+        const dateStr = new Date().toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' });
+        const nameInp = document.getElementById('nb-track-name-input');
+        const capLbl = document.getElementById('nb-track-cap-label');
+        const tMeta = getTrackMeta(selectedNewBatchTrack);
+
+        if (capLbl) capLbl.textContent = `3. العدد المستهدف للدورة (اختياري — بالـ ${tMeta.unitLabel}):`;
+        if (nameInp && (!nameInp.value.trim() || nameInp.getAttribute('data-auto-filled') === '1')) {
+            nameInp.value = selectedNewBatchTrack === 'chicks'
+                ? `تفريخ عمر يوم ${dateStr}`
+                : (selectedNewBatchTrack === 'weight' ? `دورة فراخ ${dateStr}` : `دفعة ${dateStr}`);
+            nameInp.setAttribute('data-auto-filled', '1');
+        }
+    };
+
+    window.addNewBatchUI = function () {
+        ensureNewBatchTrackModal();
+        const nameInp = document.getElementById('nb-track-name-input');
+        const capInp = document.getElementById('nb-track-cap-input');
+        if (nameInp) {
+            nameInp.value = '';
+            nameInp.setAttribute('data-auto-filled', '1');
+            nameInp.oninput = () => nameInp.setAttribute('data-auto-filled', '0');
+        }
+        if (capInp) capInp.value = '';
+        window.selectNewBatchTrackType('quail');
+
+        if (typeof openModal === 'function') openModal('new-batch-track-modal');
+        else document.getElementById('new-batch-track-modal')?.classList.remove('hidden');
+        setTimeout(() => nameInp?.focus(), 100);
+    };
+
+    window.confirmCreateNewBatchWithTrack = async function () {
+        const nameInp = document.getElementById('nb-track-name-input');
+        const capInp = document.getElementById('nb-track-cap-input');
+        const dateStr = new Date().toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' });
+        const cleanName = (nameInp?.value || '').trim() || `دفعة ${dateStr}`;
+        const capVal = Math.max(0, parseInt(capInp?.value) || 0);
+        const trackType = selectedNewBatchTrack || 'quail';
+
+        const initStock = {};
+        if (trackType === 'chicks' && capVal > 0 && typeof storeProducts !== 'undefined') {
+            const chicksPid = Object.keys(storeProducts).find(id => window.getProductTrackType(id) === 'chicks');
+            if (chicksPid) initStock[chicksPid] = capVal;
+        }
 
         const bId = 'batch_' + Date.now();
         storeBatches[bId] = {
             name: cleanName,
+            batchType: trackType,
             isOpen: true,
             isVisible: true,
-            stock: {},
+            actualPairs: capVal,
+            publicPairs: capVal,
+            stock: initStock,
             booked: {},
             hatchDate: Date.now()
         };
@@ -1021,14 +1311,19 @@
             if (typeof db !== 'undefined') {
                 await db.collection('inventory').doc('batches').set({ [bId]: storeBatches[bId] }, { merge: true });
             }
+            if (typeof closeModal === 'function') closeModal('new-batch-track-modal');
+            else document.getElementById('new-batch-track-modal')?.classList.add('hidden');
+
             window.batchUIState.viewMode = 'focus';
             window.batchUIState.focusedBatchId = bId;
             window.batchUIState.activeInnerTab = 'stock';
             window.renderBatchesUI();
             if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
-            if (typeof window.showToast === 'function') window.showToast(`🎉 تم إنشاء (${cleanName}) بنجاح!`);
+            const tMeta = getTrackMeta(trackType);
+            if (typeof window.showToast === 'function') window.showToast(`${tMeta.icon} تم إنشاء (${cleanName}) كمسار مستقل بنجاح!`);
         } catch (e) {
             console.error('Error creating batch:', e);
+            alert('حدث خطأ أثناء إنشاء الدورة الجديدة!');
         }
     };
 
@@ -1038,17 +1333,18 @@
         if (!b.stock) b.stock = {};
         b.stock[pId] = Math.max(0, parseInt(val) || 0);
 
+        const trackType = window.getBatchTrackType(b);
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
-        let newMainSum = 0;
+        let newTrackSum = 0;
         Object.keys(prodsObj).forEach(k => {
-            if (prodsObj[k] && isMainQuailProduct(k)) {
-                newMainSum += (Number(b.stock[k]) || 0);
+            if (prodsObj[k] && doesProductMatchBatchTrack(k, trackType)) {
+                newTrackSum += (Number(b.stock[k]) || 0);
             }
         });
 
-        if (newMainSum > 0) {
-            b.actualPairs = newMainSum;
-            b.publicPairs = newMainSum;
+        if (newTrackSum > 0) {
+            b.actualPairs = newTrackSum;
+            b.publicPairs = newTrackSum;
         }
 
         try {
@@ -1315,12 +1611,12 @@
 
         let zoneOpts = `<option value="all">📍 كل المناطق (${allValidOrders.length} طلب)</option>`;
         Object.keys(metrics.zonesMap).sort((a, b2) => metrics.zonesMap[b2].count - metrics.zonesMap[a].count).forEach(z => {
-            zoneOpts += `<option value="${z}" ${zFilter === z ? 'selected' : ''}>📍 ${z} (${metrics.zonesMap[z].count} طلب)</option>`;
+            zoneOpts += `<option value="${escapeHtmlSafe(z)}" ${zFilter === z ? 'selected' : ''}>📍 ${escapeHtmlSafe(z)} (${metrics.zonesMap[z].count} طلب)</option>`;
         });
 
         const itemsPillsHtml = Object.keys(filteredItemsSum).map(nm => `
             <div class="bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl text-center">
-                <span class="block text-[10px] font-bold text-slate-500">${nm}</span>
+                <span class="block text-[10px] font-bold text-slate-500">${escapeHtmlSafe(nm)}</span>
                 <span class="text-base font-black text-brand-primary">${Number(filteredItemsSum[nm].toFixed(2))}</span>
             </div>
         `).join('');
@@ -1328,7 +1624,7 @@
         let tableRowsHtml = '';
         filteredOrders.forEach((o, idx) => {
             const itemsStr = Array.isArray(o.items)
-                ? o.items.map(i => `<span class="bg-indigo-50 px-2 py-0.5 rounded-lg text-indigo-700 font-black border border-indigo-100 text-xs inline-block m-0.5">${i.quantity}x ${i.name}</span>`).join(' ')
+                ? o.items.map(i => `<span class="bg-indigo-50 px-2 py-0.5 rounded-lg text-indigo-700 font-black border border-indigo-100 text-xs inline-block m-0.5">${i.quantity}x ${escapeHtmlSafe(i.name)}</span>`).join(' ')
                 : '';
             const locationStr = `${o.zone || 'بدون منطقة'}${o.customerAddress ? ' - ' + o.customerAddress : ''}`;
             const stAr = o.status === 'completed' ? '✅ مسلم' : (o.status === 'dispatched' ? '🛵 بالطريق' : (o.status === 'processing' ? '⏳ تجهيز' : '🆕 جديد'));
@@ -1340,19 +1636,19 @@
                 <tr class="hover:bg-slate-50/80 transition-colors">
                     <td class="p-3.5 font-black text-slate-400 text-xs">${idx + 1}</td>
                     <td class="p-3.5">
-                        <div class="font-black text-slate-800 text-sm mb-0.5">${o.customerName || 'عميل'} <span class="text-[10px] font-bold text-slate-400">(${stAr})</span></div>
-                        <div class="text-[11px] text-slate-600 font-bold"><i class="fa-solid fa-location-dot text-indigo-400 mr-1"></i> ${locationStr}</div>
+                        <div class="font-black text-slate-800 text-sm mb-0.5">${escapeHtmlSafe(o.customerName || 'عميل')} <span class="text-[10px] font-bold text-slate-400">(${stAr})</span></div>
+                        <div class="text-[11px] text-slate-600 font-bold"><i class="fa-solid fa-location-dot text-indigo-400 mr-1"></i> ${escapeHtmlSafe(locationStr)}</div>
                     </td>
                     <td class="p-3.5 font-black text-slate-700 text-xs" dir="ltr">
-                        ${o.customerPhone || ''}
-                        ${o.customerPhone2 ? `<br><span class="text-[10px] text-purple-600">بديل: ${o.customerPhone2}</span>` : ''}
+                        ${escapeHtmlSafe(o.customerPhone || '')}
+                        ${o.customerPhone2 ? `<br><span class="text-[10px] text-purple-600">بديل: ${escapeHtmlSafe(o.customerPhone2)}</span>` : ''}
                     </td>
                     <td class="p-3.5">${itemsStr}</td>
                     <td class="p-3.5 font-black text-brand-primary text-center text-base">
                         ${o.total || 0} <span class="text-xs">ج</span>
                         ${payStr}
                     </td>
-                    <td class="p-3.5 text-[11px] font-bold text-amber-700 max-w-[180px] leading-relaxed">${o.driverNote || o.adminNote || '-'}</td>
+                    <td class="p-3.5 text-[11px] font-bold text-amber-700 max-w-[180px] leading-relaxed">${escapeHtmlSafe(o.driverNote || o.adminNote || '-')}</td>
                 </tr>
             `;
         });
@@ -1516,7 +1812,7 @@
     };
 
     // =========================================================================
-    // 🔪 6. نافذة إتمام الذبح للدفعة والترحيل الآمن للفريزر
+    // 🔪 6. نافذة إتمام الذبح / التجهيز للدفعة والترحيل الآمن للفريزر
     // =========================================================================
     window.openSlaughterModal = function (bId) {
         const b = storeBatches[bId];
@@ -1526,11 +1822,16 @@
         const cont = document.getElementById('slaughter-items-container');
         if (!cont) return;
 
+        const trackType = window.getBatchTrackType(b);
         const metrics = window.getBatchDeepMetrics(bId, b.name);
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
 
         const sortedIds = Object.keys(prodsObj)
-            .filter(id => Boolean(prodsObj[id]))
+            .filter(id => {
+                if (!prodsObj[id]) return false;
+                const hasStockOrBooked = (Number(b.stock?.[id]) || 0) > 0 || (Number(metrics.realBookedByProd[id]) || 0) > 0;
+                return doesProductMatchBatchTrack(id, trackType) || hasStockOrBooked;
+            })
             .sort((a, b2) => getBatchProductRank(a, prodsObj[a]) - getBatchProductRank(b2, prodsObj[b2]));
 
         let html = '';
@@ -1545,17 +1846,17 @@
             html += `
             <div class="flex justify-between items-center bg-white shadow-sm border border-slate-200/80 p-3 rounded-xl hover:border-rose-300 transition-colors">
                 <div>
-                    <span class="font-black text-slate-800 text-sm block">${p.name}</span>
+                    <span class="font-black text-slate-800 text-sm block">${escapeHtmlSafe(p.name)}</span>
                     <span class="text-[10px] font-bold text-slate-400">المتاح بالدفعة: ${plannedStock} | محجوز للعملاء: <strong class="text-blue-600">${Number(bookedNow.toFixed(1))}</strong></span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <span class="text-[10px] font-bold text-rose-600">المذبوح:</span>
+                    <span class="text-[10px] font-bold text-rose-600">${trackType === 'chicks' ? 'الجاهز:' : 'المذبوح:'}</span>
                     <input type="number" id="slaughter-q-${id}" value="${currentSlaughtered}" min="0" class="w-20 border border-rose-200 bg-rose-50/40 text-center font-black text-rose-700 text-base rounded-lg py-1 outline-none focus:ring-2 focus:ring-rose-300 focus:bg-white transition-all">
                 </div>
             </div>`;
         });
 
-        cont.innerHTML = html;
+        cont.innerHTML = html || '<div class="text-center py-6 text-xs font-bold text-slate-400">لا توجد أصناف مرتبطة بهذه الدورة.</div>';
         if (typeof openModal === 'function') openModal('slaughter-modal');
     };
 
@@ -1565,10 +1866,11 @@
 
         const btn = document.getElementById('btn-confirm-slaughter');
         const origHtml = btn.innerHTML;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الترحيل للفريزر...';
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الحفظ والترحيل...';
         btn.disabled = true;
 
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
+        const trackType = window.getBatchTrackType(storeBatches[bId]);
 
         let slaughteredData = {};
         let expectedValue = 0;
@@ -1584,13 +1886,16 @@
                 const price = getProdPrice(id);
                 expectedValue += (q * price);
 
-                const oldSlaughtered = (storeBatches[bId].slaughtered && storeBatches[bId].slaughtered[id]) ? Number(storeBatches[bId].slaughtered[id]) : 0;
-                const diff = q - oldSlaughtered;
-                if (diff !== 0) {
-                    const curFz = Math.max(0, Number(freezerNewData[id]) || 0);
-                    freezerNewData[id] = Math.max(0, curFz + diff);
-                    if (typeof storeFreezer !== 'undefined') storeFreezer[id] = freezerNewData[id];
-                    freezerChanged = true;
+                // لا نرحّل الكتاكيت الحية (عمر يوم) إلى مخزن الفريزر!
+                if (trackType !== 'chicks' && window.getProductTrackType(id) !== 'chicks') {
+                    const oldSlaughtered = (storeBatches[bId].slaughtered && storeBatches[bId].slaughtered[id]) ? Number(storeBatches[bId].slaughtered[id]) : 0;
+                    const diff = q - oldSlaughtered;
+                    if (diff !== 0) {
+                        const curFz = Math.max(0, Number(freezerNewData[id]) || 0);
+                        freezerNewData[id] = Math.max(0, curFz + diff);
+                        if (typeof storeFreezer !== 'undefined') storeFreezer[id] = freezerNewData[id];
+                        freezerChanged = true;
+                    }
                 }
             }
         });
@@ -1627,17 +1932,21 @@
             window.renderBatchesUI();
             if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
 
-            alert(`✅ تم إتمام الذبح بنجاح!\n- تم قفل الحجز على الدفعة.\n- تم ترحيل الكميات المذبوحة إلى مخزن الفريزر.\n- القيمة الإجمالية للمذبوح: ${expectedValue.toLocaleString()} ج.م`);
+            alert(
+                trackType === 'chicks'
+                    ? `✅ تم تأكيد جاهزية دورة التفريخ وإغلاق الحجز بنجاح!\n- القيمة الإجمالية المتوقعة: ${expectedValue.toLocaleString()} ج.م`
+                    : `✅ تم إتمام الذبح بنجاح!\n- تم قفل الحجز على الدفعة.\n- تم ترحيل الكميات المذبوحة إلى مخزن الفريزر.\n- القيمة الإجمالية للمذبوح: ${expectedValue.toLocaleString()} ج.م`
+            );
         } catch (e) {
             console.error(e);
-            alert('حدث خطأ أثناء حفظ الذبح والترحيل للفريزر!');
+            alert('حدث خطأ أثناء حفظ البيانات!');
         }
 
         btn.innerHTML = origHtml;
         btn.disabled = false;
     };
 
-    // دالة الحذف الجذري للدفعة
+    // دالة الحذف الآمن للدفعة (باستخدام FieldValue.delete بدون الكتابة فوق باقي الدفعات)
     window.deleteBatchUI = async function (bId) {
         const targetBatch = storeBatches[bId];
         const batchTitle = targetBatch && targetBatch.name ? targetBatch.name : 'هذه الدفعة';
@@ -1646,15 +1955,11 @@
 
         try {
             delete storeBatches[bId];
-            Object.keys(storeBatches).forEach(k => {
-                const item = storeBatches[k];
-                if (!item || typeof item !== 'object' || !item.name || item.name === 'undefined' || item.name.trim() === '') {
-                    delete storeBatches[k];
-                }
-            });
 
             if (typeof db !== 'undefined') {
-                await db.collection('inventory').doc('batches').set(storeBatches);
+                await db.collection('inventory').doc('batches').update({
+                    [bId]: firebase.firestore.FieldValue.delete()
+                }).catch(() => db.collection('inventory').doc('batches').set(storeBatches));
 
                 const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
                 const linkedOrders = ordersList.filter(o => o && o.batchId === bId);
