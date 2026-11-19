@@ -54,18 +54,20 @@
 
             if (t === current) {
                 const st = TAB_ACTIVE_STYLES[t] || TAB_ACTIVE_STYLES.all;
-                btn.className = `order-tab active whitespace-nowrap px-3.5 py-2 rounded-xl text-xs font-black border-2 transition-all ${st.btn}`;
+                const cleanBtnCls = String(st.btn || '').replace('scale-[1.02]', '').trim();
+                btn.className = `order-tab active whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black border-2 transition-colors ${cleanBtnCls}`;
                 if (badge) {
                     badge.className = `mr-1 px-1.5 py-0.5 rounded-md text-[10px] font-black ${st.badge}`;
                 }
             } else {
-                btn.className = 'order-tab whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors';
+                btn.className = 'order-tab whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black bg-white border-2 border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors';
                 if (badge) {
                     badge.className = `mr-1 px-1.5 py-0.5 rounded-md text-[10px] font-black ${TAB_INACTIVE_BADGES[t] || 'bg-slate-100 text-slate-600'}`;
                 }
             }
         });
     };
+
 
     window.setOrderTab = function (tab) {
         currentOrderTab = tab;
@@ -2253,10 +2255,19 @@
         window.checkDueDeferredOrdersNow();
         setInterval(() => {
             window.checkDueDeferredOrdersNow();
-            if (typeof currentOrderTab !== 'undefined' && (currentOrderTab === 'deferred' || currentOrderTab === 'all')) {
-                window.decorateDeferredOrderCards();
+            if (typeof currentOrderTab !== 'undefined' && currentOrderTab === 'deferred') {
+                document.querySelectorAll('.order-card[data-id]').forEach(card => {
+                    const ord = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(x => x && x.id === card.getAttribute('data-id'));
+                    if (!ord || !ord.deferredUntilMs) return;
+                    const remSpan = card.querySelector('.def-schedule-card-banner span.rounded');
+                    if (remSpan) {
+                        const newRem = formatRemainingCountdown(ord.deferredUntilMs);
+                        if (remSpan.innerText !== newRem) remSpan.innerText = newRem;
+                    }
+                });
             }
-        }, 15000);
+        }, 30000);
+
     }
 
     if (document.readyState === 'loading') {
