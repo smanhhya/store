@@ -939,8 +939,9 @@
     // =========================================================================
     window.addNewBatchUI = async function () {
         const defaultName = `دفعة ${new Date().toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' })}`;
-        const batchNameInput = prompt('🐣 إنشاء دورة / دفعة سمان جديدة:\n\nاكتب اسم الدفعة الجديدة (مثال: دفعة الخميس 20 نوفمبر):', defaultName);
+        const batchNameInput = await window.execPrompt('🐣 اكتب اسم الدورة / الدفعة الجديدة (مثال: دفعة الخميس 20 نوفمبر):', defaultName, { title: 'إنشاء دورة جديدة', tone: 'brand', confirmText: 'إنشاء الدفعة' });
         if (batchNameInput === null) return;
+
         const cleanName = batchNameInput.trim() || defaultName;
 
         const bId = 'batch_' + Date.now();
@@ -1579,7 +1580,7 @@
         const targetBatch = storeBatches[bId];
         const batchTitle = targetBatch && targetBatch.name ? targetBatch.name : 'هذه الدفعة';
 
-        if (!confirm(`⚠️ هل أنت متأكد من حذف (${batchTitle}) نهائياً من النظام؟`)) return;
+        if (!(await window.execConfirm(`⚠️ هل أنت متأكد من حذف (${batchTitle}) نهائياً من النظام؟`, { title: 'حذف الدفعة نهائياً', tone: 'danger', confirmText: 'نعم، حذف نهائي' }))) return;
 
         try {
             delete storeBatches[bId];
