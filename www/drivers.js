@@ -830,7 +830,8 @@
             `• 💵 صافي كاش الدرج: ${targetNetCash.toLocaleString()} ج.م\n` +
             `• 💳 محفظة الأونلاين / الفيزا: ${targetNetOnline.toLocaleString()} ج.م`;
 
-        if (!confirm(confirmMsg)) return;
+        if (!(await window.execConfirm(confirmMsg, { title: 'تأكيد تصفية وتقفيل العهدة', tone: 'success', confirmText: 'تأكيد الاستلام والتقفيل' }))) return;
+
 
         const btn = document.getElementById('btn-settle-recon');
         const origHtml = btn.innerHTML;
