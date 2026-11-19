@@ -1307,7 +1307,7 @@
             'trash': 'سلة المحذوفات'
         };
         const statusName = statusNamesAr[newStatus] || newStatus;
-        if (!confirm(`سيتم تحويل [ ${checked.length} ] طلبات إلى حالة (${statusName}). تأكيد؟`)) return;
+        if (!(await window.execConfirm(`سيتم تحويل [ ${checked.length} ] طلبات إلى حالة (${statusName}). هل تريد التأكيد؟`, { title: 'تحديث جماعي للطلبات', tone: newStatus === 'trash' || newStatus === 'canceled' ? 'danger' : 'brand', confirmText: 'تأكيد التحويل' }))) return;
 
         const bar = document.getElementById('bulk-actions-bar');
         const originalHtml = bar.innerHTML;
