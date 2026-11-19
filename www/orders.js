@@ -95,6 +95,67 @@
         if (o.batchName && o.batchName !== 'undefined') return o.batchName.trim();
         return '';
     }
+    // تحديد مصدر تسجيل الطلب (من متجر العملاء الإلكتروني 🟢 أم مسجل يدوياً من لوحة الإدارة 🔵)
+    function getOrderOriginMeta(o) {
+        const src = String(o?.source || '').toLowerCase();
+        const isFromStore =
+            src.includes('store') ||
+            src.includes('web') ||
+            (src !== 'admin_crm' && (
+                o?.isRead !== undefined ||
+                o?.usedPromo !== undefined ||
+                o?.generatedPromo !== undefined ||
+                Boolean(o?.orderTime && !o?.customTag && o?.debt === undefined && o?.driverNote === undefined)
+            ));
+
+        if (isFromStore) {
+            return {
+                isStore: true,
+                title: 'طلب وارد من الموقع الإلكتروني 🌐',
+                desc: 'العميل قام بتسجيل هذا الطلب بنفسه مباشرة من متجر سمان ههيا.',
+                dotCls: 'bg-emerald-500 ring-emerald-200',
+                badgeCls: 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            };
+        }
+        return {
+            isStore: false,
+            title: 'طلب مسجل من لوحة الإدارة (CRM) 📝',
+            desc: 'تم تسجيل هذا الطلب يدوياً من داخل لوحة التحكم الخاصة بك.',
+            dotCls: 'bg-blue-500 ring-blue-200',
+            badgeCls: 'bg-blue-50 text-blue-800 border-blue-200'
+        };
+    }
+
+    window.showOrderOriginPopover = function (anchorEl, orderId) {
+        const o = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(x => x && x.id === orderId);
+        if (!o) return;
+        const meta = getOrderOriginMeta(o);
+        const timeInfo = o.orderDate ? `${o.orderDate}${o.orderTime ? ' • ' + o.orderTime : ''}` : '';
+
+        if (typeof window.openLivePopover === 'function') {
+            const html = `
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                        <span class="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded-full ${meta.dotCls} ring-2 inline-block"></span>
+                            <span>مصدر الطلب</span>
+                        </span>
+                        <button type="button" onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="p-2.5 rounded-xl border text-xs font-black ${meta.badgeCls}">
+                        ${meta.title}
+                        <p class="text-[10px] font-bold opacity-85 mt-1 leading-relaxed">${meta.desc}</p>
+                    </div>
+                    ${timeInfo ? `<div class="text-[10px] font-bold text-slate-400 text-center">🕒 وقت التسجيل: ${timeInfo}</div>` : ''}
+                </div>
+            `;
+            window.openLivePopover(anchorEl, html);
+        } else if (typeof window.showToast === 'function') {
+            window.showToast(meta.title);
+        } else {
+            alert(meta.title + '\n' + meta.desc);
+        }
+    };
 
     function getOrderAgeLabel(o) {
         let ms = 0;
@@ -952,6 +1013,9 @@
                 ? window.fastAnalyzeOrderTrust(o)
                 : { cardClass: 'bg-white border-slate-100', badgeHtml: '', bannerHtml: '', stickyHtml: '' };
 
+            const originMeta = getOrderOriginMeta(o);
+            const originDotHtml = `<button type="button" data-lc-trigger="1" onclick="event.stopPropagation(); showOrderOriginPopover(this, '${o.id}')" title="${originMeta.title}" class="w-5 h-5 -mx-0.5 rounded-full hover:bg-slate-100 inline-flex items-center justify-center shrink-0 active:scale-90 transition-transform"><span class="w-2.5 h-2.5 rounded-full ${originMeta.dotCls} ring-2 block"></span></button>`;
+
             // 📱 1. وضع العرض المدمج السريع (Compact Mode - خاصية مستقلة)
             if (isCompact) {
                 let compactStepBtn = '';
@@ -978,13 +1042,15 @@
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div class="flex flex-wrap items-center gap-1.5 min-w-0">
                             <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer shrink-0">
+                            ${originDotHtml}
                             <span onclick="openCustomerCard('${o.customerPhone}')" class="font-black text-slate-800 text-xs sm:text-sm cursor-pointer hover:text-brand-primary">${o.customerName || 'بدون اسم'}</span>
                             ${trustInfo.badgeHtml}
-                            <a href="tel:${o.customerPhone}" class="text-emerald-600 bg-emerald-50 hover:bg-emerald-600 hover:text-white w-5 h-5 rounded-full flex items-center justify-center text-[9px] transition-colors"><i class="fa-solid fa-phone"></i></a>
+                            <a href="tel:${o.customerPhone}" onclick="event.stopPropagation();" class="inline-flex items-center gap-1 text-emerald-800 bg-emerald-50 hover:bg-emerald-600 hover:text-white border border-emerald-200 px-2 py-0.5 rounded-lg text-[10px] font-black transition-colors active:scale-95" title="اضغط للاتصال المباشر"><i class="fa-solid fa-phone text-[9px]"></i><span dir="ltr">${o.customerPhone || ''}</span></a>
                             <span data-zone-pill="1" ondblclick="inlineEdit(this, '${o.id}', 'zone')" class="text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-lg">${o.zone || 'بدون منطقة'}</span>
                             ${realBatchTitle ? `<span class="text-[9px] font-black bg-teal-50 text-teal-700 border border-teal-200 px-1.5 py-0.5 rounded">${realBatchTitle}</span>` : ''}
                             ${compactPayBadge}
                         </div>
+
                         <div class="flex items-center gap-1.5 shrink-0 mr-auto sm:mr-0">
                             <span class="font-black text-brand-primary text-sm sm:text-base">${o.total || 0} <span class="text-[10px]">ج</span></span>
                             ${sBadge}
@@ -1107,11 +1173,12 @@
                 ${trustInfo.bannerHtml}
                 ${trustInfo.stickyHtml}
 
-                <!-- 1. الهيدر الرشيق: العميل والمنطقة يميناً + الحالة ورقم الاتصال يساراً -->
+                <!-- 1. الهيدر الرشيق: العميل والدائرة الإرشادية يميناً + الحالة وزر الاتصال السهل يساراً -->
                 <div class="flex items-start justify-between gap-2">
                     <div class="space-y-1 min-w-0 flex-1">
                         <div class="flex flex-wrap items-center gap-1.5">
                             <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer rounded shrink-0">
+                            ${originDotHtml}
                             <span class="font-black text-slate-900 text-sm cursor-pointer hover:text-brand-primary border-b border-transparent hover:border-brand-primary border-dashed" onclick="smartNameClick(this, '${o.id}', '${o.customerPhone}', 'customerName')">${o.customerName || 'بدون اسم'}</span>
                             ${trustInfo.badgeHtml}
                         </div>
@@ -1128,12 +1195,18 @@
                             <span class="text-[9px] font-bold text-slate-400">${timeDisplayStr}</span>
                             ${sBadge}
                         </div>
-                        <div class="inline-flex items-center gap-1 bg-slate-100 hover:bg-emerald-50 px-2 py-0.5 rounded-lg border border-slate-200/80 transition-colors">
-                            <span class="text-[11px] text-slate-800 font-black cursor-pointer" dir="ltr" ondblclick="inlineEdit(this, '${o.id}', 'customerPhone')">${o.customerPhone}</span>
-                            <a href="tel:${o.customerPhone}" class="text-emerald-600 hover:text-emerald-800 text-[10px] flex items-center" title="اتصال"><i class="fa-solid fa-phone"></i></a>
-                        </div>
+                        <a href="tel:${o.customerPhone}" onclick="event.stopPropagation();" title="اضغط في أي مكان على الرقم للاتصال المباشر" class="inline-flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-600 text-emerald-900 hover:text-white px-2.5 py-1 rounded-xl border border-emerald-200 transition-colors shadow-sm active:scale-95">
+                            <i class="fa-solid fa-phone text-[10px]"></i>
+                            <span class="text-[11px] font-black tracking-wide" dir="ltr">${o.customerPhone || ''}</span>
+                        </a>
+                        ${o.customerPhone2 ? `
+                        <a href="tel:${o.customerPhone2}" onclick="event.stopPropagation();" title="اتصال بالرقم البديل" class="inline-flex items-center gap-1 bg-purple-50 hover:bg-purple-600 text-purple-800 hover:text-white px-2 py-0.5 rounded-lg border border-purple-200 text-[10px] font-black transition-colors active:scale-95">
+                            <i class="fa-solid fa-phone text-[9px]"></i>
+                            <span dir="ltr">${o.customerPhone2}</span>
+                        </a>` : ''}
                     </div>
                 </div>
+
 
                 <!-- 2. صندوق الطلب والفاتورة البارز (الأصناف واخدة راحتها بالكامل بدون تكسير + الحساب واضح) -->
                 <div class="bg-slate-50/95 p-2.5 rounded-xl border border-slate-200/90 space-y-2">
