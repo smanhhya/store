@@ -755,6 +755,52 @@
                         </div>
                         <p class="text-[10px] font-bold text-amber-700"><i class="fa-solid fa-circle-info ml-1"></i> مثال لـ 2% كاش باك: ضع 5 نقاط لكل 100ج، وقيمة النقطة 0.40 ج.م.</p>
                     </div>
+
+                    <!-- 📷 استوديو الصور الذكي ومدير الكتالوج (ImgBB) -->
+                    <div class="bg-white rounded-2xl p-4 sm:p-5 border-2 border-emerald-200/80 shadow-soft space-y-4">
+                        <div class="flex flex-wrap justify-between items-center gap-2 pb-2.5 border-b border-emerald-100">
+                            <div>
+                                <h4 class="font-black text-emerald-900 text-sm flex items-center gap-2">
+                                    <i class="fa-solid fa-camera-retro text-emerald-600"></i> استوديو الصور والكتالوج (رفع وتظبيط تلقائي)
+                                </h4>
+                                <p class="text-[10px] font-bold text-slate-500 mt-0.5">يضغط الصورة تلقائياً للسرعة ويظبط أبعادها بدون قص ستيكر سمان ههيا.</p>
+                            </div>
+                            <button type="button" onclick="triggerGalleryImageUpload()" id="btn-upload-gallery-img" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-black shadow-sm flex items-center gap-1.5 active:scale-95">
+                                <i class="fa-solid fa-cloud-arrow-up"></i> رفع صورة للكتالوج
+                            </button>
+                        </div>
+
+                        <!-- إعداد مفتاح ImgBB (محفوظ على جهازك فقط بأمان) + وضع القص -->
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                            <div class="sm:col-span-2">
+                                <label class="text-[10px] font-black text-slate-600 block mb-1">🔑 مفتاح ImgBB API (يُحفظ على جهازك فقط):</label>
+                                <div class="flex gap-1.5">
+                                    <input type="password" id="st-imgbb-key" dir="ltr" onchange="saveImgBBKeyLocal(this.value)" placeholder="الصق مفتاح ImgBB هنا..." class="flex-1 min-w-0 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold bg-white outline-none text-left">
+                                    <button type="button" onclick="const inp=document.getElementById('st-imgbb-key'); inp.type=inp.type==='password'?'text':'password';" class="w-9 h-9 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center shrink-0" title="إظهار/إخفاء المفتاح"><i class="fa-regular fa-eye text-xs"></i></button>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-black text-slate-600 block mb-1">✂️ تظبيط صور الأطباق:</label>
+                                <select id="st-img-fit-mode" onchange="localStorage.setItem('sman_img_fit_mode', this.value)" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-white text-slate-700 outline-none">
+                                    <option value="contain">كامل بدون قص الاستيكر</option>
+                                    <option value="cover">ملء المربع بالكامل</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- معرض صور الكتالوج الحالية -->
+                        <div class="space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-black text-slate-700">🖼️ صور معرض "من مزرعتنا على الطبيعة" في المتجر:</span>
+                                <button type="button" onclick="addManualGalleryImage()" class="text-[10px] font-black text-indigo-600 hover:underline">+ إضافة برابط يدوي</button>
+                            </div>
+                            <div id="st-gallery-images-grid" class="grid grid-cols-3 sm:grid-cols-5 gap-2"></div>
+                        </div>
+
+                        <!-- مدخلات رفع الملفات المخفية -->
+                        <input type="file" id="sman-hidden-product-file" accept="image/*" class="hidden" onchange="handleProductImageFileSelected(event)">
+                        <input type="file" id="sman-hidden-gallery-file" accept="image/*" class="hidden" onchange="handleGalleryImageFileSelected(event)">
+                    </div>
                 </div>
 
                 <!-- ==================== التبويب 2: المناطق والمناديب ==================== -->
