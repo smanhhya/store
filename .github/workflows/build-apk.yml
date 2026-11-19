@@ -232,6 +232,8 @@ jobs:
           npx cap sync android
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
           NEW_VER_CODE=$((100 + ${{ github.run_number }}))
+          echo "APP_VER_CODE=${NEW_VER_CODE}" >> $GITHUB_ENV
+          echo "APP_VER_NAME=1.${NEW_VER_CODE}" >> $GITHUB_ENV
           sed -i -E "s/versionCode [0-9]+/versionCode ${NEW_VER_CODE}/g" android/app/build.gradle
           sed -i -E "s/versionName \"[^\"]+\"/versionName \"1.${NEW_VER_CODE}\"/g" android/app/build.gradle
           cp -f sman-debug.keystore android/app/debug.keystore
@@ -287,7 +289,8 @@ jobs:
           import android.content.Context;
           import android.content.Intent;
           import android.content.pm.PackageManager;
-          import android.hardware.usb.UsbConstants;
+          import android.net.Uri;
+        import android.hardware.usb.UsbConstants;
           import android.hardware.usb.UsbDevice;
           import android.hardware.usb.UsbDeviceConnection;
           import android.hardware.usb.UsbEndpoint;
@@ -337,6 +340,9 @@ jobs:
                   private static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
                   private static final String DEFAULT_DELI_MAC = "A5:A4:00:0A:22:90";
                   private static final String ACTION_USB_PERMISSION = "com.smanhehya.crm.USB_PERMISSION";
+                  private static final String APP_VERSION_CODE_STR = "__APP_VERSION_CODE__";
+                  private static final String APP_VERSION_NAME = "__APP_VERSION_NAME__";
+                  private static final String GITHUB_REPO = "__GITHUB_REPO__";
 
                   public SmanPrinterBridge(MainActivity activity, WebView webView) {
                       this.activity = activity;
@@ -347,6 +353,40 @@ jobs:
                   public boolean isNativeBridgeReady() {
                       return true;
                   }
+
+                  @JavascriptInterface
+                  public int getAppVersionCode() {
+                      try {
+                          return Integer.parseInt(APP_VERSION_CODE_STR.trim());
+                      } catch (Exception e) {
+                          return 0;
+                      }
+                  }
+
+                  @JavascriptInterface
+                  public String getAppVersionName() {
+                      return APP_VERSION_NAME;
+                  }
+
+                  @JavascriptInterface
+                  public String getGitHubRepo() {
+                      return GITHUB_REPO;
+                  }
+
+                  @JavascriptInterface
+                  public boolean openExternalUrl(final String url) {
+                      try {
+                          if (url == null || url.trim().isEmpty()) return false;
+                          Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url.trim()));
+                          intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                          activity.startActivity(intent);
+                          return true;
+                      } catch (Exception e) {
+                          e.printStackTrace();
+                          return false;
+                      }
+                  }
+
 
                   @JavascriptInterface
                   public boolean checkAndRequestPermissions() {
@@ -546,11 +586,15 @@ jobs:
                           }
                       });
                   }
-              }
+               }
           }
           EOF
+          sed -i "s|__APP_VERSION_CODE__|${APP_VER_CODE}|g" android/app/src/main/java/com/smanhehya/crm/MainActivity.java
+          sed -i "s|__APP_VERSION_NAME__|${APP_VER_NAME}|g" android/app/src/main/java/com/smanhehya/crm/MainActivity.java
+          sed -i "s|__GITHUB_REPO__|${{ github.repository }}|g" android/app/src/main/java/com/smanhehya/crm/MainActivity.java
 
       - name: Build 1 - Main Sman CRM APK
+
         run: |
           cd android
           chmod +x gradlew
@@ -574,9 +618,20 @@ jobs:
           name: Sman-CRM-APK
           path: Sman-CRM-APK.apk
 
-      - name: Upload Standalone Printer Studio APK
-        if: hashFiles('Sman-Printer-750W-APK.apk') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: Sman-Printer-750W-APK
-          path: Sman-Printer-750W-APK.apk
+
+      - name: Publish Latest CRM APK Release (Auto-Update)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%s 2>/dev/null || echo "تحديث جديد لتطبيق الإدارة")
+          RELEASE_NOTES=$(printf "VERSION_CODE:%s\nالإصدار: v%s\nالتفاصيل: %s" "${APP_VER_CODE}" "${APP_VER_NAME}" "${COMMIT_MSG}")
+          if gh release view latest-crm >/dev/null 2>&1; then
+            gh release edit latest-crm \
+              --title "سمان ههيا CRM - الإصدار v${APP_VER_NAME}" \
+              --notes "$RELEASE_NOTES"
+            gh release upload latest-crm Sman-CRM-APK.apk --clobber
+          else
+            gh release create latest-crm Sman-CRM-APK.apk \
+              --title "سمان ههيا CRM - الإصدار v${APP_VER_NAME}" \
+              --notes "$RELEASE_NOTES"
+          fi
