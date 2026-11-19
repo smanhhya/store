@@ -2252,12 +2252,21 @@
         function openModal(id) {
             const el = document.getElementById(id);
             if (!el) return;
+            if (id === 'add-order-modal') {
+                const pm = document.getElementById('no-payment-method');
+                if (pm) pm.value = 'cash';
+                const splitBox = document.getElementById('no-split-box');
+                if (splitBox) splitBox.classList.add('hidden');
+                if (document.getElementById('no-paid-cash')) document.getElementById('no-paid-cash').value = '';
+                if (document.getElementById('no-paid-online')) document.getElementById('no-paid-online').value = '';
+            }
             const wasHidden = el.classList.contains('hidden');
             el.classList.remove('hidden');
             if (wasHidden && !isHandlingPopState) {
                 try { history.pushState({ guard: 'modal', modal: id }, ''); } catch (e) {}
             }
         }
+
 
         function closeModal(id) {
             const el = document.getElementById(id);
@@ -2408,17 +2417,21 @@
             auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
         } catch (e) {}
 
-        // إخفاء شاشة الدخول بصرياً فوراً للموبايل الموثوق، مع انتظار جاهزية Firebase الفعلية قبل سحب الداتا لمنع الشاشة البيضاء
+        // تنظيف أمني فوري: إزالة أي كلمة مرور قديمة كانت مخزنة كنص صريح
+        removePermanentOwnerData('sman_owner_pass');
+
+        // إخفاء شاشة الدخول بصرياً فوراً للموبايل الموثوق مع الاعتماد على جلسة Firebase الآمنة (Persistence.LOCAL)
         (function instantTrustedDeviceCheck() {
             const isTrusted = getPermanentOwnerData('sman_trusted_owner_device') === '1';
             const savedEmail = getPermanentOwnerData('sman_owner_email');
-            const savedPass = getPermanentOwnerData('sman_owner_pass');
-            if (isTrusted && savedEmail && savedPass) {
+            if (isTrusted && savedEmail) {
                 hideLoginScreenImmediately();
                 // صمام أمان في حال انقطاع الإنترنت الكامل عن الجهاز
-                setTimeout(() => {
-                    if (!window._crmBootedOnce) bootCrmOnceSafely();
-                }, 1800);
+                if (!navigator.onLine) {
+                    setTimeout(() => {
+                        if (!window._crmBootedOnce) bootCrmOnceSafely();
+                    }, 1200);
+                }
             }
         })();
 
@@ -2428,23 +2441,18 @@
                 if (user.email) setPermanentOwnerData('sman_owner_email', user.email);
                 bootCrmOnceSafely();
             } else {
-                const savedEmail = getPermanentOwnerData('sman_owner_email');
-                const savedPass = getPermanentOwnerData('sman_owner_pass');
-                if (savedEmail && savedPass) {
-                    hideLoginScreenImmediately();
-                    auth.signInWithEmailAndPassword(savedEmail, savedPass).then(() => {
-                        bootCrmOnceSafely();
-                    }).catch(() => {
-                        if (getPermanentOwnerData('sman_trusted_owner_device') === '1') {
-                            bootCrmOnceSafely();
-                        } else {
-                            document.getElementById('login-screen').classList.remove('hidden');
-                            setTimeout(() => document.getElementById('login-screen').style.opacity = '1', 10);
-                        }
-                    });
+                const isTrusted = getPermanentOwnerData('sman_trusted_owner_device') === '1';
+                if (!navigator.onLine && isTrusted) {
+                    bootCrmOnceSafely();
                 } else {
-                    document.getElementById('login-screen').classList.remove('hidden');
-                    setTimeout(() => document.getElementById('login-screen').style.opacity = '1', 10);
+                    const emailInp = document.getElementById('login-email');
+                    const savedEmail = getPermanentOwnerData('sman_owner_email');
+                    if (emailInp && savedEmail && !emailInp.value) emailInp.value = savedEmail;
+                    const ls = document.getElementById('login-screen');
+                    if (ls) {
+                        ls.classList.remove('hidden');
+                        setTimeout(() => ls.style.opacity = '1', 10);
+                    }
                 }
             }
         });
@@ -2454,22 +2462,24 @@
             const p = document.getElementById('login-password').value;
             if (!e || !p) return;
             const btn = document.getElementById('login-btn');
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الدخول وتوثيق الموبايل...';
-            auth.signInWithEmailAndPassword(e, p).then(() => {
-                // حفظ بيانات الدخول في ذاكرة الأندرويد الدائمة لعدم طلب الباسورد مرة أخرى أبداً
-                setPermanentOwnerData('sman_owner_email', e);
-                setPermanentOwnerData('sman_owner_pass', p);
-                setPermanentOwnerData('sman_trusted_owner_device', '1');
-                bootCrmOnceSafely();
-            }).catch(() => {
-                btn.innerHTML = 'تسجيل الدخول';
-                document.getElementById('login-error').innerText = "بيانات الدخول خاطئة!";
-                document.getElementById('login-error').classList.remove('hidden');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الدخول الآمن...';
+            auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {}).finally(() => {
+                auth.signInWithEmailAndPassword(e, p).then(() => {
+                    setPermanentOwnerData('sman_owner_email', e);
+                    setPermanentOwnerData('sman_trusted_owner_device', '1');
+                    removePermanentOwnerData('sman_owner_pass');
+                    document.getElementById('login-password').value = '';
+                    bootCrmOnceSafely();
+                }).catch(() => {
+                    btn.innerHTML = 'تسجيل الدخول';
+                    document.getElementById('login-error').innerText = "بيانات الدخول خاطئة!";
+                    document.getElementById('login-error').classList.remove('hidden');
+                });
             });
         };
 
         window.logoutApp = () => {
-            if (confirm("هل أنت متأكد من الخروج الآمن وإلغاء الدخول التلقائي على هذا الجهاز؟")) {
+            if (confirm("هل أنت متأكد من الخروج الآمن وإلغاء الجلسة على هذا الجهاز؟")) {
                 removePermanentOwnerData('sman_owner_email');
                 removePermanentOwnerData('sman_owner_pass');
                 removePermanentOwnerData('sman_trusted_owner_device');
@@ -2477,6 +2487,7 @@
                 auth.signOut();
             }
         };
+
         // دالة مركزية لإنعاش جداول العملاء والديون فوراً
         window.refreshCustomersData = () => {
             db.collection('customers').get().then(snap => {
@@ -4157,12 +4168,10 @@
             let disc = Number(document.getElementById(`${prefix}-discount`).value) || 0;
             let final = Math.round(itemsTotal + d - disc);
             document.getElementById(`${prefix}-total`).value = final > 0 ? final : 0;
-            if (document.getElementById(`${prefix}-payment-method`)?.value === 'split' && typeof window.syncOrderSplitInputs === 'function') {
-                window.syncOrderSplitInputs(prefix, 'online');
-            }
             if (prefix === 'no' && typeof window.updateNewOrderBatchMeter === 'function') {
                 window.updateNewOrderBatchMeter();
             }
+
         };
 
 
@@ -4457,10 +4466,13 @@
                 if(document.getElementById('no-delivery-start')) document.getElementById('no-delivery-start').value = '';
                 if(document.getElementById('no-delivery-end')) document.getElementById('no-delivery-end').value = '';
                 if(document.getElementById('no-debt')) document.getElementById('no-debt').value = '0';
+                if(document.getElementById('no-payment-method')) document.getElementById('no-payment-method').value = 'cash';
+                if(document.getElementById('no-split-box')) document.getElementById('no-split-box').classList.add('hidden');
+                if(document.getElementById('no-paid-cash')) document.getElementById('no-paid-cash').value = '';
+                if(document.getElementById('no-paid-online')) document.getElementById('no-paid-online').value = '';
 
-                
-        // إلغاء تفعيل زرار السعر القديم للأوردر الجاي
-        if(document.getElementById('no-use-old-price')) document.getElementById('no-use-old-price').checked = false;
+                // إلغاء تفعيل زرار السعر القديم للأوردر الجاي
+                if(document.getElementById('no-use-old-price')) document.getElementById('no-use-old-price').checked = false;
 
         window.refreshCustomersData(); // تحديث شامل لأرشيف العملاء وشاشة الديون
         
@@ -5859,9 +5871,6 @@ window.deleteProductUI = async (id) => {
             let finalTotal = Math.round(itemsTotal + d - disc);
             if (finalTotal < 0) finalTotal = 0;
             document.getElementById('edit-total').value = finalTotal;
-            if (document.getElementById('edit-payment-method')?.value === 'split' && typeof window.syncOrderSplitInputs === 'function') {
-                window.syncOrderSplitInputs('edit', 'online');
-            }
         };
 
 
@@ -7148,15 +7157,16 @@ window.deleteProductUI = async (id) => {
                 let cur = c.blacklistPrepaidCount || 0;
                 let req = c.blacklistRequiredOrders || 3;
                 alertBox.classList.remove('hidden');
-                if (match.type === 'exact') {
+                 if (match.type === 'exact') {
                     alertBox.innerHTML = `
-                    <div class="bg-red-600 text-white p-3.5 rounded-xl shadow-md flex items-center justify-between">
+                    <div class="bg-red-600 text-white p-3.5 rounded-xl shadow-md flex flex-wrap items-center justify-between gap-2">
                         <div>
                             <div class="text-xs font-black"><i class="fa-solid fa-ban mr-1"></i> تحذير: هذا العميل مدرج في قائمة البلاك ليست! (الالتزام: ${cur}/${req})</div>
-                            <div class="text-[11px] font-bold opacity-90 mt-0.5">السبب: ${c.blacklistReason || 'غير محدد'} — يجب تحصيل قيمة الطلب مقدماً (أونلاين) قبل التجهيز!</div>
+                            <div class="text-[11px] font-bold opacity-90 mt-0.5">السبب: ${c.blacklistReason || 'غير محدد'} — يجب تحصيل قيمة الطلب مقدماً قبل التجهيز!</div>
                         </div>
+                        <button type="button" onclick="const pm=document.getElementById('no-payment-method'); if(pm){pm.value='online'; if(window.toggleOrderSplitBox) window.toggleOrderSplitBox('no');}" class="bg-amber-400 hover:bg-amber-300 text-slate-950 px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm shrink-0">💳 تحويل لأونلاين الآن</button>
                     </div>`;
-                    if (document.getElementById('no-payment-method')) document.getElementById('no-payment-method').value = 'online';
+                }
                 } else {
                     alertBox.innerHTML = `
                     <div class="bg-amber-500 text-slate-900 p-3.5 rounded-xl shadow-md flex items-center justify-between">
