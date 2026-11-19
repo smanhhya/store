@@ -2284,6 +2284,26 @@
         if (!document.getElementById('smart-dashboard-root')) return;
 
         const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+
+        // بوابة منع لخبطة الأرقام: لا نعرض أرقاماً صفرية أو سالبة قبل وصول أول قراءة للطلبات من الكاش/السيرفر
+        const isWaitingForFirstOrders = (!window._crmDataReady && ordersList.length === 0 && !window._dashBootTimeoutFallback);
+        if (isWaitingForFirstOrders) {
+            const smBar = '<span class="inline-block h-5 w-16 rounded-lg bg-slate-200/80 animate-pulse skeleton-shimmer align-middle"></span>';
+            const lgBar = '<span class="inline-block h-7 w-24 rounded-lg bg-slate-200/80 animate-pulse skeleton-shimmer align-middle"></span>';
+            ['sm-safe-net-cash', 'sm-safe-net-online', 'sm-safe-owner-debt', 'sm-safe-street-cash', 'sm-safe-market-debt'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.innerHTML = smBar;
+            });
+            ['sm-dash-total-revenue', 'sm-dash-true-net-profit', 'sm-dash-completed-count', 'sm-dash-discounts-total'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.innerHTML = lgBar;
+            });
+            const batchesContWait = document.getElementById('sm-dash-batches-breakdown');
+            if (batchesContWait) {
+                batchesContWait.innerHTML = '<div class="h-28 rounded-2xl bg-slate-100 animate-pulse skeleton-shimmer"></div><div class="h-28 rounded-2xl bg-slate-100 animate-pulse skeleton-shimmer"></div><div class="h-28 rounded-2xl bg-slate-100 animate-pulse skeleton-shimmer"></div>';
+            }
+            return;
+        }
         const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
         const archivedArr = (typeof archivedBatchesData !== 'undefined' && Array.isArray(archivedBatchesData)) ? archivedBatchesData : [];
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
@@ -3824,20 +3844,24 @@
         window.initSmartDashboardLayout();
         installEnhancedArchiveReportModal();
         installStrictAntiAutoArchiveGuard();
-        // رسم فوري في 0 ثانية من المرآة المحلية لمنع أي وميض عند الفتح
         window.renderSmartDashboard();
         window.loadAllArchivedBatchesSafe();
         window.loadLedgerRecordsSafe();
+
+        // صمام أمان: في حال عدم وجود طلبات أو انقطاع كامل للشبكة لأول مرة يتم عرض الأرقام بعد 2.5 ثانية كحد أقصى
+        setTimeout(() => {
+            if (!window._crmDataReady) {
+                window._dashBootTimeoutFallback = true;
+                window.renderSmartDashboard();
+            }
+        }, 2500);
     }
-
-
 
     if (document.readyState === 'loading') {
         window.addEventListener('DOMContentLoaded', bootSmartEngine);
     } else {
         bootSmartEngine();
     }
-
 
     const _origScheduleSystemRender = window.scheduleSystemRender;
     window.scheduleSystemRender = function () {
@@ -3846,9 +3870,10 @@
         }
         const dashView = document.getElementById('view-dashboard');
         if (dashView && dashView.classList.contains('active')) {
-            setTimeout(() => window.renderSmartDashboard(), 150);
+            requestAnimationFrame(() => window.renderSmartDashboard());
         }
     };
+
 
 
     const _origRenderBatchesUI = window.renderBatchesUI;
