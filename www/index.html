@@ -252,28 +252,50 @@
 
             </div>
 
-            <!-- شاشة مركز الملاحظات الذكي (إضافة جديدة فقط) -->
-            <div id="view-notes" class="page-view h-full flex flex-col max-w-7xl mx-auto space-y-4">
-                <div class="bg-white p-5 rounded-[1.5rem] shadow-soft border border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between shrink-0">
-                    <div>
-                        <h2 class="text-xl font-black text-slate-800"><i class="fa-solid fa-comments text-rose-500 mr-2"></i> مركز الملاحظات الذكي</h2>
-                        <p class="text-xs text-slate-500 font-bold mt-1">تجميع وتحليل فوري لكل الملاحظات (إداري ومندوب) المكتوبة في الطلبات الحية.</p>
+            <!-- شاشة مركز الملاحظات الذكي (النسخة التنفيذية المحدثة) -->
+            <div id="view-notes" class="page-view space-y-3.5 max-w-7xl mx-auto pb-16 overflow-x-hidden">
+                <!-- الهيدر المدمج + الإحصائيات اللحظية -->
+                <div class="bg-white p-3.5 sm:p-4 rounded-2xl shadow-soft border border-slate-200/80 space-y-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2 bg-gradient-to-l from-slate-900 via-slate-800 to-rose-950 text-white px-3.5 py-2.5 rounded-xl">
+                        <div class="flex items-center gap-2">
+                            <span class="w-8 h-8 rounded-lg bg-rose-500/20 border border-rose-400/30 text-rose-300 flex items-center justify-center text-sm shrink-0">
+                                <i class="fa-solid fa-clipboard-list"></i>
+                            </span>
+                            <div>
+                                <h2 class="text-sm sm:text-base font-black text-white leading-tight">مركز الملاحظات والتقييمات</h2>
+                                <p class="text-[10px] text-slate-300 font-bold">متابعة فورية لكل الملاحظات الإدارية، المندوب، التقييمات، وكشكول العملاء</p>
+                            </div>
+                        </div>
+                        <div id="notes-stats-bar" class="flex flex-wrap items-center gap-1.5 text-[10px] font-black"></div>
                     </div>
-                    <div class="relative w-full md:w-1/2">
-                        <i class="fa-solid fa-search absolute right-4 top-3.5 text-slate-400"></i>
-                        <input type="search" id="search-notes" onkeyup="renderNotesUI()" placeholder="ابحث بكلمة (مستعجل، مشكلة)، أو اسم العميل..." class="w-full pl-4 pr-11 py-2.5 rounded-xl border-none outline-none text-sm font-bold bg-slate-50 focus:bg-white focus:ring-2 focus:ring-rose-200 transition-all">
+
+                    <!-- شريط البحث السريع + مفتاح شامل المكتمل -->
+                    <div class="flex flex-wrap items-center gap-2">
+                        <div class="relative flex-1 min-w-[200px]">
+                            <i class="fa-solid fa-magnifying-glass absolute right-3 top-2.5 text-slate-400 text-xs pointer-events-none"></i>
+                            <input type="search" id="search-notes" oninput="renderNotesUI()" placeholder="ابحث باسم العميل، رقم الموبايل، أو كلمة (مستعجل، شكوى، تقييم)..." class="w-full pr-8 pl-3 py-2 rounded-xl border border-slate-200 outline-none text-xs font-black bg-slate-50 focus:bg-white focus:border-brand-primary transition-all">
+                        </div>
+                        <label class="inline-flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-2 rounded-xl text-[11px] font-black text-slate-700 cursor-pointer shrink-0">
+                            <input type="checkbox" id="notes-include-completed" onchange="renderNotesUI()" checked class="w-3.5 h-3.5 accent-brand-primary rounded">
+                            <span>شامل المكتمل</span>
+                        </label>
                     </div>
-                </div>
-                
-                <div class="flex gap-2 overflow-x-auto custom-scroll pb-2 shrink-0 px-1">
-                    <button onclick="setNotesFilter('all')" id="n-filter-all" class="notes-filter-btn active whitespace-nowrap px-4 py-2 rounded-xl text-sm font-bold bg-slate-800 text-white transition-all shadow-sm">الكل</button>
-                    <button onclick="setNotesFilter('urgent')" id="n-filter-urgent" class="notes-filter-btn whitespace-nowrap px-4 py-2 rounded-xl text-sm font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"><i class="fa-solid fa-bolt text-amber-500 mr-1"></i> عاجل ومستعجل</button>
-                    <button onclick="setNotesFilter('problem')" id="n-filter-problem" class="notes-filter-btn whitespace-nowrap px-4 py-2 rounded-xl text-sm font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"><i class="fa-solid fa-triangle-exclamation text-red-500 mr-1"></i> مشاكل وشكاوى</button>
-                    <button onclick="setNotesFilter('driver')" id="n-filter-driver" class="notes-filter-btn whitespace-nowrap px-4 py-2 rounded-xl text-sm font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"><i class="fa-solid fa-motorcycle text-blue-500 mr-1"></i> للمندوب</button>
+
+                    <!-- تبويبات التصفية الذكية -->
+                    <div class="flex gap-1.5 overflow-x-auto pb-0.5" style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
+                        <button type="button" onclick="setNotesFilter('all')" id="n-filter-all" class="notes-filter-btn active whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-slate-900 text-white shadow-sm transition-all">الكل</button>
+                        <button type="button" onclick="setNotesFilter('urgent')" id="n-filter-urgent" class="notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 transition-all">⚡ عاجل ومستعجل</button>
+                        <button type="button" onclick="setNotesFilter('problem')" id="n-filter-problem" class="notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 transition-all">⚠️ مشاكل وشكاوى</button>
+                        <button type="button" onclick="setNotesFilter('rating')" id="n-filter-rating" class="notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 transition-all">⭐️ تقييمات العملاء</button>
+                        <button type="button" onclick="setNotesFilter('driver')" id="n-filter-driver" class="notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 transition-all">🛵 للمندوب</button>
+                        <button type="button" onclick="setNotesFilter('customers')" id="n-filter-customers" class="notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 transition-all">📌 كشكول واللزجة</button>
+                    </div>
                 </div>
 
-                <div id="notes-list-container" class="flex-1 overflow-y-auto custom-scroll space-y-3 pr-1 pb-4"></div>
+                <!-- قائمة بطاقات الملاحظات -->
+                <div id="notes-list-container" class="grid grid-cols-1 lg:grid-cols-2 gap-3 pb-8"></div>
             </div>
+
             
 
 
@@ -618,134 +640,292 @@
                 <div id="products-list-container" class="space-y-3"></div>
             </div>
 
-            <div id="view-settings" class="page-view space-y-6 max-w-5xl mx-auto">
-                <div class="bg-white rounded-[1.5rem] p-6 border border-slate-100 shadow-soft">
-                    <h3 class="font-black text-slate-800 text-xl mb-6 pb-4 border-b border-slate-100"><i class="fa-solid fa-shop text-slate-400 mr-2"></i> بيانات المتجر الأساسية</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div><label class="text-xs font-bold text-slate-500 block mb-2">اسم المتجر / العلامة التجارية</label><input type="text" id="st-name" class="w-full border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-slate-200 bg-slate-50 focus:bg-white transition-colors"></div>
-                        <div><label class="text-xs font-bold text-slate-500 block mb-2">رقم الواتساب للاستقبال</label><input type="text" id="st-phone" class="w-full border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-slate-200 bg-slate-50 focus:bg-white transition-colors text-left" dir="ltr"></div>
-                        <div><label class="text-xs font-bold text-slate-500 block mb-2">الحد الأدنى لقيمة الطلب (ج.م)</label><input type="number" id="st-min-order" class="w-full border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-slate-200 bg-slate-50 focus:bg-white transition-colors text-center"></div>
-                    </div>
-                           <!-- 🚀 زرار نقل الداتا القديمة للشيت 🚀 -->
-                    <div class="mt-6 p-5 bg-blue-50 border border-blue-200 rounded-2xl shadow-sm">
-                        <div class="flex justify-between items-center mb-2">
-                            <h4 class="font-black text-blue-800 text-sm"><i class="fa-solid fa-database text-blue-500 mr-2"></i> ترحيل الأرشيف القديم للشيت</h4>
-                            <button onclick="migrateOldOrdersToSheet()" id="btn-migrate" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-black shadow-md transition-all flex items-center gap-1.5"><i class="fa-solid fa-truck-fast"></i> نقل الداتا الآن</button>
-                        </div>
-                        <p class="text-[10px] font-bold text-blue-600">اضغط هنا مرة واحدة فقط لنسخ كل الطلبات السابقة إلى شيت جوجل لتظهر على الموبايلات فوراً.</p>
-                    </div>
-             
-                    <!-- 🎁 نظام نقاط الولاء والمحفظة النقدية 🎁 -->
-                    <div class="mt-6 p-5 bg-amber-50/50 border border-amber-200 rounded-2xl shadow-sm">
-                        <div class="flex justify-between items-center mb-4 pb-3 border-b border-amber-100">
-                            <h4 class="font-black text-amber-800 text-sm"><i class="fa-solid fa-coins text-amber-500 mr-2"></i> نظام الولاء والمحفظة النقدية للعملاء</h4>
-                            <button onclick="calculateRetroactivePoints()" id="btn-retro-points" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-xl text-[10px] font-black shadow-md transition-all flex items-center gap-1.5"><i class="fa-solid fa-wand-magic-sparkles"></i> تفعيل للمسجلين قديماً</button>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div id="view-settings" class="page-view space-y-4 max-w-5xl mx-auto pb-20 overflow-x-hidden">
+                <!-- شريط القيادة العلوي وتبويبات الإعدادات الأربعة -->
+                <div class="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200/80 shadow-soft space-y-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2 bg-gradient-to-l from-slate-900 via-slate-800 to-emerald-950 text-white px-3.5 py-2.5 rounded-xl">
+                        <div class="flex items-center gap-2.5">
+                            <span class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 flex items-center justify-center text-sm shrink-0">
+                                <i class="fa-solid fa-sliders"></i>
+                            </span>
                             <div>
-                                <label class="text-xs font-bold text-amber-700 block mb-2">كل 100 جنيه مشتريات تساوي كام نقطة؟</label>
-                                <input type="number" id="st-pts-per-100" class="w-full border border-amber-200 rounded-xl p-3 font-black text-amber-900 bg-white outline-none focus:ring-2 focus:ring-amber-300 transition-colors text-center shadow-sm" placeholder="مثال: 5">
-                            </div>
-                            <div>
-                                <label class="text-xs font-bold text-amber-700 block mb-2">قيمة النقطة الواحدة بالجنيه (مخفي عن العميل)</label>
-                                <input type="number" step="0.01" id="st-pts-value" class="w-full border border-amber-200 rounded-xl p-3 font-black text-amber-900 bg-white outline-none focus:ring-2 focus:ring-amber-300 transition-colors text-center shadow-sm" placeholder="مثال: 0.40">
+                                <h3 class="text-sm sm:text-base font-black text-white leading-tight">مركز إعدادات المتجر والنظام</h3>
+                                <p class="text-[10px] text-slate-300 font-bold">تحكم شامل في المتجر، مناطق التوصيل، المناديب، البوليصة، والنسخ الاحتياطي</p>
                             </div>
                         </div>
-                        <p class="text-[10px] font-bold text-amber-600 mt-3"><i class="fa-solid fa-circle-info mr-1"></i> (مثال 2% كاش باك: ضع 5 نقاط لكل 100ج، وقيمة النقطة 0.40 ج.م)</p>
-                    </div>
-
-
-                    <div class="mt-6 flex flex-wrap items-center gap-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                        <label class="flex items-center gap-2 cursor-pointer font-black text-sm text-emerald-700"><input type="checkbox" id="st-is-open" class="w-5 h-5 text-emerald-600 rounded"> المتجر مفتوح ويستقبل طلبات</label>
-                        <div class="h-6 w-px bg-slate-300 hidden md:block"></div>
-                        <label class="flex items-center gap-2 cursor-pointer font-bold text-sm text-slate-600"><input type="checkbox" id="st-free-del" class="w-4 h-4 text-blue-600 rounded" onchange="document.getElementById('st-free-th').disabled = !this.checked"> تفعيل توصيل مجاني للطلبات الأكبر من <input type="number" id="st-free-th" class="w-20 border border-slate-200 rounded-lg p-1.5 text-center bg-white text-brand-primary outline-none" placeholder="0"> ج.م</label>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="bg-white rounded-[1.5rem] p-6 border border-slate-100 shadow-soft">
-                        <div class="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
-                            <h3 class="font-black text-slate-800 text-lg"><i class="fa-solid fa-map-location-dot text-indigo-500 mr-2"></i> مناطق التوصيل</h3>
-                            <button onclick="addNewZoneUI()" class="bg-indigo-50 text-indigo-600 w-8 h-8 rounded-lg text-sm font-bold hover:bg-indigo-600 hover:text-white transition-colors flex items-center justify-center"><i class="fa-solid fa-plus"></i></button>
-                        </div>
-                        <div id="zones-list-container" class="space-y-3"></div>
-                    </div>
-
-                    <div class="bg-white rounded-[1.5rem] p-6 border border-slate-100 shadow-soft">
-                        <div class="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
-                            <h3 class="font-black text-slate-800 text-lg"><i class="fa-solid fa-motorcycle text-blue-500 mr-2"></i> فريق المناديب</h3>
-                            <button onclick="addNewDriverUI()" class="bg-blue-50 text-blue-600 w-8 h-8 rounded-lg text-sm font-bold hover:bg-blue-600 hover:text-white transition-colors flex items-center justify-center"><i class="fa-solid fa-plus"></i></button>
-                        </div>
-                        <div id="drivers-list-container" class="space-y-3"></div>
-                    </div>
-                </div>
-
-                <div class="bg-white rounded-[1.5rem] p-6 border border-slate-100 shadow-soft">
-                    <h3 class="font-black text-slate-800 text-lg mb-2"><i class="fa-solid fa-language text-brand-primary mr-2"></i> قوالب رسائل السيستم</h3>
-                    <p class="text-[10px] font-bold text-slate-500 mb-6 bg-slate-50 p-3 rounded-xl border border-slate-100 leading-relaxed">
-                        استخدم هذه المتغيرات للتعويض التلقائي: <span class="bg-white px-1.5 rounded border text-brand-primary">{اسم_العميل}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{رقم_العميل}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{المنطقة}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{العنوان}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{تفاصيل_الطلبات}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{إجمالي_الطلب}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{التوصيل}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{الخصم}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{الإجمالي_النهائي}</span>
-                    </p>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div><label class="text-xs font-bold text-slate-600 block mb-2">إرسال الفاتورة للعميل (واتساب)</label><textarea id="admin-whatsapp-template" rows="4" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20 transition-all resize-none leading-relaxed"></textarea></div>
-                        <div><label class="text-xs font-bold text-slate-600 block mb-2">إرسال خط السير للمندوب (واتساب)</label><textarea id="admin-dispatch-template" rows="4" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20 transition-all resize-none leading-relaxed"></textarea></div>
-                        <div class="col-span-1 md:col-span-2 border-t border-slate-100 pt-6 mt-2">
-                            <label class="text-xs font-black text-slate-800 block mb-2"><i class="fa-solid fa-check-double text-blue-500 mr-1"></i> شكل المهمة في تيك تيك (TickTick Integration)</label>
-                            <textarea id="admin-ticktick-template" rows="5" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-blue-500/20 transition-all resize-none leading-relaxed"></textarea>
-                            <div class="mt-4"><label class="text-[10px] font-bold text-slate-500 block mb-1.5">هاشتاج افتراضي يُضاف لكل الطلبات (مثال: #دفعة_الخميس)</label><input type="text" id="admin-batch-hashtag" class="w-1/2 border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 🖨️ إعدادات وتخصيص بوليصة الشحن الحرارية (Deli 750W) 🖨️ -->
-                <div class="bg-white rounded-[1.5rem] p-6 border border-slate-100 shadow-soft">
-                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-5 pb-4 border-b border-slate-100">
-                        <div>
-                            <h3 class="font-black text-slate-800 text-lg"><i class="fa-solid fa-barcode text-brand-primary mr-2"></i> إعدادات وتخصيص بوليصة الشحن (Deli 750W)</h3>
-                            <p class="text-[11px] font-bold text-slate-400 mt-1">تحكم في شكل البوليصة، اللوجو، مقاس الاستيكر، والكلمة الحلوة للعميل في أي وقت بدون تعديل الكود.</p>
-                        </div>
-                        <button onclick="previewSampleWaybill()" class="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl text-xs font-black shadow-sm flex items-center gap-2 transition-all active:scale-95">
-                            <i class="fa-solid fa-print text-amber-400"></i> معاينة وتجربة البوليصة
+                        <button type="button" onclick="saveAllSettings()" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5 active:scale-95 transition-all mr-auto sm:mr-0">
+                            <i class="fa-solid fa-floppy-disk"></i> حفظ الكل
                         </button>
                     </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
-                        <div>
-                            <label class="text-xs font-bold text-slate-600 block mb-2">الجملة الترحيبية تحت اسم المتجر</label>
-                            <input type="text" id="wb-slogan" placeholder="مثال: طازج من مزارعنا لمائدتك" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20">
-                        </div>
-                        <div>
-                            <label class="text-xs font-bold text-slate-600 block mb-2">الكلمة الحلوة للزبون (أسفل البوليصة)</label>
-                            <input type="text" id="wb-footer-msg" placeholder="مثال: تشرفنا بخدمتكم.. بالهنا والشفا من سمان ههيا 🤍" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20">
-                        </div>
-                        <div>
-                            <label class="text-xs font-bold text-slate-600 block mb-2">رابط صورة اللوجو (اتركه فارغاً لاستخدام لوجو سمان ههيا المرسوم)</label>
-                            <input type="text" id="wb-logo-url" dir="ltr" placeholder="https://... أو logo.png" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20 text-left">
-                        </div>
-                        <div>
-                            <label class="text-xs font-bold text-slate-600 block mb-2">مقاس استيكر الطابعة الحرارية (Deli 750W)</label>
-                            <select id="wb-paper-size" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-black text-slate-700 bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20">
-                                <option value="70x130">مقاس 7×13 سم (70x130 mm) - فاتورة سمان ههيا الشيك</option>
-                                <option value="100x100">مقاس 10×10 سم (100x100 mm) - قياسي</option>
-                                <option value="100x150">مقاس 10×15 سم (100x150 mm) - بوليصة شحن كبيرة</option>
-                                <option value="80xAuto">عرض 8 سم مرن (80mm Roll) - رول حراري مستمر</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="flex flex-wrap items-center gap-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                        <label class="flex items-center gap-2 cursor-pointer text-xs font-black text-slate-700">
-                            <input type="checkbox" id="wb-show-barcode" class="w-4 h-4 accent-brand-primary rounded" checked> إظهار الباركود وكود الطلب
-                        </label>
-                        <label class="flex items-center gap-2 cursor-pointer text-xs font-black text-slate-700">
-                            <input type="checkbox" id="wb-show-breakdown" class="w-4 h-4 accent-brand-primary rounded" checked> إظهار تفصيلة الحساب (المنتجات + التوصيل + الخصم)
-                        </label>
-                        <label class="flex items-center gap-2 cursor-pointer text-xs font-black text-slate-700">
-                            <input type="checkbox" id="wb-show-driver-note" class="w-4 h-4 accent-brand-primary rounded" checked> إظهار ملاحظات المندوب على البوليصة
-                        </label>
+                    <!-- أزرار التبويبات الـ 4 -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                        <button type="button" id="st-tab-btn-store" onclick="switchSettingsSubTab('store')" class="st-subtab-btn py-2 px-2.5 rounded-xl text-xs font-black bg-slate-900 text-white shadow-sm transition-all flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-store text-amber-400 text-[11px]"></i> المتجر والنقاط
+                        </button>
+                        <button type="button" id="st-tab-btn-logistics" onclick="switchSettingsSubTab('logistics')" class="st-subtab-btn py-2 px-2.5 rounded-xl text-xs font-black bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-map-location-dot text-indigo-500 text-[11px]"></i> المناطق والمناديب
+                        </button>
+                        <button type="button" id="st-tab-btn-waybill" onclick="switchSettingsSubTab('waybill')" class="st-subtab-btn py-2 px-2.5 rounded-xl text-xs font-black bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-print text-emerald-600 text-[11px]"></i> البوليصة والقوالب
+                        </button>
+                        <button type="button" id="st-tab-btn-backup" onclick="switchSettingsSubTab('backup')" class="st-subtab-btn py-2 px-2.5 rounded-xl text-xs font-black bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-database text-blue-500 text-[11px]"></i> الشيت والنسخ
+                        </button>
                     </div>
                 </div>
 
+                <!-- ==================== التبويب 1: المتجر والنقاط ==================== -->
+                <div id="st-panel-store" class="st-subtab-panel space-y-4">
+                    <!-- بيانات المتجر الأساسية وحالة الاستقبال -->
+                    <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-soft space-y-4">
+                        <h4 class="font-black text-slate-800 text-sm pb-2.5 border-b border-slate-100 flex items-center gap-2">
+                            <i class="fa-solid fa-shop text-emerald-600"></i> الهوية وحالة استقبال الطلبات
+                        </h4>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                                <label class="text-[11px] font-black text-slate-500 block mb-1">اسم المتجر / العلامة التجارية</label>
+                                <input type="text" id="st-name" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs sm:text-sm font-black outline-none bg-slate-50 focus:bg-white">
+                            </div>
+                            <div>
+                                <label class="text-[11px] font-black text-slate-500 block mb-1">رقم الواتساب للاستقبال</label>
+                                <input type="text" id="st-phone" dir="ltr" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs sm:text-sm font-black outline-none bg-slate-50 focus:bg-white text-left">
+                            </div>
+                            <div>
+                                <label class="text-[11px] font-black text-slate-500 block mb-1">الحد الأدنى لقيمة الطلب (ج.م)</label>
+                                <input type="number" id="st-min-order" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs sm:text-sm font-black outline-none bg-slate-50 focus:bg-white text-center">
+                            </div>
+                        </div>
+
+                        <!-- مفاتيح التشغيل السريع -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200/70">
+                            <label class="flex items-center gap-2.5 cursor-pointer font-black text-xs sm:text-sm text-emerald-800 bg-white px-3 py-2.5 rounded-xl border border-emerald-200/80">
+                                <input type="checkbox" id="st-is-open" class="w-4 h-4 accent-emerald-600 rounded shrink-0">
+                                <span>🟢 المتجر مفتوح ويستقبل طلبات العملاء</span>
+                            </label>
+                            <div class="flex flex-wrap items-center justify-between gap-2 bg-white px-3 py-2 rounded-xl border border-slate-200">
+                                <label class="flex items-center gap-2 cursor-pointer font-black text-xs text-slate-700">
+                                    <input type="checkbox" id="st-free-del" class="w-4 h-4 accent-indigo-600 rounded" onchange="document.getElementById('st-free-th').disabled = !this.checked">
+                                    <span>🚚 توصيل مجاني فوق:</span>
+                                </label>
+                                <div class="flex items-center gap-1">
+                                    <input type="number" id="st-free-th" class="w-20 border border-slate-200 rounded-lg p-1 text-center bg-slate-50 text-brand-primary font-black text-xs outline-none" placeholder="500">
+                                    <span class="text-[10px] font-black text-slate-500">ج.م</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- نصوص الواجهة المرتبطة بمتجر العملاء الجديد -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                            <div>
+                                <label class="text-[11px] font-black text-amber-800 block mb-1">📢 رسالة الإعلان الهام (تظهر في أعلى متجر العملاء)</label>
+                                <input type="text" id="st-hero-msg" placeholder="اتركه فارغاً لإخفاء شريط الإعلان..." class="w-full border border-amber-200 rounded-xl p-2.5 text-xs font-bold bg-amber-50/30 focus:bg-white outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[11px] font-black text-slate-600 block mb-1">🔒 رسالة إغلاق المتجر (عند غلق الاستقبال)</label>
+                                <input type="text" id="st-closed-msg" placeholder="المتجر مغلق حالياً، نعود قريباً!" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none">
+                            </div>
+                            <div class="sm:col-span-2">
+                                <label class="text-[11px] font-black text-slate-600 block mb-1">🌿 وصف المتجر تحت العنوان في الصفحة الرئيسية</label>
+                                <input type="text" id="st-store-desc" placeholder="سمان مذبوح طازج بالطلب من المزرعة لطبقك..." class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- نظام نقاط الولاء والمحفظة -->
+                    <div class="bg-white rounded-2xl p-4 sm:p-5 border-2 border-amber-200/80 shadow-soft space-y-3">
+                        <div class="flex flex-wrap justify-between items-center gap-2 pb-2.5 border-b border-amber-100">
+                            <h4 class="font-black text-amber-900 text-sm flex items-center gap-2">
+                                <i class="fa-solid fa-coins text-amber-500"></i> نظام نقاط الولاء والمحفظة النقدية
+                            </h4>
+                            <button type="button" onclick="calculateRetroactivePoints()" id="btn-retro-points" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm transition-all flex items-center gap-1.5">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> تفعيل للمسجلين قديماً
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div class="bg-amber-50/40 p-3 rounded-xl border border-amber-200/70">
+                                <label class="text-[11px] font-black text-amber-900 block mb-1.5">كل 100 ج مشتريات تساوي كام نقطة؟</label>
+                                <input type="number" id="st-pts-per-100" class="w-full border border-amber-200 rounded-xl p-2.5 font-black text-amber-900 bg-white outline-none text-center text-sm" placeholder="5">
+                            </div>
+                            <div class="bg-amber-50/40 p-3 rounded-xl border border-amber-200/70">
+                                <label class="text-[11px] font-black text-amber-900 block mb-1.5">قيمة النقطة الواحدة بالجنيه (مخفي عن العميل)</label>
+                                <input type="number" step="0.01" id="st-pts-value" class="w-full border border-amber-200 rounded-xl p-2.5 font-black text-amber-900 bg-white outline-none text-center text-sm" placeholder="0.40">
+                            </div>
+                        </div>
+                        <p class="text-[10px] font-bold text-amber-700"><i class="fa-solid fa-circle-info ml-1"></i> مثال لـ 2% كاش باك: ضع 5 نقاط لكل 100ج، وقيمة النقطة 0.40 ج.م.</p>
+                    </div>
+                </div>
+
+                <!-- ==================== التبويب 2: المناطق والمناديب ==================== -->
+                <div id="st-panel-logistics" class="st-subtab-panel hidden grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-soft">
+                        <div class="flex justify-between items-center mb-4 pb-2.5 border-b border-slate-100">
+                            <h4 class="font-black text-slate-800 text-sm flex items-center gap-2">
+                                <i class="fa-solid fa-map-location-dot text-indigo-500"></i> مناطق وأسعار التوصيل
+                            </h4>
+                            <button type="button" onclick="addNewZoneUI()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1 shadow-sm">
+                                <i class="fa-solid fa-plus text-[10px]"></i> إضافة منطقة
+                            </button>
+                        </div>
+                        <div id="zones-list-container" class="space-y-2"></div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-soft">
+                        <div class="flex justify-between items-center mb-4 pb-2.5 border-b border-slate-100">
+                            <h4 class="font-black text-slate-800 text-sm flex items-center gap-2">
+                                <i class="fa-solid fa-motorcycle text-blue-500"></i> فريق المناديب ورموز الدخول
+                            </h4>
+                            <button type="button" onclick="addNewDriverUI()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1 shadow-sm">
+                                <i class="fa-solid fa-plus text-[10px]"></i> إضافة مندوب
+                            </button>
+                        </div>
+                        <div id="drivers-list-container" class="space-y-2"></div>
+                    </div>
+                </div>
+
+                <!-- ==================== التبويب 3: البوليصة والقوالب ==================== -->
+                <div id="st-panel-waybill" class="st-subtab-panel hidden space-y-4">
+                    <!-- إعدادات بوليصة الشحن الحرارية (Deli 750W) -->
+                    <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-soft space-y-4">
+                        <div class="flex flex-wrap justify-between items-center gap-2 pb-3 border-b border-slate-100">
+                            <div>
+                                <h4 class="font-black text-slate-800 text-sm flex items-center gap-2">
+                                    <i class="fa-solid fa-barcode text-brand-primary"></i> تخصيص بوليصة الشحن الحرارية (Deli 750W)
+                                </h4>
+                                <p class="text-[10px] font-bold text-slate-400 mt-0.5">يتم حفظها ومزامنتها تلقائياً عند الضغط على حفظ الكل.</p>
+                            </div>
+                            <button type="button" onclick="previewSampleWaybill()" class="bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-xl text-xs font-black shadow-sm flex items-center gap-1.5 active:scale-95">
+                                <i class="fa-solid fa-print text-amber-400"></i> معاينة البوليصة
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-[11px] font-black text-slate-600 block mb-1">الجملة الترحيبية تحت اسم المتجر</label>
+                                <input type="text" id="wb-slogan" placeholder="مثال: طازج من مزارعنا لمائدتك" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[11px] font-black text-slate-600 block mb-1">الكلمة الحلوة للعميل (أسفل البوليصة)</label>
+                                <input type="text" id="wb-footer-msg" placeholder="تشرفنا بخدمتكم.. بالهنا والشفا من سمان ههيا 🤍" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[11px] font-black text-slate-600 block mb-1">رابط صورة اللوجو (اختياري)</label>
+                                <input type="text" id="wb-logo-url" dir="ltr" placeholder="https://... أو logo.png" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none text-left">
+                            </div>
+                            <div>
+                                <label class="text-[11px] font-black text-slate-600 block mb-1">مقاس استيكر الطابعة الحرارية</label>
+                                <select id="wb-paper-size" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black text-slate-700 bg-slate-50 focus:bg-white outline-none">
+                                    <option value="70x130">مقاس 7×13 سم (70x130 mm) - فاتورة سمان ههيا</option>
+                                    <option value="100x100">مقاس 10×10 سم (100x100 mm) - قياسي</option>
+                                    <option value="100x150">مقاس 10×15 سم (100x150 mm) - بوليصة كبيرة</option>
+                                    <option value="80xAuto">عرض 8 سم مرن (80mm Roll) - رول مستمر</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200/70">
+                            <label class="flex items-center gap-2 cursor-pointer text-xs font-black text-slate-700 bg-white px-3 py-2 rounded-lg border border-slate-200">
+                                <input type="checkbox" id="wb-show-barcode" class="w-4 h-4 accent-brand-primary rounded" checked> إظهار الباركود والكود
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer text-xs font-black text-slate-700 bg-white px-3 py-2 rounded-lg border border-slate-200">
+                                <input type="checkbox" id="wb-show-breakdown" class="w-4 h-4 accent-brand-primary rounded" checked> تفصيلة الحساب والخصم
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer text-xs font-black text-slate-700 bg-white px-3 py-2 rounded-lg border border-slate-200">
+                                <input type="checkbox" id="wb-show-driver-note" class="w-4 h-4 accent-brand-primary rounded" checked> إظهار ملاحظات المندوب
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- قوالب رسائل السيستم -->
+                    <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-soft space-y-3">
+                        <h4 class="font-black text-slate-800 text-sm flex items-center gap-2">
+                            <i class="fa-solid fa-language text-brand-primary"></i> قوالب رسائل الواتساب والمناديب
+                        </h4>
+                        <p class="text-[10px] font-bold text-slate-500 bg-slate-50 p-2.5 rounded-xl border border-slate-200/80 leading-relaxed">
+                            اضغط على أي متغير لإدراجه مباشرة:
+                            <span class="bg-white px-1.5 rounded border text-brand-primary">{اسم_العميل}</span>
+                            <span class="bg-white px-1.5 rounded border text-brand-primary">{رقم_العميل}</span>
+                            <span class="bg-white px-1.5 rounded border text-brand-primary">{المنطقة}</span>
+                            <span class="bg-white px-1.5 rounded border text-brand-primary">{العنوان}</span>
+                            <span class="bg-white px-1.5 rounded border text-brand-primary">{تفاصيل_الطلبات}</span>
+                            <span class="bg-white px-1.5 rounded border text-brand-primary">{إجمالي_الطلب}</span>
+                            <span class="bg-white px-1.5 rounded border text-brand-primary">{التوصيل}</span>
+                            <span class="bg-white px-1.5 rounded border text-brand-primary">{الخصم}</span>
+                            <span class="bg-white px-1.5 rounded border text-brand-primary">{الإجمالي_النهائي}</span>
+                        </p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-[11px] font-black text-slate-600 block mb-1.5">فاتورة العميل (واتساب)</label>
+                                <textarea id="admin-whatsapp-template" rows="4" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none resize-none leading-relaxed"></textarea>
+                            </div>
+                            <div>
+                                <label class="text-[11px] font-black text-slate-600 block mb-1.5">خط السير للمندوب (واتساب)</label>
+                                <textarea id="admin-dispatch-template" rows="4" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none resize-none leading-relaxed"></textarea>
+                            </div>
+                            <div class="md:col-span-2 pt-2 border-t border-slate-100 space-y-2.5">
+                                <div>
+                                    <label class="text-[11px] font-black text-slate-700 block mb-1">قالب TickTick (اختياري)</label>
+                                    <textarea id="admin-ticktick-template" rows="3" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none resize-none leading-relaxed"></textarea>
+                                </div>
+                                <div class="sm:w-1/2">
+                                    <label class="text-[10px] font-black text-slate-500 block mb-1">هاشتاج افتراضي يُضاف للطلبات</label>
+                                    <input type="text" id="admin-batch-hashtag" placeholder="مثال: #دفعة_الخميس" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-slate-50 focus:bg-white outline-none">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ==================== التبويب 4: الشيت والنسخ الاحتياطي ==================== -->
+                <div id="st-panel-backup" class="st-subtab-panel hidden space-y-4">
+                    <div class="bg-white rounded-2xl p-4 sm:p-5 border border-blue-200 shadow-soft space-y-4">
+                        <div class="flex flex-wrap justify-between items-center gap-2 pb-3 border-b border-blue-100">
+                            <div>
+                                <h4 class="font-black text-blue-900 text-sm flex items-center gap-2">
+                                    <i class="fa-solid fa-table text-blue-600"></i> المزامنة مع شيت جوجل (Google Sheets)
+                                </h4>
+                                <p class="text-[10px] font-bold text-slate-500 mt-0.5">مزامنة الطلبات مع شيت كاشف الأرقام وترحيل الأرشيف.</p>
+                            </div>
+                            <button type="button" onclick="migrateOldOrdersToSheet()" id="btn-migrate" class="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-black shadow-sm flex items-center gap-1.5">
+                                <i class="fa-solid fa-truck-fast"></i> ترحيل الأرشيف للشيت
+                            </button>
+                        </div>
+
+                        <div>
+                            <label class="text-[11px] font-black text-blue-900 block mb-1">🔗 رابط Google Apps Script Webhook:</label>
+                            <input type="text" id="st-gsheet-url" dir="ltr" placeholder="https://script.google.com/macros/s/.../exec" class="w-full border border-blue-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white text-slate-700 outline-none text-left">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-soft flex flex-col justify-between gap-3">
+                            <div>
+                                <h4 class="text-xs sm:text-sm font-black text-slate-800 flex items-center gap-1.5">
+                                    <i class="fa-solid fa-file-csv text-emerald-600"></i> تصدير كافة الطلبات (Excel CSV)
+                                </h4>
+                                <p class="text-[10px] font-bold text-slate-400 mt-1">تحميل ملف إكسل عربي منظم بكل الطلبات والعملاء والمبالغ.</p>
+                            </div>
+                            <button type="button" onclick="exportAllOrdersToCSV()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-xs font-black shadow-sm flex items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-file-excel"></i> تحميل ملف Excel (CSV)
+                            </button>
+                        </div>
+
+                        <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-soft flex flex-col justify-between gap-3">
+                            <div>
+                                <h4 class="text-xs sm:text-sm font-black text-slate-800 flex items-center gap-1.5">
+                                    <i class="fa-solid fa-shield-halved text-amber-500"></i> نسخة احتياطية شاملة (JSON)
+                                </h4>
+                                <p class="text-[10px] font-bold text-slate-400 mt-1">حفظ نسخة كاملة من الطلبات والعملاء والدفعات والإعدادات على جهازك.</p>
+                            </div>
+                            <button type="button" onclick="exportFullSystemBackupJSON()" class="w-full bg-slate-900 hover:bg-slate-800 text-white py-2.5 rounded-xl text-xs font-black shadow-sm flex items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-download text-amber-400"></i> تحميل النسخة الاحتياطية
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
+
 
             <div id="view-trash" class="page-view h-full flex flex-col space-y-4 max-w-4xl mx-auto">
                 <div class="flex justify-between items-center bg-white p-6 rounded-[1.5rem] border border-red-100 shadow-soft shrink-0">
