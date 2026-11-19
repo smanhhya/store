@@ -728,10 +728,43 @@
     };
 
     // =========================================================================
-    // 🏪 3. إعدادات المتجر، المناطق، المناديب، والقوالب الذكية (Settings UI)
+    // 🏪 3. إعدادات المتجر، المناطق، المناديب، البوليصة، والقوالب الذكية (Settings UI)
     // =========================================================================
+    function escSettingsHtml(str) {
+        return String(str === null || str === undefined ? '' : str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    window.settingsSubTabState = window.settingsSubTabState || 'store';
+
+    window.switchSettingsSubTab = function (tabKey) {
+        const valid = ['store', 'logistics', 'waybill', 'backup'];
+        const target = valid.includes(tabKey) ? tabKey : 'store';
+        window.settingsSubTabState = target;
+
+        valid.forEach(k => {
+            const panel = document.getElementById(`st-panel-${k}`);
+            const btn = document.getElementById(`st-tab-btn-${k}`);
+            if (panel) {
+                if (k === target) panel.classList.remove('hidden');
+                else panel.classList.add('hidden');
+            }
+            if (btn) {
+                btn.className = (k === target)
+                    ? 'st-subtab-btn py-2 px-2.5 rounded-xl text-xs font-black bg-slate-900 text-white shadow-sm transition-all flex items-center justify-center gap-1.5'
+                    : 'st-subtab-btn py-2 px-2.5 rounded-xl text-xs font-black bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5';
+            }
+        });
+    };
+
     window.renderSettingsUI = function () {
         if (!document.getElementById('st-name')) return;
+
+        window.switchSettingsSubTab(window.settingsSubTabState || 'store');
 
         document.getElementById('st-name').value = storeSettings.storeName || '';
         document.getElementById('st-phone').value = storeSettings.storePhone || '';
@@ -741,42 +774,54 @@
         document.getElementById('st-free-th').value = storeSettings.freeDeliveryThreshold || 0;
         document.getElementById('st-free-th').disabled = !storeSettings.freeDeliveryActive;
 
+        // نصوص واجهة متجر العملاء
+        if (document.getElementById('st-hero-msg')) document.getElementById('st-hero-msg').value = storeSettings.heroMessage || '';
+        if (document.getElementById('st-closed-msg')) document.getElementById('st-closed-msg').value = storeSettings.closedMessage || '';
+        if (document.getElementById('st-store-desc')) document.getElementById('st-store-desc').value = storeSettings.storeDesc || '';
+
         if (document.getElementById('st-pts-per-100')) {
             document.getElementById('st-pts-per-100').value = storeSettings.pointsPer100 || 5;
         }
         if (document.getElementById('st-pts-value')) {
             document.getElementById('st-pts-value').value = storeSettings.pointValueInEGP || 0.40;
         }
+        if (document.getElementById('st-gsheet-url')) {
+            document.getElementById('st-gsheet-url').value = storeSettings.googleSheetWebhookUrl || '';
+        }
 
-        // 1. رسم مناطق التوصيل
+        // 1. رسم مناطق التوصيل (موزونة 100% للموبايل بدون خروج حواف)
         const zCont = document.getElementById('zones-list-container');
         if (zCont) {
             const zones = storeSettings.deliveryZones || [];
             zCont.innerHTML = zones.map((z, i) => `
-                <div class="flex items-center gap-2 mb-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200/80">
-                    <span class="text-[10px] font-black text-slate-400 px-1.5">${i + 1}</span>
-                    <input type="text" value="${z.name || ''}" onchange="storeSettings.deliveryZones[${i}].name=this.value.trim(); generateDynamicOrderInputs();" class="flex-1 border border-slate-200 rounded-lg p-2 text-xs font-black text-slate-800 bg-white outline-none focus:ring-2 focus:ring-indigo-100" placeholder="اسم المنطقة">
-                    <div class="relative w-24">
-                        <input type="number" value="${z.price || 0}" onchange="storeSettings.deliveryZones[${i}].price=parseInt(this.value)||0; generateDynamicOrderInputs();" class="w-full border border-slate-200 rounded-lg p-2 pl-6 text-xs font-black text-indigo-600 bg-white outline-none text-center" placeholder="السعر">
-                        <span class="absolute left-2 top-2 text-[10px] font-bold text-slate-400">ج</span>
+                <div class="flex items-center gap-1.5 bg-slate-50 p-1.5 rounded-xl border border-slate-200/80">
+                    <span class="text-[10px] font-black text-slate-400 w-5 text-center shrink-0">${i + 1}</span>
+                    <input type="text" value="${escSettingsHtml(z.name || '')}" onchange="storeSettings.deliveryZones[${i}].name=this.value.trim(); if(window.generateDynamicOrderInputs) generateDynamicOrderInputs();" class="flex-1 min-w-0 border border-slate-200 rounded-lg p-2 text-xs font-black text-slate-800 bg-white outline-none focus:border-indigo-400" placeholder="اسم المنطقة">
+                    <div class="relative w-20 shrink-0">
+                        <input type="number" value="${Number(z.price) || 0}" onchange="storeSettings.deliveryZones[${i}].price=parseInt(this.value)||0; if(window.generateDynamicOrderInputs) generateDynamicOrderInputs();" class="w-full border border-slate-200 rounded-lg py-2 pr-2 pl-5 text-xs font-black text-indigo-700 bg-white outline-none text-center" placeholder="0">
+                        <span class="absolute left-1.5 top-2 text-[10px] font-bold text-slate-400">ج</span>
                     </div>
-                    <button onclick="storeSettings.deliveryZones.splice(${i}, 1); renderSettingsUI(); generateDynamicOrderInputs();" class="w-8 h-8 bg-white border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors flex items-center justify-center"><i class="fa-solid fa-trash text-xs"></i></button>
+                    <button type="button" onclick="storeSettings.deliveryZones.splice(${i}, 1); renderSettingsUI(); if(window.generateDynamicOrderInputs) generateDynamicOrderInputs();" class="w-8 h-8 shrink-0 bg-white border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors flex items-center justify-center"><i class="fa-solid fa-trash text-xs"></i></button>
                 </div>
-            `).join('') || `<div class="text-center py-6 text-xs font-bold text-slate-400">لا توجد مناطق مسجلة، اضغط (+) لإضافة منطقة.</div>`;
+            `).join('') || `<div class="text-center py-6 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-xl">لا توجد مناطق مسجلة، اضغط (+ إضافة منطقة).</div>`;
         }
 
-        // 2. رسم فريق المناديب
+        // 2. رسم فريق المناديب (شبكة مرنة تمنع خروج الحواف على الموبايل)
         const dCont = document.getElementById('drivers-list-container');
         if (dCont) {
             const drivers = storeSettings.drivers || [];
             dCont.innerHTML = drivers.map((d, i) => `
-                <div class="flex flex-wrap sm:flex-nowrap items-center gap-2 mb-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200/80">
-                    <input type="text" value="${d.name || ''}" onchange="storeSettings.drivers[${i}].name=this.value.trim()" placeholder="اسم المندوب" class="flex-1 min-w-[110px] border border-slate-200 rounded-lg p-2 text-xs font-black text-slate-800 bg-white outline-none">
-                    <input type="tel" value="${d.phone || ''}" onchange="storeSettings.drivers[${i}].phone=this.value.trim()" placeholder="رقم الواتساب" class="w-32 border border-slate-200 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none text-left" dir="ltr">
-                    <input type="text" value="${d.pin || ''}" onchange="storeSettings.drivers[${i}].pin=this.value.trim()" placeholder="PIN" title="الرقم السري للمندوب" class="w-20 border border-slate-200 rounded-lg p-2 text-xs font-black text-blue-700 bg-white outline-none text-center">
-                    <button onclick="storeSettings.drivers.splice(${i}, 1); renderSettingsUI();" class="w-8 h-8 bg-white border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors flex items-center justify-center"><i class="fa-solid fa-trash text-xs"></i></button>
+                <div class="bg-slate-50 p-2 rounded-xl border border-slate-200/80 space-y-1.5">
+                    <div class="flex items-center gap-1.5">
+                        <input type="text" value="${escSettingsHtml(d.name || '')}" onchange="storeSettings.drivers[${i}].name=this.value.trim()" placeholder="اسم المندوب" class="flex-1 min-w-0 border border-slate-200 rounded-lg p-2 text-xs font-black text-slate-800 bg-white outline-none">
+                        <button type="button" onclick="storeSettings.drivers.splice(${i}, 1); renderSettingsUI();" class="w-8 h-8 shrink-0 bg-white border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors flex items-center justify-center"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </div>
+                    <div class="grid grid-cols-3 gap-1.5">
+                        <input type="tel" value="${escSettingsHtml(d.phone || '')}" onchange="storeSettings.drivers[${i}].phone=this.value.trim()" placeholder="رقم الواتساب" class="col-span-2 border border-slate-200 rounded-lg p-1.5 text-xs font-bold text-slate-800 bg-white outline-none text-left" dir="ltr">
+                        <input type="text" value="${escSettingsHtml(d.pin || '')}" onchange="storeSettings.drivers[${i}].pin=this.value.trim()" placeholder="PIN" title="الرقم السري للمندوب" class="col-span-1 border border-blue-200 rounded-lg p-1.5 text-xs font-black text-blue-700 bg-blue-50/40 outline-none text-center">
+                    </div>
                 </div>
-            `).join('') || `<div class="text-center py-6 text-xs font-bold text-slate-400">لا يوجد مناديب مسجلين، اضغط (+) لإضافة مندوب.</div>`;
+            `).join('') || `<div class="text-center py-6 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-xl">لا يوجد مناديب مسجلين، اضغط (+ إضافة مندوب).</div>`;
         }
 
         // 3. قوالب الرسائل
@@ -787,9 +832,17 @@
             document.getElementById('admin-batch-hashtag').value = storeSettings.batchHashtag || '';
         }
 
-        // تفعيل الضغط على المتغيرات لإدراجها في القالب + حقن أدوات الشيت والنسخ الاحتياطي
+        // 4. تعبئة إعدادات بوليصة الشحن الحرارية (Deli 750W) بشكل مباشر ومضمون
+        const wbCfg = storeSettings.waybillConfig || {};
+        if (document.getElementById('wb-slogan')) document.getElementById('wb-slogan').value = wbCfg.slogan || '';
+        if (document.getElementById('wb-footer-msg')) document.getElementById('wb-footer-msg').value = wbCfg.footerMsg || '';
+        if (document.getElementById('wb-logo-url')) document.getElementById('wb-logo-url').value = wbCfg.logoUrl || '';
+        if (document.getElementById('wb-paper-size')) document.getElementById('wb-paper-size').value = wbCfg.paperSize || '70x130';
+        if (document.getElementById('wb-show-barcode')) document.getElementById('wb-show-barcode').checked = wbCfg.showBarcode !== false;
+        if (document.getElementById('wb-show-breakdown')) document.getElementById('wb-show-breakdown').checked = wbCfg.showBreakdown !== false;
+        if (document.getElementById('wb-show-driver-note')) document.getElementById('wb-show-driver-note').checked = wbCfg.showDriverNote !== false;
+
         initInteractiveTemplateVariables();
-        injectGoogleSheetAndBackupControls();
         if (typeof window.syncWaybillSettingsUI === 'function') window.syncWaybillSettingsUI();
     };
 
@@ -837,37 +890,8 @@
         });
     }
 
-    // حقن إعدادات رابط Google Sheet وزر النسخ الاحتياطي الكامل داخل شاشة الإعدادات
-    function injectGoogleSheetAndBackupControls() {
-        const migrateBtn = document.getElementById('btn-migrate');
-        if (!migrateBtn || document.getElementById('st-gsheet-webhook-box')) return;
-
-        const parentCard = migrateBtn.closest('.bg-blue-50');
-        if (!parentCard) return;
-
-        const extraBox = document.createElement('div');
-        extraBox.id = 'st-gsheet-webhook-box';
-        extraBox.className = 'mt-3 pt-3 border-t border-blue-200/80 space-y-3';
-        extraBox.innerHTML = `
-            <div>
-                <label class="text-[10px] font-black text-blue-900 block mb-1">🔗 رابط Google Apps Script Webhook (للمزامنة التلقائية مع الشيت):</label>
-                <input type="text" id="st-gsheet-url" dir="ltr" value="${storeSettings.googleSheetWebhookUrl || ''}" onchange="storeSettings.googleSheetWebhookUrl = this.value.trim()" placeholder="https://script.google.com/macros/s/.../exec" class="w-full border border-blue-200 rounded-xl p-2.5 text-xs font-bold bg-white text-slate-700 outline-none focus:ring-2 focus:ring-blue-300 text-left">
-            </div>
-            <div class="flex flex-wrap items-center justify-between gap-2 bg-white p-3 rounded-xl border border-blue-100">
-                <div>
-                    <span class="text-xs font-black text-slate-800 block"><i class="fa-solid fa-shield-halved text-emerald-600 ml-1"></i> النسخة الاحتياطية الشاملة (Full System Backup)</span>
-                    <span class="text-[10px] font-bold text-slate-400">تحميل نسخة كاملة من (الطلبات + العملاء + المخزون + الإعدادات) في ملف واحد آمن</span>
-                </div>
-                <button type="button" onclick="exportFullSystemBackupJSON()" class="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-black shadow-sm flex items-center gap-1.5 active:scale-95">
-                    <i class="fa-solid fa-download text-amber-400"></i> تحميل نسخة احتياطية
-                </button>
-            </div>
-        `;
-        parentCard.appendChild(extraBox);
-    }
-
     // =========================================================================
-    // 💾 4. حفظ الإعدادات الشامل (saveAllSettings)
+    // 💾 4. حفظ الإعدادات الشامل (آمن تماماً — يحفظ البوليصة ولا يكتب فوق الدفعات)
     // =========================================================================
     window.saveAllSettings = async function (silent = false) {
         const btn = document.getElementById('global-save-btn');
@@ -889,6 +913,10 @@
                 storeSettings.pointValueInEGP = parseFloat(document.getElementById('st-pts-value')?.value) || 0.40;
             }
 
+            if (document.getElementById('st-hero-msg')) storeSettings.heroMessage = document.getElementById('st-hero-msg').value.trim();
+            if (document.getElementById('st-closed-msg')) storeSettings.closedMessage = document.getElementById('st-closed-msg').value.trim();
+            if (document.getElementById('st-store-desc')) storeSettings.storeDesc = document.getElementById('st-store-desc').value.trim();
+
             if (document.getElementById('st-gsheet-url')) {
                 storeSettings.googleSheetWebhookUrl = document.getElementById('st-gsheet-url').value.trim();
             }
@@ -900,7 +928,19 @@
                 storeSettings.batchHashtag = document.getElementById('admin-batch-hashtag').value.trim();
             }
 
-            if (typeof window.getWaybillConfig === 'function') {
+            // قراءة وحفظ إعدادات بوليصة الشحن (Deli 750W) بشكل مباشر ومضمون
+            if (document.getElementById('wb-paper-size')) {
+                storeSettings.waybillConfig = {
+                    ...(storeSettings.waybillConfig || {}),
+                    slogan: document.getElementById('wb-slogan')?.value.trim() || '',
+                    footerMsg: document.getElementById('wb-footer-msg')?.value.trim() || '',
+                    logoUrl: document.getElementById('wb-logo-url')?.value.trim() || '',
+                    paperSize: document.getElementById('wb-paper-size')?.value || '70x130',
+                    showBarcode: Boolean(document.getElementById('wb-show-barcode')?.checked),
+                    showBreakdown: Boolean(document.getElementById('wb-show-breakdown')?.checked),
+                    showDriverNote: Boolean(document.getElementById('wb-show-driver-note')?.checked)
+                };
+            } else if (typeof window.getWaybillConfig === 'function') {
                 storeSettings.waybillConfig = window.getWaybillConfig();
             }
 
@@ -908,28 +948,19 @@
             storeSettings.drivers = (storeSettings.drivers || []).filter(d => d && (d.name || d.phone));
             storeSettings.productsData = storeProducts;
 
-            if (typeof storeBatches !== 'undefined' && storeBatches) {
-                Object.keys(storeBatches).forEach(k => {
-                    const bObj = storeBatches[k];
-                    if (!bObj || typeof bObj !== 'object' || !bObj.name || bObj.name === 'undefined' || bObj.name.trim() === '') {
-                        delete storeBatches[k];
-                    }
-                });
-            }
-
+            // تم استبعاد الكتابة فوق مستند batches هنا لمنع مسح حجوزات العملاء المتزامنة
             await Promise.all([
                 db.collection('inventory').doc('settings').set(storeSettings, { merge: true }),
                 db.collection('inventory').doc('stock').set(storeStock, { merge: true }),
-                db.collection('inventory').doc('prices').set(storePrices, { merge: true }),
-                db.collection('inventory').doc('batches').set(storeBatches)
+                db.collection('inventory').doc('prices').set(storePrices, { merge: true })
             ]);
-
 
             if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
             if (typeof window.renderReconciliationUI === 'function') window.renderReconciliationUI();
+            if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
 
             if (!silent) {
-                if (typeof window.showToast === 'function') window.showToast('تم حفظ جميع الإعدادات والأصناف بنجاح! 🚀');
+                if (typeof window.showToast === 'function') window.showToast('✅ تم حفظ الإعدادات والأصناف والبوليصة بنجاح!');
                 else alert('تم الحفظ بنجاح! 🚀');
             }
         } catch (e) {
@@ -942,6 +973,7 @@
             btn.disabled = false;
         }
     };
+
 
     // =========================================================================
     // 🪙 5. تفعيل نقاط الولاء بأثر رجعي (على الطلبات المكتملة فقط وبدون التوصيل)
@@ -1192,11 +1224,352 @@
         window.location.replace(cleanUrl);
     };
 
-    // تشغيل التهيئة فقط للتبويب المفتوح دون التسبب في وميض عند بدء التشغيل
+    // =========================================================================
+    // 📋 8. محرك مركز الملاحظات والتقييمات الذكي (Executive Smart Notes Hub)
+    // =========================================================================
+    window.notesHubState = {
+        filter: 'all' // 'all' | 'urgent' | 'problem' | 'rating' | 'driver' | 'customers'
+    };
+
+    const URGENT_KEYWORDS = ['عاجل', 'مستعجل', 'ضروري', 'فورا', 'فوراً', 'بسرعة', 'سريع', 'النهاردة', 'النهارده', 'اليوم', 'مهم', '🚨'];
+    const PROBLEM_KEYWORDS = ['مشكلة', 'مشكله', 'شكوى', 'شكوي', 'ناقص', 'تالف', 'بايظ', 'غلط', 'خطأ', 'مرتجع', 'زعلان', 'رفض', 'عجز', 'تأخير', 'ماتسلمش', 'آجل', 'باقي حساب', 'تنبيه مالي'];
+
+    function escNoteHtml(str) {
+        return String(str === null || str === undefined ? '' : str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function escNoteJs(str) {
+        return String(str === null || str === undefined ? '' : str)
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/"/g, '&quot;')
+            .replace(/\n/g, ' ');
+    }
+
+    function hasAnyKeyword(txt, list) {
+        const low = String(txt || '').toLowerCase();
+        return list.some(k => low.includes(k));
+    }
+
+    window.setNotesFilter = function (filterKey) {
+        window.notesHubState.filter = filterKey || 'all';
+        const allKeys = ['all', 'urgent', 'problem', 'rating', 'driver', 'customers'];
+        allKeys.forEach(k => {
+            const btn = document.getElementById(`n-filter-${k}`);
+            if (!btn) return;
+            if (k === window.notesHubState.filter) {
+                btn.className = 'notes-filter-btn active whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-slate-900 text-white shadow-sm transition-all';
+            } else {
+                btn.className = 'notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 transition-all';
+            }
+        });
+        window.renderNotesUI();
+    };
+
+    window.quickReplyNoteFromHub = async function (orderId, field) {
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const ord = ordersList.find(o => o && o.id === orderId);
+        if (!ord) return;
+
+        const fieldLabel = field === 'driverNote' ? 'ملاحظة للمندوب' : 'ملاحظة إدارية';
+        const newText = (typeof window.execPrompt === 'function')
+            ? await window.execPrompt(`أضف ${fieldLabel} جديدة على طلب (${ord.customerName || 'العميل'}):`, '', { title: `إضافة ${fieldLabel}`, tone: 'brand', confirmText: 'حفظ الملاحظة' })
+            : prompt(`أضف ${fieldLabel} جديدة على طلب (${ord.customerName || 'العميل'}):`);
+
+        if (!newText || !newText.trim()) return;
+
+        const dateStr = new Date().toLocaleString('ar-EG', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const line = `[${dateStr}] ${newText.trim()}`;
+        const prev = ord[field] || '';
+        const updated = prev ? `${prev}\n---\n${line}` : line;
+
+        try {
+            ord[field] = updated;
+            if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
+                globalOrdersMap[orderId][field] = updated;
+            }
+            await db.collection('orders').doc(orderId).update({ [field]: updated });
+            window.renderNotesUI();
+            if (typeof window.showToast === 'function') window.showToast('✅ تمت إضافة الملاحظة بنجاح');
+        } catch (e) {
+            alert('حدث خطأ أثناء حفظ الملاحظة!');
+        }
+    };
+
+    window.markOrderNoteReviewedInHub = async function (orderId, field) {
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const ord = ordersList.find(o => o && o.id === orderId);
+        if (!ord) return;
+
+        const ok = (typeof window.execConfirm === 'function')
+            ? await window.execConfirm(`هل تريد تسجيل (تمت المراجعة والحل ✅) على ملاحظة طلب (${ord.customerName || 'العميل'})؟`, { title: 'تأكيد مراجعة الملاحظة', tone: 'success', confirmText: 'نعم، تمت المراجعة' })
+            : confirm(`هل تريد تسجيل (تمت المراجعة والحل ✅) على هذا الطلب؟`);
+        if (!ok) return;
+
+        const dateStr = new Date().toLocaleString('ar-EG', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const line = `[${dateStr}] ✅ تمت المراجعة والتعامل مع الملاحظة.`;
+        const prev = ord[field] || '';
+        const updated = prev ? `${prev}\n---\n${line}` : line;
+
+        try {
+            ord[field] = updated;
+            if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
+                globalOrdersMap[orderId][field] = updated;
+            }
+            await db.collection('orders').doc(orderId).update({ [field]: updated });
+            window.renderNotesUI();
+            if (typeof window.showToast === 'function') window.showToast('✅ تم تسجيل المراجعة بنجاح');
+        } catch (e) {
+            alert('حدث خطأ أثناء تحديث الملاحظة!');
+        }
+    };
+
+    window.renderNotesUI = function () {
+        const container = document.getElementById('notes-list-container');
+        if (!container) return;
+
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const custList = (typeof customersData !== 'undefined' && Array.isArray(customersData)) ? customersData : [];
+        const includeComp = document.getElementById('notes-include-completed')?.checked !== false;
+        const rawQ = String(document.getElementById('search-notes')?.value || '')
+            .replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660)
+            .replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0)
+            .toLowerCase().trim();
+
+        const activeFilter = window.notesHubState.filter || 'all';
+        const cards = [];
+
+        // 1. جمع ملاحظات وتقييمات الطلبات
+        ordersList.forEach(o => {
+            if (!o || o.status === 'trash' || o.isArchived) return;
+            if (!includeComp && (o.status === 'completed' || o.status === 'canceled')) return;
+
+            const adminText = String(o.adminNote || '').trim();
+            const driverText = String(o.driverNote || '').trim();
+            const hasRating = Number(o.rating) > 0 || adminText.includes('تقييم الخدمة');
+
+            if (!adminText && !driverText && !hasRating) return;
+
+            const combined = `${adminText} ${driverText}`;
+            const isReviewed = combined.includes('✅ تمت المراجعة');
+            const isUrgent = !isReviewed && hasAnyKeyword(combined, URGENT_KEYWORDS);
+            const isProblem = !isReviewed && (hasAnyKeyword(combined, PROBLEM_KEYWORDS) || (Number(o.rating) > 0 && Number(o.rating) <= 3));
+            const sortMs = (o.createdAt && typeof o.createdAt.toMillis === 'function') ? o.createdAt.toMillis() : 0;
+
+            cards.push({
+                kind: 'order',
+                order: o,
+                adminText,
+                driverText,
+                hasRating,
+                isUrgent,
+                isProblem,
+                isDriver: Boolean(driverText),
+                isReviewed,
+                sortMs,
+                searchHay: `${o.customerName || ''} ${o.customerPhone || ''} ${o.zone || ''} ${o.batchName || ''} ${adminText} ${driverText}`.toLowerCase()
+            });
+        });
+
+        // 2. جمع الملاحظات اللزجة وكشكول العملاء
+        custList.forEach(c => {
+            if (!c) return;
+            const sticky = String(c.stickyNote || '').trim();
+            const notebook = String(c.notebook || '').trim();
+            if (!sticky && !notebook) return;
+
+            cards.push({
+                kind: 'customer',
+                customer: c,
+                sticky,
+                notebook,
+                hasRating: false,
+                isUrgent: false,
+                isProblem: Boolean(c.isBlacklisted),
+                isDriver: false,
+                isReviewed: false,
+                sortMs: (c.lastOrder && typeof c.lastOrder.toMillis === 'function') ? c.lastOrder.toMillis() : 0,
+                searchHay: `${c.name || ''} ${c.phone || ''} ${c.zone || ''} ${sticky} ${notebook}`.toLowerCase()
+            });
+        });
+
+        // إحصائيات سريعة للبانر العلوي
+        const cAll = cards.filter(x => x.kind === 'order').length;
+        const cUrgent = cards.filter(x => x.isUrgent).length;
+        const cProblem = cards.filter(x => x.isProblem).length;
+        const cRating = cards.filter(x => x.hasRating).length;
+        const cCust = cards.filter(x => x.kind === 'customer').length;
+
+        const statsBar = document.getElementById('notes-stats-bar');
+        if (statsBar) {
+            statsBar.innerHTML = `
+                <span class="bg-white/10 px-2 py-0.5 rounded-lg">📋 ${cAll} طلب</span>
+                ${cUrgent > 0 ? `<span class="bg-amber-400 text-slate-950 px-2 py-0.5 rounded-lg">⚡ ${cUrgent} عاجل</span>` : ''}
+                ${cProblem > 0 ? `<span class="bg-rose-500 text-white px-2 py-0.5 rounded-lg">⚠️ ${cProblem} مشكلة</span>` : ''}
+                ${cRating > 0 ? `<span class="bg-emerald-500/25 text-emerald-200 px-2 py-0.5 rounded-lg">⭐️ ${cRating} تقييم</span>` : ''}
+                <span class="bg-white/10 px-2 py-0.5 rounded-lg">📌 ${cCust} عميل</span>
+            `;
+        }
+
+        // فلترة البطاقات حسب التبويب والبحث
+        const filtered = cards.filter(item => {
+            if (activeFilter === 'all' && item.kind !== 'order') return false;
+            if (activeFilter === 'urgent' && !item.isUrgent) return false;
+            if (activeFilter === 'problem' && !item.isProblem) return false;
+            if (activeFilter === 'rating' && !item.hasRating) return false;
+            if (activeFilter === 'driver' && !item.isDriver) return false;
+            if (activeFilter === 'customers' && item.kind !== 'customer') return false;
+            if (rawQ && !item.searchHay.includes(rawQ)) return false;
+            return true;
+        });
+
+        // ترتيب الأولوية: العاجل والمشاكل أولاً ثم الأحدث زمنياً
+        filtered.sort((a, b) => {
+            const pA = (a.isProblem ? 2 : 0) + (a.isUrgent ? 1 : 0);
+            const pB = (b.isProblem ? 2 : 0) + (b.isUrgent ? 1 : 0);
+            if (pB !== pA) return pB - pA;
+            return b.sortMs - a.sortMs;
+        });
+
+        if (filtered.length === 0) {
+            container.innerHTML = `<div class="col-span-full text-center py-12 text-slate-400 font-bold bg-white rounded-2xl border-2 border-dashed border-slate-200">لا توجد ملاحظات مطابقة لهذا القسم أو البحث حالياً.</div>`;
+            return;
+        }
+
+        const statusLabels = {
+            new: { t: '🆕 جديد', c: 'bg-blue-50 text-blue-700 border-blue-200' },
+            processing: { t: '⏳ تجهيز', c: 'bg-amber-50 text-amber-800 border-amber-200' },
+            dispatched: { t: '🛵 بالطريق', c: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+            deferred: { t: '📅 مؤجل', c: 'bg-orange-50 text-orange-700 border-orange-200' },
+            no_answer: { t: '📵 لم يرد', c: 'bg-purple-50 text-purple-700 border-purple-200' },
+            completed: { t: '✅ مكتمل', c: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+            canceled: { t: '❌ ملغي', c: 'bg-slate-100 text-slate-500 border-slate-200' }
+        };
+
+        container.innerHTML = filtered.slice(0, 80).map(item => {
+            if (item.kind === 'customer') {
+                const c = item.customer;
+                const safePhone = escNoteJs(c.phone || '');
+                const waNum = (c.phone || '').startsWith('0') ? '2' + c.phone : (c.phone || '');
+                return `
+                <div class="bg-white rounded-2xl p-3.5 border border-slate-200 border-r-4 ${c.isBlacklisted ? 'border-r-red-600' : 'border-r-amber-400'} shadow-sm space-y-2.5 flex flex-col justify-between">
+                    <div class="space-y-2">
+                        <div class="flex items-start justify-between gap-2 pb-2 border-b border-slate-100">
+                            <div class="min-w-0">
+                                <h4 onclick="openCustomerCard('${safePhone}')" class="font-black text-slate-900 text-sm truncate cursor-pointer hover:text-brand-primary">${escNoteHtml(c.name || 'عميل')}</h4>
+                                <p class="text-[10px] font-bold text-slate-400" dir="ltr">${escNoteHtml(c.phone || '')} ${c.zone ? '• ' + escNoteHtml(c.zone) : ''}</p>
+                            </div>
+                            <span class="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-lg text-[10px] font-black shrink-0">📌 ملف عميل</span>
+                        </div>
+                        ${item.sticky ? `<div class="bg-yellow-50 border border-yellow-300 rounded-xl p-2.5 text-xs font-black text-yellow-950 leading-relaxed"><i class="fa-solid fa-thumbtack text-yellow-600 ml-1"></i> ${escNoteHtml(item.sticky)}</div>` : ''}
+                        ${item.notebook ? `<div class="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 whitespace-pre-wrap leading-relaxed"><i class="fa-solid fa-book-open text-amber-500 ml-1"></i> ${escNoteHtml(item.notebook)}</div>` : ''}
+                    </div>
+                    <div class="flex gap-1.5 pt-2 border-t border-slate-100">
+                        <button type="button" onclick="openCustomerCard('${safePhone}')" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white py-1.5 px-3 rounded-xl text-[11px] font-black transition-all">فتح وتعديل الملف</button>
+                        ${waNum ? `<a href="https://wa.me/${escNoteHtml(waNum)}" target="_blank" class="bg-[#25D366] hover:bg-green-600 text-white px-3 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1"><i class="fa-brands fa-whatsapp"></i> واتساب</a>` : ''}
+                    </div>
+                </div>`;
+            }
+
+            // بطاقة ملاحظة طلب
+            const o = item.order;
+            const stInfo = statusLabels[o.status] || statusLabels.new;
+            const safeOrderId = escNoteJs(o.id);
+            const safePhone = escNoteJs(o.customerPhone || '');
+            const primaryField = item.adminText ? 'adminNote' : 'driverNote';
+
+            const borderAccent = item.isProblem
+                ? 'border-r-4 border-r-rose-500 border-rose-200/80'
+                : (item.isUrgent
+                    ? 'border-r-4 border-r-amber-500 border-amber-200/80'
+                    : (item.hasRating ? 'border-r-4 border-r-emerald-500 border-emerald-200/80' : 'border-r-4 border-r-slate-400 border-slate-200/80'));
+
+            const formatChunks = (raw) => raw.split('\n---\n').filter(x => x.trim()).map(ch =>
+                `<div class="bg-white/90 border border-black/5 rounded-lg p-2 text-[11px] font-bold text-slate-800 whitespace-pre-wrap leading-relaxed">${escNoteHtml(ch.trim())}</div>`
+            ).join('');
+
+            return `
+            <div class="bg-white rounded-2xl p-3.5 border ${borderAccent} shadow-sm space-y-2.5 flex flex-col justify-between">
+                <div class="space-y-2">
+                    <div class="flex items-start justify-between gap-2 pb-2 border-b border-slate-100">
+                        <div class="min-w-0">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <h4 onclick="openCustomerCard('${safePhone}')" class="font-black text-slate-900 text-sm cursor-pointer hover:text-brand-primary">${escNoteHtml(o.customerName || 'عميل')}</h4>
+                                ${item.isProblem ? '<span class="bg-rose-100 text-rose-700 text-[9px] font-black px-1.5 py-0.5 rounded">⚠️ مشكلة/شكوى</span>' : ''}
+                                ${item.isUrgent ? '<span class="bg-amber-100 text-amber-900 text-[9px] font-black px-1.5 py-0.5 rounded">⚡ عاجل</span>' : ''}
+                                ${Number(o.rating) > 0 ? `<span class="bg-amber-50 text-amber-700 border border-amber-200 text-[9px] font-black px-1.5 py-0.5 rounded">⭐️ ${o.rating}/5</span>` : ''}
+                                ${item.isReviewed ? '<span class="bg-emerald-100 text-emerald-700 text-[9px] font-black px-1.5 py-0.5 rounded">✅ تمت المراجعة</span>' : ''}
+                            </div>
+                            <p class="text-[10px] font-bold text-slate-400 mt-0.5">
+                                <span dir="ltr">${escNoteHtml(o.customerPhone || '')}</span> • ${escNoteHtml(o.zone || '')} ${o.batchName ? '• ' + escNoteHtml(o.batchName) : ''} • <strong class="text-brand-primary">${Number(o.total) || 0} ج</strong>
+                            </p>
+                        </div>
+                        <span class="px-2 py-0.5 rounded-lg text-[10px] font-black border shrink-0 ${stInfo.c}">${stInfo.t}</span>
+                    </div>
+
+                    ${item.adminText ? `
+                    <div class="bg-amber-50/70 border border-amber-200/70 rounded-xl p-2 space-y-1.5">
+                        <span class="text-[10px] font-black text-amber-800 block"><i class="fa-solid fa-lock ml-1"></i> ملاحظات إدارية / تقييم:</span>
+                        ${formatChunks(item.adminText)}
+                    </div>` : ''}
+
+                    ${item.driverText ? `
+                    <div class="bg-blue-50/70 border border-blue-200/70 rounded-xl p-2 space-y-1.5">
+                        <span class="text-[10px] font-black text-blue-800 block"><i class="fa-solid fa-motorcycle ml-1"></i> ملاحظات المندوب:</span>
+                        ${formatChunks(item.driverText)}
+                    </div>` : ''}
+                </div>
+
+                <div class="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
+                    <button type="button" onclick="quickReplyNoteFromHub('${safeOrderId}', '${primaryField}')" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-colors flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-reply text-indigo-600"></i> إضافة رد
+                    </button>
+                    ${!item.isReviewed ? `
+                    <button type="button" onclick="markOrderNoteReviewedInHub('${safeOrderId}', '${primaryField}')" class="bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-200 py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center gap-1">
+                        <i class="fa-solid fa-check"></i> تمت المراجعة
+                    </button>` : ''}
+                    <button type="button" onclick="openEditOrderModal('${safeOrderId}')" class="bg-slate-900 hover:bg-slate-800 text-white py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-colors">
+                        <i class="fa-solid fa-pen text-amber-300"></i> الطلب
+                    </button>
+                    <button type="button" onclick="sendMessageToCustomer('${safePhone}', '${safeOrderId}')" class="bg-[#25D366] hover:bg-green-600 text-white py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-colors" title="واتساب">
+                        <i class="fa-brands fa-whatsapp"></i>
+                    </button>
+                </div>
+            </div>`;
+        }).join('');
+    };
+
+    // ربط آمن للتنقل والتحديث اللحظي عند فتح "إعدادات المتجر" أو "مركز الملاحظات"
+    const _prevSwitchTabSettings = window.switchTab;
+    if (typeof _prevSwitchTabSettings === 'function') {
+        window.switchTab = function (tabId, btnElement, isFromBackButton) {
+            _prevSwitchTabSettings(tabId, btnElement, isFromBackButton);
+            if (tabId === 'settings') window.renderSettingsUI();
+            if (tabId === 'notes') window.renderNotesUI();
+        };
+    }
+
+    const _prevSchedRenderSettings = window.scheduleSystemRender;
+    window.scheduleSystemRender = function () {
+        if (typeof _prevSchedRenderSettings === 'function') {
+            _prevSchedRenderSettings();
+        }
+        const notesView = document.getElementById('view-notes');
+        if (notesView && notesView.classList.contains('active')) {
+            window.renderNotesUI();
+        }
+    };
+
     function initSettingsIfActive() {
         const activeTab = window.smanCurrentActiveTab || 'dashboard';
         if (activeTab === 'inventory') window.renderInventoryUI();
         if (activeTab === 'settings') window.renderSettingsUI();
+        if (activeTab === 'notes') window.renderNotesUI();
     }
 
     if (document.readyState === 'loading') {
