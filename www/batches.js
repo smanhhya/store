@@ -54,18 +54,23 @@
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
         const p = pObj || prodsObj[pId];
         if (!p) return 'quail';
+
+        if (p.categoryType === 'custom') return 'immediate';
+        if (p.categoryType === 'weight' || p.isWeightBased) return 'weight';
+        if (p.categoryType === 'quail') return 'quail';
+
         const safeId = String(pId || '').toLowerCase();
         const safeName = String(p.name || '').toLowerCase();
 
-        if (p.isWeightBased) return 'weight';
         if (safeId === 'chicks' || safeName.includes('كتكوت') || safeName.includes('كتاكيت') || safeName.includes('عمر يوم') || safeName.includes('عمر')) {
             return 'chicks';
         }
-        if (p.isExtra || safeId === 'eggs' || safeName.includes('بيض')) {
+        if (p.categoryType === 'eggs_chicks' || p.isExtra || safeId === 'eggs' || safeName.includes('بيض')) {
             return 'immediate';
         }
         return 'quail';
     };
+
 
     function getTrackMeta(trackType) {
         if (trackType === 'chicks') {
