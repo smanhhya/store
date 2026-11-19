@@ -1593,6 +1593,7 @@
         </div>
     </div>
 
+    <script src="dialogs.js"></script>
     <script>
 
 
@@ -6892,9 +6893,10 @@ window.deleteProductUI = async (id) => {
         window.quickBanFromOrderCard = async (orderId) => {
             let o = allOrdersRaw.find(x => x.id === orderId);
             if (!o) return;
-            let reason = prompt(`🚫 إدراج العميل (${o.customerName} - ${o.customerPhone}) في قائمة البلاك ليست\n\nاكتب سبب الحظر (مثال: طلب الأوردر ورفض الاستلام / قفل تليفونه):`);
+            let reason = await window.execPrompt(`🚫 إدراج العميل (${o.customerName} - ${o.customerPhone}) في قائمة البلاك ليست\n\nاكتب سبب الحظر (مثال: طلب الأوردر ورفض الاستلام / قفل تليفونه):`, '', { title: 'إدراج في البلاك ليست', tone: 'danger', placeholder: 'اكتب سبب الحظر هنا...' });
             if (reason === null) return;
-            let reqStr = prompt('كم عدد الطلبات المدفوعة مقدماً المطلوبة لخروجه من البلاك ليست؟ (اكتب 3 أو 2):', '3');
+            let reqStr = await window.execPrompt('كم عدد الطلبات المدفوعة مقدماً المطلوبة لخروجه من البلاك ليست؟ (اكتب 3 أو 2):', '3', { title: 'شرط فك الحظر', tone: 'warning', inputType: 'number' });
+            if (reqStr === null) return;
             let reqCount = parseInt(reqStr) || 3;
 
             let cleanPhone = window.normalizePhone(o.customerPhone);
@@ -7343,19 +7345,19 @@ window.deleteProductUI = async (id) => {
             if(!o) return;
             let oldStatus = o.status;
 
-            if(s === 'canceled' && !confirm('هل أنت متأكد من إلغاء هذا الطلب وإرجاع الكميات للمخزن والدفعة؟')) { renderOrdersList(); return; }
-            if(s === 'trash' && !confirm('نقل الطلب لسلة المحذوفات؟ (يُحذف نهائياً بعد 15 يوم)')) { renderOrdersList(); return; }
+            if(s === 'canceled' && !(await window.execConfirm('هل أنت متأكد من إلغاء هذا الطلب وإرجاع الكميات للمخزن والدفعة؟', { title: 'تأكيد إلغاء الطلب', tone: 'danger', confirmText: 'نعم، إلغاء الطلب' }))) { renderOrdersList(); return; }
+            if(s === 'trash' && !(await window.execConfirm('نقل الطلب لسلة المحذوفات؟ (يُحذف نهائياً بعد 15 يوم)', { title: 'نقل لسلة المحذوفات', tone: 'danger', confirmText: 'نقل للسلة' }))) { renderOrdersList(); return; }
 
             // 🔒 قفل البوابة الفردية للبلاك ليست (سواء بالرقم أو بالاشتباه)
             let blCheck = window.findBlacklistedCustomerMatch(o.customerPhone, o.customerPhone2, o.customerName, o.customerAddress);
             if (blCheck && ['processing', 'dispatched', 'completed'].includes(s)) {
                 if (blCheck.type === 'suspected') {
-                    let proceedSuspect = confirm('🕵️ تحذير رادار التحايل!\n\nالعميل (' + o.customerName + ') يتطابق في (' + blCheck.reason + ') مع العميل المحظور (' + blCheck.customer.name + ').\n\nهل أنت متأكد من تمرير الطلب بدون ضمه للبلاك ليست؟');
+                    let proceedSuspect = await window.execConfirm('🕵️ تحذير رادار التحايل!\n\nالعميل (' + o.customerName + ') يتطابق في (' + blCheck.reason + ') مع العميل المحظور (' + blCheck.customer.name + ').\n\nهل أنت متأكد من تمرير الطلب بدون ضمه للبلاك ليست؟', { title: 'اشتباه تحايل بلاك ليست', tone: 'warning', confirmText: 'تمرير الطلب' });
                     if (!proceedSuspect) { renderOrdersList(); return; }
                 } else if (blCheck.type === 'exact') {
                     let isPrepaid = o.isPrepaidConfirmed === true || o.paymentMethod === 'online';
                     if (!isPrepaid) {
-                        let confirmPrepaidNow = confirm('⛔ قفل أمان البلاك ليست!\n\nالعميل (' + o.customerName + ') مدرج في البلاك ليست بسبب: (' + (blCheck.customer.blacklistReason || 'رفض استلام') + ').\nممنوع تجهيز أو خروج الطلب إلا بعد الدفع المسبق!\n\nهل استلمت قيمة الطلب مقدماً الآن وتريد تأكيد الدفع والمتابعة؟');
+                        let confirmPrepaidNow = await window.execConfirm('⛔ قفل أمان البلاك ليست!\n\nالعميل (' + o.customerName + ') مدرج في البلاك ليست بسبب: (' + (blCheck.customer.blacklistReason || 'رفض استلام') + ').\nممنوع تجهيز أو خروج الطلب إلا بعد الدفع المسبق!\n\nهل استلمت قيمة الطلب مقدماً الآن وتريد تأكيد الدفع والمتابعة؟', { title: 'قفل أمان البلاك ليست', tone: 'danger', confirmText: 'نعم، تم الدفع المسبق' });
                         if (!confirmPrepaidNow) { renderOrdersList(); return; }
                         o.isPrepaidConfirmed = true;
                         o.paymentMethod = 'online';
@@ -7363,6 +7365,7 @@ window.deleteProductUI = async (id) => {
                     }
                 }
             }
+
 
             // 🎉 عداد التوبة الأوتوماتيكي عند اكتمال الطلب لعميل البلاك ليست
             if (s === 'completed' && oldStatus !== 'completed' && blCheck && blCheck.type === 'exact') {
@@ -7412,11 +7415,12 @@ window.deleteProductUI = async (id) => {
                 
                 // لو لقى صنف هينزل تحت الصفر، بيطلع رسالة التنبيه
                 if (negativeItems.length > 0) {
-                    if (!confirm(`⚠️ انتباه: الأصناف دي مش موجود منها عدد كافي في الفريزر:\n(${negativeItems.join('، ')})\n\nهل أنت متأكد؟ (اضغط "موافق" لو عندك منها في مكان تاني ومش ضايفه، أو "إلغاء" وروح عدل الفريزر الأول)`)) {
-                        renderOrdersList(); // عشان نرجع القائمة (Select) لحالتها القديمة لو اليوزر ألغى
+                    if (!(await window.execConfirm(`⚠️ انتباه: الأصناف دي مش موجود منها عدد كافي في الفريزر:\n(${negativeItems.join('، ')})\n\nهل أنت متأكد من المتابعة؟ (اضغط "متابعة" لو عندك منها خارج الفريزر، أو "تراجع" لتعديل رصيد الفريزر أولاً)`, { title: 'تنبيه رصيد الفريزر', tone: 'warning', confirmText: 'متابعة التجهيز' }))) {
+                        renderOrdersList();
                         return; 
                     }
                 }
+
             }
 
             // --- التحديث الفوري للواجهة ---
