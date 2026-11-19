@@ -125,7 +125,19 @@
         body.pitch-privacy-mode [dir="ltr"]:not(input):not(textarea):hover {
             filter: blur(0);
         }
+
+        /* إصلاح تداخل شريط البحث والتبويبات فوق القائمة الجانبية على الموبايل */
+        #mobile-overlay {
+            z-index: 54 !important;
+        }
+        #sidebar {
+            z-index: 58 !important;
+        }
+        #orders-sticky-search-bar {
+            z-index: 20 !important;
+        }
     </style>
+
 
 </head>
 <body class="text-slate-700 flex h-screen w-full relative selection:bg-brand-primary selection:text-white">
@@ -3261,12 +3273,11 @@
         window.highlightOrderCard = (cardEl, e) => {
             if(e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.closest('button') || e.target.closest('a')) return;
             document.querySelectorAll('.order-card').forEach(c => {
-                c.classList.remove('ring-4', 'ring-brand-primary/40', 'border-brand-primary', 'scale-[1.02]', 'z-20', 'shadow-2xl');
-                c.classList.add('opacity-50', 'scale-[0.98]'); 
+                c.classList.remove('ring-2', 'ring-brand-primary/50', 'border-brand-primary', 'shadow-lg');
             });
-            cardEl.classList.remove('opacity-50', 'scale-[0.98]');
-            cardEl.classList.add('ring-4', 'ring-brand-primary/40', 'border-brand-primary', 'scale-[1.02]', 'z-20', 'shadow-2xl');
+            cardEl.classList.add('ring-2', 'ring-brand-primary/50', 'border-brand-primary', 'shadow-lg');
         };
+
 
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.order-card') && !e.target.closest('#search-order')) {
@@ -4664,9 +4675,11 @@
                     driverNote: driverNotes, // 🛵 السطر الجديد بتاع المندوب 
                     items: items, 
                     status: 'new', 
+                    source: 'admin_crm',
                     orderDate: orderDateFormatted, 
                     createdAt: firebase.firestore.FieldValue.serverTimestamp() 
                 };
+
 
                 
                 let atomicBatch = db.batch();
