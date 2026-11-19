@@ -70,16 +70,13 @@
                 contain: layout style;
             }
 
-            /* إخفاء الهيدر العلوي عند النزول لأسفل ويظهر فوراً مع أول حركة لأعلى */
-            body.lc-bars-hidden-on-scroll header {
-                height: 0px !important;
-                min-height: 0px !important;
-                max-height: 0px !important;
-                opacity: 0 !important;
-                border-bottom-width: 0px !important;
-                pointer-events: none !important;
+            /* ضمان ظهور القائمة الجانبية دائماً فوق شريط البحث والتبويبات بدون أي تداخل */
+            #mobile-overlay {
+                z-index: 54 !important;
             }
-
+            #sidebar {
+                z-index: 58 !important;
+            }
 
             /* 🔥 الإصلاح الجذري: إلغاء قفل الارتفاع (h-full) عن شاشة الطلبات لتظل تبويبات (جديد ومكتمل) ثابتة لآخر طلب في الصفحة */
             #view-orders.page-view.active {
@@ -90,22 +87,22 @@
                 animation: none !important;
             }
 
-            /* الحاوية المثبتة دائماً في أعلى شاشة الطلبات */
+            /* الحاوية المثبتة دائماً في أعلى شاشة الطلبات (بدون blur مسبب للرعشة وبـ z-index آمن خلف القائمة الجانبية) */
             #lc-orders-sticky-shell {
                 position: sticky !important;
                 top: -1rem !important;
-                z-index: 40 !important;
-                background: rgba(241, 245, 249, 0.97) !important;
-                backdrop-filter: blur(12px);
-                -webkit-backdrop-filter: blur(12px);
+                z-index: 20 !important;
+                background: #f1f5f9 !important;
+                transform: translateZ(0);
+                backface-visibility: hidden;
                 margin-left: -1rem !important;
                 margin-right: -1rem !important;
                 padding-left: 0.75rem !important;
                 padding-right: 0.75rem !important;
                 padding-top: 0.45rem !important;
                 padding-bottom: 0.45rem !important;
-                border-bottom: 1px solid rgba(203, 213, 225, 0.85) !important;
-                box-shadow: 0 4px 15px -4px rgba(15, 23, 42, 0.07) !important;
+                border-bottom: 1px solid rgba(203, 213, 225, 0.9) !important;
+                box-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.07) !important;
             }
             @media (min-width: 1024px) {
                 #lc-orders-sticky-shell {
@@ -1507,23 +1504,23 @@
                     const isNearBottom = st >= (maxScroll - 75);
 
                     // إظهار فوري عند الوصول لأعلى الصفحة
-                    if (st <= 20) {
+                    if (st <= 24) {
                         if (isHidden) {
                             document.body.classList.remove('lc-bars-hidden-on-scroll');
-                            lockUntilMs = nowMs + 400;
+                            lockUntilMs = nowMs + 600;
                         }
                         accDelta = 0;
                     }
-                    // عند النزول المتعمد بمقدار 45px (وليس عند ارتداد آخر الصفحة): نطوي الهيدر والبحث وتبقى التبويبات فقط
-                    else if (!isHidden && st > 90 && !isNearBottom && accDelta >= 45) {
+                    // عند النزول المتعمد بمقدار 75px: نطوي مربع البحث فقط بهدوء وتبقى التبويبات والهيدر ثابتين
+                    else if (!isHidden && st > 120 && !isNearBottom && accDelta >= 75) {
                         document.body.classList.add('lc-bars-hidden-on-scroll');
-                        lockUntilMs = nowMs + 400;
+                        lockUntilMs = nowMs + 600;
                         accDelta = 0;
                     }
-                    // عند الصعود المتعمد بمقدار 35px (وليس بسبب ارتداد أسفل الصفحة): يظهر البحث والهيدر بنعومة
-                    else if (isHidden && !isNearBottom && accDelta <= -35) {
+                    // عند الصعود المتعمد بمقدار 55px: يعود مربع البحث بنعومة تامة
+                    else if (isHidden && !isNearBottom && accDelta <= -55) {
                         document.body.classList.remove('lc-bars-hidden-on-scroll');
-                        lockUntilMs = nowMs + 400;
+                        lockUntilMs = nowMs + 600;
                         accDelta = 0;
                     }
                 }
