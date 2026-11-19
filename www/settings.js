@@ -501,9 +501,15 @@
                         <input type="number" value="${stock}" onchange="storeStock['${id}'] = parseInt(this.value) || 0" class="w-full border border-emerald-200 bg-emerald-50/70 focus:bg-white rounded-xl p-2 text-xs font-black text-emerald-800 text-center outline-none">
                     </div>
                     <div>
-                        <label class="text-[10px] font-bold text-slate-500 block mb-1">رابط الصورة</label>
-                        <input type="text" value="${imgSrc}" onchange="storeProducts['${id}'].images = [this.value]" class="w-full border border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-2 text-[10px] font-bold text-slate-600 outline-none text-left" dir="ltr" placeholder="super.png">
+                        <label class="text-[10px] font-bold text-slate-500 block mb-1">صورة الصنف (رفع أو رابط)</label>
+                        <div class="flex items-center gap-1">
+                            <input type="text" id="prod-img-inp-${id}" value="${imgSrc}" onchange="storeProducts['${id}'].images = [this.value]" class="flex-1 min-w-0 border border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-2 text-[10px] font-bold text-slate-600 outline-none text-left" dir="ltr" placeholder="super.png">
+                            <button type="button" id="btn-up-prod-${id}" onclick="triggerProductImageUpload('${id}')" title="رفع وتظبيط صورة من الموبايل" class="px-2.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black shrink-0 flex items-center gap-1 shadow-sm active:scale-95">
+                                <i class="fa-solid fa-camera"></i> <span>رفع</span>
+                            </button>
+                        </div>
                     </div>
+
                 </div>
 
                 <!-- مفاتيح التحكم في شبكة متناسقة بدون انكسار -->
@@ -842,9 +848,11 @@
         if (document.getElementById('wb-show-breakdown')) document.getElementById('wb-show-breakdown').checked = wbCfg.showBreakdown !== false;
         if (document.getElementById('wb-show-driver-note')) document.getElementById('wb-show-driver-note').checked = wbCfg.showDriverNote !== false;
 
+        if (typeof window.renderGalleryStudioUI === 'function') window.renderGalleryStudioUI();
         initInteractiveTemplateVariables();
         if (typeof window.syncWaybillSettingsUI === 'function') window.syncWaybillSettingsUI();
     };
+
 
     window.addNewZoneUI = function () {
         if (!storeSettings.deliveryZones) storeSettings.deliveryZones = [];
@@ -1564,6 +1572,250 @@
             window.renderNotesUI();
         }
     };
+
+    // =========================================================================
+    // 📷 9. استوديو الصور الذكي (ضغط وتظبيط تلقائي + رفع مباشر على ImgBB)
+    // =========================================================================
+    let pendingUploadProductId = null;
+
+    window.saveImgBBKeyLocal = function (val) {
+        const clean = String(val || '').trim();
+        try {
+            if (clean) localStorage.setItem('sman_imgbb_api_key', clean);
+            else localStorage.removeItem('sman_imgbb_api_key');
+        } catch (e) {}
+        if (clean && typeof window.showToast === 'function') {
+            window.showToast('🔑 تم حفظ مفتاح ImgBB على جهازك بأمان');
+        }
+    };
+
+    function getSavedImgBBKey() {
+        const inpVal = document.getElementById('st-imgbb-key')?.value?.trim();
+        if (inpVal) return inpVal;
+        try { return (localStorage.getItem('sman_imgbb_api_key') || '').trim(); } catch (e) { return ''; }
+    }
+
+    // معالجة وضغط الصورة تلقائياً في المتصفح قبل الرفع (سرعة فائقة + أبعاد متوازنة)
+    function compressAndFormatImage(file, mode) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error('تعذر قراءة ملف الصورة'));
+            reader.onload = (ev) => {
+                const img = new Image();
+                img.onerror = () => reject(new Error('الملف المختار ليس صورة صالحة'));
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+
+                    if (mode === 'product') {
+                        const size = 800;
+                        canvas.width = size;
+                        canvas.height = size;
+                        // خلفية كريمي ناعمة مطابقة لخلفية متجر سمان ههيا
+                        ctx.fillStyle = '#faf8f3';
+                        ctx.fillRect(0, 0, size, size);
+
+                        const fitMode = localStorage.getItem('sman_img_fit_mode') || 'contain';
+                        if (fitMode === 'cover') {
+                            const scale = Math.max(size / img.width, size / img.height);
+                            const w = img.width * scale;
+                            const h = img.height * scale;
+                            ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+                        } else {
+                            const pad = 24;
+                            const maxSide = size - pad * 2;
+                            const scale = Math.min(maxSide / img.width, maxSide / img.height);
+                            const w = img.width * scale;
+                            const h = img.height * scale;
+                            ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+                        }
+                    } else {
+                        // صور الكتالوج: نحافظ على التناسب الأصلي مع حد أقصى 1080px
+                        const maxDim = 1080;
+                        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+                        canvas.width = Math.round(img.width * scale);
+                        canvas.height = Math.round(img.height * scale);
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    }
+
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+                    const base64Only = dataUrl.split(',')[1];
+                    resolve(base64Only);
+                };
+                img.src = ev.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    async function uploadBase64ToImgBB(base64Str) {
+        const apiKey = getSavedImgBBKey();
+        if (!apiKey) {
+            throw new Error('NO_KEY');
+        }
+        const formData = new FormData();
+        formData.append('image', base64Str);
+
+        const res = await fetch(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(apiKey)}`, {
+            method: 'POST',
+            body: formData
+        });
+        const json = await res.json();
+        if (!res.ok || !json || !json.success || !json.data) {
+            throw new Error(json?.error?.message || 'فشل الرفع على ImgBB — تأكد من صحة المفتاح');
+        }
+        return json.data.display_url || json.data.url;
+    }
+
+    // 1. رفع صورة لصنف معين من شاشة الأصناف والأسعار
+    window.triggerProductImageUpload = function (prodId) {
+        if (!getSavedImgBBKey()) {
+            alert('🔑 ضع مفتاح ImgBB API أولاً في شاشة (إعدادات المتجر -> استوديو الصور) ثم أعد المحاولة.');
+            return;
+        }
+        pendingUploadProductId = prodId;
+        const fileInp = document.getElementById('sman-hidden-product-file');
+        if (fileInp) {
+            fileInp.value = '';
+            fileInp.click();
+        }
+    };
+
+    window.handleProductImageFileSelected = async function (event) {
+        const file = event?.target?.files?.[0];
+        const prodId = pendingUploadProductId;
+        if (!file || !prodId || !storeProducts[prodId]) return;
+
+        const btn = document.getElementById(`btn-up-prod-${prodId}`);
+        const origHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+            btn.disabled = true;
+        }
+
+        try {
+            const base64 = await compressAndFormatImage(file, 'product');
+            const directUrl = await uploadBase64ToImgBB(base64);
+
+            storeProducts[prodId].images = [directUrl];
+            const urlInp = document.getElementById(`prod-img-inp-${prodId}`);
+            if (urlInp) urlInp.value = directUrl;
+
+            await window.saveAllSettings(true);
+            if (typeof window.showToast === 'function') {
+                window.showToast(`✅ تم تظبيط ورفع صورة (${storeProducts[prodId].name}) بنجاح!`);
+            }
+        } catch (err) {
+            alert(err.message === 'NO_KEY' ? 'يرجى وضع مفتاح ImgBB أولاً في إعدادات المتجر.' : ('خطأ في رفع الصورة: ' + err.message));
+        } finally {
+            if (btn) {
+                btn.innerHTML = origHtml;
+                btn.disabled = false;
+            }
+            pendingUploadProductId = null;
+        }
+    };
+
+    // 2. إدارة ورفع صور الكتالوج ("من مزرعتنا على الطبيعة")
+    window.renderGalleryStudioUI = function () {
+        const keyInp = document.getElementById('st-imgbb-key');
+        if (keyInp && !keyInp.value) {
+            try { keyInp.value = localStorage.getItem('sman_imgbb_api_key') || ''; } catch (e) {}
+        }
+        const fitSel = document.getElementById('st-img-fit-mode');
+        if (fitSel) {
+            try { fitSel.value = localStorage.getItem('sman_img_fit_mode') || 'contain'; } catch (e) {}
+        }
+
+        const grid = document.getElementById('st-gallery-images-grid');
+        if (!grid) return;
+
+        const imgs = Array.isArray(storeSettings.galleryImages) ? storeSettings.galleryImages.filter(Boolean) : [];
+        if (imgs.length === 0) {
+            grid.innerHTML = '<div class="col-span-full text-center py-5 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-xl">لا توجد صور في الكتالوج حالياً — اضغط (رفع صورة للكتالوج) للبدء.</div>';
+            return;
+        }
+
+        grid.innerHTML = imgs.map((url, idx) => `
+            <div class="relative aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-100 group shadow-sm">
+                <img src="${escSettingsHtml(url)}" alt="كتالوج ${idx + 1}" class="w-full h-full object-cover">
+                <button type="button" onclick="removeGalleryImage(${idx})" title="حذف الصورة" class="absolute top-1 left-1 w-6 h-6 rounded-lg bg-red-600/90 hover:bg-red-700 text-white flex items-center justify-center text-[10px] shadow">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+                <span class="absolute bottom-1 right-1 bg-black/60 text-white text-[9px] font-black px-1.5 py-0.5 rounded">${idx + 1}</span>
+            </div>
+        `).join('');
+    };
+
+    window.triggerGalleryImageUpload = function () {
+        if (!getSavedImgBBKey()) {
+            alert('🔑 الصق مفتاح ImgBB API في الخانة بالأعلى أولاً ثم اضغط رفع صورة.');
+            return;
+        }
+        const fileInp = document.getElementById('sman-hidden-gallery-file');
+        if (fileInp) {
+            fileInp.value = '';
+            fileInp.click();
+        }
+    };
+
+    window.handleGalleryImageFileSelected = async function (event) {
+        const file = event?.target?.files?.[0];
+        if (!file) return;
+
+        const btn = document.getElementById('btn-upload-gallery-img');
+        const origHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الضغط والرفع...';
+            btn.disabled = true;
+        }
+
+        try {
+            const base64 = await compressAndFormatImage(file, 'gallery');
+            const directUrl = await uploadBase64ToImgBB(base64);
+
+            if (!Array.isArray(storeSettings.galleryImages)) storeSettings.galleryImages = [];
+            storeSettings.galleryImages.push(directUrl);
+
+            window.renderGalleryStudioUI();
+            await window.saveAllSettings(true);
+            if (typeof window.showToast === 'function') {
+                window.showToast('✅ تمت إضافة الصورة لمعرض المتجر بنجاح!');
+            }
+        } catch (err) {
+            alert('خطأ في رفع صورة الكتالوج: ' + err.message);
+        } finally {
+            if (btn) {
+                btn.innerHTML = origHtml;
+                btn.disabled = false;
+            }
+        }
+    };
+
+    window.removeGalleryImage = async function (idx) {
+        if (!Array.isArray(storeSettings.galleryImages)) return;
+        const ok = (typeof window.execConfirm === 'function')
+            ? await window.execConfirm('هل تريد حذف هذه الصورة من معرض الكتالوج؟', { title: 'حذف صورة', tone: 'danger', confirmText: 'نعم، احذف' })
+            : confirm('هل تريد حذف هذه الصورة من معرض الكتالوج؟');
+        if (!ok) return;
+
+        storeSettings.galleryImages.splice(idx, 1);
+        window.renderGalleryStudioUI();
+        await window.saveAllSettings(true);
+    };
+
+    window.addManualGalleryImage = async function () {
+        const url = (typeof window.execPrompt === 'function')
+            ? await window.execPrompt('أدخل رابط الصورة أو اسم الملف (مثال: all-sizes.jpg):', '', { title: 'إضافة صورة للكتالوج', tone: 'brand', confirmText: 'إضافة' })
+            : prompt('أدخل رابط الصورة أو اسم الملف:');
+        if (!url || !url.trim()) return;
+
+        if (!Array.isArray(storeSettings.galleryImages)) storeSettings.galleryImages = [];
+        storeSettings.galleryImages.push(url.trim());
+        window.renderGalleryStudioUI();
+        await window.saveAllSettings(true);
+    };
+
 
     function initSettingsIfActive() {
         const activeTab = window.smanCurrentActiveTab || 'dashboard';
