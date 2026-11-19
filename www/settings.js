@@ -134,11 +134,163 @@
     };
 
     // =========================================================================
-    // 🥩 1. إدارة كتالوج الأصناف والأسعار والأوزان (Inventory & Products UI)
+    // 🥩 1. إدارة كتالوج الأصناف والأسعار والأوزان (مقسّم ومرتب ومتناسق 100% للموبايل)
     // =========================================================================
+    function classifyInventoryProduct(id, p) {
+        if (typeof window.getOrderProductCategoryAndRank === 'function') {
+            return window.getOrderProductCategoryAndRank(id, p);
+        }
+        const safeId = String(id || '').toLowerCase();
+        const safeName = String(p?.name || '').toLowerCase();
+
+        if (p && p.isWeightBased) {
+            let wRank = 50;
+            if (safeName.includes('فراخ') || safeName.includes('فرخ') || safeName.includes('تسمين')) wRank = 10;
+            else if (safeName.includes('رومي')) wRank = 20;
+            else if (safeName.includes('بط')) wRank = 30;
+            return { group: 'weight', rank: wRank };
+        }
+        if (
+            safeId === 'eggs' || safeId === 'chicks' ||
+            safeName.includes('بيض') || safeName.includes('كتكوت') ||
+            safeName.includes('كتاكيت') || safeName.includes('عمر')
+        ) {
+            let ecRank = 50;
+            if (safeId === 'eggs' || safeName.includes('بيض')) ecRank = 10;
+            else if (safeId === 'chicks' || safeName.includes('كتكوت') || safeName.includes('كتاكيت') || safeName.includes('عمر')) ecRank = 20;
+            return { group: 'eggs_chicks', rank: ecRank };
+        }
+
+        let qRank = 50;
+        if (safeId === 'super' || (safeName.includes('سوبر') && !safeName.includes('سبشيال') && !safeName.includes('اسبيشيال'))) qRank = 10;
+        else if (safeId === 'jumbo' || safeName.includes('جامبو')) qRank = 20;
+        else if (safeId === 'special' || ((safeName.includes('سبشيال') || safeName.includes('اسبيشيال')) && !safeName.includes('سوبر'))) qRank = 30;
+        else if (safeId === 'superspecial' || (safeName.includes('سوبر') && (safeName.includes('سبشيال') || safeName.includes('اسبيشيال')))) qRank = 40;
+        else qRank = 50 + (Number((typeof storePrices !== 'undefined' ? storePrices[id] : 0) || p?.basePrice) || 0) / 1000;
+
+        return { group: 'quail', rank: qRank };
+    }
+
+    window.setInventoryCategoryFilter = function (cat) {
+        window.inventoryUIState.category = cat;
+        window.renderInventoryUI();
+    };
+
+    window.setInventorySearchQuery = function (val) {
+        window.inventoryUIState.searchQuery = String(val || '');
+        if (document.getElementById('inv-products-groups-wrap')) {
+            window.renderInventoryGroupsOnly();
+        } else {
+            window.renderInventoryUI();
+        }
+    };
+
+    window.toggleQuickProductVisibility = async function (prodId) {
+        if (!storeProducts[prodId]) return;
+        storeProducts[prodId].isHidden = !storeProducts[prodId].isHidden;
+        window.renderInventoryUI();
+        await window.saveAllSettings(true);
+        if (typeof window.showToast === 'function') {
+            window.showToast(storeProducts[prodId].isHidden
+                ? `🚫 تم إخفاء (${storeProducts[prodId].name}) من متجر العملاء`
+                : `👁️ تم إظهار (${storeProducts[prodId].name}) في متجر العملاء`);
+        }
+    };
+
     window.renderInventoryUI = function () {
+        const invView = document.getElementById('view-inventory');
+        if (invView) {
+            invView.classList.add('overflow-x-hidden');
+            // تصغير حشوة الهيدر الثابت قليلاً لترك مساحة أكبر لقائمة الأصناف على الموبايل
+            const topStaticCard = invView.firstElementChild;
+            if (topStaticCard && !topStaticCard.hasAttribute('data-inv-slimmed')) {
+                topStaticCard.setAttribute('data-inv-slimmed', '1');
+                topStaticCard.className = 'flex items-center justify-between gap-2 bg-white px-3.5 py-2.5 rounded-2xl border border-slate-200/80 shadow-soft shrink-0';
+                const pDesc = topStaticCard.querySelector('p');
+                if (pDesc) pDesc.classList.add('hidden', 'sm:block');
+            }
+        }
+
         const cont = document.getElementById('products-list-container');
         if (!cont) return;
+
+        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
+        const prodIds = Object.keys(prodsObj).filter(id => Boolean(prodsObj[id]));
+
+        let activeCount = 0, hiddenCount = 0;
+        let quailCount = 0, eggsChicksCount = 0, weightCount = 0;
+
+        prodIds.forEach(id => {
+            const p = prodsObj[id];
+            if (p.isHidden) hiddenCount++;
+            else activeCount++;
+
+            const cls = classifyInventoryProduct(id, p);
+            if (cls.group === 'weight') weightCount++;
+            else if (cls.group === 'eggs_chicks') eggsChicksCount++;
+            else quailCount++;
+        });
+
+        const st = window.inventoryUIState;
+        if (st.category === 'main') st.category = 'quail';
+        if (st.category === 'extra') st.category = 'eggs_chicks';
+
+        const tabCls = (k) => st.category === k
+            ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100';
+
+        // شريط تحكم موحد رشيق بدون أي خروج عن حواف الشاشة
+        cont.innerHTML = `
+            <div class="w-full max-w-full overflow-hidden bg-white rounded-2xl border border-slate-200/80 shadow-soft p-2.5 space-y-2">
+                <!-- الصف 1: الإحصائيات المدمجة + أزرار المزامنة والحفظ -->
+                <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-900 text-white px-3 py-2 rounded-xl">
+                    <div class="flex items-center gap-2 text-[11px] font-black">
+                        <span>📦 الكل: <strong class="text-amber-400">${prodIds.length}</strong></span>
+                        <span class="text-slate-600">|</span>
+                        <span>🟢 معروض: <strong class="text-emerald-400">${activeCount}</strong></span>
+                        ${hiddenCount > 0 ? `<span class="text-slate-600">|</span><span>🚫 مخفي: <strong class="text-rose-400">${hiddenCount}</strong></span>` : ''}
+                    </div>
+                    <div class="flex items-center gap-1.5 mr-auto sm:mr-0">
+                        <button type="button" onclick="syncCatalogStockWithOpenBatches()" class="bg-teal-500/20 hover:bg-teal-500/30 text-teal-200 border border-teal-400/30 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all flex items-center gap-1" title="مزامنة المتاح للحجز مع الدفعات المفتوحة">
+                            <i class="fa-solid fa-link"></i> <span>مزامنة</span>
+                        </button>
+                        <button type="button" onclick="saveAllSettings()" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1 rounded-lg text-[10px] font-black transition-all flex items-center gap-1 active:scale-95">
+                            <i class="fa-solid fa-floppy-disk"></i> <span>حفظ الكل</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- الصف 2: مربع البحث + زر الوضع المدمج/المفصل -->
+                <div class="flex items-center gap-1.5">
+                    <div class="relative flex-1 min-w-0">
+                        <i class="fa-solid fa-magnifying-glass absolute right-3 top-2.5 text-slate-400 text-xs pointer-events-none"></i>
+                        <input type="search" id="inv-quick-search" value="${st.searchQuery || ''}" oninput="setInventorySearchQuery(this.value)" placeholder="ابحث باسم الصنف أو الوزن..." class="w-full pr-8 pl-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-black text-slate-800 outline-none focus:bg-white focus:border-brand-primary transition-all">
+                    </div>
+                    <button type="button" onclick="toggleInventoryCompactMode()" class="px-2.5 py-1.5 rounded-xl text-[11px] font-black border transition-all shrink-0 flex items-center gap-1 ${st.compactView ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-100 text-slate-700 border-slate-200'}">
+                        <i class="fa-solid ${st.compactView ? 'fa-compress' : 'fa-expand'} text-[10px]"></i>
+                        <span>${st.compactView ? 'مدمج' : 'مفصل'}</span>
+                    </button>
+                </div>
+
+                <!-- الصف 3: تبويبات الأقسام المرتبة بتمرير أفقي ناعم -->
+                <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5" style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
+                    <button type="button" onclick="setInventoryCategoryFilter('all')" class="whitespace-nowrap px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all ${tabCls('all')}">الكل (${prodIds.length})</button>
+                    <button type="button" onclick="setInventoryCategoryFilter('quail')" class="whitespace-nowrap px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all ${tabCls('quail')}">🥩 سمان بالجوز (${quailCount})</button>
+                    <button type="button" onclick="setInventoryCategoryFilter('eggs_chicks')" class="whitespace-nowrap px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all ${tabCls('eggs_chicks')}">🥚 بيض وكتاكيت (${eggsChicksCount})</button>
+                    <button type="button" onclick="setInventoryCategoryFilter('weight')" class="whitespace-nowrap px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all ${tabCls('weight')}">⚖️ بالوزن (${weightCount})</button>
+                    ${hiddenCount > 0 ? `<button type="button" onclick="setInventoryCategoryFilter('hidden')" class="whitespace-nowrap px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all ${tabCls('hidden')}">🚫 مخفي (${hiddenCount})</button>` : ''}
+                </div>
+            </div>
+
+            <div id="inv-products-groups-wrap" class="space-y-4 w-full max-w-full"></div>
+        `;
+
+        window.renderInventoryGroupsOnly();
+    };
+
+    window.renderInventoryGroupsOnly = function () {
+        const wrap = document.getElementById('inv-products-groups-wrap');
+        if (!wrap) return;
 
         const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
         const pricesObj = (typeof storePrices !== 'undefined' && storePrices) ? storePrices : {};
@@ -146,287 +298,297 @@
         const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
         const freezerObj = (typeof storeFreezer !== 'undefined' && storeFreezer) ? storeFreezer : {};
 
-        // حساب المحجوز والمتاح لكل صنف عبر الدفعات المفتوحة لربط الشاشتين ببعض
+        const prodIds = Object.keys(prodsObj).filter(id => Boolean(prodsObj[id]));
+        if (prodIds.length === 0) {
+            wrap.innerHTML = `<div class="text-center py-12 text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-2xl bg-white">لا توجد أصناف مسجلة حالياً. اضغط "صنف جديد" للبدء.</div>`;
+            return;
+        }
+
+        // حساب المحجوز عبر الدفعات المفتوحة لكل صنف
         const batchStatsByProd = {};
         Object.keys(batchesObj).forEach(bId => {
             const b = batchesObj[bId];
             if (!b || !b.isOpen || !b.name || b.name === 'undefined') return;
             const metrics = (typeof window.getBatchDeepMetrics === 'function') ? window.getBatchDeepMetrics(bId, b.name) : { realBookedByProd: {} };
-            Object.keys(prodsObj).forEach(pId => {
+            prodIds.forEach(pId => {
                 if (!batchStatsByProd[pId]) batchStatsByProd[pId] = { stock: 0, booked: 0 };
                 batchStatsByProd[pId].stock += (Number(b.stock?.[pId]) || 0);
                 batchStatsByProd[pId].booked += (metrics.realBookedByProd[pId] || Number(b.booked?.[pId]) || 0);
             });
         });
 
-        const prodIds = Object.keys(prodsObj);
-        let activeCount = 0, hiddenCount = 0, weightCount = 0, extraCount = 0, mainCount = 0, totalStockCount = 0;
+        const st = window.inventoryUIState;
+        const rawQ = String(st.searchQuery || '')
+            .replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660)
+            .replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0)
+            .toLowerCase().trim();
+
+        const groups = {
+            quail: [],
+            eggs_chicks: [],
+            weight: []
+        };
 
         prodIds.forEach(id => {
             const p = prodsObj[id];
-            if (!p) return;
-            if (p.isHidden) hiddenCount++;
-            else activeCount++;
+            const cls = classifyInventoryProduct(id, p);
 
-            if (p.isWeightBased) weightCount++;
-            else if (p.isExtra) extraCount++;
-            else if (!p.isHidden) mainCount++;
+            if (st.category === 'quail' && cls.group !== 'quail') return;
+            if (st.category === 'eggs_chicks' && cls.group !== 'eggs_chicks') return;
+            if (st.category === 'weight' && cls.group !== 'weight') return;
+            if (st.category === 'hidden' && !p.isHidden) return;
 
-            totalStockCount += Math.max(0, parseInt(stockObj[id]) || 0);
-        });
-
-        const st = window.inventoryUIState;
-        const catBtnCls = (k) => st.category === k
-            ? 'bg-slate-900 text-white shadow-sm'
-            : 'bg-slate-100 text-slate-600 hover:bg-slate-200';
-
-        // شريط الملخص والفلاتر السريعة والبحث
-        let html = `
-            <div class="bg-slate-900 text-white p-3.5 rounded-2xl shadow-md flex flex-wrap items-center justify-between gap-2">
-                <div class="flex flex-wrap items-center gap-3 text-xs font-black">
-                    <span>📦 الأصناف: <strong class="text-amber-400">${prodIds.length}</strong></span>
-                    <span class="text-slate-600">|</span>
-                    <span>🟢 معروض: <strong class="text-emerald-400">${activeCount}</strong></span>
-                    <span class="text-slate-600">|</span>
-                    <span>🚫 مخفي: <strong class="text-rose-400">${hiddenCount}</strong></span>
-                    <span class="text-slate-600">|</span>
-                    <span>📊 إجمالي المتاح: <strong class="text-sky-400">${totalStockCount}</strong></span>
-                </div>
-                <div class="flex flex-wrap items-center gap-1.5">
-                    <button type="button" onclick="syncCatalogStockWithOpenBatches()" class="bg-teal-500/20 hover:bg-teal-500/30 text-teal-200 border border-teal-400/30 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1" title="جعل المتاح للحجز يطابق المتبقي في الدفعات المفتوحة">
-                        <i class="fa-solid fa-link"></i> مزامنة المتاح مع الدفعات
-                    </button>
-                    <button type="button" onclick="saveAllSettings()" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3.5 py-1.5 rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1.5 active:scale-95">
-                        <i class="fa-solid fa-floppy-disk"></i> حفظ الكتالوج والأسعار
-                    </button>
-                </div>
-            </div>
-
-            <!-- شريط البحث السريع وتقسيم الفئات وتبديل العرض المدمج -->
-            <div class="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-soft flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
-                <div class="flex flex-wrap items-center gap-1.5">
-                    <button type="button" onclick="setInventoryCategoryFilter('all')" class="px-3 py-1.5 rounded-xl text-xs font-black transition-all ${catBtnCls('all')}">الكل (${prodIds.length})</button>
-                    <button type="button" onclick="setInventoryCategoryFilter('main')" class="px-3 py-1.5 rounded-xl text-xs font-black transition-all ${catBtnCls('main')}">🥩 سمان أساسي (${mainCount})</button>
-                    <button type="button" onclick="setInventoryCategoryFilter('weight')" class="px-3 py-1.5 rounded-xl text-xs font-black transition-all ${catBtnCls('weight')}">⚖️ بالوزن (${weightCount})</button>
-                    <button type="button" onclick="setInventoryCategoryFilter('extra')" class="px-3 py-1.5 rounded-xl text-xs font-black transition-all ${catBtnCls('extra')}">🥚 إضافات (${extraCount})</button>
-                    <button type="button" onclick="setInventoryCategoryFilter('hidden')" class="px-3 py-1.5 rounded-xl text-xs font-black transition-all ${catBtnCls('hidden')}">🚫 مخفي (${hiddenCount})</button>
-                </div>
-
-                <div class="flex items-center gap-2">
-                    <div class="relative flex-1 md:w-56">
-                        <i class="fa-solid fa-magnifying-glass absolute right-3 top-2.5 text-slate-400 text-xs"></i>
-                        <input type="search" id="inv-quick-search" value="${st.searchQuery}" oninput="setInventorySearchQuery(this.value)" placeholder="ابحث باسم الصنف بسرعة..." class="w-full pr-8 pl-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-black outline-none focus:bg-white focus:border-indigo-500">
-                    </div>
-                    <button type="button" onclick="toggleInventoryCompactMode()" class="px-3 py-1.5 rounded-xl text-xs font-black border transition-all shrink-0 ${st.compactView ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-100 text-slate-700 border-slate-200'}">
-                        <i class="fa-solid ${st.compactView ? 'fa-expand' : 'fa-compress'} ml-1"></i> ${st.compactView ? 'وضع مدمج (سريع)' : 'وضع مفصل'}
-                    </button>
-                </div>
-            </div>
-        `;
-
-        if (prodIds.length === 0) {
-            html += `<div class="text-center py-14 text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-[2rem] bg-white">لا توجد أصناف مسجلة حالياً. اضغط "صنف جديد" للبدء.</div>`;
-            cont.innerHTML = html;
-            return;
-        }
-
-        const q = st.searchQuery.toLowerCase().trim();
-        const filteredIds = prodIds.filter(id => {
-            const p = prodsObj[id];
-            if (!p) return false;
-            if (st.category === 'main' && (p.isExtra || p.isWeightBased || p.isHidden)) return false;
-            if (st.category === 'weight' && !p.isWeightBased) return false;
-            if (st.category === 'extra' && !p.isExtra) return false;
-            if (st.category === 'hidden' && !p.isHidden) return false;
-
-            if (q) {
-                const hay = `${p.name || ''} ${p.weight || ''}`.toLowerCase();
-                return hay.includes(q);
+            if (rawQ) {
+                const hay = `${p.name || ''} ${p.weight || ''} ${pricesObj[id] || p.basePrice || ''}`.toLowerCase();
+                if (!hay.includes(rawQ)) return;
             }
-            return true;
+
+            groups[cls.group].push({ id, p, group: cls.group, rank: cls.rank });
         });
 
-        if (filteredIds.length === 0) {
-            html += `<div class="text-center py-10 text-slate-400 font-bold bg-white rounded-2xl border border-dashed border-slate-200">لا توجد أصناف تطابق هذا البحث أو الفلتر.</div>`;
-            cont.innerHTML = html;
+        groups.quail.sort((a, b) => a.rank - b.rank);
+        groups.eggs_chicks.sort((a, b) => a.rank - b.rank);
+        groups.weight.sort((a, b) => a.rank - b.rank);
+
+        const totalShown = groups.quail.length + groups.eggs_chicks.length + groups.weight.length;
+        if (totalShown === 0) {
+            wrap.innerHTML = `<div class="text-center py-10 text-slate-400 font-bold bg-white rounded-2xl border border-dashed border-slate-200">لا توجد أصناف تطابق هذا البحث أو الفلتر.</div>`;
             return;
         }
 
-        filteredIds.forEach(id => {
-            const p = prodsObj[id];
-            if (!p) return;
+        const buildProductCardHtml = (entry) => {
+            const { id, p, group } = entry;
             const price = pricesObj[id] !== undefined ? pricesObj[id] : (p.basePrice || 0);
             const stock = stockObj[id] || 0;
             const oldPrice = p.oldPrice || '';
             const imgSrc = (p.images && p.images.length > 0) ? p.images[0] : '';
             const isExpanded = !st.compactView || Boolean(st.expandedIds[id]);
+            const isPinned = window.isProductPinnedForAdmin(id);
 
             const bStat = batchStatsByProd[id] || { stock: 0, booked: 0 };
             const fzQty = Math.max(0, Number(freezerObj[id]) || 0);
 
-            const isPrim = window.isProductPrimary(p, id);
-            const pinBtnHtml = `<button type="button" onclick="event.stopPropagation(); toggleProductPrimaryPin('${id}')" class="px-2 py-0.5 rounded-lg text-[10px] font-black border transition-all ${isPrim ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-sm' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-amber-50 hover:text-amber-800'}" title="اضغط لتثبيت أو إلغاء تثبيت هذا الصنف في الواجهة الأساسية للطلبات والدفعات">📌 ${isPrim ? 'أساسي بالواجهة' : 'فرعي (اضغط للتثبيت)'}</button>`;
+            const accentBorder = p.isHidden
+                ? 'border-r-4 border-r-rose-400'
+                : (group === 'weight'
+                    ? 'border-r-4 border-r-indigo-500'
+                    : (group === 'eggs_chicks' ? 'border-r-4 border-r-amber-500' : 'border-r-4 border-r-emerald-600'));
 
-            let typeBadge = pinBtnHtml + ' ';
-            if (p.isWeightBased) typeBadge += '<span class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-lg text-[10px] font-black">⚖️ بالوزن</span>';
-            else if (p.isExtra) typeBadge += '<span class="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-lg text-[10px] font-black">🥚 إضافي</span>';
-            if (p.isHidden) typeBadge += ' <span class="bg-rose-100 text-rose-700 px-2 py-0.5 rounded-lg text-[10px] font-black">🚫 مخفي بالمتجر</span>';
-
-            // 1. السطر المدمج السريع (Compact Row): تعديل السعر والمتاح في ثانية واحدة بدون زحمة!
+            // 1. الكارت المدمج الموزون هندسياً (صفر حواف خارجة على الموبايل)
             if (!isExpanded) {
-                let weightQuickInfo = '';
+                let weightArr = [];
+                let totalWeightKg = '0.00';
                 if (p.isWeightBased) {
-                    const wArr = typeof window.parseWeightsArray === 'function' ? window.parseWeightsArray(p.weightsList) : [];
-                    const totKg = (wArr.reduce((s, v) => s + v, 0) / 1000).toFixed(2);
-                    weightQuickInfo = `<span class="bg-indigo-600 text-white px-2 py-0.5 rounded-lg text-[10px] font-black">⚖️ بالمصفوفة: ${wArr.length} فرخة (${totKg} كجم)</span>`;
+                    weightArr = typeof window.parseWeightsArray === 'function' ? window.parseWeightsArray(p.weightsList) : [];
+                    totalWeightKg = (weightArr.reduce((s, v) => s + v, 0) / 1000).toFixed(2);
                 }
 
-                html += `
-                <div class="bg-white p-3.5 rounded-2xl border ${p.isHidden ? 'border-rose-200 bg-rose-50/20 opacity-80' : 'border-slate-200/80 hover:border-indigo-400'} shadow-sm transition-all flex flex-wrap items-center justify-between gap-3">
-                    <div onclick="toggleSingleProductExpand('${id}')" class="flex flex-wrap items-center gap-2 cursor-pointer flex-1 min-w-[200px]">
-                        <span class="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center text-xs"><i class="fa-solid fa-chevron-left"></i></span>
-                        <div>
+                return `
+                <div id="inv-card-${id}" class="w-full max-w-full overflow-hidden bg-white ${accentBorder} border ${p.isHidden ? 'border-rose-200 bg-rose-50/15 opacity-85' : 'border-slate-200/80 hover:border-brand-primary'} rounded-2xl p-3 shadow-sm transition-all space-y-2.5">
+                    <!-- صف الاسم والأزرار الثلاثة الرشيقة (بدون أي تكرار) -->
+                    <div class="flex items-start justify-between gap-2">
+                        <div onclick="toggleSingleProductExpand('${id}')" class="min-w-0 flex-1 cursor-pointer">
                             <div class="flex flex-wrap items-center gap-1.5">
-                                <span class="font-black text-slate-800 text-sm">${p.name || 'صنف'}</span>
-                                ${p.weight ? `<span class="text-[11px] font-bold text-slate-400">(${p.weight})</span>` : ''}
-                                ${typeBadge}
-                                ${weightQuickInfo}
+                                <span class="font-black text-slate-900 text-sm leading-snug">${p.name || 'صنف'}</span>
+                                ${p.weight ? `<span class="text-[10px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-100">${p.weight}</span>` : ''}
+                                ${p.isBest ? `<span class="text-[9px] font-black bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-md">🔥 مطلوب</span>` : ''}
+                                ${p.isHidden ? `<span class="text-[9px] font-black bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded-md">🚫 مخفي</span>` : ''}
                             </div>
-                            <div class="flex flex-wrap items-center gap-2 mt-1 text-[10px] font-black">
-                                <span class="text-blue-700 bg-blue-50 px-2 py-0.5 rounded">📌 محجوز بالدفعات: ${Number(bStat.booked.toFixed(1))}</span>
-                                <span class="text-cyan-700 bg-cyan-50 px-2 py-0.5 rounded">❄️ بالفريزر: ${fzQty}</span>
+                            <div class="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] font-black">
+                                <span class="text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-md">محجوز: ${Number(bStat.booked.toFixed(1))}</span>
+                                <span class="text-cyan-800 bg-cyan-50 px-1.5 py-0.5 rounded-md">❄️ فريزر: ${fzQty}</span>
+                                ${p.isWeightBased ? `<span class="text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-md">⚖️ ${weightArr.length} فرخة (${totalWeightKg} كجم)</span>` : ''}
                             </div>
+                        </div>
+
+                        <div class="flex items-center gap-1 shrink-0">
+                            <button type="button" onclick="togglePinProductForAdmin('${id}')" title="${isPinned ? 'مثبت كأساسي في الطلبات والدفعات (اضغط لإلغاء التثبيت)' : 'تثبيت كأساسي في مقدمة الطلبات والدفعات'}" class="w-8 h-8 rounded-xl border text-xs flex items-center justify-center transition-all ${isPinned ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-sm' : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-amber-50 hover:text-amber-700'}">
+                                <i class="fa-solid fa-thumbtack"></i>
+                            </button>
+                            <button type="button" onclick="toggleQuickProductVisibility('${id}')" title="${p.isHidden ? 'إظهار الصنف في المتجر' : 'إخفاء الصنف من المتجر'}" class="w-8 h-8 rounded-xl border text-xs flex items-center justify-center transition-all ${p.isHidden ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}">
+                                <i class="fa-solid ${p.isHidden ? 'fa-eye-slash' : 'fa-eye'}"></i>
+                            </button>
+                            <button type="button" onclick="toggleSingleProductExpand('${id}')" class="h-8 px-2.5 rounded-xl bg-slate-900 hover:bg-brand-primary text-white text-[11px] font-black transition-all flex items-center gap-1">
+                                <span>${p.isWeightBased ? 'الأوزان' : 'تعديل'}</span>
+                                <i class="fa-solid fa-chevron-down text-[9px] text-amber-300"></i>
+                            </button>
                         </div>
                     </div>
 
-                    <div class="flex flex-wrap items-center gap-2 shrink-0">
-                        <div class="flex items-center gap-1 bg-blue-50/80 border border-blue-200 px-2.5 py-1 rounded-xl">
-                            <span class="text-[10px] font-black text-blue-700">السعر:</span>
-                            <input type="number" value="${price}" onchange="storePrices['${id}'] = parseFloat(this.value) || 0; storeProducts['${id}'].basePrice = parseFloat(this.value) || 0; saveAllSettings(true);" class="w-16 bg-white border border-blue-200 rounded-lg p-1 text-xs font-black text-blue-800 text-center outline-none">
-                            <span class="text-[10px] font-bold text-blue-600">ج</span>
+                    <!-- صف السعر والمتاح في شبكة متساوية 50% / 50% تمنع أي خروج عن الحواف -->
+                    <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                        <div class="flex items-center justify-between gap-1.5 bg-blue-50/70 border border-blue-200/80 px-2.5 py-1.5 rounded-xl min-w-0">
+                            <span class="text-[10px] font-black text-blue-800 shrink-0">${p.isWeightBased ? 'الكيلو:' : 'السعر:'}</span>
+                            <div class="flex items-center gap-1 min-w-0">
+                                <input type="number" value="${price}" onchange="storePrices['${id}'] = parseFloat(this.value) || 0; storeProducts['${id}'].basePrice = parseFloat(this.value) || 0; saveAllSettings(true);" class="w-16 max-w-full bg-white border border-blue-200 rounded-lg py-0.5 px-1 text-xs font-black text-blue-900 text-center outline-none focus:ring-2 focus:ring-blue-300">
+                                <span class="text-[10px] font-black text-blue-700">ج</span>
+                            </div>
                         </div>
 
-                        <div class="flex items-center gap-1 bg-emerald-50/80 border border-emerald-200 px-2.5 py-1 rounded-xl">
-                            <span class="text-[10px] font-black text-emerald-700">المتاح:</span>
-                            <input type="number" value="${stock}" onchange="storeStock['${id}'] = parseInt(this.value) || 0; saveAllSettings(true);" class="w-16 bg-white border border-emerald-200 rounded-lg p-1 text-xs font-black text-emerald-800 text-center outline-none">
+                        ${p.isWeightBased ? `
+                        <button type="button" onclick="toggleSingleProductExpand('${id}')" class="flex items-center justify-between gap-1.5 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1.5 rounded-xl text-indigo-900 transition-colors min-w-0">
+                            <span class="text-[10px] font-black truncate">⚖️ مصفوفة الجرام</span>
+                            <span class="bg-indigo-600 text-white text-[10px] font-black px-2 py-0.5 rounded-lg shrink-0">${weightArr.length} عدد</span>
+                        </button>
+                        ` : `
+                        <div class="flex items-center justify-between gap-1.5 bg-emerald-50/70 border border-emerald-200/80 px-2.5 py-1.5 rounded-xl min-w-0">
+                            <span class="text-[10px] font-black text-emerald-800 shrink-0">المتاح:</span>
+                            <input type="number" value="${stock}" onchange="storeStock['${id}'] = parseInt(this.value) || 0; saveAllSettings(true);" class="w-16 max-w-full bg-white border border-emerald-200 rounded-lg py-0.5 px-1 text-xs font-black text-emerald-900 text-center outline-none focus:ring-2 focus:ring-emerald-300">
                         </div>
-
-                        <button type="button" onclick="togglePinProductForAdmin('${id}')" class="${window.isProductPinnedForAdmin(id) ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-sm' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-amber-50 hover:text-amber-800'} border px-2.5 py-2 rounded-xl text-[11px] font-black transition-all flex items-center gap-1" title="تثبيت في مقدمة إنشاء الطلب والدفعات">
-                            <i class="fa-solid fa-thumbtack"></i> ${window.isProductPinnedForAdmin(id) ? 'مثبت كأساسي' : 'تثبيت'}
-                        </button>
-                        <button type="button" onclick="toggleSingleProductExpand('${id}')" class="bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-xl text-[11px] font-black transition-all flex items-center gap-1">
-                            <i class="fa-solid fa-sliders text-amber-400"></i> ${p.isWeightBased ? 'الأوزان ▼' : 'تفاصيل ▼'}
-                        </button>
-
+                        `}
                     </div>
                 </div>`;
-                return;
             }
 
-            // 2. الوضع المفتوح الكامل للصنف (Expanded Editor)
+            // 2. الوضع المفتوح الكامل للصنف (Expanded Editor - منظم 100% بدون خروج حواف)
             let weightStatsHtml = '';
             if (p.isWeightBased) {
                 const wArr = typeof window.parseWeightsArray === 'function'
                     ? window.parseWeightsArray(p.weightsList)
                     : String(p.weightsList || '').split(/[\s,،;\n\r\-]+/).map(w => parseFloat(w.trim())).filter(w => !isNaN(w) && w > 0);
-                const totalGrams = wArr.reduce((s, v) => s + v, 0);
-                const totalKg = (totalGrams / 1000).toFixed(2);
+                const totalKg = (wArr.reduce((s, v) => s + v, 0) / 1000).toFixed(2);
                 weightStatsHtml = `
-                    <div class="mt-3 bg-indigo-50/70 p-3.5 rounded-xl border border-indigo-200/80">
-                        <div class="flex flex-wrap justify-between items-center gap-2 mb-2">
+                    <div class="mt-3 bg-indigo-50/70 p-3 rounded-xl border border-indigo-200/80 space-y-2">
+                        <div class="flex flex-wrap justify-between items-center gap-1.5">
                             <label class="text-[11px] font-black text-indigo-900">
-                                <i class="fa-solid fa-scale-balanced mr-1 text-indigo-600"></i> مصفوفة الأوزان المتاحة بالجرام (جنب بعض بمسافة أو تحت بعض):
+                                <i class="fa-solid fa-scale-balanced ml-1 text-indigo-600"></i> مصفوفة الأوزان بالجرام (بمسافة أو تحت بعض):
                             </label>
-                            <div class="flex items-center gap-2 text-[10px] font-black">
-                                <span id="weights-badge-${id}" class="bg-white text-indigo-700 px-2.5 py-1 rounded-lg border border-indigo-200 shadow-sm">المتاح: ${wArr.length} قطعة (${totalKg} كجم)</span>
-                            </div>
+                            <span id="weights-badge-${id}" class="bg-white text-indigo-700 px-2 py-0.5 rounded-lg border border-indigo-200 text-[10px] font-black">المتاح: ${wArr.length} قطعة (${totalKg} كجم)</span>
                         </div>
-                        <textarea oninput="let arr = window.parseWeightsArray ? window.parseWeightsArray(this.value) : []; storeProducts['${id}'].weightsList = arr.join(' '); storeStock['${id}'] = arr.length; let b = document.getElementById('weights-badge-${id}'); if(b) b.innerText = 'المتاح: ' + arr.length + ' قطعة (' + (arr.reduce((s,v)=>s+v,0)/1000).toFixed(2) + ' كجم)'; if(window.generateDynamicOrderInputs) generateDynamicOrderInputs();" onchange="updateProductWeightList('${id}', this.value)" dir="ltr" class="w-full border border-indigo-200 rounded-xl p-2.5 text-xs font-black text-slate-800 bg-white outline-none focus:ring-2 focus:ring-indigo-300 custom-scroll" rows="3" placeholder="مثال: 1400 1550 1200 أو كل وزن في سطر">${p.weightsList || ''}</textarea>
+                        <textarea oninput="let arr = window.parseWeightsArray ? window.parseWeightsArray(this.value) : []; storeProducts['${id}'].weightsList = arr.join(' '); storeStock['${id}'] = arr.length; let b = document.getElementById('weights-badge-${id}'); if(b) b.innerText = 'المتاح: ' + arr.length + ' قطعة (' + (arr.reduce((s,v)=>s+v,0)/1000).toFixed(2) + ' كجم)'; if(window.generateDynamicOrderInputs) generateDynamicOrderInputs();" onchange="updateProductWeightList('${id}', this.value)" dir="ltr" class="w-full border border-indigo-200 rounded-xl p-2.5 text-xs font-black text-slate-800 bg-white outline-none focus:ring-2 focus:ring-indigo-300 custom-scroll" rows="3" placeholder="مثال: 1400 1550 1200">${p.weightsList || ''}</textarea>
                     </div>
                 `;
             }
 
-            html += `
-            <div class="bg-white p-4 sm:p-5 rounded-2xl border-2 ${p.isHidden ? 'border-rose-300 bg-rose-50/10' : 'border-indigo-500/40'} shadow-md transition-all">
-                <div class="flex justify-between items-center mb-3 pb-2 border-b border-slate-100">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <button type="button" onclick="toggleSingleProductExpand('${id}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1 rounded-lg text-xs font-black">
-                            <i class="fa-solid fa-chevron-up mr-1"></i> طي الصنف
+            return `
+            <div id="inv-card-${id}" class="w-full max-w-full overflow-hidden bg-white ${accentBorder} border-2 ${p.isHidden ? 'border-rose-300' : 'border-brand-primary/50'} rounded-2xl p-3.5 shadow-md space-y-3 transition-all">
+                <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                    <div class="flex flex-wrap items-center gap-2 min-w-0">
+                        <button type="button" onclick="toggleSingleProductExpand('${id}')" class="bg-slate-900 text-white px-2.5 py-1 rounded-xl text-[11px] font-black flex items-center gap-1">
+                            <i class="fa-solid fa-chevron-up text-[9px] text-amber-300"></i> طي
                         </button>
-                        <span class="font-black text-slate-800 text-sm">${p.name || 'صنف'}</span>
-                        ${typeBadge}
-                        <span class="text-[10px] font-black text-blue-700 bg-blue-50 px-2 py-0.5 rounded">محجوز بالدفعات: ${Number(bStat.booked.toFixed(1))}</span>
-                        <span class="text-[10px] font-black text-cyan-700 bg-cyan-50 px-2 py-0.5 rounded">الفريزر: ${fzQty}</span>
+                        <span class="font-black text-slate-900 text-sm truncate">${p.name || 'صنف'}</span>
                     </div>
-                    <button onclick="deleteProductUI('${id}')" title="حذف الصنف نهائياً" class="w-8 h-8 bg-red-50 text-red-500 rounded-xl flex justify-center items-center hover:bg-red-500 hover:text-white shrink-0 transition-colors shadow-sm">
-                        <i class="fa-solid fa-trash text-xs"></i>
-                    </button>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <span class="text-[10px] font-black text-blue-700 bg-blue-50 px-2 py-1 rounded-lg">محجوز: ${Number(bStat.booked.toFixed(1))}</span>
+                        <span class="text-[10px] font-black text-cyan-800 bg-cyan-50 px-2 py-1 rounded-lg">❄️ ${fzQty}</span>
+                        <button type="button" onclick="deleteProductUI('${id}')" title="حذف الصنف نهائياً" class="w-8 h-8 bg-red-50 text-red-500 rounded-xl flex justify-center items-center hover:bg-red-600 hover:text-white transition-colors">
+                            <i class="fa-solid fa-trash text-xs"></i>
+                        </button>
+                    </div>
                 </div>
 
-                <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-3">
+                <!-- الحقول الـ 6 في شبكة متوازنة 2x3 على الموبايل و3x2 على الكمبيوتر -->
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                     <div>
-                        <label class="text-[10px] font-bold text-slate-400 block mb-1">اسم المنتج</label>
-                        <input type="text" value="${p.name || ''}" onchange="storeProducts['${id}'].name = this.value; generateDynamicOrderInputs();" class="w-full border border-slate-200/80 bg-slate-50 focus:bg-white rounded-xl p-2 text-xs font-black text-slate-800 outline-none">
+                        <label class="text-[10px] font-bold text-slate-500 block mb-1">اسم الصنف</label>
+                        <input type="text" value="${p.name || ''}" onchange="storeProducts['${id}'].name = this.value; generateDynamicOrderInputs();" class="w-full border border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-2 text-xs font-black text-slate-800 outline-none">
                     </div>
                     <div>
-                        <label class="text-[10px] font-bold text-slate-400 block mb-1">الوزن / الوصف</label>
-                        <input type="text" value="${p.weight || ''}" onchange="storeProducts['${id}'].weight = this.value" class="w-full border border-slate-200/80 bg-slate-50 focus:bg-white rounded-xl p-2 text-xs font-bold text-slate-700 outline-none">
+                        <label class="text-[10px] font-bold text-slate-500 block mb-1">الوزن / الوصف</label>
+                        <input type="text" value="${p.weight || ''}" onchange="storeProducts['${id}'].weight = this.value" class="w-full border border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-2 text-xs font-bold text-slate-700 outline-none">
                     </div>
                     <div>
-                        <label class="text-[10px] font-bold text-blue-600 block mb-1">السعر الحالي (ج)</label>
-                        <input type="number" value="${price}" onchange="storePrices['${id}'] = parseFloat(this.value) || 0; storeProducts['${id}'].basePrice = parseFloat(this.value) || 0;" class="w-full border border-blue-200 bg-blue-50/70 focus:bg-white rounded-xl p-2 text-sm font-black text-blue-700 text-center outline-none">
+                        <label class="text-[10px] font-bold text-blue-600 block mb-1">${p.isWeightBased ? 'سعر الكيلو (ج)' : 'السعر الحالي (ج)'}</label>
+                        <input type="number" value="${price}" onchange="storePrices['${id}'] = parseFloat(this.value) || 0; storeProducts['${id}'].basePrice = parseFloat(this.value) || 0;" class="w-full border border-blue-200 bg-blue-50/70 focus:bg-white rounded-xl p-2 text-xs font-black text-blue-800 text-center outline-none">
                     </div>
                     <div>
                         <label class="text-[10px] font-bold text-amber-600 block mb-1">سعر الدفعة القديمة</label>
-                        <input type="number" value="${p.oldBatchPrice || ''}" onchange="storeProducts['${id}'].oldBatchPrice = parseFloat(this.value) || 0" class="w-full border border-amber-200 bg-amber-50/70 focus:bg-white rounded-xl p-2 text-sm font-black text-amber-700 text-center outline-none" placeholder="اختياري">
+                        <input type="number" value="${p.oldBatchPrice || ''}" onchange="storeProducts['${id}'].oldBatchPrice = parseFloat(this.value) || 0" class="w-full border border-amber-200 bg-amber-50/70 focus:bg-white rounded-xl p-2 text-xs font-black text-amber-800 text-center outline-none" placeholder="اختياري">
                     </div>
                     <div>
                         <label class="text-[10px] font-bold text-emerald-600 block mb-1">المتاح للحجز</label>
-                        <input type="number" value="${stock}" onchange="storeStock['${id}'] = parseInt(this.value) || 0" class="w-full border border-emerald-200 bg-emerald-50/70 focus:bg-white rounded-xl p-2 text-sm font-black text-emerald-700 text-center outline-none">
+                        <input type="number" value="${stock}" onchange="storeStock['${id}'] = parseInt(this.value) || 0" class="w-full border border-emerald-200 bg-emerald-50/70 focus:bg-white rounded-xl p-2 text-xs font-black text-emerald-800 text-center outline-none">
                     </div>
                     <div>
-                        <label class="text-[10px] font-bold text-slate-400 block mb-1">رابط الصورة</label>
-                        <input type="text" value="${imgSrc}" onchange="storeProducts['${id}'].images = [this.value]" class="w-full border border-slate-200/80 bg-slate-50 focus:bg-white rounded-xl p-2 text-[10px] font-bold text-slate-500 outline-none" dir="ltr" placeholder="super.png أو رابط">
+                        <label class="text-[10px] font-bold text-slate-500 block mb-1">رابط الصورة</label>
+                        <input type="text" value="${imgSrc}" onchange="storeProducts['${id}'].images = [this.value]" class="w-full border border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-2 text-[10px] font-bold text-slate-600 outline-none text-left" dir="ltr" placeholder="super.png">
                     </div>
                 </div>
 
-                <div class="flex flex-wrap items-center gap-4 bg-slate-50/90 p-2.5 rounded-xl border border-slate-100">
-                    <label class="flex items-center gap-1.5 text-[11px] font-black cursor-pointer text-teal-800 bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200">
-                        <input type="checkbox" ${window.isProductPinnedForAdmin(id) ? 'checked' : ''} onchange="togglePinProductForAdmin('${id}')" class="w-4 h-4 accent-teal-600 rounded">
-                        <span>📌 تثبيت كأساسي في الطلبات والدفعات</span>
+                <!-- مفاتيح التحكم في شبكة متناسقة بدون انكسار -->
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-[11px] font-black">
+                    <label class="flex items-center gap-1.5 cursor-pointer text-amber-900 bg-amber-50 px-2 py-1.5 rounded-lg border border-amber-200">
+                        <input type="checkbox" ${isPinned ? 'checked' : ''} onchange="togglePinProductForAdmin('${id}')" class="w-4 h-4 accent-amber-500 rounded shrink-0">
+                        <span class="truncate">📌 مثبت كأساسي</span>
                     </label>
-                    <label class="flex items-center gap-1.5 text-[11px] font-black cursor-pointer text-slate-700">
-                        <input type="checkbox" ${p.isExtra ? 'checked' : ''} onchange="storeProducts['${id}'].isExtra = this.checked; renderInventoryUI();" class="w-4 h-4 accent-brand-primary rounded">
-                        <span>منتج إضافي (بيض/كتاكيت)</span>
+                    <label class="flex items-center gap-1.5 cursor-pointer text-indigo-700 bg-white px-2 py-1.5 rounded-lg border border-slate-200">
+                        <input type="checkbox" ${p.isWeightBased ? 'checked' : ''} onchange="storeProducts['${id}'].isWeightBased = this.checked; renderInventoryUI(); generateDynamicOrderInputs();" class="w-4 h-4 accent-indigo-600 rounded shrink-0">
+                        <span class="truncate">⚖️ يباع بالوزن</span>
                     </label>
-
-                    <label class="flex items-center gap-1.5 text-[11px] font-black cursor-pointer text-amber-600">
-                        <input type="checkbox" ${p.isBest ? 'checked' : ''} onchange="storeProducts['${id}'].isBest = this.checked" class="w-4 h-4 accent-amber-500 rounded">
-                        <span>الأكثر طلباً 🔥</span>
+                    <label class="flex items-center gap-1.5 cursor-pointer text-slate-700 bg-white px-2 py-1.5 rounded-lg border border-slate-200">
+                        <input type="checkbox" ${p.isExtra ? 'checked' : ''} onchange="storeProducts['${id}'].isExtra = this.checked; renderInventoryUI();" class="w-4 h-4 accent-brand-primary rounded shrink-0">
+                        <span class="truncate">🥚 صنف إضافي</span>
                     </label>
-                    <label class="flex items-center gap-1.5 text-[11px] font-black cursor-pointer text-indigo-600">
-                        <input type="checkbox" ${p.isWeightBased ? 'checked' : ''} onchange="storeProducts['${id}'].isWeightBased = this.checked; renderInventoryUI(); generateDynamicOrderInputs();" class="w-4 h-4 accent-indigo-600 rounded">
-                        <span>يباع بالوزن ⚖️</span>
+                    <label class="flex items-center gap-1.5 cursor-pointer text-amber-700 bg-white px-2 py-1.5 rounded-lg border border-slate-200">
+                        <input type="checkbox" ${p.isBest ? 'checked' : ''} onchange="storeProducts['${id}'].isBest = this.checked" class="w-4 h-4 accent-amber-500 rounded shrink-0">
+                        <span class="truncate">🔥 الأكثر طلباً</span>
                     </label>
-                    <label class="flex items-center gap-1.5 text-[11px] font-black cursor-pointer text-rose-600">
-                        <input type="checkbox" ${p.isHidden ? 'checked' : ''} onchange="storeProducts['${id}'].isHidden = this.checked; renderInventoryUI();" class="w-4 h-4 accent-rose-600 rounded">
-                        <span>إخفاء من المتجر 🚫</span>
+                    <label class="flex items-center gap-1.5 cursor-pointer text-rose-700 bg-white px-2 py-1.5 rounded-lg border border-slate-200">
+                        <input type="checkbox" ${p.isHidden ? 'checked' : ''} onchange="storeProducts['${id}'].isHidden = this.checked; renderInventoryUI();" class="w-4 h-4 accent-rose-600 rounded shrink-0">
+                        <span class="truncate">🚫 إخفاء بالمتجر</span>
                     </label>
-                    <div class="flex items-center gap-2 border-r border-slate-200 pr-3">
-                        <label class="flex items-center gap-1.5 text-[11px] font-black cursor-pointer text-red-500">
-                            <input type="checkbox" ${p.isDisc ? 'checked' : ''} onchange="storeProducts['${id}'].isDisc = this.checked; renderInventoryUI();" class="w-4 h-4 accent-red-500 rounded">
-                            <span>خصم بالمتجر</span>
+                    <div class="flex items-center gap-1.5 bg-white px-2 py-1.5 rounded-lg border border-slate-200">
+                        <label class="flex items-center gap-1 cursor-pointer text-red-600 shrink-0">
+                            <input type="checkbox" ${p.isDisc ? 'checked' : ''} onchange="storeProducts['${id}'].isDisc = this.checked; renderInventoryGroupsOnly();" class="w-4 h-4 accent-red-500 rounded">
+                            <span>خصم</span>
                         </label>
-                        ${p.isDisc ? `<input type="number" value="${oldPrice}" onchange="storeProducts['${id}'].oldPrice = parseFloat(this.value) || 0" class="w-20 border border-red-200 bg-white rounded-lg p-1 text-[11px] font-black text-red-500 text-center line-through outline-none" placeholder="السعر قبل">` : ''}
+                        ${p.isDisc ? `<input type="number" value="${oldPrice}" onchange="storeProducts['${id}'].oldPrice = parseFloat(this.value) || 0" class="w-full min-w-0 border border-red-200 bg-red-50/40 rounded px-1 py-0.5 text-[10px] font-black text-red-500 text-center line-through outline-none" placeholder="قبل">` : ''}
                     </div>
                 </div>
+
                 ${weightStatsHtml}
+
+                <div class="flex justify-end pt-1">
+                    <button type="button" onclick="saveAllSettings()" class="bg-brand-primary hover:bg-emerald-800 text-white px-4 py-1.5 rounded-xl text-xs font-black shadow-sm flex items-center gap-1.5 active:scale-95">
+                        <i class="fa-solid fa-check"></i> حفظ تعديلات الصنف
+                    </button>
+                </div>
             </div>`;
+        };
+
+        const sectionsMeta = [
+            {
+                key: 'quail',
+                title: 'سمان مذبوح بالجوز (الأطباق)',
+                icon: 'fa-drumstick-bite text-emerald-600',
+                headerCls: 'bg-emerald-50/90 text-emerald-900 border-emerald-200',
+                items: groups.quail
+            },
+            {
+                key: 'eggs_chicks',
+                title: 'بيض سمان وكتاكيت عمر يوم',
+                icon: 'fa-egg text-amber-600',
+                headerCls: 'bg-amber-50/90 text-amber-900 border-amber-200',
+                items: groups.eggs_chicks
+            },
+            {
+                key: 'weight',
+                title: 'فراخ تسمين وطيور بالوزن',
+                icon: 'fa-scale-balanced text-indigo-600',
+                headerCls: 'bg-indigo-50/90 text-indigo-900 border-indigo-200',
+                items: groups.weight
+            }
+        ];
+
+        let groupsHtml = '';
+        sectionsMeta.forEach(sec => {
+            if (sec.items.length === 0) return;
+            groupsHtml += `
+                <div class="space-y-2 w-full max-w-full">
+                    <div class="flex items-center justify-between px-3 py-1.5 rounded-xl border ${sec.headerCls} text-xs font-black">
+                        <span class="flex items-center gap-1.5"><i class="fa-solid ${sec.icon}"></i> ${sec.title}</span>
+                        <span class="bg-white/80 px-2 py-0.5 rounded-lg text-[10px]">${sec.items.length} صنف</span>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
+                        ${sec.items.map(buildProductCardHtml).join('')}
+                    </div>
+                </div>
+            `;
         });
 
-        cont.innerHTML = html;
+        wrap.innerHTML = groupsHtml;
     };
-
 
     window.updateProductWeightList = function (prodId, rawVal) {
         if (!storeProducts[prodId]) return;
@@ -435,7 +597,7 @@
             : String(rawVal || '').split(/[\s,،;\n\r\-]+/).map(w => parseFloat(w.trim())).filter(w => !isNaN(w) && w > 0);
         storeProducts[prodId].weightsList = parsedArr.join(' ');
         storeStock[prodId] = parsedArr.length;
-        window.renderInventoryUI();
+        window.renderInventoryGroupsOnly();
         if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
         window.saveAllSettings(true);
     };
@@ -457,12 +619,24 @@
         };
         storePrices[newId] = 0;
         storeStock[newId] = 0;
+        window.inventoryUIState.category = 'all';
+        window.inventoryUIState.searchQuery = '';
+        window.inventoryUIState.expandedIds[newId] = true;
         window.renderInventoryUI();
         if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
+        setTimeout(() => {
+            const newCard = document.getElementById(`inv-card-${newId}`);
+            if (newCard) newCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 80);
     };
 
     window.deleteProductUI = async function (id) {
-        if (!confirm('هل أنت متأكد من حذف هذا الصنف من المتجر والنظام نهائياً؟')) return;
+        const pName = storeProducts[id]?.name || 'هذا الصنف';
+        const confirmed = typeof window.execConfirm === 'function'
+            ? await window.execConfirm(`هل أنت متأكد من حذف (${pName}) من المتجر والنظام نهائياً؟`, { title: 'حذف صنف نهائياً', tone: 'danger', confirmText: 'نعم، احذف الصنف' })
+            : confirm(`هل أنت متأكد من حذف (${pName}) من المتجر والنظام نهائياً؟`);
+        if (!confirmed) return;
+
         try {
             const batchProcess = db.batch();
             batchProcess.set(db.collection('inventory').doc('settings'), {
@@ -485,6 +659,7 @@
         window.renderInventoryUI();
         if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
     };
+
 
     // =========================================================================
     // ❄️ 2. إدارة مخزن الفريزر الفعلي (Interactive Freezer Modal)
