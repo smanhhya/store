@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -12,6 +13,8 @@
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="kitchen-crm.js" defer></script>
 
     <script>
         tailwind.config = {
@@ -125,19 +128,7 @@
         body.pitch-privacy-mode [dir="ltr"]:not(input):not(textarea):hover {
             filter: blur(0);
         }
-
-        /* إصلاح تداخل شريط البحث والتبويبات فوق القائمة الجانبية على الموبايل */
-        #mobile-overlay {
-            z-index: 54 !important;
-        }
-        #sidebar {
-            z-index: 58 !important;
-        }
-        #orders-sticky-search-bar {
-            z-index: 20 !important;
-        }
     </style>
-
 
 </head>
 <body class="text-slate-700 flex h-screen w-full relative selection:bg-brand-primary selection:text-white">
@@ -193,19 +184,18 @@
             <button onclick="switchTab('reconciliation', this)" class="nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-800/50 hover:text-white text-emerald-100/70 transition-all"><i class="fa-solid fa-hand-holding-dollar w-7 text-center text-emerald-400"></i> تقفيل المناديب</button>
 
             <button onclick="switchTab('settings', this)" class="nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-800/50 hover:text-white text-emerald-100/70 transition-all"><i class="fa-solid fa-gear w-7 text-center text-slate-400"></i> إعدادات المتجر</button>
+            <button onclick="switchTab('kitchen', this)" class="nav-btn w-full text-right flex items-center justify-between px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-800/50 hover:text-white text-emerald-100/70 transition-all">
+                <span class="flex items-center"><i class="fa-solid fa-fire-burner w-7 text-center text-amber-400"></i> مطبخ سمان ههيا</span>
+                <span id="sidebar-kitchen-fb-badge" class="hidden bg-amber-400 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded-full shadow-sm">0</span>
+            </button>
 
             <div class="my-2 border-t border-slate-700/50"></div>
             <button onclick="switchTab('trash', this)" class="nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-red-500/20 hover:text-red-300 text-emerald-100/70 transition-all"><i class="fa-solid fa-trash-can w-7 text-center text-red-400"></i> سلة المحذوفات</button>
         </nav>
         
-        <div class="p-4 border-t border-emerald-800/50 bg-emerald-900/20 shrink-0 space-y-2">
-            <button type="button" onclick="window.checkSmanApkUpdate(true)" id="btn-check-apk-update" class="text-emerald-200 hover:text-white hover:bg-emerald-700/60 transition-all flex items-center justify-between gap-2 text-xs font-black w-full px-3 py-2 bg-emerald-800/40 rounded-xl border border-emerald-700/50">
-                <span class="flex items-center gap-2"><i class="fa-solid fa-cloud-arrow-down text-amber-400"></i> فحص التحديثات</span>
-                <span id="sidebar-apk-version-tag" class="text-[10px] font-bold text-emerald-300/80" dir="ltr"></span>
-            </button>
+        <div class="p-4 border-t border-emerald-800/50 bg-emerald-900/20 shrink-0">
             <button onclick="logoutApp()" class="text-red-300 hover:text-white hover:bg-red-500/80 transition-all flex items-center gap-2 text-sm font-bold w-full justify-center py-2.5 bg-red-500/10 rounded-xl border border-red-500/20"><i class="fa-solid fa-right-from-bracket"></i> خروج آمن</button>
         </div>
-
     </aside>
 
     <main class="flex-1 flex flex-col min-w-0 h-full relative">
@@ -248,70 +238,85 @@
                 </div>
                 <!-- نهاية كشاف الطوارئ -->
 
-                <!-- هيكل تحميل ناعم يظهر لجزء من الثانية حتى يكتمل بناء لوحة القيادة الذكية بدون وميض -->
-                <div id="dash-initial-skeleton" class="space-y-4">
-                    <div class="h-16 w-full rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
-                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-                        <div class="h-16 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
-                        <div class="h-16 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
-                        <div class="h-16 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
-                        <div class="h-16 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
-                        <div class="col-span-2 sm:col-span-1 h-16 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 lg:gap-6">
+                    <div class="bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft flex flex-col justify-between hover:shadow-card transition-shadow">
+                        <div class="flex justify-between items-start mb-4">
+                            <div class="w-10 h-10 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center text-lg"><i class="fa-solid fa-check-double"></i></div>
+                        </div>
+                        <div><p class="text-xs font-bold text-slate-400 mb-1">تم تسليمه اليوم</p><h3 id="dash-completed-today" class="text-3xl font-black text-slate-800">0</h3></div>
                     </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                        <div class="h-28 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
-                        <div class="h-28 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
-                        <div class="h-28 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
-                        <div class="h-28 rounded-2xl bg-slate-200/80 animate-pulse skeleton-shimmer"></div>
+                    
+                    <div class="bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft flex flex-col justify-between hover:shadow-card transition-shadow relative overflow-hidden">
+                        <div class="absolute -right-4 -top-4 w-24 h-24 bg-emerald-50 rounded-full opacity-50 pointer-events-none"></div>
+                        <div class="flex justify-between items-start mb-4 relative z-10">
+                            <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-lg"><i class="fa-solid fa-sack-dollar"></i></div>
+                        </div>
+                        <div class="relative z-10"><p class="text-xs font-bold text-slate-500 mb-1">إجمالي المنتجات (بدون توصيل)</p><h3 id="dash-products-today" class="text-3xl font-black text-brand-primary">0 <span class="text-sm text-slate-400">ج</span></h3></div>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft flex flex-col justify-between hover:shadow-card transition-shadow relative overflow-hidden">
+                        <div class="absolute -right-4 -top-4 w-24 h-24 bg-indigo-50 rounded-full opacity-50 pointer-events-none"></div>
+                        <div class="flex justify-between items-start mb-4 relative z-10">
+                            <div class="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-lg"><i class="fa-solid fa-motorcycle"></i></div>
+                        </div>
+                        <div class="relative z-10"><p class="text-xs font-bold text-slate-500 mb-1">إيرادات التوصيل (اليوم)</p><h3 id="dash-delivery-today" class="text-3xl font-black text-indigo-600">0 <span class="text-sm text-slate-400">ج</span></h3></div>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft flex flex-col justify-between hover:shadow-card transition-all relative overflow-hidden">
+                        <div class="absolute -right-4 -top-4 w-24 h-24 bg-amber-50 rounded-full opacity-50 pointer-events-none"></div>
+                        <div class="flex justify-between items-start mb-4 relative z-10">
+                            <div class="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-lg"><i class="fa-solid fa-wallet"></i></div>
+                            <span class="text-[10px] bg-slate-50 text-slate-400 px-2 py-1 rounded-lg font-bold border border-slate-100">الصافي الكلي للدرج</span>
+                        </div>
+                        <div class="relative z-10"><p class="text-xs font-bold text-slate-500 mb-1">إجمالي تحصيل اليوم</p><h3 id="dash-total-today" class="text-3xl font-black text-amber-600">0 <span class="text-sm text-slate-400">ج</span></h3></div>
                     </div>
                 </div>
-
-            </div>
-
-            <!-- شاشة مركز الملاحظات الذكي (النسخة التنفيذية المحدثة) -->
-            <div id="view-notes" class="page-view space-y-3.5 max-w-7xl mx-auto pb-16 overflow-x-hidden">
-                <!-- الهيدر المدمج + الإحصائيات اللحظية -->
-                <div class="bg-white p-3.5 sm:p-4 rounded-2xl shadow-soft border border-slate-200/80 space-y-3">
-                    <div class="flex flex-wrap items-center justify-between gap-2 bg-gradient-to-l from-slate-900 via-slate-800 to-rose-950 text-white px-3.5 py-2.5 rounded-xl">
-                        <div class="flex items-center gap-2">
-                            <span class="w-8 h-8 rounded-lg bg-rose-500/20 border border-rose-400/30 text-rose-300 flex items-center justify-center text-sm shrink-0">
-                                <i class="fa-solid fa-clipboard-list"></i>
-                            </span>
-                            <div>
-                                <h2 class="text-sm sm:text-base font-black text-white leading-tight">مركز الملاحظات والتقييمات</h2>
-                                <p class="text-[10px] text-slate-300 font-bold">متابعة فورية لكل الملاحظات الإدارية، المندوب، التقييمات، وكشكول العملاء</p>
-                            </div>
-                        </div>
-                        <div id="notes-stats-bar" class="flex flex-wrap items-center gap-1.5 text-[10px] font-black"></div>
-                    </div>
-
-                    <!-- شريط البحث السريع + مفتاح شامل المكتمل -->
-                    <div class="flex flex-wrap items-center gap-2">
-                        <div class="relative flex-1 min-w-[200px]">
-                            <i class="fa-solid fa-magnifying-glass absolute right-3 top-2.5 text-slate-400 text-xs pointer-events-none"></i>
-                            <input type="search" id="search-notes" oninput="renderNotesUI()" placeholder="ابحث باسم العميل، رقم الموبايل، أو كلمة (مستعجل، شكوى، تقييم)..." class="w-full pr-8 pl-3 py-2 rounded-xl border border-slate-200 outline-none text-xs font-black bg-slate-50 focus:bg-white focus:border-brand-primary transition-all">
-                        </div>
-                        <label class="inline-flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-2 rounded-xl text-[11px] font-black text-slate-700 cursor-pointer shrink-0">
-                            <input type="checkbox" id="notes-include-completed" onchange="renderNotesUI()" checked class="w-3.5 h-3.5 accent-brand-primary rounded">
-                            <span>شامل المكتمل</span>
-                        </label>
-                    </div>
-
-                    <!-- تبويبات التصفية الذكية -->
-                    <div class="flex gap-1.5 overflow-x-auto pb-0.5" style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
-                        <button type="button" onclick="setNotesFilter('all')" id="n-filter-all" class="notes-filter-btn active whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-slate-900 text-white shadow-sm transition-all">الكل</button>
-                        <button type="button" onclick="setNotesFilter('urgent')" id="n-filter-urgent" class="notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 transition-all">⚡ عاجل ومستعجل</button>
-                        <button type="button" onclick="setNotesFilter('problem')" id="n-filter-problem" class="notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 transition-all">⚠️ مشاكل وشكاوى</button>
-                        <button type="button" onclick="setNotesFilter('rating')" id="n-filter-rating" class="notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 transition-all">⭐️ تقييمات العملاء</button>
-                        <button type="button" onclick="setNotesFilter('driver')" id="n-filter-driver" class="notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 transition-all">🛵 للمندوب</button>
-                        <button type="button" onclick="setNotesFilter('customers')" id="n-filter-customers" class="notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 transition-all">📌 كشكول واللزجة</button>
-                    </div>
+                
+                <div class="w-full bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft mt-2">
+                    <h4 class="text-sm font-black text-slate-800 mb-4 pb-2 border-b border-slate-50"><i class="fa-solid fa-boxes-packing text-brand-primary mr-2"></i> إجمالي المنتجات المسلمة اليوم</h4>
+                    <div id="dash-items-today" class="grid grid-cols-2 md:grid-cols-6 gap-3"></div>
                 </div>
 
-                <!-- قائمة بطاقات الملاحظات -->
-                <div id="notes-list-container" class="grid grid-cols-1 lg:grid-cols-2 gap-3 pb-8"></div>
+                <div class="w-full bg-white p-6 rounded-[1.5rem] border border-slate-100 shadow-soft mt-2 mb-6">
+                    <h4 class="text-sm font-black text-slate-800 mb-4 pb-2 border-b border-slate-50"><i class="fa-solid fa-list-check text-indigo-500 mr-2"></i> سجل تسليمات اليوم التفصيلي (من استلم اليوم؟)</h4>
+                    <div class="overflow-x-auto custom-scroll">
+                        <table class="w-full text-right text-sm whitespace-nowrap">
+                            <thead class="bg-slate-50 text-slate-500">
+                                <tr>
+                                    <th class="py-3 px-4 font-black rounded-r-xl">العميل</th>
+                                    <th class="py-3 px-4 font-black text-center">المنتجات التي استلمها</th>
+                                    <th class="py-3 px-4 font-black text-center">تاريخ الطلب الأصلي</th>
+                                    <th class="py-3 px-4 font-black text-center rounded-l-xl">المدفوع</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dash-today-orders-tbody" class="divide-y divide-slate-50"></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
 
+            <!-- شاشة مركز الملاحظات الذكي (إضافة جديدة فقط) -->
+            <div id="view-notes" class="page-view h-full flex flex-col max-w-7xl mx-auto space-y-4">
+                <div class="bg-white p-5 rounded-[1.5rem] shadow-soft border border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between shrink-0">
+                    <div>
+                        <h2 class="text-xl font-black text-slate-800"><i class="fa-solid fa-comments text-rose-500 mr-2"></i> مركز الملاحظات الذكي</h2>
+                        <p class="text-xs text-slate-500 font-bold mt-1">تجميع وتحليل فوري لكل الملاحظات (إداري ومندوب) المكتوبة في الطلبات الحية.</p>
+                    </div>
+                    <div class="relative w-full md:w-1/2">
+                        <i class="fa-solid fa-search absolute right-4 top-3.5 text-slate-400"></i>
+                        <input type="search" id="search-notes" onkeyup="renderNotesUI()" placeholder="ابحث بكلمة (مستعجل، مشكلة)، أو اسم العميل..." class="w-full pl-4 pr-11 py-2.5 rounded-xl border-none outline-none text-sm font-bold bg-slate-50 focus:bg-white focus:ring-2 focus:ring-rose-200 transition-all">
+                    </div>
+                </div>
+                
+                <div class="flex gap-2 overflow-x-auto custom-scroll pb-2 shrink-0 px-1">
+                    <button onclick="setNotesFilter('all')" id="n-filter-all" class="notes-filter-btn active whitespace-nowrap px-4 py-2 rounded-xl text-sm font-bold bg-slate-800 text-white transition-all shadow-sm">الكل</button>
+                    <button onclick="setNotesFilter('urgent')" id="n-filter-urgent" class="notes-filter-btn whitespace-nowrap px-4 py-2 rounded-xl text-sm font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"><i class="fa-solid fa-bolt text-amber-500 mr-1"></i> عاجل ومستعجل</button>
+                    <button onclick="setNotesFilter('problem')" id="n-filter-problem" class="notes-filter-btn whitespace-nowrap px-4 py-2 rounded-xl text-sm font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"><i class="fa-solid fa-triangle-exclamation text-red-500 mr-1"></i> مشاكل وشكاوى</button>
+                    <button onclick="setNotesFilter('driver')" id="n-filter-driver" class="notes-filter-btn whitespace-nowrap px-4 py-2 rounded-xl text-sm font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"><i class="fa-solid fa-motorcycle text-blue-500 mr-1"></i> للمندوب</button>
+                </div>
+
+                <div id="notes-list-container" class="flex-1 overflow-y-auto custom-scroll space-y-3 pr-1 pb-4"></div>
+            </div>
             
 
 
@@ -656,337 +661,135 @@
                 <div id="products-list-container" class="space-y-3"></div>
             </div>
 
-            <div id="view-settings" class="page-view space-y-4 max-w-5xl mx-auto pb-20 overflow-x-hidden">
-                <!-- شريط القيادة العلوي وتبويبات الإعدادات الأربعة -->
-                <div class="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200/80 shadow-soft space-y-3">
-                    <div class="flex flex-wrap items-center justify-between gap-2 bg-gradient-to-l from-slate-900 via-slate-800 to-emerald-950 text-white px-3.5 py-2.5 rounded-xl">
-                        <div class="flex items-center gap-2.5">
-                            <span class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 flex items-center justify-center text-sm shrink-0">
-                                <i class="fa-solid fa-sliders"></i>
-                            </span>
+            <div id="view-settings" class="page-view space-y-6 max-w-5xl mx-auto">
+                <div class="bg-white rounded-[1.5rem] p-6 border border-slate-100 shadow-soft">
+                    <h3 class="font-black text-slate-800 text-xl mb-6 pb-4 border-b border-slate-100"><i class="fa-solid fa-shop text-slate-400 mr-2"></i> بيانات المتجر الأساسية</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div><label class="text-xs font-bold text-slate-500 block mb-2">اسم المتجر / العلامة التجارية</label><input type="text" id="st-name" class="w-full border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-slate-200 bg-slate-50 focus:bg-white transition-colors"></div>
+                        <div><label class="text-xs font-bold text-slate-500 block mb-2">رقم الواتساب للاستقبال</label><input type="text" id="st-phone" class="w-full border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-slate-200 bg-slate-50 focus:bg-white transition-colors text-left" dir="ltr"></div>
+                        <div><label class="text-xs font-bold text-slate-500 block mb-2">الحد الأدنى لقيمة الطلب (ج.م)</label><input type="number" id="st-min-order" class="w-full border border-slate-200 rounded-xl p-3 font-bold outline-none focus:ring-2 focus:ring-slate-200 bg-slate-50 focus:bg-white transition-colors text-center"></div>
+                    </div>
+                           <!-- 🚀 زرار نقل الداتا القديمة للشيت 🚀 -->
+                    <div class="mt-6 p-5 bg-blue-50 border border-blue-200 rounded-2xl shadow-sm">
+                        <div class="flex justify-between items-center mb-2">
+                            <h4 class="font-black text-blue-800 text-sm"><i class="fa-solid fa-database text-blue-500 mr-2"></i> ترحيل الأرشيف القديم للشيت</h4>
+                            <button onclick="migrateOldOrdersToSheet()" id="btn-migrate" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-black shadow-md transition-all flex items-center gap-1.5"><i class="fa-solid fa-truck-fast"></i> نقل الداتا الآن</button>
+                        </div>
+                        <p class="text-[10px] font-bold text-blue-600">اضغط هنا مرة واحدة فقط لنسخ كل الطلبات السابقة إلى شيت جوجل لتظهر على الموبايلات فوراً.</p>
+                    </div>
+             
+                    <!-- 🎁 نظام نقاط الولاء والمحفظة النقدية 🎁 -->
+                    <div class="mt-6 p-5 bg-amber-50/50 border border-amber-200 rounded-2xl shadow-sm">
+                        <div class="flex justify-between items-center mb-4 pb-3 border-b border-amber-100">
+                            <h4 class="font-black text-amber-800 text-sm"><i class="fa-solid fa-coins text-amber-500 mr-2"></i> نظام الولاء والمحفظة النقدية للعملاء</h4>
+                            <button onclick="calculateRetroactivePoints()" id="btn-retro-points" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-xl text-[10px] font-black shadow-md transition-all flex items-center gap-1.5"><i class="fa-solid fa-wand-magic-sparkles"></i> تفعيل للمسجلين قديماً</button>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                                <h3 class="text-sm sm:text-base font-black text-white leading-tight">مركز إعدادات المتجر والنظام</h3>
-                                <p class="text-[10px] text-slate-300 font-bold">تحكم شامل في المتجر، مناطق التوصيل، المناديب، البوليصة، والنسخ الاحتياطي</p>
+                                <label class="text-xs font-bold text-amber-700 block mb-2">كل 100 جنيه مشتريات تساوي كام نقطة؟</label>
+                                <input type="number" id="st-pts-per-100" class="w-full border border-amber-200 rounded-xl p-3 font-black text-amber-900 bg-white outline-none focus:ring-2 focus:ring-amber-300 transition-colors text-center shadow-sm" placeholder="مثال: 5">
+                            </div>
+                            <div>
+                                <label class="text-xs font-bold text-amber-700 block mb-2">قيمة النقطة الواحدة بالجنيه (مخفي عن العميل)</label>
+                                <input type="number" step="0.01" id="st-pts-value" class="w-full border border-amber-200 rounded-xl p-3 font-black text-amber-900 bg-white outline-none focus:ring-2 focus:ring-amber-300 transition-colors text-center shadow-sm" placeholder="مثال: 0.40">
                             </div>
                         </div>
-                        <button type="button" onclick="saveAllSettings()" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3.5 py-1.5 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5 active:scale-95 transition-all mr-auto sm:mr-0">
-                            <i class="fa-solid fa-floppy-disk"></i> حفظ الكل
-                        </button>
+                        <p class="text-[10px] font-bold text-amber-600 mt-3"><i class="fa-solid fa-circle-info mr-1"></i> (مثال 2% كاش باك: ضع 5 نقاط لكل 100ج، وقيمة النقطة 0.40 ج.م)</p>
                     </div>
 
-                    <!-- أزرار التبويبات الـ 4 -->
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                        <button type="button" id="st-tab-btn-store" onclick="switchSettingsSubTab('store')" class="st-subtab-btn py-2 px-2.5 rounded-xl text-xs font-black bg-slate-900 text-white shadow-sm transition-all flex items-center justify-center gap-1.5">
-                            <i class="fa-solid fa-store text-amber-400 text-[11px]"></i> المتجر والنقاط
-                        </button>
-                        <button type="button" id="st-tab-btn-logistics" onclick="switchSettingsSubTab('logistics')" class="st-subtab-btn py-2 px-2.5 rounded-xl text-xs font-black bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5">
-                            <i class="fa-solid fa-map-location-dot text-indigo-500 text-[11px]"></i> المناطق والمناديب
-                        </button>
-                        <button type="button" id="st-tab-btn-waybill" onclick="switchSettingsSubTab('waybill')" class="st-subtab-btn py-2 px-2.5 rounded-xl text-xs font-black bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5">
-                            <i class="fa-solid fa-print text-emerald-600 text-[11px]"></i> البوليصة والقوالب
-                        </button>
-                        <button type="button" id="st-tab-btn-backup" onclick="switchSettingsSubTab('backup')" class="st-subtab-btn py-2 px-2.5 rounded-xl text-xs font-black bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5">
-                            <i class="fa-solid fa-database text-blue-500 text-[11px]"></i> الشيت والنسخ
-                        </button>
-                    </div>
-                </div>
 
-                <!-- ==================== التبويب 1: المتجر والنقاط ==================== -->
-                <div id="st-panel-store" class="st-subtab-panel space-y-4">
-                    <!-- بيانات المتجر الأساسية وحالة الاستقبال -->
-                    <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-soft space-y-4">
-                        <h4 class="font-black text-slate-800 text-sm pb-2.5 border-b border-slate-100 flex items-center gap-2">
-                            <i class="fa-solid fa-shop text-emerald-600"></i> الهوية وحالة استقبال الطلبات
-                        </h4>
-
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div>
-                                <label class="text-[11px] font-black text-slate-500 block mb-1">اسم المتجر / العلامة التجارية</label>
-                                <input type="text" id="st-name" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs sm:text-sm font-black outline-none bg-slate-50 focus:bg-white">
-                            </div>
-                            <div>
-                                <label class="text-[11px] font-black text-slate-500 block mb-1">رقم الواتساب للاستقبال</label>
-                                <input type="text" id="st-phone" dir="ltr" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs sm:text-sm font-black outline-none bg-slate-50 focus:bg-white text-left">
-                            </div>
-                            <div>
-                                <label class="text-[11px] font-black text-slate-500 block mb-1">الحد الأدنى لقيمة الطلب (ج.م)</label>
-                                <input type="number" id="st-min-order" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs sm:text-sm font-black outline-none bg-slate-50 focus:bg-white text-center">
-                            </div>
-                        </div>
-
-                        <!-- مفاتيح التشغيل السريع -->
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200/70">
-                            <label class="flex items-center gap-2.5 cursor-pointer font-black text-xs sm:text-sm text-emerald-800 bg-white px-3 py-2.5 rounded-xl border border-emerald-200/80">
-                                <input type="checkbox" id="st-is-open" class="w-4 h-4 accent-emerald-600 rounded shrink-0">
-                                <span>🟢 المتجر مفتوح ويستقبل طلبات العملاء</span>
-                            </label>
-                            <div class="flex flex-wrap items-center justify-between gap-2 bg-white px-3 py-2 rounded-xl border border-slate-200">
-                                <label class="flex items-center gap-2 cursor-pointer font-black text-xs text-slate-700">
-                                    <input type="checkbox" id="st-free-del" class="w-4 h-4 accent-indigo-600 rounded" onchange="document.getElementById('st-free-th').disabled = !this.checked">
-                                    <span>🚚 توصيل مجاني فوق:</span>
-                                </label>
-                                <div class="flex items-center gap-1">
-                                    <input type="number" id="st-free-th" class="w-20 border border-slate-200 rounded-lg p-1 text-center bg-slate-50 text-brand-primary font-black text-xs outline-none" placeholder="500">
-                                    <span class="text-[10px] font-black text-slate-500">ج.م</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- نصوص الواجهة المرتبطة بمتجر العملاء الجديد -->
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
-                            <div>
-                                <label class="text-[11px] font-black text-amber-800 block mb-1">📢 رسالة الإعلان الهام (تظهر في أعلى متجر العملاء)</label>
-                                <input type="text" id="st-hero-msg" placeholder="اتركه فارغاً لإخفاء شريط الإعلان..." class="w-full border border-amber-200 rounded-xl p-2.5 text-xs font-bold bg-amber-50/30 focus:bg-white outline-none">
-                            </div>
-                            <div>
-                                <label class="text-[11px] font-black text-slate-600 block mb-1">🔒 رسالة إغلاق المتجر (عند غلق الاستقبال)</label>
-                                <input type="text" id="st-closed-msg" placeholder="المتجر مغلق حالياً، نعود قريباً!" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none">
-                            </div>
-                            <div class="sm:col-span-2">
-                                <label class="text-[11px] font-black text-slate-600 block mb-1">🌿 وصف المتجر تحت العنوان في الصفحة الرئيسية</label>
-                                <input type="text" id="st-store-desc" placeholder="سمان مذبوح طازج بالطلب من المزرعة لطبقك..." class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- نظام نقاط الولاء والمحفظة -->
-                    <div class="bg-white rounded-2xl p-4 sm:p-5 border-2 border-amber-200/80 shadow-soft space-y-3">
-                        <div class="flex flex-wrap justify-between items-center gap-2 pb-2.5 border-b border-amber-100">
-                            <h4 class="font-black text-amber-900 text-sm flex items-center gap-2">
-                                <i class="fa-solid fa-coins text-amber-500"></i> نظام نقاط الولاء والمحفظة النقدية
-                            </h4>
-                            <button type="button" onclick="calculateRetroactivePoints()" id="btn-retro-points" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm transition-all flex items-center gap-1.5">
-                                <i class="fa-solid fa-wand-magic-sparkles"></i> تفعيل للمسجلين قديماً
-                            </button>
-                        </div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div class="bg-amber-50/40 p-3 rounded-xl border border-amber-200/70">
-                                <label class="text-[11px] font-black text-amber-900 block mb-1.5">كل 100 ج مشتريات تساوي كام نقطة؟</label>
-                                <input type="number" id="st-pts-per-100" class="w-full border border-amber-200 rounded-xl p-2.5 font-black text-amber-900 bg-white outline-none text-center text-sm" placeholder="5">
-                            </div>
-                            <div class="bg-amber-50/40 p-3 rounded-xl border border-amber-200/70">
-                                <label class="text-[11px] font-black text-amber-900 block mb-1.5">قيمة النقطة الواحدة بالجنيه (مخفي عن العميل)</label>
-                                <input type="number" step="0.01" id="st-pts-value" class="w-full border border-amber-200 rounded-xl p-2.5 font-black text-amber-900 bg-white outline-none text-center text-sm" placeholder="0.40">
-                            </div>
-                        </div>
-                        <p class="text-[10px] font-bold text-amber-700"><i class="fa-solid fa-circle-info ml-1"></i> مثال لـ 2% كاش باك: ضع 5 نقاط لكل 100ج، وقيمة النقطة 0.40 ج.م.</p>
-                    </div>
-
-                    <!-- 📷 استوديو الصور الذكي ومدير الكتالوج (ImgBB) -->
-                    <div class="bg-white rounded-2xl p-4 sm:p-5 border-2 border-emerald-200/80 shadow-soft space-y-4">
-                        <div class="flex flex-wrap justify-between items-center gap-2 pb-2.5 border-b border-emerald-100">
-                            <div>
-                                <h4 class="font-black text-emerald-900 text-sm flex items-center gap-2">
-                                    <i class="fa-solid fa-camera-retro text-emerald-600"></i> استوديو الصور والكتالوج (رفع وتظبيط تلقائي)
-                                </h4>
-                                <p class="text-[10px] font-bold text-slate-500 mt-0.5">يضغط الصورة تلقائياً للسرعة ويظبط أبعادها بدون قص ستيكر سمان ههيا.</p>
-                            </div>
-                            <button type="button" onclick="triggerGalleryImageUpload()" id="btn-upload-gallery-img" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-black shadow-sm flex items-center gap-1.5 active:scale-95">
-                                <i class="fa-solid fa-cloud-arrow-up"></i> رفع صورة للكتالوج
-                            </button>
-                        </div>
-
-                        <!-- إعداد مفتاح ImgBB (محفوظ على جهازك فقط بأمان) + وضع القص -->
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200/80">
-                            <div class="sm:col-span-2">
-                                <label class="text-[10px] font-black text-slate-600 block mb-1">🔑 مفتاح ImgBB API (يُحفظ على جهازك فقط):</label>
-                                <div class="flex gap-1.5">
-                                    <input type="password" id="st-imgbb-key" dir="ltr" onchange="saveImgBBKeyLocal(this.value)" placeholder="الصق مفتاح ImgBB هنا..." class="flex-1 min-w-0 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold bg-white outline-none text-left">
-                                    <button type="button" onclick="const inp=document.getElementById('st-imgbb-key'); inp.type=inp.type==='password'?'text':'password';" class="w-9 h-9 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center shrink-0" title="إظهار/إخفاء المفتاح"><i class="fa-regular fa-eye text-xs"></i></button>
-                                </div>
-                            </div>
-                            <div>
-                                <label class="text-[10px] font-black text-slate-600 block mb-1">✂️ تظبيط صور الأطباق:</label>
-                                <select id="st-img-fit-mode" onchange="localStorage.setItem('sman_img_fit_mode', this.value)" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-white text-slate-700 outline-none">
-                                    <option value="contain">كامل بدون قص الاستيكر</option>
-                                    <option value="cover">ملء المربع بالكامل</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <!-- معرض صور الكتالوج الحالية -->
-                        <div class="space-y-2">
-                            <div class="flex items-center justify-between">
-                                <span class="text-xs font-black text-slate-700">🖼️ صور معرض "من مزرعتنا على الطبيعة" في المتجر:</span>
-                                <button type="button" onclick="addManualGalleryImage()" class="text-[10px] font-black text-indigo-600 hover:underline">+ إضافة برابط يدوي</button>
-                            </div>
-                            <div id="st-gallery-images-grid" class="grid grid-cols-3 sm:grid-cols-5 gap-2"></div>
-                        </div>
-
-                        <!-- مدخلات رفع الملفات المخفية -->
-                        <input type="file" id="sman-hidden-product-file" accept="image/*" class="hidden" onchange="handleProductImageFileSelected(event)">
-                        <input type="file" id="sman-hidden-gallery-file" accept="image/*" class="hidden" onchange="handleGalleryImageFileSelected(event)">
+                    <div class="mt-6 flex flex-wrap items-center gap-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                        <label class="flex items-center gap-2 cursor-pointer font-black text-sm text-emerald-700"><input type="checkbox" id="st-is-open" class="w-5 h-5 text-emerald-600 rounded"> المتجر مفتوح ويستقبل طلبات</label>
+                        <div class="h-6 w-px bg-slate-300 hidden md:block"></div>
+                        <label class="flex items-center gap-2 cursor-pointer font-bold text-sm text-slate-600"><input type="checkbox" id="st-free-del" class="w-4 h-4 text-blue-600 rounded" onchange="document.getElementById('st-free-th').disabled = !this.checked"> تفعيل توصيل مجاني للطلبات الأكبر من <input type="number" id="st-free-th" class="w-20 border border-slate-200 rounded-lg p-1.5 text-center bg-white text-brand-primary outline-none" placeholder="0"> ج.م</label>
                     </div>
                 </div>
 
-                <!-- ==================== التبويب 2: المناطق والمناديب ==================== -->
-                <div id="st-panel-logistics" class="st-subtab-panel hidden grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-soft">
-                        <div class="flex justify-between items-center mb-4 pb-2.5 border-b border-slate-100">
-                            <h4 class="font-black text-slate-800 text-sm flex items-center gap-2">
-                                <i class="fa-solid fa-map-location-dot text-indigo-500"></i> مناطق وأسعار التوصيل
-                            </h4>
-                            <button type="button" onclick="addNewZoneUI()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1 shadow-sm">
-                                <i class="fa-solid fa-plus text-[10px]"></i> إضافة منطقة
-                            </button>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-white rounded-[1.5rem] p-6 border border-slate-100 shadow-soft">
+                        <div class="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
+                            <h3 class="font-black text-slate-800 text-lg"><i class="fa-solid fa-map-location-dot text-indigo-500 mr-2"></i> مناطق التوصيل</h3>
+                            <button onclick="addNewZoneUI()" class="bg-indigo-50 text-indigo-600 w-8 h-8 rounded-lg text-sm font-bold hover:bg-indigo-600 hover:text-white transition-colors flex items-center justify-center"><i class="fa-solid fa-plus"></i></button>
                         </div>
-                        <div id="zones-list-container" class="space-y-2"></div>
+                        <div id="zones-list-container" class="space-y-3"></div>
                     </div>
 
-                    <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-soft">
-                        <div class="flex justify-between items-center mb-4 pb-2.5 border-b border-slate-100">
-                            <h4 class="font-black text-slate-800 text-sm flex items-center gap-2">
-                                <i class="fa-solid fa-motorcycle text-blue-500"></i> فريق المناديب ورموز الدخول
-                            </h4>
-                            <button type="button" onclick="addNewDriverUI()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1 shadow-sm">
-                                <i class="fa-solid fa-plus text-[10px]"></i> إضافة مندوب
-                            </button>
+                    <div class="bg-white rounded-[1.5rem] p-6 border border-slate-100 shadow-soft">
+                        <div class="flex justify-between items-center mb-5 pb-3 border-b border-slate-100">
+                            <h3 class="font-black text-slate-800 text-lg"><i class="fa-solid fa-motorcycle text-blue-500 mr-2"></i> فريق المناديب</h3>
+                            <button onclick="addNewDriverUI()" class="bg-blue-50 text-blue-600 w-8 h-8 rounded-lg text-sm font-bold hover:bg-blue-600 hover:text-white transition-colors flex items-center justify-center"><i class="fa-solid fa-plus"></i></button>
                         </div>
-                        <div id="drivers-list-container" class="space-y-2"></div>
+                        <div id="drivers-list-container" class="space-y-3"></div>
                     </div>
                 </div>
 
-                <!-- ==================== التبويب 3: البوليصة والقوالب ==================== -->
-                <div id="st-panel-waybill" class="st-subtab-panel hidden space-y-4">
-                    <!-- إعدادات بوليصة الشحن الحرارية (Deli 750W) -->
-                    <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-soft space-y-4">
-                        <div class="flex flex-wrap justify-between items-center gap-2 pb-3 border-b border-slate-100">
-                            <div>
-                                <h4 class="font-black text-slate-800 text-sm flex items-center gap-2">
-                                    <i class="fa-solid fa-barcode text-brand-primary"></i> تخصيص بوليصة الشحن الحرارية (Deli 750W)
-                                </h4>
-                                <p class="text-[10px] font-bold text-slate-400 mt-0.5">يتم حفظها ومزامنتها تلقائياً عند الضغط على حفظ الكل.</p>
-                            </div>
-                            <button type="button" onclick="previewSampleWaybill()" class="bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-xl text-xs font-black shadow-sm flex items-center gap-1.5 active:scale-95">
-                                <i class="fa-solid fa-print text-amber-400"></i> معاينة البوليصة
-                            </button>
-                        </div>
-
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label class="text-[11px] font-black text-slate-600 block mb-1">الجملة الترحيبية تحت اسم المتجر</label>
-                                <input type="text" id="wb-slogan" placeholder="مثال: طازج من مزارعنا لمائدتك" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none">
-                            </div>
-                            <div>
-                                <label class="text-[11px] font-black text-slate-600 block mb-1">الكلمة الحلوة للعميل (أسفل البوليصة)</label>
-                                <input type="text" id="wb-footer-msg" placeholder="تشرفنا بخدمتكم.. بالهنا والشفا من سمان ههيا 🤍" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none">
-                            </div>
-                            <div>
-                                <label class="text-[11px] font-black text-slate-600 block mb-1">رابط صورة اللوجو (اختياري)</label>
-                                <input type="text" id="wb-logo-url" dir="ltr" placeholder="https://... أو logo.png" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none text-left">
-                            </div>
-                            <div>
-                                <label class="text-[11px] font-black text-slate-600 block mb-1">مقاس استيكر الطابعة الحرارية</label>
-                                <select id="wb-paper-size" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black text-slate-700 bg-slate-50 focus:bg-white outline-none">
-                                    <option value="70x130">مقاس 7×13 سم (70x130 mm) - فاتورة سمان ههيا</option>
-                                    <option value="100x100">مقاس 10×10 سم (100x100 mm) - قياسي</option>
-                                    <option value="100x150">مقاس 10×15 سم (100x150 mm) - بوليصة كبيرة</option>
-                                    <option value="80xAuto">عرض 8 سم مرن (80mm Roll) - رول مستمر</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200/70">
-                            <label class="flex items-center gap-2 cursor-pointer text-xs font-black text-slate-700 bg-white px-3 py-2 rounded-lg border border-slate-200">
-                                <input type="checkbox" id="wb-show-barcode" class="w-4 h-4 accent-brand-primary rounded" checked> إظهار الباركود والكود
-                            </label>
-                            <label class="flex items-center gap-2 cursor-pointer text-xs font-black text-slate-700 bg-white px-3 py-2 rounded-lg border border-slate-200">
-                                <input type="checkbox" id="wb-show-breakdown" class="w-4 h-4 accent-brand-primary rounded" checked> تفصيلة الحساب والخصم
-                            </label>
-                            <label class="flex items-center gap-2 cursor-pointer text-xs font-black text-slate-700 bg-white px-3 py-2 rounded-lg border border-slate-200">
-                                <input type="checkbox" id="wb-show-driver-note" class="w-4 h-4 accent-brand-primary rounded" checked> إظهار ملاحظات المندوب
-                            </label>
-                        </div>
-                    </div>
-
-                    <!-- قوالب رسائل السيستم -->
-                    <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-soft space-y-3">
-                        <h4 class="font-black text-slate-800 text-sm flex items-center gap-2">
-                            <i class="fa-solid fa-language text-brand-primary"></i> قوالب رسائل الواتساب والمناديب
-                        </h4>
-                        <p class="text-[10px] font-bold text-slate-500 bg-slate-50 p-2.5 rounded-xl border border-slate-200/80 leading-relaxed">
-                            اضغط على أي متغير لإدراجه مباشرة:
-                            <span class="bg-white px-1.5 rounded border text-brand-primary">{اسم_العميل}</span>
-                            <span class="bg-white px-1.5 rounded border text-brand-primary">{رقم_العميل}</span>
-                            <span class="bg-white px-1.5 rounded border text-brand-primary">{المنطقة}</span>
-                            <span class="bg-white px-1.5 rounded border text-brand-primary">{العنوان}</span>
-                            <span class="bg-white px-1.5 rounded border text-brand-primary">{تفاصيل_الطلبات}</span>
-                            <span class="bg-white px-1.5 rounded border text-brand-primary">{إجمالي_الطلب}</span>
-                            <span class="bg-white px-1.5 rounded border text-brand-primary">{التوصيل}</span>
-                            <span class="bg-white px-1.5 rounded border text-brand-primary">{الخصم}</span>
-                            <span class="bg-white px-1.5 rounded border text-brand-primary">{الإجمالي_النهائي}</span>
-                        </p>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div>
-                                <label class="text-[11px] font-black text-slate-600 block mb-1.5">فاتورة العميل (واتساب)</label>
-                                <textarea id="admin-whatsapp-template" rows="4" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none resize-none leading-relaxed"></textarea>
-                            </div>
-                            <div>
-                                <label class="text-[11px] font-black text-slate-600 block mb-1.5">خط السير للمندوب (واتساب)</label>
-                                <textarea id="admin-dispatch-template" rows="4" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none resize-none leading-relaxed"></textarea>
-                            </div>
-                            <div class="md:col-span-2 pt-2 border-t border-slate-100 space-y-2.5">
-                                <div>
-                                    <label class="text-[11px] font-black text-slate-700 block mb-1">قالب TickTick (اختياري)</label>
-                                    <textarea id="admin-ticktick-template" rows="3" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none resize-none leading-relaxed"></textarea>
-                                </div>
-                                <div class="sm:w-1/2">
-                                    <label class="text-[10px] font-black text-slate-500 block mb-1">هاشتاج افتراضي يُضاف للطلبات</label>
-                                    <input type="text" id="admin-batch-hashtag" placeholder="مثال: #دفعة_الخميس" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-slate-50 focus:bg-white outline-none">
-                                </div>
-                            </div>
+                <div class="bg-white rounded-[1.5rem] p-6 border border-slate-100 shadow-soft">
+                    <h3 class="font-black text-slate-800 text-lg mb-2"><i class="fa-solid fa-language text-brand-primary mr-2"></i> قوالب رسائل السيستم</h3>
+                    <p class="text-[10px] font-bold text-slate-500 mb-6 bg-slate-50 p-3 rounded-xl border border-slate-100 leading-relaxed">
+                        استخدم هذه المتغيرات للتعويض التلقائي: <span class="bg-white px-1.5 rounded border text-brand-primary">{اسم_العميل}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{رقم_العميل}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{المنطقة}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{العنوان}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{تفاصيل_الطلبات}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{إجمالي_الطلب}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{التوصيل}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{الخصم}</span>، <span class="bg-white px-1.5 rounded border text-brand-primary">{الإجمالي_النهائي}</span>
+                    </p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div><label class="text-xs font-bold text-slate-600 block mb-2">إرسال الفاتورة للعميل (واتساب)</label><textarea id="admin-whatsapp-template" rows="4" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20 transition-all resize-none leading-relaxed"></textarea></div>
+                        <div><label class="text-xs font-bold text-slate-600 block mb-2">إرسال خط السير للمندوب (واتساب)</label><textarea id="admin-dispatch-template" rows="4" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20 transition-all resize-none leading-relaxed"></textarea></div>
+                        <div class="col-span-1 md:col-span-2 border-t border-slate-100 pt-6 mt-2">
+                            <label class="text-xs font-black text-slate-800 block mb-2"><i class="fa-solid fa-check-double text-blue-500 mr-1"></i> شكل المهمة في تيك تيك (TickTick Integration)</label>
+                            <textarea id="admin-ticktick-template" rows="5" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-blue-500/20 transition-all resize-none leading-relaxed"></textarea>
+                            <div class="mt-4"><label class="text-[10px] font-bold text-slate-500 block mb-1.5">هاشتاج افتراضي يُضاف لكل الطلبات (مثال: #دفعة_الخميس)</label><input type="text" id="admin-batch-hashtag" class="w-1/2 border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"></div>
                         </div>
                     </div>
                 </div>
 
-                <!-- ==================== التبويب 4: الشيت والنسخ الاحتياطي ==================== -->
-                <div id="st-panel-backup" class="st-subtab-panel hidden space-y-4">
-                    <div class="bg-white rounded-2xl p-4 sm:p-5 border border-blue-200 shadow-soft space-y-4">
-                        <div class="flex flex-wrap justify-between items-center gap-2 pb-3 border-b border-blue-100">
-                            <div>
-                                <h4 class="font-black text-blue-900 text-sm flex items-center gap-2">
-                                    <i class="fa-solid fa-table text-blue-600"></i> المزامنة مع شيت جوجل (Google Sheets)
-                                </h4>
-                                <p class="text-[10px] font-bold text-slate-500 mt-0.5">مزامنة الطلبات مع شيت كاشف الأرقام وترحيل الأرشيف.</p>
-                            </div>
-                            <button type="button" onclick="migrateOldOrdersToSheet()" id="btn-migrate" class="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-black shadow-sm flex items-center gap-1.5">
-                                <i class="fa-solid fa-truck-fast"></i> ترحيل الأرشيف للشيت
-                            </button>
-                        </div>
-
+                <!-- 🖨️ إعدادات وتخصيص بوليصة الشحن الحرارية (Deli 750W) 🖨️ -->
+                <div class="bg-white rounded-[1.5rem] p-6 border border-slate-100 shadow-soft">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-5 pb-4 border-b border-slate-100">
                         <div>
-                            <label class="text-[11px] font-black text-blue-900 block mb-1">🔗 رابط Google Apps Script Webhook:</label>
-                            <input type="text" id="st-gsheet-url" dir="ltr" placeholder="https://script.google.com/macros/s/.../exec" class="w-full border border-blue-200 rounded-xl p-2.5 text-xs font-bold bg-slate-50 focus:bg-white text-slate-700 outline-none text-left">
+                            <h3 class="font-black text-slate-800 text-lg"><i class="fa-solid fa-barcode text-brand-primary mr-2"></i> إعدادات وتخصيص بوليصة الشحن (Deli 750W)</h3>
+                            <p class="text-[11px] font-bold text-slate-400 mt-1">تحكم في شكل البوليصة، اللوجو، مقاس الاستيكر، والكلمة الحلوة للعميل في أي وقت بدون تعديل الكود.</p>
+                        </div>
+                        <button onclick="previewSampleWaybill()" class="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl text-xs font-black shadow-sm flex items-center gap-2 transition-all active:scale-95">
+                            <i class="fa-solid fa-print text-amber-400"></i> معاينة وتجربة البوليصة
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+                        <div>
+                            <label class="text-xs font-bold text-slate-600 block mb-2">الجملة الترحيبية تحت اسم المتجر</label>
+                            <input type="text" id="wb-slogan" placeholder="مثال: طازج من مزارعنا لمائدتك" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20">
+                        </div>
+                        <div>
+                            <label class="text-xs font-bold text-slate-600 block mb-2">الكلمة الحلوة للزبون (أسفل البوليصة)</label>
+                            <input type="text" id="wb-footer-msg" placeholder="مثال: تشرفنا بخدمتكم.. بالهنا والشفا من سمان ههيا 🤍" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20">
+                        </div>
+                        <div>
+                            <label class="text-xs font-bold text-slate-600 block mb-2">رابط صورة اللوجو (اتركه فارغاً لاستخدام لوجو سمان ههيا المرسوم)</label>
+                            <input type="text" id="wb-logo-url" dir="ltr" placeholder="https://... أو logo.png" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20 text-left">
+                        </div>
+                        <div>
+                            <label class="text-xs font-bold text-slate-600 block mb-2">مقاس استيكر الطابعة الحرارية (Deli 750W)</label>
+                            <select id="wb-paper-size" class="w-full border border-slate-200 rounded-xl p-3 text-xs font-black text-slate-700 bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-brand-primary/20">
+                                <option value="70x130">مقاس 7×13 سم (70x130 mm) - فاتورة سمان ههيا الشيك</option>
+                                <option value="100x100">مقاس 10×10 سم (100x100 mm) - قياسي</option>
+                                <option value="100x150">مقاس 10×15 سم (100x150 mm) - بوليصة شحن كبيرة</option>
+                                <option value="80xAuto">عرض 8 سم مرن (80mm Roll) - رول حراري مستمر</option>
+                            </select>
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-soft flex flex-col justify-between gap-3">
-                            <div>
-                                <h4 class="text-xs sm:text-sm font-black text-slate-800 flex items-center gap-1.5">
-                                    <i class="fa-solid fa-file-csv text-emerald-600"></i> تصدير كافة الطلبات (Excel CSV)
-                                </h4>
-                                <p class="text-[10px] font-bold text-slate-400 mt-1">تحميل ملف إكسل عربي منظم بكل الطلبات والعملاء والمبالغ.</p>
-                            </div>
-                            <button type="button" onclick="exportAllOrdersToCSV()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-xs font-black shadow-sm flex items-center justify-center gap-1.5">
-                                <i class="fa-solid fa-file-excel"></i> تحميل ملف Excel (CSV)
-                            </button>
-                        </div>
-
-                        <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-soft flex flex-col justify-between gap-3">
-                            <div>
-                                <h4 class="text-xs sm:text-sm font-black text-slate-800 flex items-center gap-1.5">
-                                    <i class="fa-solid fa-shield-halved text-amber-500"></i> نسخة احتياطية شاملة (JSON)
-                                </h4>
-                                <p class="text-[10px] font-bold text-slate-400 mt-1">حفظ نسخة كاملة من الطلبات والعملاء والدفعات والإعدادات على جهازك.</p>
-                            </div>
-                            <button type="button" onclick="exportFullSystemBackupJSON()" class="w-full bg-slate-900 hover:bg-slate-800 text-white py-2.5 rounded-xl text-xs font-black shadow-sm flex items-center justify-center gap-1.5">
-                                <i class="fa-solid fa-download text-amber-400"></i> تحميل النسخة الاحتياطية
-                            </button>
-                        </div>
+                    <div class="flex flex-wrap items-center gap-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                        <label class="flex items-center gap-2 cursor-pointer text-xs font-black text-slate-700">
+                            <input type="checkbox" id="wb-show-barcode" class="w-4 h-4 accent-brand-primary rounded" checked> إظهار الباركود وكود الطلب
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer text-xs font-black text-slate-700">
+                            <input type="checkbox" id="wb-show-breakdown" class="w-4 h-4 accent-brand-primary rounded" checked> إظهار تفصيلة الحساب (المنتجات + التوصيل + الخصم)
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer text-xs font-black text-slate-700">
+                            <input type="checkbox" id="wb-show-driver-note" class="w-4 h-4 accent-brand-primary rounded" checked> إظهار ملاحظات المندوب على البوليصة
+                        </label>
                     </div>
                 </div>
+
             </div>
+            <div id="view-kitchen" class="page-view space-y-4 max-w-6xl mx-auto pb-20"></div>
 
 
             <div id="view-trash" class="page-view h-full flex flex-col space-y-4 max-w-4xl mx-auto">
@@ -1835,7 +1638,6 @@
         </div>
     </div>
 
-    <script src="dialogs.js"></script>
     <script>
 
 
@@ -2448,6 +2250,7 @@
             if (tabId === 'reconciliation' && typeof renderReconciliationUI === 'function') renderReconciliationUI();
             if (tabId === 'radar' && typeof renderDriversRadarUI === 'function') renderDriversRadarUI();
             if (tabId === 'blacklist' && typeof renderBlacklistUI === 'function') renderBlacklistUI();
+            if (tabId === 'kitchen' && typeof window.renderKitchenCRMUI === 'function') window.renderKitchenCRMUI();
             if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
 
             if (window.innerWidth < 768 && document.getElementById('sidebar')?.classList.contains('open')) {
@@ -2458,21 +2261,12 @@
         function openModal(id) {
             const el = document.getElementById(id);
             if (!el) return;
-            if (id === 'add-order-modal') {
-                const pm = document.getElementById('no-payment-method');
-                if (pm) pm.value = 'cash';
-                const splitBox = document.getElementById('no-split-box');
-                if (splitBox) splitBox.classList.add('hidden');
-                if (document.getElementById('no-paid-cash')) document.getElementById('no-paid-cash').value = '';
-                if (document.getElementById('no-paid-online')) document.getElementById('no-paid-online').value = '';
-            }
             const wasHidden = el.classList.contains('hidden');
             el.classList.remove('hidden');
             if (wasHidden && !isHandlingPopState) {
                 try { history.pushState({ guard: 'modal', modal: id }, ''); } catch (e) {}
             }
         }
-
 
         function closeModal(id) {
             const el = document.getElementById(id);
@@ -2623,21 +2417,17 @@
             auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
         } catch (e) {}
 
-        // تنظيف أمني فوري: إزالة أي كلمة مرور قديمة كانت مخزنة كنص صريح
-        removePermanentOwnerData('sman_owner_pass');
-
-        // إخفاء شاشة الدخول بصرياً فوراً للموبايل الموثوق مع الاعتماد على جلسة Firebase الآمنة (Persistence.LOCAL)
+        // إخفاء شاشة الدخول بصرياً فوراً للموبايل الموثوق، مع انتظار جاهزية Firebase الفعلية قبل سحب الداتا لمنع الشاشة البيضاء
         (function instantTrustedDeviceCheck() {
             const isTrusted = getPermanentOwnerData('sman_trusted_owner_device') === '1';
             const savedEmail = getPermanentOwnerData('sman_owner_email');
-            if (isTrusted && savedEmail) {
+            const savedPass = getPermanentOwnerData('sman_owner_pass');
+            if (isTrusted && savedEmail && savedPass) {
                 hideLoginScreenImmediately();
                 // صمام أمان في حال انقطاع الإنترنت الكامل عن الجهاز
-                if (!navigator.onLine) {
-                    setTimeout(() => {
-                        if (!window._crmBootedOnce) bootCrmOnceSafely();
-                    }, 1200);
-                }
+                setTimeout(() => {
+                    if (!window._crmBootedOnce) bootCrmOnceSafely();
+                }, 1800);
             }
         })();
 
@@ -2647,18 +2437,23 @@
                 if (user.email) setPermanentOwnerData('sman_owner_email', user.email);
                 bootCrmOnceSafely();
             } else {
-                const isTrusted = getPermanentOwnerData('sman_trusted_owner_device') === '1';
-                if (!navigator.onLine && isTrusted) {
-                    bootCrmOnceSafely();
+                const savedEmail = getPermanentOwnerData('sman_owner_email');
+                const savedPass = getPermanentOwnerData('sman_owner_pass');
+                if (savedEmail && savedPass) {
+                    hideLoginScreenImmediately();
+                    auth.signInWithEmailAndPassword(savedEmail, savedPass).then(() => {
+                        bootCrmOnceSafely();
+                    }).catch(() => {
+                        if (getPermanentOwnerData('sman_trusted_owner_device') === '1') {
+                            bootCrmOnceSafely();
+                        } else {
+                            document.getElementById('login-screen').classList.remove('hidden');
+                            setTimeout(() => document.getElementById('login-screen').style.opacity = '1', 10);
+                        }
+                    });
                 } else {
-                    const emailInp = document.getElementById('login-email');
-                    const savedEmail = getPermanentOwnerData('sman_owner_email');
-                    if (emailInp && savedEmail && !emailInp.value) emailInp.value = savedEmail;
-                    const ls = document.getElementById('login-screen');
-                    if (ls) {
-                        ls.classList.remove('hidden');
-                        setTimeout(() => ls.style.opacity = '1', 10);
-                    }
+                    document.getElementById('login-screen').classList.remove('hidden');
+                    setTimeout(() => document.getElementById('login-screen').style.opacity = '1', 10);
                 }
             }
         });
@@ -2668,24 +2463,22 @@
             const p = document.getElementById('login-password').value;
             if (!e || !p) return;
             const btn = document.getElementById('login-btn');
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الدخول الآمن...';
-            auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {}).finally(() => {
-                auth.signInWithEmailAndPassword(e, p).then(() => {
-                    setPermanentOwnerData('sman_owner_email', e);
-                    setPermanentOwnerData('sman_trusted_owner_device', '1');
-                    removePermanentOwnerData('sman_owner_pass');
-                    document.getElementById('login-password').value = '';
-                    bootCrmOnceSafely();
-                }).catch(() => {
-                    btn.innerHTML = 'تسجيل الدخول';
-                    document.getElementById('login-error').innerText = "بيانات الدخول خاطئة!";
-                    document.getElementById('login-error').classList.remove('hidden');
-                });
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الدخول وتوثيق الموبايل...';
+            auth.signInWithEmailAndPassword(e, p).then(() => {
+                // حفظ بيانات الدخول في ذاكرة الأندرويد الدائمة لعدم طلب الباسورد مرة أخرى أبداً
+                setPermanentOwnerData('sman_owner_email', e);
+                setPermanentOwnerData('sman_owner_pass', p);
+                setPermanentOwnerData('sman_trusted_owner_device', '1');
+                bootCrmOnceSafely();
+            }).catch(() => {
+                btn.innerHTML = 'تسجيل الدخول';
+                document.getElementById('login-error').innerText = "بيانات الدخول خاطئة!";
+                document.getElementById('login-error').classList.remove('hidden');
             });
         };
 
         window.logoutApp = () => {
-            if (confirm("هل أنت متأكد من الخروج الآمن وإلغاء الجلسة على هذا الجهاز؟")) {
+            if (confirm("هل أنت متأكد من الخروج الآمن وإلغاء الدخول التلقائي على هذا الجهاز؟")) {
                 removePermanentOwnerData('sman_owner_email');
                 removePermanentOwnerData('sman_owner_pass');
                 removePermanentOwnerData('sman_trusted_owner_device');
@@ -2693,202 +2486,6 @@
                 auth.signOut();
             }
         };
-        // =========================================================================
-        // 🚀 محرك فحص وإشعار تحديثات الـ APK التلقائي (GitHub Releases Auto-Updater)
-        // =========================================================================
-        (function initSmanApkAutoUpdater() {
-            let lastCheckMs = 0;
-            let isCheckingNow = false;
-            let dismissedVerCode = 0;
-            let latestDownloadUrl = '';
-
-            function escUpdHtml(str) {
-                return String(str === null || str === undefined ? '' : str)
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;')
-                    .replace(/"/g, '&quot;')
-                    .replace(/'/g, '&#39;');
-            }
-
-            function getNativeUpdateBridgeInfo() {
-                const br = window.SmanNativePrinter;
-                if (!br || typeof br.getAppVersionCode !== 'function') return null;
-                return {
-                    versionCode: Number(br.getAppVersionCode()) || 0,
-                    versionName: typeof br.getAppVersionName === 'function' ? String(br.getAppVersionName() || '') : '',
-                    repo: typeof br.getGitHubRepo === 'function' ? String(br.getGitHubRepo() || '').trim() : ''
-                };
-            }
-
-            function notifyUpdMsg(msg) {
-                if (typeof window.showToast === 'function') window.showToast(msg);
-                else alert(msg);
-            }
-
-            function renderApkUpdateBanner(info) {
-                latestDownloadUrl = info.downloadUrl || '';
-                let banner = document.getElementById('sman-apk-update-banner');
-                if (!banner) {
-                    banner = document.createElement('div');
-                    banner.id = 'sman-apk-update-banner';
-                    banner.className = 'fixed top-3 left-1/2 -translate-x-1/2 z-[260] w-[94vw] max-w-md bg-gradient-to-l from-slate-900 via-emerald-950 to-slate-900 text-white rounded-2xl shadow-2xl border-2 border-amber-400/70 p-3.5 space-y-2.5';
-                    document.body.appendChild(banner);
-                }
-
-                banner.innerHTML = `
-                    <div class="flex items-start justify-between gap-2">
-                        <div class="flex items-start gap-2.5 min-w-0">
-                            <span class="w-9 h-9 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center text-base shrink-0 shadow">
-                                <i class="fa-solid fa-rocket"></i>
-                            </span>
-                            <div class="min-w-0">
-                                <h4 class="text-xs sm:text-sm font-black text-amber-300 leading-tight">يتوفر تحديث جديد لتطبيق الإدارة!</h4>
-                                <p class="text-[11px] font-bold text-emerald-100 mt-0.5">
-                                    الحالي: <span dir="ltr">v${escUpdHtml(info.localName || info.localCode)}</span> ⬅️ الجديد: <strong class="text-white" dir="ltr">v${escUpdHtml(info.remoteName || info.remoteCode)}</strong>
-                                </p>
-                                ${info.details ? `<p class="text-[10px] font-bold text-slate-300 mt-1 line-clamp-2">${escUpdHtml(info.details)}</p>` : ''}
-                            </div>
-                        </div>
-                        <button type="button" onclick="window.dismissSmanApkUpdateBanner(${Number(info.remoteCode) || 0})" class="w-7 h-7 rounded-lg bg-white/10 hover:bg-red-500 text-white flex items-center justify-center shrink-0">
-                            <i class="fa-solid fa-xmark text-xs"></i>
-                        </button>
-                    </div>
-                    <div class="flex items-center gap-2 pt-1">
-                        <button type="button" onclick="window.triggerSmanApkDownload()" class="flex-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black py-2.5 px-3 rounded-xl text-xs shadow-md flex items-center justify-center gap-1.5 active:scale-95 transition-all">
-                            <i class="fa-solid fa-download"></i> تحميل وتحديث الآن
-                        </button>
-                        <button type="button" onclick="window.dismissSmanApkUpdateBanner(${Number(info.remoteCode) || 0})" class="bg-white/10 hover:bg-white/20 text-slate-200 font-black py-2.5 px-3 rounded-xl text-xs transition-all">
-                            لاحقاً
-                        </button>
-                    </div>
-                `;
-                banner.classList.remove('hidden');
-            }
-
-            window.dismissSmanApkUpdateBanner = function (verCode) {
-                if (verCode) dismissedVerCode = verCode;
-                const el = document.getElementById('sman-apk-update-banner');
-                if (el) el.classList.add('hidden');
-            };
-
-            window.triggerSmanApkDownload = function () {
-                if (!latestDownloadUrl) return;
-                notifyUpdMsg('⬇️ جاري فتح تحميل التحديث.. بعد انتهاء التحميل اضغط (تحديث)');
-                try {
-                    if (window.SmanNativePrinter && typeof window.SmanNativePrinter.openExternalUrl === 'function') {
-                        const opened = window.SmanNativePrinter.openExternalUrl(latestDownloadUrl);
-                        if (opened) return;
-                    }
-                } catch (e) {}
-                window.open(latestDownloadUrl, '_blank', 'noopener,noreferrer');
-            };
-
-            window.checkSmanApkUpdate = async function (isManual = false) {
-                const nativeInfo = getNativeUpdateBridgeInfo();
-
-                if (!nativeInfo || !nativeInfo.versionCode || !nativeInfo.repo) {
-                    if (isManual) {
-                        notifyUpdMsg('ℹ️ فحص تحديثات الـ APK يعمل من داخل تطبيق الأندرويد المثبت على الموبايل.');
-                    }
-                    return;
-                }
-
-                const verTag = document.getElementById('sidebar-apk-version-tag');
-                if (verTag && nativeInfo.versionName) {
-                    verTag.textContent = 'v' + nativeInfo.versionName;
-                }
-
-                if (!navigator.onLine) {
-                    if (isManual) notifyUpdMsg('⚠️ لا يوجد اتصال بالإنترنت حالياً لفحص التحديثات.');
-                    return;
-                }
-
-                if (isCheckingNow) return;
-                if (!isManual && (Date.now() - lastCheckMs < 20 * 60 * 1000)) return;
-
-                isCheckingNow = true;
-                const btn = document.getElementById('btn-check-apk-update');
-                if (isManual && btn) btn.classList.add('opacity-60');
-
-                try {
-                    const apiUrl = `https://api.github.com/repos/${nativeInfo.repo}/releases/tags/latest-crm`;
-                    const res = await fetch(apiUrl, {
-                        cache: 'no-store',
-                        headers: { 'Accept': 'application/vnd.github+json' }
-                    });
-
-                    if (!res.ok) {
-                        if (isManual) {
-                            notifyUpdMsg(res.status === 404
-                                ? '⚠️ لم يتم نشر إصدار التحديث بعد، أو أن الريبو خاص (Private).'
-                                : '⚠️ تعذر الاتصال بسيرفر التحديثات حالياً، حاول بعد قليل.');
-                        }
-                        return;
-                    }
-
-                    const data = await res.json();
-                    lastCheckMs = Date.now();
-
-                    const bodyStr = String(data.body || '');
-                    const codeMatch = bodyStr.match(/VERSION_CODE\s*:\s*(\d+)/i);
-                    const remoteCode = codeMatch ? parseInt(codeMatch[1], 10) : 0;
-
-                    const nameMatch = bodyStr.match(/الإصدار\s*:\s*v?([^\n\r]+)/);
-                    const remoteName = nameMatch ? nameMatch[1].trim() : `1.${remoteCode}`;
-
-                    const detailsMatch = bodyStr.match(/التفاصيل\s*:\s*([^\n\r]+)/);
-                    const details = detailsMatch ? detailsMatch[1].trim() : '';
-
-                    const apkAsset = Array.isArray(data.assets)
-                        ? data.assets.find(a => a && a.name === 'Sman-CRM-APK.apk')
-                        : null;
-                    const downloadUrl = (apkAsset && apkAsset.browser_download_url) ? apkAsset.browser_download_url : (data.html_url || '');
-
-                    if (remoteCode > nativeInfo.versionCode && downloadUrl) {
-                        if (isManual || dismissedVerCode !== remoteCode) {
-                            renderApkUpdateBanner({
-                                localCode: nativeInfo.versionCode,
-                                localName: nativeInfo.versionName,
-                                remoteCode: remoteCode,
-                                remoteName: remoteName,
-                                details: details,
-                                downloadUrl: downloadUrl
-                            });
-                        }
-                    } else if (isManual) {
-                        notifyUpdMsg(`✅ تطبيقك على أحدث إصدار بالفعل (v${nativeInfo.versionName || nativeInfo.versionCode})`);
-                    }
-                } catch (err) {
-                    if (isManual) notifyUpdMsg('⚠️ تعذر فحص التحديثات حالياً، تأكد من اتصال الإنترنت.');
-                } finally {
-                    isCheckingNow = false;
-                    if (btn) btn.classList.remove('opacity-60');
-                }
-            };
-
-            function bootApkUpdateWatcher() {
-                const nativeInfo = getNativeUpdateBridgeInfo();
-                const verTag = document.getElementById('sidebar-apk-version-tag');
-                if (nativeInfo && verTag && nativeInfo.versionName) {
-                    verTag.textContent = 'v' + nativeInfo.versionName;
-                }
-                setTimeout(() => window.checkSmanApkUpdate(false), 4000);
-            }
-
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', bootApkUpdateWatcher);
-            } else {
-                bootApkUpdateWatcher();
-            }
-
-            document.addEventListener('visibilitychange', () => {
-                if (!document.hidden && navigator.onLine) {
-                    window.checkSmanApkUpdate(false);
-                }
-            });
-        })();
-
         // دالة مركزية لإنعاش جداول العملاء والديون فوراً
         window.refreshCustomersData = () => {
             db.collection('customers').get().then(snap => {
@@ -3473,11 +3070,12 @@
         window.highlightOrderCard = (cardEl, e) => {
             if(e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.closest('button') || e.target.closest('a')) return;
             document.querySelectorAll('.order-card').forEach(c => {
-                c.classList.remove('ring-2', 'ring-brand-primary/50', 'border-brand-primary', 'shadow-lg');
+                c.classList.remove('ring-4', 'ring-brand-primary/40', 'border-brand-primary', 'scale-[1.02]', 'z-20', 'shadow-2xl');
+                c.classList.add('opacity-50', 'scale-[0.98]'); 
             });
-            cardEl.classList.add('ring-2', 'ring-brand-primary/50', 'border-brand-primary', 'shadow-lg');
+            cardEl.classList.remove('opacity-50', 'scale-[0.98]');
+            cardEl.classList.add('ring-4', 'ring-brand-primary/40', 'border-brand-primary', 'scale-[1.02]', 'z-20', 'shadow-2xl');
         };
-
 
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.order-card') && !e.target.closest('#search-order')) {
@@ -4317,112 +3915,34 @@
             calcTotal('no');
         };
 
-        // دالة تصنيف وترتيب الأصناف تلقائياً (سمان بالجوز -> بيض وكتاكيت -> فراخ وطيور بالوزن)
-        window.getOrderProductCategoryAndRank = (id, p) => {
-            const safeId = String(id || '').toLowerCase();
-            const safeName = String(p?.name || '').toLowerCase();
-
-            // 0. الأصناف المستقلة المخصصة (سمان شوي، متبل، علف، منتجات أخرى...)
-            if (p && p.categoryType === 'custom') {
-                return { group: 'custom', rank: 50 };
-            }
-
-            // 1. الطيور المباعة بالوزن (فراخ تسمين، رومي، بط...)
-            if ((p && p.isWeightBased) || (p && p.categoryType === 'weight')) {
-
-                let wRank = 50;
-                if (safeName.includes('فراخ') || safeName.includes('فرخ') || safeName.includes('تسمين')) wRank = 10;
-                else if (safeName.includes('رومي')) wRank = 20;
-                else if (safeName.includes('بط')) wRank = 30;
-                return { group: 'weight', rank: wRank };
-            }
-
-            // 2. بيض سمان وكتاكيت عمر يوم
-            if (
-                safeId === 'eggs' || safeId === 'chicks' ||
-                safeName.includes('بيض') || safeName.includes('كتكوت') ||
-                safeName.includes('كتاكيت') || safeName.includes('عمر')
-            ) {
-                let ecRank = 50;
-                if (safeId === 'eggs' || safeName.includes('بيض')) ecRank = 10;
-                else if (safeId === 'chicks' || safeName.includes('كتكوت') || safeName.includes('كتاكيت') || safeName.includes('عمر')) ecRank = 20;
-                return { group: 'eggs_chicks', rank: ecRank };
-            }
-
-            // 3. سمان مذبوح بالجوز (مرتب تصاعدياً: سوبر -> جامبو -> سبشيال -> سوبر سبشيال)
-            let qRank = 50;
-            if (safeId === 'super' || (safeName.includes('سوبر') && !safeName.includes('سبشيال') && !safeName.includes('اسبيشيال'))) qRank = 10;
-            else if (safeId === 'jumbo' || safeName.includes('جامبو')) qRank = 20;
-            else if (safeId === 'special' || ((safeName.includes('سبشيال') || safeName.includes('اسبيشيال')) && !safeName.includes('سوبر'))) qRank = 30;
-            else if (safeId === 'superspecial' || (safeName.includes('سوبر') && (safeName.includes('سبشيال') || safeName.includes('اسبيشيال')))) qRank = 40;
-            else qRank = 50 + (Number(storePrices[id] || p?.basePrice) || 0) / 1000;
-
-            return { group: 'quail', rank: qRank };
-        };
-
-        // فتح أو طي كارت الصنف المباع بالوزن (فراخ تسمين / رومي) لمنع زحمة النافذة
-        window.toggleOrderWeightCardBody = (prefix, id) => {
-            const body = document.getElementById(`${prefix}-weight-card-body-${id}`);
-            const arrow = document.getElementById(`${prefix}-weight-card-arrow-${id}`);
-            if (!body) return;
-            body.classList.toggle('hidden');
-            if (arrow) {
-                arrow.style.transform = body.classList.contains('hidden') ? 'rotate(0deg)' : 'rotate(180deg)';
-            }
-        };
-
         window.generateDynamicOrderInputs = () => {
             const container = document.getElementById('dynamic-order-items');
             if (!container) return;
             container.innerHTML = '';
 
+            let pinnedHtml = '';
+            let unpinnedHtml = '';
+            let unpinnedCount = 0;
+
             const isPinnedFn = (id) => (typeof window.isProductPinnedForAdmin === 'function')
                 ? window.isProductPinnedForAdmin(id)
                 : (!storeProducts[id]?.isExtra);
 
-            const groups = {
-                quail: [],
-                eggs_chicks: [],
-                weight: [],
-                custom: [],
-                unpinnedRegular: [],
-                unpinnedWeight: []
-            };
-
             Object.keys(storeProducts).forEach(id => {
-                const p = storeProducts[id];
+                let p = storeProducts[id];
                 if (!p) return;
-                const meta = window.getOrderProductCategoryAndRank(id, p);
-                const entry = { id, p, group: meta.group, rank: meta.rank };
-
-                if (isPinnedFn(id)) {
-                    if (!groups[meta.group]) groups.custom.push(entry);
-                    else groups[meta.group].push(entry);
-                } else {
-                    if (p.isWeightBased) groups.unpinnedWeight.push(entry);
-                    else groups.unpinnedRegular.push(entry);
-                }
-            });
-
-            groups.quail.sort((a, b) => a.rank - b.rank);
-            groups.eggs_chicks.sort((a, b) => a.rank - b.rank);
-            groups.weight.sort((a, b) => a.rank - b.rank);
-            groups.custom.sort((a, b) => a.rank - b.rank);
-            groups.unpinnedRegular.sort((a, b) => a.rank - b.rank);
-            groups.unpinnedWeight.sort((a, b) => a.rank - b.rank);
-
-            const buildNewOrderCardHtml = (entry) => {
-                const { id, p } = entry;
-                const kiloPrice = storePrices[id] || p.basePrice || 0;
+                let kiloPrice = storePrices[id] || p.basePrice || 0;
+                let isPinned = isPinnedFn(id);
+                let itemCardMarkup = '';
 
                 if (p.isWeightBased) {
-                    const weightsArr = window.parseWeightsArray(p.weightsList);
-                    const totalStockCount = weightsArr.length;
-                    const totalStockKg = (weightsArr.reduce((s, v) => s + v, 0) / 1000).toFixed(2);
+                    let weightsArr = window.parseWeightsArray(p.weightsList);
+                    let totalStockCount = weightsArr.length;
+                    let totalStockKg = (weightsArr.reduce((s, v) => s + v, 0) / 1000).toFixed(2);
 
-                    const checkboxesHtml = weightsArr.map((w, idx) => {
-                        const itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
-                        const itemPriceEGP = Math.round((w / 1000) * kiloPrice);
+                    let checkboxesHtml = weightsArr.map((w, idx) => {
+                        let itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
+                        let itemPriceEGP = Math.round((w / 1000) * kiloPrice);
                         return `
                         <label class="flex items-center justify-between gap-2 bg-slate-50 hover:bg-indigo-50/80 border border-slate-200 px-3 py-2 rounded-xl cursor-pointer transition-all select-none">
                             <div class="flex items-center gap-2">
@@ -4433,145 +3953,88 @@
                         </label>`;
                     }).join('');
 
-                    return `
-                    <div class="col-span-2 sm:col-span-3 bg-indigo-50/50 border border-indigo-200/90 p-3 rounded-2xl text-right space-y-2 shadow-sm">
-                        <button type="button" onclick="toggleOrderWeightCardBody('no', '${id}')" class="w-full flex flex-wrap justify-between items-center gap-2 text-right">
-                            <span class="text-xs font-black text-indigo-950 flex items-center gap-1.5">
-                                <i class="fa-solid fa-weight-scale text-indigo-600"></i> ${p.name}
-                                <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full">الكيلو: ${kiloPrice} ج</span>
-                            </span>
-                            <span class="flex items-center gap-1.5">
-                                <span class="text-[10px] font-black ${totalStockCount > 0 ? 'text-indigo-700 bg-white border-indigo-200' : 'text-slate-400 bg-slate-100 border-slate-200'} px-2 py-0.5 rounded-lg border">المتاح: ${totalStockCount} (${totalStockKg} كجم)</span>
-                                <span class="w-6 h-6 rounded-lg bg-white border border-indigo-200 text-indigo-600 flex items-center justify-center"><i id="no-weight-card-arrow-${id}" class="fa-solid fa-chevron-down text-[10px] transition-transform duration-200"></i></span>
-                            </span>
-                        </button>
+                    let dropdownContentHtml = `
+                    <div class="space-y-2.5 mt-2">
+                        <div class="flex flex-wrap items-center justify-between gap-2 bg-white p-2.5 rounded-xl border border-indigo-100 shadow-sm">
+                            <span class="text-[11px] font-black text-slate-700"><i class="fa-solid fa-wand-magic-sparkles text-indigo-500 ml-1"></i> الزبون عايز كام واحدة؟</span>
+                            <div class="flex items-center gap-1.5">
+                                <button type="button" onclick="stepWeightQuickCount('${id}', -1)" class="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-500 text-rose-600 hover:text-white font-black text-sm transition-colors">-</button>
+                                <input type="number" id="weight-quick-count-${id}" min="0" max="${totalStockCount}" placeholder="العدد" oninput="autoPickCountOfWeights('${id}', this.value, 'first')" class="w-16 border border-indigo-200 rounded-lg p-1 text-center font-black text-xs text-indigo-700 outline-none bg-indigo-50/30">
+                                <button type="button" onclick="stepWeightQuickCount('${id}', 1)" class="w-7 h-7 rounded-lg bg-emerald-50 hover:bg-emerald-500 text-emerald-600 hover:text-white font-black text-sm transition-colors">+</button>
+                            </div>
+                            <div class="flex gap-1 w-full sm:w-auto justify-end pt-1 sm:pt-0">
+                                <button type="button" onclick="autoPickCountOfWeights('${id}', document.getElementById('weight-quick-count-${id}').value || 1, 'light')" class="text-[9px] bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 font-black px-2 py-1 rounded-lg transition-colors">الأخف</button>
+                                <button type="button" onclick="autoPickCountOfWeights('${id}', document.getElementById('weight-quick-count-${id}').value || 1, 'heavy')" class="text-[9px] bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 font-black px-2 py-1 rounded-lg transition-colors">الأثقل</button>
+                                <button type="button" onclick="autoPickCountOfWeights('${id}', 0)" class="text-[9px] bg-red-50 hover:bg-red-500 hover:text-white text-red-500 font-black px-2 py-1 rounded-lg transition-colors">مسح</button>
+                            </div>
+                        </div>
+
+                        <div class="relative">
+                            <button type="button" onclick="toggleWeightDropdownMenu('${id}')" class="w-full bg-white hover:bg-indigo-50/50 border-2 border-indigo-200 rounded-xl p-2.5 flex items-center justify-between text-right transition-all shadow-sm">
+                                <div class="flex items-center gap-2">
+                                    <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
+                                    <span id="weight-summary-label-${id}" class="text-xs font-black text-slate-700">اضغط لفتح قائمة الأوزان المنسدلة (${totalStockCount} متاح)</span>
+                                </div>
+                                <i id="weight-dropdown-arrow-${id}" class="fa-solid fa-chevron-down text-indigo-500 text-xs transition-transform duration-200"></i>
+                            </button>
+
+                            <div id="weight-dropdown-menu-${id}" class="hidden mt-1.5 bg-white border-2 border-indigo-200 rounded-2xl p-2.5 shadow-xl max-h-60 overflow-y-auto custom-scroll space-y-2 z-30">
+                                <div class="flex items-center gap-1.5 bg-slate-50 p-2 rounded-xl border border-indigo-100">
+                                    <input type="number" id="no-custom-gram-${id}" placeholder="وزن خاص بالجرام (مثال: 1450)..." onkeydown="if(event.key==='Enter'){event.preventDefault(); addCustomWeightInNewOrder('${id}');}" class="flex-1 text-xs font-black text-slate-700 outline-none bg-white px-2 py-1 rounded border border-slate-200">
+                                    <button type="button" onclick="addCustomWeightInNewOrder('${id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0">+ إضافة</button>
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                    ${checkboxesHtml || '<div class="col-span-full text-center py-2 text-xs font-bold text-slate-400">اكتب الوزن بالجرام في الخانة بالأعلى واضغط إضافة</div>'}
+                                </div>
+                            </div>
+                        </div>
 
                         <div id="weight-live-bar-${id}" class="hidden bg-indigo-900 text-white px-3 py-2 rounded-xl text-[11px] font-black flex flex-wrap items-center justify-between gap-2 shadow-sm"></div>
+                        <input type="hidden" id="no-q-${id}" value="0">
+                    </div>`;
 
-                        <div id="no-weight-card-body-${id}" class="hidden space-y-2.5 pt-2 border-t border-indigo-100">
-                            <div class="flex flex-wrap items-center justify-between gap-2 bg-white p-2.5 rounded-xl border border-indigo-100 shadow-sm">
-                                <span class="text-[11px] font-black text-slate-700"><i class="fa-solid fa-wand-magic-sparkles text-indigo-500 ml-1"></i> الزبون عايز كام واحدة؟</span>
-                                <div class="flex items-center gap-1.5">
-                                    <button type="button" onclick="stepWeightQuickCount('${id}', -1)" class="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-500 text-rose-600 hover:text-white font-black text-sm transition-colors">-</button>
-                                    <input type="number" id="weight-quick-count-${id}" min="0" max="${totalStockCount}" placeholder="العدد" oninput="autoPickCountOfWeights('${id}', this.value, 'first')" class="w-16 border border-indigo-200 rounded-lg p-1 text-center font-black text-xs text-indigo-700 outline-none bg-indigo-50/30">
-                                    <button type="button" onclick="stepWeightQuickCount('${id}', 1)" class="w-7 h-7 rounded-lg bg-emerald-50 hover:bg-emerald-500 text-emerald-600 hover:text-white font-black text-sm transition-colors">+</button>
-                                </div>
-                                <div class="flex gap-1 w-full sm:w-auto justify-end pt-1 sm:pt-0">
-                                    <button type="button" onclick="autoPickCountOfWeights('${id}', document.getElementById('weight-quick-count-${id}').value || 1, 'light')" class="text-[9px] bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 font-black px-2 py-1 rounded-lg transition-colors">الأخف</button>
-                                    <button type="button" onclick="autoPickCountOfWeights('${id}', document.getElementById('weight-quick-count-${id}').value || 1, 'heavy')" class="text-[9px] bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 font-black px-2 py-1 rounded-lg transition-colors">الأثقل</button>
-                                    <button type="button" onclick="autoPickCountOfWeights('${id}', 0)" class="text-[9px] bg-red-50 hover:bg-red-500 hover:text-white text-red-500 font-black px-2 py-1 rounded-lg transition-colors">مسح</button>
-                                </div>
-                            </div>
-
-                            <div class="relative">
-                                <button type="button" onclick="toggleWeightDropdownMenu('${id}')" class="w-full bg-white hover:bg-indigo-50/50 border-2 border-indigo-200 rounded-xl p-2 flex items-center justify-between text-right transition-all shadow-sm">
-                                    <div class="flex items-center gap-2">
-                                        <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
-                                        <span id="weight-summary-label-${id}" class="text-xs font-black text-slate-700">قائمة الأوزان المنسدلة (${totalStockCount} متاح)</span>
-                                    </div>
-                                    <i id="weight-dropdown-arrow-${id}" class="fa-solid fa-chevron-down text-indigo-500 text-xs transition-transform duration-200"></i>
-                                </button>
-
-                                <div id="weight-dropdown-menu-${id}" class="hidden mt-1.5 bg-white border-2 border-indigo-200 rounded-2xl p-2.5 shadow-xl max-h-60 overflow-y-auto custom-scroll space-y-2 z-30">
-                                    <div class="flex items-center gap-1.5 bg-slate-50 p-2 rounded-xl border border-indigo-100">
-                                        <input type="number" id="no-custom-gram-${id}" placeholder="وزن خاص بالجرام (مثال: 1450)..." onkeydown="if(event.key==='Enter'){event.preventDefault(); addCustomWeightInNewOrder('${id}');}" class="flex-1 text-xs font-black text-slate-700 outline-none bg-white px-2 py-1 rounded border border-slate-200">
-                                        <button type="button" onclick="addCustomWeightInNewOrder('${id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0">+ إضافة</button>
-                                    </div>
-                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                                        ${checkboxesHtml || '<div class="col-span-full text-center py-2 text-xs font-bold text-slate-400">اكتب الوزن بالجرام في الخانة بالأعلى واضغط إضافة</div>'}
-                                    </div>
-                                </div>
-                            </div>
-                            <input type="hidden" id="no-q-${id}" value="0">
+                    itemCardMarkup = `
+                    <div class="col-span-2 sm:col-span-3 bg-indigo-50/60 border-2 border-indigo-200/80 p-3.5 rounded-2xl text-right flex flex-col justify-between shadow-sm">
+                        <div class="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-indigo-100">
+                            <span class="text-xs font-black text-indigo-950 flex items-center gap-1.5"><i class="fa-solid fa-weight-scale text-indigo-600"></i> ${p.name} <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full">سعر الكيلو: ${kiloPrice} ج</span></span>
+                            <span class="text-[10px] font-black text-indigo-700 bg-white px-2.5 py-1 rounded-lg border border-indigo-200">المتاح بالمصفوفة: ${totalStockCount} عدد (${totalStockKg} كجم)</span>
                         </div>
+                        ${dropdownContentHtml}
+                    </div>`;
+                } else {
+                    itemCardMarkup = `
+                    <div id="no-item-card-${id}" class="bg-slate-50 border border-slate-200/80 p-3 rounded-2xl text-center flex flex-col justify-between transition-all">
+                        <div class="mb-2">
+                            <span class="text-xs sm:text-sm font-black text-slate-800 block leading-snug mb-1">${p.name}</span>
+                            <span class="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md inline-block">${kiloPrice} ج</span>
+                            <span id="no-avail-badge-${id}" class="hidden"></span>
+                        </div>
+                        <input type="number" id="no-q-${id}" min="0" step="1" class="w-full border border-slate-200 bg-white rounded-xl p-2 text-center font-black text-base text-brand-primary outline-none focus:ring-2 focus:ring-brand-primary/20 shadow-sm transition-all" placeholder="0" oninput="styleNewOrderItemCard('${id}', this.value); calcTotal('no')">
                     </div>`;
                 }
 
-                return `
-                <div id="no-item-card-${id}" class="bg-slate-50 border border-slate-200/80 p-2.5 rounded-2xl text-center flex flex-col justify-between transition-all">
-                    <div class="mb-2">
-                        <span class="text-xs sm:text-sm font-black text-slate-800 block leading-snug mb-1">${p.name}</span>
-                        <span class="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md inline-block">${kiloPrice} ج</span>
-                        <span id="no-avail-badge-${id}" class="hidden"></span>
-                    </div>
-                    <input type="number" id="no-q-${id}" min="0" step="1" class="w-full border border-slate-200 bg-white rounded-xl p-2 text-center font-black text-base text-brand-primary outline-none focus:ring-2 focus:ring-brand-primary/20 shadow-sm transition-all" placeholder="0" oninput="styleNewOrderItemCard('${id}', this.value); calcTotal('no')">
-                </div>`;
-            };
+                if (isPinned) {
+                    pinnedHtml += itemCardMarkup;
+                } else {
+                    unpinnedCount++;
+                    unpinnedHtml += itemCardMarkup;
+                }
+            });
 
-            let finalHtml = '';
-
-            // 1. قسم السمان المذبوح بالجوز
-            if (groups.quail.length > 0) {
-                finalHtml += `
-                <div class="col-span-2 sm:col-span-3 space-y-2">
-                    <div class="flex items-center gap-1.5 text-[11px] font-black text-emerald-800 bg-emerald-50/80 border border-emerald-200/70 px-2.5 py-1 rounded-lg">
-                        <i class="fa-solid fa-drumstick-bite text-emerald-600"></i>
-                        <span>سمان مذبوح بالجوز (الأطباق)</span>
-                    </div>
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        ${groups.quail.map(buildNewOrderCardHtml).join('')}
-                    </div>
-                </div>`;
-            }
-
-            // 2. قسم بيض السمان والكتاكيت
-            if (groups.eggs_chicks.length > 0) {
-                finalHtml += `
-                <div class="col-span-2 sm:col-span-3 space-y-2">
-                    <div class="flex items-center gap-1.5 text-[11px] font-black text-amber-800 bg-amber-50/80 border border-amber-200/70 px-2.5 py-1 rounded-lg">
-                        <i class="fa-solid fa-egg text-amber-600"></i>
-                        <span>بيض سمان وكتاكيت عمر يوم</span>
-                    </div>
-                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        ${groups.eggs_chicks.map(buildNewOrderCardHtml).join('')}
-                    </div>
-                </div>`;
-            }
-
-            // 3. قسم فراخ التسمين والطيور المباعة بالوزن
-            if (groups.weight.length > 0) {
-                finalHtml += `
-                <div class="col-span-2 sm:col-span-3 space-y-2">
-                    <div class="flex items-center gap-1.5 text-[11px] font-black text-indigo-800 bg-indigo-50/80 border border-indigo-200/70 px-2.5 py-1 rounded-lg">
-                        <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
-                        <span>فراخ تسمين وطيور بالوزن (اضغط لفتح الأوزان)</span>
-                    </div>
-                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        ${groups.weight.map(buildNewOrderCardHtml).join('')}
-                    </div>
-                </div>`;
-            }
-
-            // 3-ب. قسم الأصناف المستقلة الخاصة (سمان شوي / علف / منتجات أخرى)
-            if (groups.custom.length > 0) {
-                finalHtml += `
-                <div class="col-span-2 sm:col-span-3 space-y-2">
-                    <div class="flex items-center gap-1.5 text-[11px] font-black text-purple-900 bg-purple-50/80 border border-purple-200/70 px-2.5 py-1 rounded-lg">
-                        <i class="fa-solid fa-sparkles text-purple-600"></i>
-                        <span>أصناف مستقلة ومنتجات خاصة</span>
-                    </div>
-                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        ${groups.custom.map(buildNewOrderCardHtml).join('')}
-                    </div>
-                </div>`;
-            }
-
-            // 4. باقي الأصناف غير المثبتة (تبقى منظمة أيضاً داخل الدرج القابل للفتح)
-            const unpinnedAll = [...groups.unpinnedRegular, ...groups.unpinnedWeight];
-            if (unpinnedAll.length > 0) {
-                finalHtml += `
+            if (unpinnedCount > 0) {
+                pinnedHtml += `
                 <div class="col-span-2 sm:col-span-3 pt-1">
                     <button type="button" onclick="document.getElementById('no-unpinned-items-drawer').classList.toggle('hidden')" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black border border-dashed border-slate-300 flex items-center justify-center gap-2 transition-all">
                         <i class="fa-solid fa-layer-group text-indigo-500"></i>
-                        <span>➕ عرض باقي الأصناف الأخرى (${unpinnedAll.length} صنف) ▼</span>
+                        <span>➕ عرض باقي الأصناف الأخرى (${unpinnedCount} صنف) ▼</span>
                     </button>
-                    <div id="no-unpinned-items-drawer" class="hidden grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2.5 pt-2.5 border-t border-slate-200">
-                        ${unpinnedAll.map(buildNewOrderCardHtml).join('')}
+                    <div id="no-unpinned-items-drawer" class="hidden grid grid-cols-2 sm:grid-cols-3 gap-2.5 mt-2.5 pt-2.5 border-t border-slate-200">
+                        ${unpinnedHtml}
                     </div>
                 </div>`;
             }
 
-            container.innerHTML = finalHtml;
+            container.innerHTML = pinnedHtml;
 
             const zSel = document.getElementById('no-zone');
             if (zSel) {
@@ -4608,7 +4071,6 @@
                 if (typeof window.updateNewOrderBatchMeter === 'function') window.updateNewOrderBatchMeter();
             }
         };
-
 
         window.calcTotal = (prefix) => {
             let itemsTotal = 0;
@@ -4704,10 +4166,12 @@
             let disc = Number(document.getElementById(`${prefix}-discount`).value) || 0;
             let final = Math.round(itemsTotal + d - disc);
             document.getElementById(`${prefix}-total`).value = final > 0 ? final : 0;
+            if (document.getElementById(`${prefix}-payment-method`)?.value === 'split' && typeof window.syncOrderSplitInputs === 'function') {
+                window.syncOrderSplitInputs(prefix, 'online');
+            }
             if (prefix === 'no' && typeof window.updateNewOrderBatchMeter === 'function') {
                 window.updateNewOrderBatchMeter();
             }
-
         };
 
 
@@ -4898,11 +4362,9 @@
                     driverNote: driverNotes, // 🛵 السطر الجديد بتاع المندوب 
                     items: items, 
                     status: 'new', 
-                    source: 'admin_crm',
                     orderDate: orderDateFormatted, 
                     createdAt: firebase.firestore.FieldValue.serverTimestamp() 
                 };
-
 
                 
                 let atomicBatch = db.batch();
@@ -5004,13 +4466,10 @@
                 if(document.getElementById('no-delivery-start')) document.getElementById('no-delivery-start').value = '';
                 if(document.getElementById('no-delivery-end')) document.getElementById('no-delivery-end').value = '';
                 if(document.getElementById('no-debt')) document.getElementById('no-debt').value = '0';
-                if(document.getElementById('no-payment-method')) document.getElementById('no-payment-method').value = 'cash';
-                if(document.getElementById('no-split-box')) document.getElementById('no-split-box').classList.add('hidden');
-                if(document.getElementById('no-paid-cash')) document.getElementById('no-paid-cash').value = '';
-                if(document.getElementById('no-paid-online')) document.getElementById('no-paid-online').value = '';
 
-                // إلغاء تفعيل زرار السعر القديم للأوردر الجاي
-                if(document.getElementById('no-use-old-price')) document.getElementById('no-use-old-price').checked = false;
+                
+        // إلغاء تفعيل زرار السعر القديم للأوردر الجاي
+        if(document.getElementById('no-use-old-price')) document.getElementById('no-use-old-price').checked = false;
 
         window.refreshCustomersData(); // تحديث شامل لأرشيف العملاء وشاشة الديون
         
@@ -6103,6 +5562,7 @@ window.deleteProductUI = async (id) => {
                 arrow.style.transform = menu.classList.contains('hidden') ? 'rotate(0deg)' : 'rotate(180deg)';
             }
         };
+
         window.openEditOrderModal = (id) => {
             editingOrderData = allOrdersRaw.find(o => o.id === id);
             if (!editingOrderData) return;
@@ -6131,54 +5591,41 @@ window.deleteProductUI = async (id) => {
                 ? window.isProductPinnedForAdmin(pId)
                 : (!storeProducts[pId]?.isExtra);
 
-            const groups = {
-                quail: [],
-                eggs_chicks: [],
-                weight: [],
-                unpinnedRegular: [],
-                unpinnedWeight: []
-            };
+            let primaryHtml = '';
+            let extraUnpinnedHtml = '';
+            let extraUnpinnedCount = 0;
 
-            Object.keys(storeProducts).forEach(pId => {
-                const p = storeProducts[pId];
+            const allProdIds = Object.keys(storeProducts);
+            allProdIds.sort((aId, bId) => {
+                const pA = storeProducts[aId], pB = storeProducts[bId];
+                const hasA = editingOrderData.items && editingOrderData.items.some(i => i.id === aId || i.name === pA?.name || (i.name && pA?.name && String(i.name).startsWith(pA.name + ' [')));
+                const hasB = editingOrderData.items && editingOrderData.items.some(i => i.id === bId || i.name === pB?.name || (i.name && pB?.name && String(i.name).startsWith(pB.name + ' [')));
+                if (hasA && !hasB) return -1;
+                if (!hasA && hasB) return 1;
+                return 0;
+            });
+
+            allProdIds.forEach(pId => {
+                let p = storeProducts[pId];
                 if (!p) return;
 
-                const existingItem = editingOrderData.items ? editingOrderData.items.find(i =>
+                let existingItem = editingOrderData.items ? editingOrderData.items.find(i =>
                     i.id === pId || i.name === p.name || (i.name && p.name && String(i.name).startsWith(p.name + ' ['))
                 ) : null;
 
-                const q = existingItem ? Number(existingItem.quantity) : 0;
-                const unitPrice = existingItem ? Number(existingItem.price) : (storePrices[pId] || p.basePrice || 0);
-                const isPrimaryOrSelected = (q > 0) || isPinnedFn(pId);
-                const meta = window.getOrderProductCategoryAndRank(pId, p);
-                const entry = { pId, p, existingItem, q, unitPrice, group: meta.group, rank: meta.rank };
-
-                if (isPrimaryOrSelected) {
-                    groups[meta.group].push(entry);
-                } else {
-                    if (p.isWeightBased) groups.unpinnedWeight.push(entry);
-                    else groups.unpinnedRegular.push(entry);
-                }
-            });
-
-            groups.quail.sort((a, b) => a.rank - b.rank);
-            groups.eggs_chicks.sort((a, b) => a.rank - b.rank);
-            groups.weight.sort((a, b) => (b.q > 0 ? 1 : 0) - (a.q > 0 ? 1 : 0) || (a.rank - b.rank));
-            groups.unpinnedRegular.sort((a, b) => a.rank - b.rank);
-            groups.unpinnedWeight.sort((a, b) => a.rank - b.rank);
-
-            const buildEditCardHtml = (entry) => {
-                const { pId, p, existingItem, q, unitPrice } = entry;
+                let q = existingItem ? Number(existingItem.quantity) : 0;
+                let unitPrice = existingItem ? Number(existingItem.price) : (storePrices[pId] || p.basePrice || 0);
+                let isPrimaryOrSelected = (q > 0) || isPinnedFn(pId);
+                let cardMarkup = '';
 
                 if (p.isWeightBased) {
                     const orderWeightsGrams = existingItem ? window.extractExistingOrderWeightsGrams(existingItem) : [];
                     const stockWeightsGrams = window.parseWeightsArray(p.weightsList);
-                    const isBookedInOrder = q > 0;
 
                     let checkboxesHtml = '';
                     orderWeightsGrams.forEach((w, idx) => {
-                        const itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
-                        const itemPriceEGP = Math.round((w / 1000) * unitPrice);
+                        let itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
+                        let itemPriceEGP = Math.round((w / 1000) * unitPrice);
                         checkboxesHtml += `
                         <label class="flex items-center justify-between gap-2 bg-emerald-50 hover:bg-emerald-100/80 border-2 border-emerald-400 px-3 py-2 rounded-xl cursor-pointer transition-all select-none">
                             <div class="flex items-center gap-2">
@@ -6190,8 +5637,8 @@ window.deleteProductUI = async (id) => {
                     });
 
                     stockWeightsGrams.forEach((w, idx) => {
-                        const itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
-                        const itemPriceEGP = Math.round((w / 1000) * unitPrice);
+                        let itemKg = (w / 1000).toFixed(3).replace(/\.?0+$/, '');
+                        let itemPriceEGP = Math.round((w / 1000) * unitPrice);
                         checkboxesHtml += `
                         <label class="flex items-center justify-between gap-2 bg-slate-50 hover:bg-indigo-50/80 border border-slate-200 px-3 py-2 rounded-xl cursor-pointer transition-all select-none">
                             <div class="flex items-center gap-2">
@@ -6202,130 +5649,86 @@ window.deleteProductUI = async (id) => {
                         </label>`;
                     });
 
-                    return `
-                    <div class="col-span-2 sm:col-span-3 ${isBookedInOrder ? 'bg-indigo-50/80 border-2 border-indigo-400' : 'bg-indigo-50/40 border border-indigo-200/80'} p-3 rounded-2xl space-y-2 shadow-sm">
-                        <button type="button" onclick="toggleOrderWeightCardBody('edit', '${pId}')" class="w-full flex flex-wrap justify-between items-center gap-2 text-right">
+                    cardMarkup = `
+                    <div class="col-span-2 sm:col-span-3 ${q > 0 ? 'bg-indigo-50/80 border-2 border-indigo-400' : 'bg-slate-50 border border-slate-200'} p-3.5 rounded-2xl space-y-2.5 shadow-sm">
+                        <div class="flex flex-wrap justify-between items-center gap-2">
                             <span class="text-xs sm:text-sm font-black text-indigo-950 flex items-center gap-1.5">
                                 <i class="fa-solid fa-weight-scale text-indigo-600"></i> ${p.name}
-                                <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full">الكيلو: ${unitPrice} ج</span>
+                                <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full">سعر الكيلو: ${unitPrice} ج</span>
                             </span>
-                            <span class="flex items-center gap-1.5">
-                                <span class="text-[10px] font-black ${isBookedInOrder ? 'text-emerald-800 bg-emerald-100 border-emerald-300' : 'text-indigo-700 bg-white border-indigo-200'} px-2 py-0.5 rounded-lg border">
-                                    ${isBookedInOrder ? `✔ بالطلب (${q} كجم)` : `متاح: ${stockWeightsGrams.length} فرخة`}
-                                </span>
-                                <span class="w-6 h-6 rounded-lg bg-white border border-indigo-200 text-indigo-600 flex items-center justify-center"><i id="edit-weight-card-arrow-${pId}" class="fa-solid fa-chevron-down text-[10px] transition-transform duration-200" style="transform: ${isBookedInOrder ? 'rotate(180deg)' : 'rotate(0deg)'};"></i></span>
+                            <span class="text-[10px] font-black text-indigo-700 bg-white px-2.5 py-1 rounded-lg border border-indigo-200">
+                                بالطلب: ${orderWeightsGrams.length} فرخة | متاح بالمخزن: ${stockWeightsGrams.length} فرخة
                             </span>
-                        </button>
+                        </div>
 
-                        <div id="edit-weight-live-bar-${pId}" class="${isBookedInOrder ? '' : 'hidden'} bg-indigo-900 text-white px-3 py-2 rounded-xl text-[11px] font-black flex flex-wrap items-center justify-between gap-2 shadow-sm"></div>
+                        <div id="edit-weight-live-bar-${pId}" class="${q > 0 ? '' : 'hidden'} bg-indigo-900 text-white px-3 py-2 rounded-xl text-[11px] font-black flex flex-wrap items-center justify-between gap-2 shadow-sm"></div>
 
-                        <div id="edit-weight-card-body-${pId}" class="${isBookedInOrder ? '' : 'hidden'} pt-1">
-                            <div class="relative">
-                                <button type="button" onclick="toggleEditWeightDropdownMenu('${pId}')" class="w-full bg-white hover:bg-indigo-50/50 border-2 border-indigo-200 rounded-xl p-2 flex items-center justify-between text-right transition-all shadow-sm">
-                                    <div class="flex items-center gap-2">
-                                        <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
-                                        <span id="edit-weight-summary-label-${pId}" class="text-xs font-black text-slate-700">
-                                            ${orderWeightsGrams.length > 0 ? `✅ محجوز (${orderWeightsGrams.length}) فرخة: (${orderWeightsGrams.join(' + ')} جم) — اضغط للتعديل` : `اضغط لاختيار أو تعديل أوزان (${p.name})`}
-                                        </span>
+                        <div class="relative">
+                            <button type="button" onclick="toggleEditWeightDropdownMenu('${pId}')" class="w-full bg-white hover:bg-indigo-50/50 border-2 border-indigo-200 rounded-xl p-2.5 flex items-center justify-between text-right transition-all shadow-sm">
+                                <div class="flex items-center gap-2">
+                                    <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
+                                    <span id="edit-weight-summary-label-${pId}" class="text-xs font-black text-slate-700">
+                                        ${orderWeightsGrams.length > 0 ? `✅ محجوز (${orderWeightsGrams.length}) فرخة: (${orderWeightsGrams.join(' + ')} جم) — اضغط للتعديل` : `اضغط لاختيار أو تعديل أوزان (${p.name})`}
+                                    </span>
+                                </div>
+                                <i id="edit-weight-dropdown-arrow-${pId}" class="fa-solid fa-chevron-down text-indigo-500 text-xs transition-transform duration-200"></i>
+                            </button>
+
+                            <div id="edit-weight-dropdown-menu-${pId}" class="hidden mt-2 bg-white border-2 border-indigo-200 rounded-2xl p-3 shadow-xl space-y-2.5">
+                                <div class="flex flex-wrap items-center gap-2 bg-slate-50 p-2 rounded-xl border border-indigo-100">
+                                    <input type="number" id="edit-custom-gram-${pId}" placeholder="إضافة وزن جديد بالجرام (مثال: 1550)..." onkeydown="if(event.key==='Enter'){event.preventDefault(); addCustomWeightInEditOrder('${pId}');}" class="flex-1 text-xs font-black text-slate-800 outline-none bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
+                                    <button type="button" onclick="addCustomWeightInEditOrder('${pId}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shrink-0">+ أضف وزن</button>
+                                    <div class="flex items-center gap-1 border-r border-slate-200 pr-2">
+                                        <span class="text-[10px] font-black text-slate-500">أو الإجمالي (كجم):</span>
+                                        <input type="number" id="edit-q-${pId}" min="0" step="0.01" value="${q}" oninput="calcEditTotal(true, '${pId}')" class="w-16 border border-indigo-300 bg-indigo-50/50 rounded-lg p-1 text-center font-black text-xs text-indigo-900 outline-none">
                                     </div>
-                                    <i id="edit-weight-dropdown-arrow-${pId}" class="fa-solid fa-chevron-down text-indigo-500 text-xs transition-transform duration-200"></i>
-                                </button>
+                                </div>
 
-                                <div id="edit-weight-dropdown-menu-${pId}" class="hidden mt-2 bg-white border-2 border-indigo-200 rounded-2xl p-3 shadow-xl space-y-2.5">
-                                    <div class="flex flex-wrap items-center gap-2 bg-slate-50 p-2 rounded-xl border border-indigo-100">
-                                        <input type="number" id="edit-custom-gram-${pId}" placeholder="إضافة وزن جديد بالجرام (مثال: 1550)..." onkeydown="if(event.key==='Enter'){event.preventDefault(); addCustomWeightInEditOrder('${pId}');}" class="flex-1 text-xs font-black text-slate-800 outline-none bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
-                                        <button type="button" onclick="addCustomWeightInEditOrder('${pId}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shrink-0">+ أضف وزن</button>
-                                        <div class="flex items-center gap-1 border-r border-slate-200 pr-2">
-                                            <span class="text-[10px] font-black text-slate-500">أو الإجمالي (كجم):</span>
-                                            <input type="number" id="edit-q-${pId}" min="0" step="0.01" value="${q}" oninput="calcEditTotal(true, '${pId}')" class="w-16 border border-indigo-300 bg-indigo-50/50 rounded-lg p-1 text-center font-black text-xs text-indigo-900 outline-none">
-                                        </div>
-                                    </div>
-
-                                    <div id="edit-weight-grid-${pId}" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-48 overflow-y-auto custom-scroll p-0.5">
-                                        ${checkboxesHtml || '<div class="col-span-full text-center py-2 text-xs font-bold text-slate-400">يمكنك إضافة وزن بالجرام من الخانة بالأعلى</div>'}
-                                    </div>
+                                <div id="edit-weight-grid-${pId}" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-48 overflow-y-auto custom-scroll p-0.5">
+                                    ${checkboxesHtml || '<div class="col-span-full text-center py-2 text-xs font-bold text-slate-400">يمكنك إضافة وزن بالجرام من الخانة بالأعلى</div>'}
                                 </div>
                             </div>
                         </div>
                     </div>`;
+                } else {
+                    let isSelected = q > 0;
+                    cardMarkup = `
+                    <div id="edit-item-card-${pId}" class="${isSelected ? 'bg-emerald-50 border-2 border-brand-primary shadow-md' : 'bg-slate-50 border border-slate-200/80'} p-3 rounded-2xl flex flex-col justify-between transition-all">
+                        <div class="text-center mb-2">
+                            <span id="edit-req-badge-${pId}" class="${isSelected ? 'inline-block' : 'hidden'} bg-brand-primary text-white text-[9px] font-black px-2 py-0.5 rounded-full mb-1">✔ مطلوب بالطلب</span>
+                            <span class="text-xs sm:text-sm font-black text-slate-800 block leading-snug">${p.name}</span>
+                            <span class="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md inline-block mt-0.5">${unitPrice} ج</span>
+                        </div>
+                        <div class="flex items-center justify-between bg-white border border-slate-200 rounded-xl p-1">
+                            <button type="button" onclick="changeEditQty('${pId}', -1, false)" class="w-8 h-8 bg-slate-50 shadow-sm rounded-lg text-red-500 hover:bg-red-500 hover:text-white transition-colors flex items-center justify-center font-black"><i class="fa-solid fa-minus text-xs"></i></button>
+                            <input type="number" id="edit-q-${pId}" min="0" step="1" value="${q > 0 ? q : ''}" placeholder="0" class="w-12 border-none bg-transparent text-center font-black text-base outline-none text-brand-primary" oninput="calcEditTotal()">
+                            <button type="button" onclick="changeEditQty('${pId}', 1, false)" class="w-8 h-8 bg-slate-50 shadow-sm rounded-lg text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors flex items-center justify-center font-black"><i class="fa-solid fa-plus text-xs"></i></button>
+                        </div>
+                    </div>`;
                 }
 
-                const isSelected = q > 0;
-                return `
-                <div id="edit-item-card-${pId}" class="${isSelected ? 'bg-emerald-50 border-2 border-brand-primary shadow-md' : 'bg-slate-50 border border-slate-200/80'} p-2.5 rounded-2xl flex flex-col justify-between transition-all">
-                    <div class="text-center mb-2">
-                        <span id="edit-req-badge-${pId}" class="${isSelected ? 'inline-block' : 'hidden'} bg-brand-primary text-white text-[9px] font-black px-2 py-0.5 rounded-full mb-1">✔ مطلوب بالطلب</span>
-                        <span class="text-xs sm:text-sm font-black text-slate-800 block leading-snug">${p.name}</span>
-                        <span class="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md inline-block mt-0.5">${unitPrice} ج</span>
-                    </div>
-                    <div class="flex items-center justify-between bg-white border border-slate-200 rounded-xl p-1">
-                        <button type="button" onclick="changeEditQty('${pId}', -1, false)" class="w-7 h-7 bg-slate-50 shadow-sm rounded-lg text-red-500 hover:bg-red-500 hover:text-white transition-colors flex items-center justify-center font-black"><i class="fa-solid fa-minus text-xs"></i></button>
-                        <input type="number" id="edit-q-${pId}" min="0" step="1" value="${q > 0 ? q : ''}" placeholder="0" class="w-11 border-none bg-transparent text-center font-black text-base outline-none text-brand-primary" oninput="calcEditTotal()">
-                        <button type="button" onclick="changeEditQty('${pId}', 1, false)" class="w-7 h-7 bg-slate-50 shadow-sm rounded-lg text-emerald-600 hover:bg-emerald-600 hover:text-white transition-colors flex items-center justify-center font-black"><i class="fa-solid fa-plus text-xs"></i></button>
-                    </div>
-                </div>`;
-            };
+                if (isPrimaryOrSelected) {
+                    primaryHtml += cardMarkup;
+                } else {
+                    extraUnpinnedCount++;
+                    extraUnpinnedHtml += cardMarkup;
+                }
+            });
 
-            let finalHtml = '';
-
-            // 1. قسم السمان المذبوح بالجوز
-            if (groups.quail.length > 0) {
-                finalHtml += `
-                <div class="col-span-2 sm:col-span-3 space-y-2">
-                    <div class="flex items-center gap-1.5 text-[11px] font-black text-emerald-800 bg-emerald-50/80 border border-emerald-200/70 px-2.5 py-1 rounded-lg">
-                        <i class="fa-solid fa-drumstick-bite text-emerald-600"></i>
-                        <span>سمان مذبوح بالجوز (الأطباق)</span>
-                    </div>
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        ${groups.quail.map(buildEditCardHtml).join('')}
-                    </div>
-                </div>`;
-            }
-
-            // 2. قسم بيض السمان والكتاكيت
-            if (groups.eggs_chicks.length > 0) {
-                finalHtml += `
-                <div class="col-span-2 sm:col-span-3 space-y-2">
-                    <div class="flex items-center gap-1.5 text-[11px] font-black text-amber-800 bg-amber-50/80 border border-amber-200/70 px-2.5 py-1 rounded-lg">
-                        <i class="fa-solid fa-egg text-amber-600"></i>
-                        <span>بيض سمان وكتاكيت عمر يوم</span>
-                    </div>
-                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        ${groups.eggs_chicks.map(buildEditCardHtml).join('')}
-                    </div>
-                </div>`;
-            }
-
-            // 3. قسم فراخ التسمين والطيور بالوزن
-            if (groups.weight.length > 0) {
-                finalHtml += `
-                <div class="col-span-2 sm:col-span-3 space-y-2">
-                    <div class="flex items-center gap-1.5 text-[11px] font-black text-indigo-800 bg-indigo-50/80 border border-indigo-200/70 px-2.5 py-1 rounded-lg">
-                        <i class="fa-solid fa-scale-balanced text-indigo-600"></i>
-                        <span>فراخ تسمين وطيور بالوزن</span>
-                    </div>
-                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        ${groups.weight.map(buildEditCardHtml).join('')}
-                    </div>
-                </div>`;
-            }
-
-            // 4. باقي الأصناف غير المثبتة
-            const unpinnedAll = [...groups.unpinnedRegular, ...groups.unpinnedWeight];
-            if (unpinnedAll.length > 0) {
-                finalHtml += `
+            if (extraUnpinnedCount > 0) {
+                primaryHtml += `
                 <div class="col-span-2 sm:col-span-3 pt-1">
                     <button type="button" onclick="document.getElementById('edit-unpinned-items-drawer').classList.toggle('hidden')" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black border border-dashed border-slate-300 flex items-center justify-center gap-2 transition-all">
                         <i class="fa-solid fa-layer-group text-indigo-500"></i>
-                        <span>➕ عرض باقي الأصناف الأخرى (${unpinnedAll.length} صنف) ▼</span>
+                        <span>➕ عرض باقي الأصناف الأخرى (${extraUnpinnedCount} صنف) ▼</span>
                     </button>
-                    <div id="edit-unpinned-items-drawer" class="hidden grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2.5 pt-2.5 border-t border-slate-200">
-                        ${unpinnedAll.map(buildEditCardHtml).join('')}
+                    <div id="edit-unpinned-items-drawer" class="hidden grid grid-cols-2 sm:grid-cols-3 gap-2.5 mt-2.5 pt-2.5 border-t border-slate-200">
+                        ${extraUnpinnedHtml}
                     </div>
                 </div>`;
             }
 
-            container.innerHTML = finalHtml;
+            container.innerHTML = primaryHtml;
 
             let bSel = document.getElementById('edit-batch');
             bSel.innerHTML = '<option value="">-- بدون دورة مسجلة --</option>';
@@ -6465,6 +5868,9 @@ window.deleteProductUI = async (id) => {
             let finalTotal = Math.round(itemsTotal + d - disc);
             if (finalTotal < 0) finalTotal = 0;
             document.getElementById('edit-total').value = finalTotal;
+            if (document.getElementById('edit-payment-method')?.value === 'split' && typeof window.syncOrderSplitInputs === 'function') {
+                window.syncOrderSplitInputs('edit', 'online');
+            }
         };
 
 
@@ -7523,10 +6929,9 @@ window.deleteProductUI = async (id) => {
         window.quickBanFromOrderCard = async (orderId) => {
             let o = allOrdersRaw.find(x => x.id === orderId);
             if (!o) return;
-            let reason = await window.execPrompt(`🚫 إدراج العميل (${o.customerName} - ${o.customerPhone}) في قائمة البلاك ليست\n\nاكتب سبب الحظر (مثال: طلب الأوردر ورفض الاستلام / قفل تليفونه):`, '', { title: 'إدراج في البلاك ليست', tone: 'danger', placeholder: 'اكتب سبب الحظر هنا...' });
+            let reason = prompt(`🚫 إدراج العميل (${o.customerName} - ${o.customerPhone}) في قائمة البلاك ليست\n\nاكتب سبب الحظر (مثال: طلب الأوردر ورفض الاستلام / قفل تليفونه):`);
             if (reason === null) return;
-            let reqStr = await window.execPrompt('كم عدد الطلبات المدفوعة مقدماً المطلوبة لخروجه من البلاك ليست؟ (اكتب 3 أو 2):', '3', { title: 'شرط فك الحظر', tone: 'warning', inputType: 'number' });
-            if (reqStr === null) return;
+            let reqStr = prompt('كم عدد الطلبات المدفوعة مقدماً المطلوبة لخروجه من البلاك ليست؟ (اكتب 3 أو 2):', '3');
             let reqCount = parseInt(reqStr) || 3;
 
             let cleanPhone = window.normalizePhone(o.customerPhone);
@@ -7752,17 +7157,16 @@ window.deleteProductUI = async (id) => {
                 let cur = c.blacklistPrepaidCount || 0;
                 let req = c.blacklistRequiredOrders || 3;
                 alertBox.classList.remove('hidden');
-                 if (match.type === 'exact') {
+                if (match.type === 'exact') {
                     alertBox.innerHTML = `
-                    <div class="bg-red-600 text-white p-3.5 rounded-xl shadow-md flex flex-wrap items-center justify-between gap-2">
+                    <div class="bg-red-600 text-white p-3.5 rounded-xl shadow-md flex items-center justify-between">
                         <div>
                             <div class="text-xs font-black"><i class="fa-solid fa-ban mr-1"></i> تحذير: هذا العميل مدرج في قائمة البلاك ليست! (الالتزام: ${cur}/${req})</div>
-                            <div class="text-[11px] font-bold opacity-90 mt-0.5">السبب: ${c.blacklistReason || 'غير محدد'} — يجب تحصيل قيمة الطلب مقدماً قبل التجهيز!</div>
+                            <div class="text-[11px] font-bold opacity-90 mt-0.5">السبب: ${c.blacklistReason || 'غير محدد'} — يجب تحصيل قيمة الطلب مقدماً (أونلاين) قبل التجهيز!</div>
                         </div>
-                        <button type="button" onclick="const pm=document.getElementById('no-payment-method'); if(pm){pm.value='online'; if(window.toggleOrderSplitBox) window.toggleOrderSplitBox('no');}" class="bg-amber-400 hover:bg-amber-300 text-slate-950 px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm shrink-0">💳 تحويل لأونلاين الآن</button>
                     </div>`;
-                }
-                else {
+                    if (document.getElementById('no-payment-method')) document.getElementById('no-payment-method').value = 'online';
+                } else {
                     alertBox.innerHTML = `
                     <div class="bg-amber-500 text-slate-900 p-3.5 rounded-xl shadow-md flex items-center justify-between">
                         <div class="text-xs font-black">
@@ -7975,19 +7379,19 @@ window.deleteProductUI = async (id) => {
             if(!o) return;
             let oldStatus = o.status;
 
-            if(s === 'canceled' && !(await window.execConfirm('هل أنت متأكد من إلغاء هذا الطلب وإرجاع الكميات للمخزن والدفعة؟', { title: 'تأكيد إلغاء الطلب', tone: 'danger', confirmText: 'نعم، إلغاء الطلب' }))) { renderOrdersList(); return; }
-            if(s === 'trash' && !(await window.execConfirm('نقل الطلب لسلة المحذوفات؟ (يُحذف نهائياً بعد 15 يوم)', { title: 'نقل لسلة المحذوفات', tone: 'danger', confirmText: 'نقل للسلة' }))) { renderOrdersList(); return; }
+            if(s === 'canceled' && !confirm('هل أنت متأكد من إلغاء هذا الطلب وإرجاع الكميات للمخزن والدفعة؟')) { renderOrdersList(); return; }
+            if(s === 'trash' && !confirm('نقل الطلب لسلة المحذوفات؟ (يُحذف نهائياً بعد 15 يوم)')) { renderOrdersList(); return; }
 
             // 🔒 قفل البوابة الفردية للبلاك ليست (سواء بالرقم أو بالاشتباه)
             let blCheck = window.findBlacklistedCustomerMatch(o.customerPhone, o.customerPhone2, o.customerName, o.customerAddress);
             if (blCheck && ['processing', 'dispatched', 'completed'].includes(s)) {
                 if (blCheck.type === 'suspected') {
-                    let proceedSuspect = await window.execConfirm('🕵️ تحذير رادار التحايل!\n\nالعميل (' + o.customerName + ') يتطابق في (' + blCheck.reason + ') مع العميل المحظور (' + blCheck.customer.name + ').\n\nهل أنت متأكد من تمرير الطلب بدون ضمه للبلاك ليست؟', { title: 'اشتباه تحايل بلاك ليست', tone: 'warning', confirmText: 'تمرير الطلب' });
+                    let proceedSuspect = confirm('🕵️ تحذير رادار التحايل!\n\nالعميل (' + o.customerName + ') يتطابق في (' + blCheck.reason + ') مع العميل المحظور (' + blCheck.customer.name + ').\n\nهل أنت متأكد من تمرير الطلب بدون ضمه للبلاك ليست؟');
                     if (!proceedSuspect) { renderOrdersList(); return; }
                 } else if (blCheck.type === 'exact') {
                     let isPrepaid = o.isPrepaidConfirmed === true || o.paymentMethod === 'online';
                     if (!isPrepaid) {
-                        let confirmPrepaidNow = await window.execConfirm('⛔ قفل أمان البلاك ليست!\n\nالعميل (' + o.customerName + ') مدرج في البلاك ليست بسبب: (' + (blCheck.customer.blacklistReason || 'رفض استلام') + ').\nممنوع تجهيز أو خروج الطلب إلا بعد الدفع المسبق!\n\nهل استلمت قيمة الطلب مقدماً الآن وتريد تأكيد الدفع والمتابعة؟', { title: 'قفل أمان البلاك ليست', tone: 'danger', confirmText: 'نعم، تم الدفع المسبق' });
+                        let confirmPrepaidNow = confirm('⛔ قفل أمان البلاك ليست!\n\nالعميل (' + o.customerName + ') مدرج في البلاك ليست بسبب: (' + (blCheck.customer.blacklistReason || 'رفض استلام') + ').\nممنوع تجهيز أو خروج الطلب إلا بعد الدفع المسبق!\n\nهل استلمت قيمة الطلب مقدماً الآن وتريد تأكيد الدفع والمتابعة؟');
                         if (!confirmPrepaidNow) { renderOrdersList(); return; }
                         o.isPrepaidConfirmed = true;
                         o.paymentMethod = 'online';
@@ -7995,7 +7399,6 @@ window.deleteProductUI = async (id) => {
                     }
                 }
             }
-
 
             // 🎉 عداد التوبة الأوتوماتيكي عند اكتمال الطلب لعميل البلاك ليست
             if (s === 'completed' && oldStatus !== 'completed' && blCheck && blCheck.type === 'exact') {
@@ -8045,12 +7448,11 @@ window.deleteProductUI = async (id) => {
                 
                 // لو لقى صنف هينزل تحت الصفر، بيطلع رسالة التنبيه
                 if (negativeItems.length > 0) {
-                    if (!(await window.execConfirm(`⚠️ انتباه: الأصناف دي مش موجود منها عدد كافي في الفريزر:\n(${negativeItems.join('، ')})\n\nهل أنت متأكد من المتابعة؟ (اضغط "متابعة" لو عندك منها خارج الفريزر، أو "تراجع" لتعديل رصيد الفريزر أولاً)`, { title: 'تنبيه رصيد الفريزر', tone: 'warning', confirmText: 'متابعة التجهيز' }))) {
-                        renderOrdersList();
+                    if (!confirm(`⚠️ انتباه: الأصناف دي مش موجود منها عدد كافي في الفريزر:\n(${negativeItems.join('، ')})\n\nهل أنت متأكد؟ (اضغط "موافق" لو عندك منها في مكان تاني ومش ضايفه، أو "إلغاء" وروح عدل الفريزر الأول)`)) {
+                        renderOrdersList(); // عشان نرجع القائمة (Select) لحالتها القديمة لو اليوزر ألغى
                         return; 
                     }
                 }
-
             }
 
             // --- التحديث الفوري للواجهة ---
@@ -9462,7 +8864,7 @@ window.deleteProductUI = async (id) => {
             if (debtTotalEl) debtTotalEl.innerText = totalMarketDebt.toLocaleString();
         };
         // ========================================================
-        // ?? دوال الربط اليدوي للطلبات المكتملة بالأرشيف 🔗
+        // 🔗 دوال الربط اليدوي للطلبات المكتملة بالأرشيف 🔗
         // ========================================================
         window.openLinkArchiveModal = (orderId) => {
             if (archivedBatchesData.length === 0) {
