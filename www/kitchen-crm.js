@@ -848,6 +848,32 @@
         kNotify('🔑 تم حفظ مفتاح ImgBB على جهازك بأمان');
     };
 
+    function blobToRawBase64(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error('تعذر قراءة ملف الصورة'));
+            reader.onload = () => {
+                const res = String(reader.result || '');
+                const commaIdx = res.indexOf(',');
+                resolve(commaIdx > -1 ? res.slice(commaIdx + 1) : res);
+            };
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    async function isNativeWebImageBlob(blob) {
+        try {
+            const buf = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+            const isJpeg = buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
+            const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
+            const isWebp = buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+                buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50;
+            return isJpeg || isPng || isWebp;
+        } catch (e) {
+            return false;
+        }
+    }
+
     function compressBlobToJpegBase64(blob) {
         return new Promise((resolve, reject) => {
             const objUrl = URL.createObjectURL(blob);
@@ -856,15 +882,30 @@
                 URL.revokeObjectURL(objUrl);
                 reject(new Error('ملف صورة غير صالح'));
             };
-            img.onload = () => {
+            img.onload = async () => {
                 try {
+                    const maxSide = Math.max(img.width || 1, img.height || 1);
+                    const maxD = 1600;
+                    const isNative = await isNativeWebImageBlob(blob);
+
+                    // إذا كانت الصورة أصلًا بدقة مناسبة للويب (حتى 1600px وحجم <= 2MB) نرفعها بجودتها الأصلية بدون أي ضغط إضافي
+                    if (isNative && maxSide <= maxD && blob.size <= 2 * 1024 * 1024) {
+                        const rawB64 = await blobToRawBase64(blob);
+                        URL.revokeObjectURL(objUrl);
+                        resolve(rawB64);
+                        return;
+                    }
+
+                    // للصور الضخمة جداً فقط: تصغير ناعم إلى 1600px بأعلى جودة حفظ
                     const cnv = document.createElement('canvas');
-                    const maxD = 960;
-                    const sc = Math.min(1, maxD / Math.max(img.width || 1, img.height || 1));
+                    const sc = Math.min(1, maxD / maxSide);
                     cnv.width = Math.max(1, Math.round(img.width * sc));
                     cnv.height = Math.max(1, Math.round(img.height * sc));
-                    cnv.getContext('2d').drawImage(img, 0, 0, cnv.width, cnv.height);
-                    const b64 = cnv.toDataURL('image/jpeg', 0.82).split(',')[1];
+                    const ctx = cnv.getContext('2d');
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.drawImage(img, 0, 0, cnv.width, cnv.height);
+                    const b64 = cnv.toDataURL('image/jpeg', 0.94).split(',')[1];
                     URL.revokeObjectURL(objUrl);
                     resolve(b64);
                 } catch (err) {
@@ -890,7 +931,8 @@
                 if (!res.ok || !json?.success || !json?.data) {
                     throw new Error(json?.error?.message || 'رفض سيرفر ImgBB رفع الصورة');
                 }
-                return json.data.display_url || json.data.url;
+                // استخدام رابط الصورة الأصلية الكاملة بدلاً من نسخة المعاينة المضغوطة display_url
+                return (json.data.image && json.data.image.url) || json.data.url || json.data.display_url;
             } catch (err) {
                 lastErr = err;
                 if (attempt === 1) await new Promise((r) => setTimeout(r, 900));
