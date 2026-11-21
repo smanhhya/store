@@ -1469,11 +1469,12 @@
                 }
             });
 
-            if (fzTouched) {
-                dbBatch.set(db.collection('inventory').doc('freezer'), fzNewValues, { merge: true });
+            if (typeof window.syncWeightHoldForOrderStatus === 'function') {
+                for (const id of checked) {
+                    const oObj = allOrdersRaw.find(x => x && x.id === id);
+                    if (oObj) await window.syncWeightHoldForOrderStatus(oObj, newStatus);
+                }
             }
-
-            await dbBatch.commit();
 
             bar.innerHTML = originalHtml;
             bar.classList.add('hidden');
@@ -2122,6 +2123,85 @@
         }
     };
 
+    // ⚖️ إدارة دورة حجز الأوزان القادمة من متجر العملاء (فك تلقائي عند الإلغاء/السلة + خصم نهائي عند الإكمال)
+    window.syncWeightHoldForOrderStatus = async function (orderObj, newStatus) {
+        if (!orderObj || !orderObj.id || !Array.isArray(orderObj.items)) return;
+        const hasWeightItem = orderObj.items.some(i =>
+            i && (i.isWeightBased || (typeof storeProducts !== 'undefined' && storeProducts[i.id]?.isWeightBased))
+        );
+        if (!hasWeightItem) return;
+
+        const holdsRef = db.collection('inventory').doc('weight_holds');
+
+        try {
+            if (newStatus === 'canceled' || newStatus === 'trash') {
+                await holdsRef.update({
+                    [orderObj.id]: firebase.firestore.FieldValue.delete()
+                }).catch(() => {});
+                return;
+            }
+
+            if (newStatus === 'completed') {
+                const holdsSnap = await holdsRef.get().catch(() => null);
+                const holdsData = (holdsSnap && holdsSnap.exists) ? (holdsSnap.data() || {}) : {};
+                const orderHoldMap = holdsData[orderObj.id];
+                if (!orderHoldMap || typeof orderHoldMap !== 'object') return;
+
+                let invTouched = false;
+                Object.keys(orderHoldMap).forEach(prodId => {
+                    const gramsToDeduct = Array.isArray(orderHoldMap[prodId]) ? orderHoldMap[prodId] : [];
+                    if (!storeProducts || !storeProducts[prodId] || gramsToDeduct.length === 0) return;
+
+                    const curArr = typeof window.parseWeightsArray === 'function'
+                        ? window.parseWeightsArray(storeProducts[prodId].weightsList)
+                        : String(storeProducts[prodId].weightsList || '').split(/[\s,،;\n\r\-]+/).map(Number).filter(n => !isNaN(n) && n > 0);
+
+                    gramsToDeduct.forEach(g => {
+                        const idx = curArr.indexOf(Number(g));
+                        if (idx > -1) curArr.splice(idx, 1);
+                    });
+
+                    storeProducts[prodId].weightsList = curArr.join(' ');
+                    if (typeof storeStock !== 'undefined') storeStock[prodId] = curArr.length;
+                    invTouched = true;
+                });
+
+                const finalizeBatch = db.batch();
+                if (invTouched) {
+                    finalizeBatch.set(db.collection('inventory').doc('settings'), { productsData: storeProducts }, { merge: true });
+                    finalizeBatch.set(db.collection('inventory').doc('stock'), storeStock, { merge: true });
+                }
+                finalizeBatch.set(holdsRef, {
+                    [orderObj.id]: firebase.firestore.FieldValue.delete()
+                }, { merge: true });
+                await finalizeBatch.commit();
+
+                if (typeof window.renderInventoryUI === 'function' && window.smanCurrentActiveTab === 'inventory') {
+                    window.renderInventoryUI();
+                }
+                if (typeof window.generateDynamicOrderInputs === 'function') {
+                    window.generateDynamicOrderInputs();
+                }
+                return;
+            }
+
+            // في حالة استعادة طلب موقع من (ملغي) إلى (جديد/تجهيز): إعادة تفعيل الحجز تلقائياً
+            if (['new', 'processing', 'dispatched', 'deferred', 'no_answer'].includes(newStatus) && orderObj.source !== 'admin_crm') {
+                const holdPayload = {};
+                orderObj.items.forEach(i => {
+                    if (i && i.isWeightBased && Array.isArray(i.selectedWeightsGrams) && i.selectedWeightsGrams.length > 0) {
+                        holdPayload[i.id] = i.selectedWeightsGrams.map(Number);
+                    }
+                });
+                if (Object.keys(holdPayload).length > 0) {
+                    await holdsRef.set({ [orderObj.id]: holdPayload }, { merge: true }).catch(() => {});
+                }
+            }
+        } catch (err) {
+            console.warn('Weight hold sync info:', err);
+        }
+    };
+
     function hookDeferredStatusInterceptors() {
         if (typeof window.updateOrderStatus === 'function' && !window.updateOrderStatus._deferredHooked) {
             window._origUpdateOrderStatusForDeferred = window.updateOrderStatus;
@@ -2136,12 +2216,16 @@
                     db.collection('orders').doc(id).update({ deferredAlertDismissed: true }).catch(() => {});
                 }
                 const res = await window._origUpdateOrderStatusForDeferred.apply(this, arguments);
+                if (ord) {
+                    window.syncWeightHoldForOrderStatus(ord, newStatus);
+                }
                 window.checkDueDeferredOrdersNow();
                 return res;
             };
             wrappedUpdateStatus._deferredHooked = true;
             window.updateOrderStatus = wrappedUpdateStatus;
         }
+
 
         if (typeof window.bulkChangeStatus === 'function' && !window.bulkChangeStatus._deferredHooked) {
             const _origBulkStatus = window.bulkChangeStatus;
