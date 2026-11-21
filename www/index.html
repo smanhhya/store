@@ -194,9 +194,9 @@
         </nav>
         
         <div class="p-3.5 border-t border-amber-400/20 bg-black/25 shrink-0 space-y-2">
-            <button type="button" onclick="forceUpdateAppNow()" class="w-full py-2.5 px-3 rounded-xl bg-gradient-to-l from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-xs shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95">
-                <i class="fa-solid fa-rotate"></i>
-                <span>تحديث التطبيق لأحدث نسخة</span>
+            <button type="button" id="btn-check-apk-update" onclick="window.checkSmanApkUpdate(true)" class="w-full py-2.5 px-3 rounded-xl bg-gradient-to-l from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-xs shadow-lg flex items-center justify-between gap-2 transition-all active:scale-95">
+                <span class="flex items-center gap-2"><i class="fa-solid fa-cloud-arrow-down"></i> فحص تحديثات التطبيق</span>
+                <span id="sidebar-apk-version-tag" class="text-[10px] font-black bg-slate-950/15 px-2 py-0.5 rounded-lg" dir="ltr"></span>
             </button>
             <button onclick="logoutApp()" class="text-red-300 hover:text-white hover:bg-red-500/80 transition-all flex items-center gap-2 text-xs font-black w-full justify-center py-2 bg-red-500/10 rounded-xl border border-red-500/25"><i class="fa-solid fa-right-from-bracket"></i> خروج آمن</button>
         </div>
@@ -9550,6 +9550,116 @@ window.deleteProductUI = async (id) => {
     <script src="customers.js"></script>
     <script src="waybill.js"></script>
     <script src="live-connect.js"></script>
+    <script>
+        // محرك فحص وتحميل تحديثات تطبيق الأندرويد (Sman CRM APK Auto-Updater)
+        (function initSmanApkAutoUpdater() {
+            function getNativeBridge() {
+                return (window.SmanNativePrinter && typeof window.SmanNativePrinter.getAppVersionCode === 'function')
+                    ? window.SmanNativePrinter
+                    : null;
+            }
+
+            function renderCurrentApkVersionTag() {
+                const tagEl = document.getElementById('sidebar-apk-version-tag');
+                if (!tagEl) return;
+                const bridge = getNativeBridge();
+                if (bridge) {
+                    const vName = bridge.getAppVersionName ? bridge.getAppVersionName() : '';
+                    tagEl.textContent = vName ? ('v' + vName) : 'APK';
+                } else {
+                    tagEl.textContent = 'Web';
+                }
+            }
+
+            window.checkSmanApkUpdate = async function (manual = false) {
+                const bridge = getNativeBridge();
+                if (!bridge) {
+                    if (manual && typeof window.forceUpdateAppNow === 'function') {
+                        window.forceUpdateAppNow();
+                    }
+                    return;
+                }
+
+                const btn = document.getElementById('btn-check-apk-update');
+                const origHtml = btn ? btn.innerHTML : '';
+                if (manual && btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = '<span class="flex items-center justify-center gap-2 w-full"><i class="fa-solid fa-spinner fa-spin"></i> جاري فحص التحديثات...</span>';
+                }
+
+                try {
+                    const localCode = Number(bridge.getAppVersionCode()) || 0;
+                    const localName = String(bridge.getAppVersionName() || '');
+                    const repo = String(bridge.getGitHubRepo() || '').trim();
+
+                    if (!repo || repo.includes('__GITHUB_REPO__')) {
+                        if (manual) alert('تعذر قراءة رابط المستودع من التطبيق.');
+                        return;
+                    }
+
+                    const res = await fetch(`https://api.github.com/repos/${repo}/releases/tags/latest-crm?_t=${Date.now()}`, {
+                        cache: 'no-store',
+                        headers: { 'Accept': 'application/vnd.github+json' }
+                    });
+
+                    if (!res.ok) {
+                        if (manual) alert('لا يوجد إصدار APK منشور حالياً على GitHub.');
+                        return;
+                    }
+
+                    const data = await res.json();
+                    const bodyText = String(data.body || '');
+                    const match = bodyText.match(/VERSION_CODE\s*:\s*(\d+)/i);
+                    const remoteCode = match ? parseInt(match[1], 10) : 0;
+
+                    const apkAsset = Array.isArray(data.assets)
+                        ? data.assets.find(a => a && String(a.name || '').toLowerCase().endsWith('.apk'))
+                        : null;
+                    const downloadUrl = apkAsset?.browser_download_url
+                        || `https://github.com/${repo}/releases/download/latest-crm/Sman-CRM-APK.apk`;
+
+                    if (remoteCode > localCode) {
+                        const remoteTitle = data.name || ('الإصدار الجديد #' + remoteCode);
+                        const ok = confirm(
+                            `🚀 يتوفر تحديث جديد لتطبيق سمان ههيا CRM!\n\n` +
+                            `• نسختك الحالية: v${localName || localCode}\n` +
+                            `• النسخة الجديدة: ${remoteTitle}\n\n` +
+                            `هل تريد تحميل وتثبيت التحديث الآن؟`
+                        );
+                        if (ok) {
+                            if (typeof bridge.openExternalUrl === 'function') {
+                                bridge.openExternalUrl(downloadUrl);
+                            } else {
+                                window.open(downloadUrl, '_blank');
+                            }
+                        }
+                    } else if (manual) {
+                        if (typeof window.showQuickAppToast === 'function') {
+                            window.showQuickAppToast(`✅ تطبيقك محدث على آخر إصدار (v${localName || localCode})`);
+                        } else {
+                            alert(`✅ تطبيقك محدث بالفعل على آخر إصدار (v${localName || localCode}).`);
+                        }
+                    }
+                } catch (err) {
+                    console.error('APK update check error:', err);
+                    if (manual) alert('تعذر الاتصال بخادم التحديثات، تأكد من وجود إنترنت.');
+                } finally {
+                    if (manual && btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = origHtml;
+                        renderCurrentApkVersionTag();
+                    }
+                }
+            };
+
+            window.addEventListener('DOMContentLoaded', () => {
+                renderCurrentApkVersionTag();
+                setTimeout(() => {
+                    if (navigator.onLine) window.checkSmanApkUpdate(false);
+                }, 3500);
+            });
+        })();
+    </script>
 
 </body>
 </html>
