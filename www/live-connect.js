@@ -1031,9 +1031,9 @@
         const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
         const drvOrders = ordersList.filter(o => o && o.status !== 'trash' && !o.isArchived && (o.driverName || '').trim() === dName);
 
-        const inWayCount = drvOrders.filter(o => o.status === 'dispatched').length;
-        const unsettledOrders = drvOrders.filter(o => o.status === 'completed' && !o.isReconciled && !o.isSupplied);
-        const cashWithDriver = unsettledOrders.reduce((s, o) => s + (o.paymentMethod === 'online' ? 0 : (Number(o.total) || 0)), 0);
+        const inWayOrders = drvOrders.filter(o => o.status === 'dispatched');
+        const inWayCount = inWayOrders.length;
+        const cashWithDriver = inWayOrders.reduce((s, o) => s + getOrderCashForDriver(o), 0);
 
         const drvObj = (storeSettings?.drivers || []).find(d => (d.name || '').trim() === dName);
         const drvPhone = drvObj?.phone || '';
@@ -1370,7 +1370,8 @@
             if (!['completed', 'canceled'].includes(o.status) && (o.adminNote || o.driverNote)) {
                 notesCount++;
             }
-            if (o.status === 'completed' && o.driverName && !o.isReconciled && !o.isSupplied) {
+            // الكاش بعهدة المندوب = الطلبات التي ما زالت (في الطريق - dispatched) فقط؛ لأن أي طلب مكتمل وصلت فلوسه بالفعل
+            if (o.status === 'dispatched' && o.driverName) {
                 unsettledGrossCash += getOrderCashForDriver(o);
             }
         });
@@ -1453,14 +1454,13 @@
 
     window.jumpToRadarOrRecon = function () {
         const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
-        const firstUnsettled = ordersList.find(o => o && o.status !== 'trash' && !o.isArchived && o.status === 'completed' && o.driverName && !o.isReconciled && !o.isSupplied && getOrderCashForDriver(o) > 0);
-        if (firstUnsettled && typeof window.jumpToDriverRecon === 'function') {
-            window.jumpToDriverRecon(firstUnsettled.driverName);
+        const firstDispatched = ordersList.find(o => o && o.status === 'dispatched' && !o.isArchived && o.driverName);
+        if (firstDispatched && typeof window.jumpToDriverRecon === 'function') {
+            window.jumpToDriverRecon(firstDispatched.driverName);
             return;
         }
-        const targetTab = firstUnsettled ? 'reconciliation' : 'radar';
-        const btn = document.querySelector(`#sidebar button[onclick*="switchTab('${targetTab}'"]`);
-        if (btn) switchTab(targetTab, btn);
+        const btn = document.querySelector(`#sidebar button[onclick*="switchTab('radar'"]`);
+        if (btn) switchTab('radar', btn);
     };
 
     window.openSmartBellNotifications = function (anchorEl) {
@@ -1477,7 +1477,7 @@
             else if (o.status === 'processing') procCount++;
             else if (o.status === 'dispatched') dispCount++;
             else if (o.status === 'no_answer' || o.status === 'deferred') noAnsCount++;
-            else if (o.status === 'completed' && o.driverName && !o.isReconciled && !o.isSupplied) {
+            else if (o.status === 'dispatched' && o.driverName) {
                 const c = getOrderCashForDriver(o);
                 if (c > 0) { unsettledCash += c; unsettledOrdersCount++; }
             }
