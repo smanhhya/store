@@ -1,692 +1,1750 @@
 // =========================================================================
-// ⚡ محرك الترابط الحي، تثبيت تبويبات الطلبات الذكي، الكبسولات، ووضع المسابقة (live-connect.js)
-// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM) - النسخة البريميوم الكاملة
+// ⚡ المحرك الذكي المستقل لإدارة الطلبات الحية، التحضير، التعديل، والملاحظات (orders.js)
+// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM) - النسخة الكاملة المطورة فائقة السرعة
 // =========================================================================
 
 (function () {
-    // 1. حالة نظام الترابط الحي والتمرير الذكي
-    window.liveConnectState = {
-        toolbarCollapsed: false,
-        autoCollapseOnScroll: true,
-        lastScrollTop: 0,
-        activePopoverOrderId: null
+    // 1. حالة الفلاتر المتقدمة والعرض في شاشة الطلبات
+    window.ordersFilterState = {
+        batch: 'all',       // 'all' | 'normal_only' | 'batches_only' | batchName
+        zone: 'all',        // 'all' | zoneName
+        payment: 'all',     // 'all' | 'cash' | 'online' | 'split' | 'has_debt' | 'has_discount'
+        driver: 'all',      // 'all' | 'unassigned' | driverName
+        compactMode: false, // وضع العرض المدمج السريع مع إظهار الأصناف كاملة
+        filtersOpen: false, // طي قوائم الفلترة افتراضياً لمنع الزحام البصري
+        packingScope: 'processing', // 'processing' | 'new_and_proc' | 'dispatched'
+        packingBatch: 'all',
+        packingZone: 'all'
     };
 
-    // =========================================================================
-    // 🎨 2. حقن تنسيقات التثبيت الدائم لتبويبات (جديد ومكتمل) والطي الذكي للبحث
-    // =========================================================================
-    function injectLiveConnectStyles() {
-        if (document.getElementById('live-connect-styles')) return;
-        const style = document.createElement('style');
-        style.id = 'live-connect-styles';
-        style.innerHTML = `
-            .lc-capsule {
-                cursor: pointer !important;
-                transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
-                user-select: none;
-            }
-            .lc-capsule:hover {
-                transform: translateY(-1px) scale(1.02);
-                box-shadow: 0 4px 12px -2px rgba(6, 78, 59, 0.16) !important;
-            }
-            .lc-capsule:active {
-                transform: scale(0.95);
-            }
-            #lc-floating-popover {
-                animation: lcPopIn 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-            }
-            @keyframes lcPopIn {
-                from { opacity: 0; transform: translateY(6px) scale(0.96); }
-                to { opacity: 1; transform: translateY(0) scale(1); }
-            }
+    window.ordersRenderLimit = 30;
 
-            /* السطر العلوي الموحد الرشيق (46px فقط) */
-            header {
-                height: 46px !important;
-                min-height: 46px !important;
-                max-height: 46px !important;
-                padding-left: 0.5rem !important;
-                padding-right: 0.5rem !important;
-                transition: max-height 0.22s cubic-bezier(0.4, 0, 0.2, 1), min-height 0.22s cubic-bezier(0.4, 0, 0.2, 1), height 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s ease, border-width 0.18s ease !important;
-                overflow: hidden;
-            }
-            @media (min-width: 1024px) {
-                header {
-                    padding-left: 1.25rem !important;
-                    padding-right: 1.25rem !important;
+    // =========================================================================
+    // 🎨 تلوين أزرار التبويبات (مكتمل / تجهيز / جديد...) بألوان صريحة وقوية تمنع البهتان
+    // =========================================================================
+    const TAB_ACTIVE_STYLES = {
+        all:        { btn: 'bg-slate-900 text-white border-slate-900 shadow-md scale-[1.02]',      badge: 'bg-amber-400 text-slate-950' },
+        new:        { btn: 'bg-blue-600 text-white border-blue-600 shadow-md scale-[1.02]',        badge: 'bg-white text-blue-700' },
+        processing: { btn: 'bg-amber-500 text-slate-950 border-amber-500 shadow-md scale-[1.02]',  badge: 'bg-slate-900 text-amber-300' },
+        dispatched: { btn: 'bg-indigo-600 text-white border-indigo-600 shadow-md scale-[1.02]',    badge: 'bg-white text-indigo-700' },
+        deferred:   { btn: 'bg-orange-600 text-white border-orange-600 shadow-md scale-[1.02]',    badge: 'bg-white text-orange-700' },
+        no_answer:  { btn: 'bg-purple-600 text-white border-purple-600 shadow-md scale-[1.02]',    badge: 'bg-white text-purple-700' },
+        completed:  { btn: 'bg-emerald-600 text-white border-emerald-600 shadow-md scale-[1.02]',  badge: 'bg-white text-emerald-800' },
+        canceled:   { btn: 'bg-rose-600 text-white border-rose-600 shadow-md scale-[1.02]',        badge: 'bg-white text-rose-700' }
+    };
+
+    const TAB_INACTIVE_BADGES = {
+        new:        'bg-blue-100 text-blue-700',
+        processing: 'bg-amber-100 text-amber-800',
+        dispatched: 'bg-indigo-100 text-indigo-700',
+        deferred:   'bg-orange-100 text-orange-700',
+        no_answer:  'bg-purple-100 text-purple-700',
+        completed:  'bg-emerald-100 text-emerald-700',
+        canceled:   'bg-slate-200 text-slate-700'
+    };
+
+    window.applyCrispOrderTabsVisuals = function (activeTabName) {
+        const current = activeTabName || (typeof currentOrderTab !== 'undefined' ? currentOrderTab : 'all');
+        const allTabs = ['all', 'new', 'processing', 'dispatched', 'deferred', 'no_answer', 'completed', 'canceled'];
+
+        allTabs.forEach(t => {
+            const btn = document.getElementById(`tab-${t}`);
+            const badge = document.getElementById(`badge-${t}`);
+            if (!btn) return;
+
+            if (t === current) {
+                const st = TAB_ACTIVE_STYLES[t] || TAB_ACTIVE_STYLES.all;
+                const cleanBtnCls = String(st.btn || '').replace('scale-[1.02]', '').trim();
+                btn.className = `order-tab active whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black border-2 transition-colors ${cleanBtnCls}`;
+                if (badge) {
+                    badge.className = `mr-1 px-1.5 py-0.5 rounded-md text-[10px] font-black ${st.badge}`;
                 }
-            }
-
-            /* منع ارتداد المتصفح التلقائي (Scroll Anchoring) المسبب للرعشة أثناء السحب */
-            main > div.flex-1.overflow-y-auto.custom-scroll {
-                overflow-anchor: none !important;
-                -webkit-overflow-scrolling: touch;
-                overscroll-behavior-y: contain;
-            }
-
-            /* تثبيت الكروت بدون اهتزاز التكبير والتصغير عند اللمس على الموبايل */
-            .order-card {
-                transform: none !important;
-                contain: layout style;
-            }
-
-            /* ضمان ظهور القائمة الجانبية دائماً فوق شريط البحث والتبويبات بدون أي تداخل */
-            #mobile-overlay {
-                z-index: 54 !important;
-            }
-            #sidebar {
-                z-index: 58 !important;
-            }
-
-            /* 🔥 الإصلاح الجذري: إلغاء قفل الارتفاع (h-full) عن شاشة الطلبات لتظل تبويبات (جديد ومكتمل) ثابتة لآخر طلب في الصفحة */
-            #view-orders.page-view.active {
-                height: auto !important;
-                min-height: 100% !important;
-                overflow: visible !important;
-                transform: none !important;
-                animation: none !important;
-            }
-
-            /* الحاوية المثبتة دائماً في أعلى شاشة الطلبات (بدون blur مسبب للرعشة وبـ z-index آمن خلف القائمة الجانبية) */
-            #lc-orders-sticky-shell {
-                position: sticky !important;
-                top: -1rem !important;
-                z-index: 20 !important;
-                background: #f1f5f9 !important;
-                transform: translateZ(0);
-                backface-visibility: hidden;
-                margin-left: -1rem !important;
-                margin-right: -1rem !important;
-                padding-left: 0.75rem !important;
-                padding-right: 0.75rem !important;
-                padding-top: 0.45rem !important;
-                padding-bottom: 0.45rem !important;
-                border-bottom: 1px solid rgba(203, 213, 225, 0.9) !important;
-                box-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.07) !important;
-            }
-            @media (min-width: 1024px) {
-                #lc-orders-sticky-shell {
-                    top: -2rem !important;
-                    margin-left: -2rem !important;
-                    margin-right: -2rem !important;
-                    padding-left: 2rem !important;
-                    padding-right: 2rem !important;
+            } else {
+                btn.className = 'order-tab whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black bg-white border-2 border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors';
+                if (badge) {
+                    badge.className = `mr-1 px-1.5 py-0.5 rounded-md text-[10px] font-black ${TAB_INACTIVE_BADGES[t] || 'bg-slate-100 text-slate-600'}`;
                 }
-            }
-
-            /* درج مربع البحث داخل الشريط المثبت: ينطوي عند النزول، وينزل فوراً أول ما تطلع سنة لفوق */
-            #lc-collapsible-search-row {
-                max-height: 60px;
-                opacity: 1;
-                overflow: hidden;
-                margin-bottom: 0.45rem;
-                transition: max-height 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s ease, margin-bottom 0.22s ease !important;
-            }
-            body.lc-bars-hidden-on-scroll #lc-collapsible-search-row {
-                max-height: 0px !important;
-                opacity: 0 !important;
-                margin-bottom: 0px !important;
-                pointer-events: none !important;
-            }
-
-            /* زر العدسة السريع يظهر بجانب تبويب (الكل) عندما يكون مربع البحث مطوياً */
-            #lc-quick-unfold-search-btn {
-                display: none;
-            }
-            body.lc-bars-hidden-on-scroll #lc-quick-unfold-search-btn {
-                display: inline-flex !important;
-            }
-
-            /* تمرير أفقي فائق النعومة لتبويبات المراحل */
-            .lc-no-scrollbar {
-                overflow-x: auto;
-                scroll-behavior: smooth;
-                -webkit-overflow-scrolling: touch;
-                touch-action: pan-x;
-                scrollbar-width: none;
-            }
-            .lc-no-scrollbar::-webkit-scrollbar {
-                display: none;
-            }
-
-            /* قناع حماية خصوصية أرقام العملاء أثناء العرض أمام لجنة المسابقة */
-            body.pitch-privacy-mode [dir="ltr"]:not(input):not(textarea) {
-                filter: blur(4px);
-                transition: filter 0.2s ease;
-                user-select: none;
-            }
-            body.pitch-privacy-mode [dir="ltr"]:not(input):not(textarea):hover {
-                filter: blur(0);
-            }
-
-            /* 👑 الترقية البريميوم رويال (Royal Emerald & Gold) للقائمة الجانبية والصفحات القديمة 👑 */
-            #sidebar {
-                background: radial-gradient(circle at top right, rgba(245, 158, 11, 0.14), transparent 36%),
-                            linear-gradient(180deg, #031d19 0%, #05352a 48%, #021a15 100%) !important;
-                border-left: 1px solid rgba(245, 158, 11, 0.22) !important;
-                box-shadow: -12px 0 38px rgba(2, 20, 16, 0.45) !important;
-            }
-            #sidebar > div:first-child {
-                background: linear-gradient(135deg, rgba(245, 158, 11, 0.14), rgba(6, 78, 59, 0.35)) !important;
-                border-bottom: 1px solid rgba(245, 158, 11, 0.22) !important;
-            }
-            #sidebar .nav-btn {
-                border: 1px solid transparent;
-                border-radius: 0.95rem !important;
-                padding: 0.62rem 0.75rem !important;
-                margin-bottom: 0.22rem !important;
-                color: rgba(236, 253, 245, 0.82) !important;
-                transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
-            }
-            #sidebar .nav-btn i {
-                width: 2rem !important;
-                height: 2rem !important;
-                display: inline-flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                border-radius: 0.7rem !important;
-                background: rgba(255, 255, 255, 0.08) !important;
-                border: 1px solid rgba(255, 255, 255, 0.1) !important;
-                margin-left: 0.65rem !important;
-                font-size: 0.85rem !important;
-                transition: all 0.2s ease !important;
-            }
-            #sidebar .nav-btn:hover {
-                background: rgba(255, 255, 255, 0.08) !important;
-                border-color: rgba(245, 158, 11, 0.25) !important;
-                color: #ffffff !important;
-                transform: translateX(-3px);
-            }
-            #sidebar .nav-btn.active {
-                background: linear-gradient(90deg, rgba(245, 158, 11, 0.22) 0%, rgba(16, 185, 129, 0.28) 100%) !important;
-                border: 1px solid rgba(245, 158, 11, 0.55) !important;
-                color: #ffffff !important;
-                box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.45) !important;
-            }
-            #sidebar .nav-btn.active i {
-                background: linear-gradient(135deg, #f59e0b, #fbbf24) !important;
-                color: #031d19 !important;
-                border-color: #fde68a !important;
-                box-shadow: 0 3px 10px rgba(245, 158, 11, 0.35);
-            }
-
-            /* ترقية رؤوس وجداول الصفحات القديمة (البلاك ليست، المديونيات، أرشيف الدفعات، سلة المحذوفات) */
-            #view-blacklist > div:first-child,
-            #view-debts > div:first-child,
-            #view-archive > div:first-child,
-            #view-trash > div:first-child {
-                background: linear-gradient(135deg, #042f2e 0%, #064e3b 58%, #0f172a 100%) !important;
-                border: 1.5px solid rgba(245, 158, 11, 0.38) !important;
-                color: #ffffff !important;
-                box-shadow: 0 12px 28px -8px rgba(4, 47, 46, 0.28) !important;
-            }
-            #view-blacklist > div:first-child h2,
-            #view-debts > div:first-child h2,
-            #view-archive > div:first-child h3,
-            #view-trash > div:first-child h3 {
-                color: #fef3c7 !important;
-            }
-            #view-blacklist > div:first-child p,
-            #view-debts > div:first-child p,
-            #view-archive > div:first-child p,
-            #view-trash > div:first-child p {
-                color: rgba(209, 250, 229, 0.85) !important;
-            }
-            #view-blacklist > div:first-child input,
-            #view-debts > div:first-child input {
-                background: rgba(255, 255, 255, 0.96) !important;
-                color: #0f172a !important;
-                border-color: rgba(245, 158, 11, 0.4) !important;
-            }
-            #view-blacklist thead,
-            #view-debts thead {
-                background: linear-gradient(90deg, #064e3b, #0f172a) !important;
-                color: #fde68a !important;
-            }
-            #view-debts thead th {
-                color: #fde68a !important;
-            }
-        `;
-        document.head.appendChild(style);
-    }
-
-
-    // =========================================================================
-    // 🧩 3. فصل الخانات العلوية عن تبويبات (جديد ومكتمل) لتثبيت التبويبات وحدها
-    // =========================================================================
-    window.restructureOrdersStickyLayout = function () {
-        const ordersView = document.getElementById('view-orders');
-        if (!ordersView) return;
-
-        // إزالة h-full من شاشة الطلبات حتى لا ينكسر التثبيت بعد أول شاشة
-        ordersView.classList.remove('h-full');
-
-        const searchInput = document.getElementById('search-order');
-        const tabAllBtn = document.getElementById('tab-all');
-        const bulkBar = document.getElementById('bulk-actions-bar');
-        const ordersListContainer = document.getElementById('orders-list-vertical');
-
-        if (!searchInput || !tabAllBtn || !ordersListContainer) return;
-
-        // إذا تم تقسيم الهيكل بنجاح من قبل، نتأكد فقط من نقل شريط الملخص الأسود للأعلى
-        if (document.getElementById('lc-orders-sticky-shell')) {
-            const smartToolbar = document.getElementById('smart-orders-toolbar');
-            const nonStickyTop = document.getElementById('lc-orders-nonsticky-top');
-            if (smartToolbar && nonStickyTop && smartToolbar.parentElement !== nonStickyTop) {
-                nonStickyTop.appendChild(smartToolbar);
-            }
-            return;
-        }
-
-        // العثور على الحاوية العلوية الأصلية
-        const origStickyWrapper = searchInput.closest('.sticky') || document.getElementById('orders-sticky-search-bar') || ordersView.firstElementChild;
-        if (!origStickyWrapper) return;
-
-        // 1. إنشاء حاوية غير مثبتة في أعلى الصفحة للأدوات الرباعية وشريط الملخص الأسود (تتحرك طبيعياً مع السكرول ولا تأكل الشاشة)
-        const nonStickyTop = document.createElement('div');
-        nonStickyTop.id = 'lc-orders-nonsticky-top';
-        nonStickyTop.className = 'bg-white p-3 rounded-2xl border border-slate-200/80 shadow-soft mb-2.5 space-y-2';
-
-        // 2. إنشاء الحاوية المثبتة الرشيقة التي تلازم أعلى الشاشة دائماً
-        const stickyShell = document.createElement('div');
-        stickyShell.id = 'lc-orders-sticky-shell';
-        stickyShell.className = 'mb-3';
-
-        // أ) صف البحث المنزلق (يطوى عند النزول، وينزل فوراً أول ما تطلع سنة لفوق)
-        const searchRowDrawer = document.createElement('div');
-        searchRowDrawer.id = 'lc-collapsible-search-row';
-
-        const searchFlexRow = searchInput.parentElement?.parentElement;
-        const toolsFourGrid = origStickyWrapper.querySelector('.grid.grid-cols-4') || document.querySelector('#orders-top-tools-area .grid.grid-cols-4');
-
-        if (toolsFourGrid) {
-            nonStickyTop.appendChild(toolsFourGrid);
-        }
-
-        // وضع حقل البحث وزر الترتيب في درج البحث المنزلق
-        const searchBarWrap = document.createElement('div');
-        searchBarWrap.className = 'flex gap-1.5 items-center';
-        const searchInputBox = searchInput.parentElement;
-        const sortBtn = document.getElementById('btn-sort-orders');
-        if (searchInputBox) searchBarWrap.appendChild(searchInputBox);
-        if (sortBtn) searchBarWrap.appendChild(sortBtn);
-        searchRowDrawer.appendChild(searchBarWrap);
-
-        // ب) صف تبويبات (الكل، جديد، تجهيز، في الطريق، مؤجل، لم يرد، مكتمل، ملغي) المثبت دائماً
-        const tabsRow = tabAllBtn.parentElement;
-        if (tabsRow) {
-            tabsRow.className = 'flex items-center gap-1.5 lc-no-scrollbar pb-0.5 shrink-0';
-
-            // إضافة زر عدسة صغير في أول سطر التبويبات يظهر فقط عندما يكون البحث مطوياً لفتحه بلمسة واحدة
-            if (!document.getElementById('lc-quick-unfold-search-btn')) {
-                const unfoldBtn = document.createElement('button');
-                unfoldBtn.type = 'button';
-                unfoldBtn.id = 'lc-quick-unfold-search-btn';
-                unfoldBtn.onclick = () => {
-                    document.body.classList.remove('lc-bars-hidden-on-scroll');
-                    setTimeout(() => document.getElementById('search-order')?.focus(), 80);
-                };
-                unfoldBtn.className = 'bg-brand-primary text-white w-8 h-8 rounded-xl text-xs font-black items-center justify-center shrink-0 shadow-sm active:scale-90 transition-transform';
-                unfoldBtn.title = 'إظهار مربع البحث والشريط العلوي فوراً';
-                unfoldBtn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i>';
-                tabsRow.insertBefore(unfoldBtn, tabsRow.firstChild);
-            }
-        }
-
-        stickyShell.appendChild(searchRowDrawer);
-        if (tabsRow) stickyShell.appendChild(tabsRow);
-        if (bulkBar) {
-            bulkBar.classList.add('mt-2');
-            stickyShell.appendChild(bulkBar);
-        }
-
-        // نقل شريط الملخص الأسود والفلاتر إلى الحاوية العلوية غير المثبتة
-        const smartToolbar = document.getElementById('smart-orders-toolbar');
-        if (smartToolbar) {
-            nonStickyTop.appendChild(smartToolbar);
-        }
-
-        // إدراج الحاويتين قبل قائمة كروت الطلبات وإزالة الحاوية القديمة الفارغة
-        ordersView.insertBefore(nonStickyTop, ordersListContainer);
-        ordersView.insertBefore(stickyShell, ordersListContainer);
-
-        const oldToolsArea = document.getElementById('orders-top-tools-area');
-        if (oldToolsArea && oldToolsArea !== nonStickyTop) oldToolsArea.remove();
-        if (origStickyWrapper && origStickyWrapper !== stickyShell && origStickyWrapper !== nonStickyTop) {
-            origStickyWrapper.remove();
-        }
-    };
-
-    // =========================================================================
-    // 🎈 4. نظام النافذة الطائرة الموضعية السريعة (Micro-Popover Engine)
-    // =========================================================================
-    function getOrCreatePopover() {
-        let pop = document.getElementById('lc-floating-popover');
-        if (!pop) {
-            pop = document.createElement('div');
-            pop.id = 'lc-floating-popover';
-            pop.className = 'fixed z-[250] hidden bg-white rounded-2xl shadow-2xl border-2 border-slate-200 p-3.5 w-72 max-w-[92vw] text-right';
-            document.body.appendChild(pop);
-
-            document.addEventListener('click', (e) => {
-                if (!pop.classList.contains('hidden')) {
-                    if (!pop.contains(e.target) && !e.target.closest('[data-lc-trigger]')) {
-                        window.closeLivePopover();
-                    }
-                }
-            });
-        }
-        return pop;
-    }
-
-    window.openLivePopover = function (anchorEl, htmlContent) {
-        const pop = getOrCreatePopover();
-        pop.innerHTML = htmlContent;
-        pop.classList.remove('hidden');
-
-        if (!anchorEl) return;
-        const rect = anchorEl.getBoundingClientRect();
-        const popRect = pop.getBoundingClientRect();
-
-        let top = rect.bottom + 8;
-        let left = rect.left + (rect.width / 2) - (popRect.width / 2);
-
-        if (top + popRect.height > window.innerHeight - 12) {
-            top = Math.max(12, rect.top - popRect.height - 8);
-        }
-        if (left < 10) left = 10;
-        if (left + popRect.width > window.innerWidth - 10) {
-            left = window.innerWidth - popRect.width - 10;
-        }
-
-        pop.style.top = `${top}px`;
-        pop.style.left = `${left}px`;
-    };
-
-    window.closeLivePopover = function () {
-        const pop = document.getElementById('lc-floating-popover');
-        if (pop) pop.classList.add('hidden');
-    };
-
-    function notifyQuickToast(msg) {
-        if (typeof window.showToast === 'function') {
-            window.showToast(msg);
-            return;
-        }
-        if (typeof window.showQuickAppToast === 'function') {
-            window.showQuickAppToast(msg);
-            return;
-        }
-        let t = document.getElementById('lc-quick-toast');
-        if (!t) {
-            t = document.createElement('div');
-            t.id = 'lc-quick-toast';
-            t.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 z-[300] bg-slate-900 text-white px-4 py-2.5 rounded-xl text-xs font-black shadow-xl transition-opacity duration-300';
-            document.body.appendChild(t);
-        }
-        t.innerText = msg;
-        t.style.opacity = '1';
-        t.classList.remove('hidden');
-        clearTimeout(window._lcToastTimer);
-        window._lcToastTimer = setTimeout(() => {
-            t.style.opacity = '0';
-            setTimeout(() => t.classList.add('hidden'), 300);
-        }, 2400);
-    }
-
-    // =========================================================================
-    // 🏆 5. محرك وضع العرض التنفيذي للمسابقة (Competition Pitch Mode)
-    // =========================================================================
-    window.togglePitchPrivacyMask = function () {
-        document.body.classList.toggle('pitch-privacy-mode');
-        const isMasked = document.body.classList.contains('pitch-privacy-mode');
-        const btn = document.getElementById('pitch-privacy-btn');
-        if (btn) {
-            btn.className = isMasked
-                ? 'bg-emerald-500 text-slate-950 px-3 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-md transition-all'
-                : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 px-3 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all';
-            btn.innerHTML = isMasked
-                ? '<i class="fa-solid fa-eye-slash"></i> إخفاء أرقام العملاء: مفعّل ✅'
-                : '<i class="fa-solid fa-user-shield text-amber-400"></i> تمويه أرقام العملاء أمام اللجنة';
-        }
-        notifyQuickToast(isMasked ? '🔒 تم تمويه أرقام الهواتف لحماية خصوصية العملاء أثناء العرض' : '🔓 تم إظهار أرقام الهواتف بشكل طبيعي');
-    };
-
-    window.togglePitchFullscreen = function () {
-        if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen().catch(() => {});
-            notifyQuickToast('🖥️ تم تفعيل وضع ملء الشاشة السينمائي للعرض');
-        } else {
-            document.exitFullscreen().catch(() => {});
-        }
-    };
-
-    window.jumpFromPitchModal = function (actionType) {
-        const modal = document.getElementById('competition-pitch-modal');
-        if (modal) modal.classList.add('hidden');
-
-        if (actionType === 'printer') {
-            if (typeof window.openWaybillSettingsModal === 'function') window.openWaybillSettingsModal();
-        } else if (actionType === 'safe') {
-            switchTab('dashboard', document.querySelector('#sidebar button[onclick*="dashboard"]'));
-            if (typeof window.updateDashState === 'function') window.updateDashState('activeSubTab', 'ledger_waste');
-        } else if (actionType === 'batches') {
-            switchTab('batches', document.querySelector('#sidebar button[onclick*="batches"]'));
-        } else if (actionType === 'orders') {
-            switchTab('orders', document.querySelector('#sidebar button[onclick*="orders"]'));
-        } else if (actionType === 'blacklist') {
-            switchTab('blacklist', document.querySelector('#sidebar button[onclick*="blacklist"]'));
-        }
-    };
-
-    window.openCompetitionPitchModal = function () {
-        const t0 = performance.now();
-        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw.filter(o => o && o.status !== 'trash') : [];
-        const custList = (typeof customersData !== 'undefined' && Array.isArray(customersData)) ? customersData : [];
-        const compOrders = ordersList.filter(o => o.status === 'completed').length;
-        const completionRate = ordersList.length > 0 ? Math.round((compOrders / ordersList.length) * 100) : 100;
-        const isMasked = document.body.classList.contains('pitch-privacy-mode');
-        const elapsedMs = Math.max(0.2, (performance.now() - t0)).toFixed(2);
-
-        let modal = document.getElementById('competition-pitch-modal');
-        if (!modal) {
-            modal = document.createElement('div');
-            modal.id = 'competition-pitch-modal';
-            modal.className = 'fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[240] hidden flex items-center justify-center p-3 sm:p-5';
-            document.body.appendChild(modal);
-        }
-
-        modal.innerHTML = `
-            <div class="bg-slate-900 text-white rounded-[2rem] shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[92vh] border-2 border-amber-500/40">
-                <div class="bg-gradient-to-l from-emerald-950 via-slate-900 to-slate-950 p-5 border-b border-white/10 flex flex-wrap justify-between items-center gap-3">
-                    <div class="flex items-center gap-3">
-                        <div class="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-400 text-2xl shadow-lg">
-                            <i class="fa-solid fa-trophy"></i>
-                        </div>
-                        <div>
-                            <div class="flex flex-wrap items-center gap-2">
-                                <h3 class="text-base sm:text-lg font-black text-white">سمان ههيا — نظام تخطيط الموارد والإدارة المركزية (Mini-ERP & CRM)</h3>
-                                <span class="bg-emerald-500 text-slate-950 px-2.5 py-0.5 rounded-full text-[10px] font-black">سرعة الاستجابة: ${elapsedMs} ms ⚡</span>
-                            </div>
-                            <p class="text-xs text-slate-300 font-bold mt-0.5">بنية هجينة فائقة السرعة (Offline-First Mirror + Native Android Hardware Bridge 203 DPI)</p>
-                        </div>
-                    </div>
-                    <button type="button" onclick="document.getElementById('competition-pitch-modal').classList.add('hidden')" class="w-9 h-9 rounded-xl bg-white/10 hover:bg-red-500 text-white flex items-center justify-center transition-colors">
-                        <i class="fa-solid fa-xmark text-lg"></i>
-                    </button>
-                </div>
-
-                <div class="p-5 overflow-y-auto custom-scroll space-y-5 flex-1">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-white/5 p-3 rounded-2xl border border-white/10">
-                        <button type="button" id="pitch-privacy-btn" onclick="togglePitchPrivacyMask()" class="${isMasked ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-600'} px-3 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all">
-                            <i class="fa-solid ${isMasked ? 'fa-eye-slash' : 'fa-user-shield text-amber-400'}"></i>
-                            <span>${isMasked ? 'إخفاء أرقام العملاء: مفعّل ✅' : 'تمويه أرقام العملاء أمام اللجنة (Privacy Mode)'}</span>
-                        </button>
-                        <button type="button" onclick="togglePitchFullscreen()" class="bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 px-3 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all">
-                            <i class="fa-solid fa-expand text-sky-400"></i>
-                            <span>تفعيل وضع ملء الشاشة السينمائي (Fullscreen)</span>
-                        </button>
-                    </div>
-
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-                        <div class="bg-white/5 p-3.5 rounded-2xl border border-white/10">
-                            <span class="text-[10px] text-slate-400 font-bold block">إجمالي الطلبات المدارة</span>
-                            <span class="text-2xl font-black text-amber-400 mt-1 block">${ordersList.length.toLocaleString()}</span>
-                        </div>
-                        <div class="bg-white/5 p-3.5 rounded-2xl border border-white/10">
-                            <span class="text-[10px] text-slate-400 font-bold block">قاعدة بيانات العملاء</span>
-                            <span class="text-2xl font-black text-emerald-400 mt-1 block">${custList.length.toLocaleString()}</span>
-                        </div>
-                        <div class="bg-white/5 p-3.5 rounded-2xl border border-white/10">
-                            <span class="text-[10px] text-slate-400 font-bold block">كفاءة إتمام التسليم</span>
-                            <span class="text-2xl font-black text-sky-400 mt-1 block">${completionRate}%</span>
-                        </div>
-                        <div class="bg-white/5 p-3.5 rounded-2xl border border-white/10">
-                            <span class="text-[10px] text-slate-400 font-bold block">زمن القراءة من الكاش</span>
-                            <span class="text-2xl font-black text-purple-400 mt-1 block">0.0 s</span>
-                        </div>
-                    </div>
-
-                    <div class="space-y-2.5">
-                        <h4 class="text-xs font-black text-amber-300 flex items-center gap-1.5">
-                            <i class="fa-solid fa-wand-magic-sparkles"></i> اضغط على أي ابتكار لاستعراضه مباشرة أمام لجنة التحكيم:
-                        </h4>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div onclick="jumpFromPitchModal('printer')" class="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-amber-400 p-3.5 rounded-2xl cursor-pointer transition-all">
-                                <div class="flex justify-between items-center mb-1">
-                                    <span class="text-xs font-black text-amber-300">🖨️ 1. محرك الطباعة الحراري الأصلي (TSPL 203 DPI)</span>
-                                    <i class="fa-solid fa-arrow-up-left-from-square text-[10px] text-slate-400"></i>
-                                </div>
-                                <p class="text-[11px] text-slate-300 font-bold leading-relaxed">يرسم البوليصة وتكت ميزان الفراخ بالجرام على Canvas ويحولها لأوامر هاردوير مباشرة عبر بلوتوث APK وUSB لطابعة Deli E750W.</p>
-                            </div>
-
-                            <div onclick="jumpFromPitchModal('safe')" class="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-emerald-400 p-3.5 rounded-2xl cursor-pointer transition-all">
-                                <div class="flex justify-between items-center mb-1">
-                                    <span class="text-xs font-black text-emerald-300">🏦 2. الخزنة المزدوجة الذكية والجرد السنوي</span>
-                                    <i class="fa-solid fa-arrow-up-left-from-square text-[10px] text-slate-400"></i>
-                                </div>
-                                <p class="text-[11px] text-slate-300 font-bold leading-relaxed">فصل تام لصافي المنتجات عن الشحن، مع تغطية تلقائية للمصروفات من الكاش ثم الأونلاين أو تحويل الباقي لديون آجلة بأقساط مؤرخة.</p>
-                            </div>
-
-                            <div onclick="jumpFromPitchModal('batches')" class="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-teal-400 p-3.5 rounded-2xl cursor-pointer transition-all">
-                                <div class="flex justify-between items-center mb-1">
-                                    <span class="text-xs font-black text-teal-300">🐣 3. التتبع البيولوجي للدفعات ومصفوفة الجرامات</span>
-                                    <i class="fa-solid fa-arrow-up-left-from-square text-[10px] text-slate-400"></i>
-                                </div>
-                                <p class="text-[11px] text-slate-300 font-bold leading-relaxed">يحسب عمر الطائر يومياً من تاريخ الفقس، ويوزع الأصناف ذكياً، ويرحل المذبوح للفريزر الفعلي مع خصم أوزان الفرخات بالجرام.</p>
-                            </div>
-
-                            <div onclick="jumpFromPitchModal('blacklist')" class="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-rose-400 p-3.5 rounded-2xl cursor-pointer transition-all">
-                                <div class="flex justify-between items-center mb-1">
-                                    <span class="text-xs font-black text-rose-300">🛡️ 4. رادار كشف التحايل والبلاك ليست المشروط</span>
-                                    <i class="fa-solid fa-arrow-up-left-from-square text-[10px] text-slate-400"></i>
-                                </div>
-                                <p class="text-[11px] text-slate-300 font-bold leading-relaxed">يكتشف تحايل العميل المحظور حتى لو غيّر رقم هاتفه عبر مطابقة الاسم والعنوان الذكية، ولا يفك الحظر إلا بعد التزامه بطلبات مسبقة الدفع.</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-        modal.classList.remove('hidden');
-    };
-
-    // =========================================================================
-    // 💊 6. تفعيل الكبسولات الحية على كروت الطلبات
-    // =========================================================================
-    window.enhanceOrderCardsLive = function () {
-        const container = document.getElementById('orders-list-vertical');
-        if (!container) return;
-
-        const cards = container.querySelectorAll('.order-card[data-id]');
-        cards.forEach(card => {
-            const orderId = card.getAttribute('data-id');
-            const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
-            if (!order) return;
-
-            const paySpans = card.querySelectorAll('span');
-            paySpans.forEach(sp => {
-                const txt = sp.innerText.trim();
-
-                if ((txt === 'كاش' || txt === 'خالص (أونلاين)' || txt === 'خالص أونلاين') && !sp.hasAttribute('data-lc-pay')) {
-                    sp.setAttribute('data-lc-pay', '1');
-                    sp.setAttribute('data-lc-trigger', '1');
-                    sp.classList.add('lc-capsule');
-                    sp.title = 'اضغط للتحويل الفوري بين كاش وخالص أونلاين';
-                    sp.onclick = (e) => {
-                        e.stopPropagation();
-                        window.openPaymentCapsulePopover(sp, orderId);
-                    };
-                }
-
-                if (txt.startsWith('آجل (') && !sp.hasAttribute('data-lc-debt')) {
-                    sp.setAttribute('data-lc-debt', '1');
-                    sp.setAttribute('data-lc-trigger', '1');
-                    sp.classList.add('lc-capsule');
-                    sp.title = 'اضغط لتسديد المديونية أو إرسال تذكير واتساب';
-                    sp.onclick = (e) => {
-                        e.stopPropagation();
-                        window.openDebtCapsulePopover(sp, order.customerPhone, orderId);
-                    };
-                }
-
-                if (txt.startsWith('مع:') && !sp.hasAttribute('data-lc-driver')) {
-                    sp.setAttribute('data-lc-driver', '1');
-                    sp.setAttribute('data-lc-trigger', '1');
-                    sp.classList.add('lc-capsule');
-                    sp.title = 'اضغط لعرض نبض المندوب أو تغيير المندوب أو تقفيل عهدته';
-                    sp.onclick = (e) => {
-                        e.stopPropagation();
-                        window.openDriverCapsulePopover(sp, orderId, order.driverName);
-                    };
-                }
-            });
-
-            const zoneSpan = card.querySelector('[data-zone-pill="1"]') || card.querySelector('span[ondblclick*="\'zone\'"]');
-            if (zoneSpan && !zoneSpan.hasAttribute('data-lc-zone')) {
-                zoneSpan.setAttribute('data-lc-zone', '1');
-                zoneSpan.setAttribute('data-lc-trigger', '1');
-                zoneSpan.classList.add('lc-capsule');
-                zoneSpan.title = 'اضغط لخيارات المنطقة السريعة (أو مرتين للتعديل)';
-                zoneSpan.onclick = (e) => {
-                    e.stopPropagation();
-                    if (window._lcZoneClickTimer) {
-                        clearTimeout(window._lcZoneClickTimer);
-                        window._lcZoneClickTimer = null;
-                        return;
-                    }
-                    window._lcZoneClickTimer = setTimeout(() => {
-                        window._lcZoneClickTimer = null;
-                        window.openZoneCapsulePopover(zoneSpan, orderId, order.zone);
-                    }, 220);
-                };
-            }
-
-            if (!['completed', 'canceled', 'trash'].includes(order.status)) {
-                const itemBoxes = card.querySelectorAll('[data-item-idx]');
-                itemBoxes.forEach(box => {
-                    const idx = parseInt(box.getAttribute('data-item-idx'));
-                    if (isNaN(idx)) return;
-                    const nameTarget = box.querySelector('span.font-black.text-slate-800') || box;
-                    if (nameTarget && !nameTarget.hasAttribute('data-lc-item')) {
-                        nameTarget.setAttribute('data-lc-item', '1');
-                        nameTarget.setAttribute('data-lc-trigger', '1');
-                        nameTarget.classList.add('lc-capsule');
-                        nameTarget.title = 'اضغط لتعديل كمية الصنف (+ / -) فوراً';
-                        nameTarget.onclick = (e) => {
-                            if (e.target && e.target.getAttribute('ondblclick')) return;
-                            e.stopPropagation();
-                            window.openItemQtyCapsulePopover(box, orderId, idx);
-                        };
-                    }
-                });
             }
         });
     };
 
-    window.openQuickDriverDispatch = function (anchorEl, orderId) {
+
+    window.setOrderTab = function (tab) {
+        currentOrderTab = tab;
+        window.ordersRenderLimit = 30;
+        window.applyCrispOrderTabsVisuals(tab);
+        window.renderOrdersList();
+    };
+
+    function classifyItemType(item) {
+        const id = String(item?.id || '').toLowerCase();
+        const name = String(item?.name || '').toLowerCase();
+        if (id === 'eggs' || name.includes('بيض')) return 'egg';
+        if (id === 'chicks' || name.includes('كتكوت') || name.includes('كتاكيت') || name.includes('أعمار') || name.includes('عمر')) return 'chick';
+        return 'meat';
+    }
+
+    function getOrderBatchTitle(o) {
+        if (!o) return '';
+        if (typeof window.resolveOrderBatchName === 'function') {
+            return window.resolveOrderBatchName(o);
+        }
+        if (o.batchId && typeof storeBatches !== 'undefined' && storeBatches[o.batchId] && storeBatches[o.batchId].name) {
+            return storeBatches[o.batchId].name.trim();
+        }
+        if (o.batchName && o.batchName !== 'undefined') return o.batchName.trim();
+        return '';
+    }
+    // تحديد مصدر تسجيل الطلب (من متجر العملاء الإلكتروني 🟢 أم مسجل يدوياً من لوحة الإدارة 🔵)
+    function getOrderOriginMeta(o) {
+        const src = String(o?.source || '').toLowerCase();
+        const isFromStore =
+            src.includes('store') ||
+            src.includes('web') ||
+            (src !== 'admin_crm' && (
+                o?.isRead !== undefined ||
+                o?.usedPromo !== undefined ||
+                o?.generatedPromo !== undefined ||
+                Boolean(o?.orderTime && !o?.customTag && o?.debt === undefined && o?.driverNote === undefined)
+            ));
+
+        if (isFromStore) {
+            return {
+                isStore: true,
+                title: 'طلب وارد من الموقع الإلكتروني 🌐',
+                desc: 'العميل قام بتسجيل هذا الطلب بنفسه مباشرة من متجر سمان ههيا.',
+                dotCls: 'bg-emerald-500 ring-emerald-200',
+                badgeCls: 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            };
+        }
+        return {
+            isStore: false,
+            title: 'طلب مسجل من لوحة الإدارة (CRM) 📝',
+            desc: 'تم تسجيل هذا الطلب يدوياً من داخل لوحة التحكم الخاصة بك.',
+            dotCls: 'bg-blue-500 ring-blue-200',
+            badgeCls: 'bg-blue-50 text-blue-800 border-blue-200'
+        };
+    }
+
+    window.showOrderOriginPopover = function (anchorEl, orderId) {
+        const o = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(x => x && x.id === orderId);
+        if (!o) return;
+        const meta = getOrderOriginMeta(o);
+        const timeInfo = o.orderDate ? `${o.orderDate}${o.orderTime ? ' • ' + o.orderTime : ''}` : '';
+
+        if (typeof window.openLivePopover === 'function') {
+            const html = `
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                        <span class="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded-full ${meta.dotCls} ring-2 inline-block"></span>
+                            <span>مصدر الطلب</span>
+                        </span>
+                        <button type="button" onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="p-2.5 rounded-xl border text-xs font-black ${meta.badgeCls}">
+                        ${meta.title}
+                        <p class="text-[10px] font-bold opacity-85 mt-1 leading-relaxed">${meta.desc}</p>
+                    </div>
+                    ${timeInfo ? `<div class="text-[10px] font-bold text-slate-400 text-center">🕒 وقت التسجيل: ${timeInfo}</div>` : ''}
+                </div>
+            `;
+            window.openLivePopover(anchorEl, html);
+        } else if (typeof window.showToast === 'function') {
+            window.showToast(meta.title);
+        } else {
+            alert(meta.title + '\n' + meta.desc);
+        }
+    };
+
+    function getOrderAgeLabel(o) {
+        let ms = 0;
+        if (o.createdAt && typeof o.createdAt.toMillis === 'function') {
+            ms = o.createdAt.toMillis();
+        } else if (o.orderDate) {
+            const p = new Date(o.orderDate);
+            if (!isNaN(p.getTime())) ms = p.getTime();
+        }
+        if (!ms) return '';
+        const diffHours = Math.floor((Date.now() - ms) / (1000 * 60 * 60));
+        if (diffHours < 1) return 'الآن';
+        if (diffHours < 24) return `منذ ${diffHours} س`;
+        const diffDays = Math.floor(diffHours / 24);
+        if (diffDays === 1) return 'منذ يوم';
+        if (diffDays === 2) return 'منذ يومين';
+        return `منذ ${diffDays} أيام`;
+    }
+
+    // =========================================================================
+    // ➕ 2. فتح نافذة إنشاء طلب جديد بأمان تام من أي مكان (safeOpenAddOrderModal)
+    // =========================================================================
+    window.safeOpenAddOrderModal = function () {
+        if (typeof window.generateDynamicOrderInputs === 'function') {
+            window.generateDynamicOrderInputs();
+        }
+        const helperBox = document.getElementById('no-smart-customer-helper');
+        if (helperBox) helperBox.innerHTML = '';
+        const blAlert = document.getElementById('no-blacklist-alert');
+        if (blAlert) blAlert.classList.add('hidden');
+
+        if (typeof window.openModal === 'function') {
+            window.openModal('add-order-modal');
+        } else {
+            const modal = document.getElementById('add-order-modal');
+            if (modal) modal.classList.remove('hidden');
+        }
+        setTimeout(() => {
+            const phoneInp = document.getElementById('no-phone');
+            if (phoneInp) phoneInp.focus();
+        }, 120);
+    };
+
+    // =========================================================================
+    // 🎛️ 3. شريط التحكم المدمج والملخص اللحظي (موضوع بذكاء دون حجب الشاشة)
+    // =========================================================================
+    window.initSmartOrdersToolbar = function () {
+        const ordersView = document.getElementById('view-orders');
+        if (!ordersView || document.getElementById('smart-orders-toolbar')) return;
+
+        const topToolsArea = document.getElementById('orders-top-tools-area') || ordersView.firstElementChild;
+        if (!topToolsArea) return;
+
+        const toolbar = document.createElement('div');
+        toolbar.id = 'smart-orders-toolbar';
+        toolbar.className = 'pt-2 border-t border-slate-100 space-y-2';
+
+        toolbar.innerHTML = `
+            <!-- السطر الأساسي المدمج: الملخص اللحظي + أزرار التحكم السريعة -->
+            <div class="flex flex-wrap items-center justify-between gap-2 bg-slate-900 text-white px-3 py-2 rounded-xl shadow-sm">
+                <div class="flex flex-wrap items-center gap-2.5 text-[11px] font-black">
+                    <span>📦 المعروض: <strong id="so-sum-count" class="text-amber-400">0</strong></span>
+                    <span class="text-slate-600">|</span>
+                    <span>🥩 سمان: <strong id="so-sum-meat" class="text-emerald-400">0</strong> طبق</span>
+                    <span id="so-sum-extras-wrap" class="hidden text-slate-300"></span>
+                    <span class="text-slate-600">|</span>
+                    <span>💰 الإجمالي: <strong id="so-sum-money" class="text-amber-400">0 ج</strong></span>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-1.5 mr-auto sm:mr-0">
+                    <button type="button" onclick="toggleAdvancedFiltersDrawer()" id="so-btn-toggle-filters" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-lg text-[11px] font-black transition-all flex items-center gap-1">
+                        <i class="fa-solid fa-filter text-amber-400 text-[10px]"></i> فلتر <span id="so-active-filters-dot" class="hidden w-2 h-2 rounded-full bg-amber-400"></span>
+                    </button>
+                    <button type="button" onclick="toggleSelectAllVisibleOrders()" id="so-btn-select-all" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-lg text-[11px] font-black transition-all flex items-center gap-1" title="تحديد الكل">
+                        <i class="fa-solid fa-check-double text-emerald-400 text-[10px]"></i> الكل
+                    </button>
+                    <button type="button" onclick="toggleOrdersCompactMode()" id="so-btn-compact" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-lg text-[11px] font-black transition-all flex items-center gap-1" title="تبديل العرض المدمج والتفصيلي">
+                        <i class="fa-solid fa-compress text-sky-400 text-[10px]"></i> مدمج
+                    </button>
+                </div>
+            </div>
+
+            <!-- درج الفلاتر المتقدمة (يفتح عند الحاجة فقط لمنع الزحام) -->
+            <div id="so-advanced-filters-drawer" class="hidden grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200 shadow-inner">
+                <select id="so-filter-batch" onchange="setOrdersQuickFilter('batch', this.value)" class="border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 text-[11px] font-black text-teal-800 outline-none focus:border-brand-primary">
+                    <option value="all">🏷️ كل الدفعات والفوري</option>
+                </select>
+
+                <select id="so-filter-zone" onchange="setOrdersQuickFilter('zone', this.value)" class="border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 text-[11px] font-black text-indigo-800 outline-none focus:border-brand-primary">
+                    <option value="all">📍 كل المناطق</option>
+                </select>
+
+                <select id="so-filter-payment" onchange="setOrdersQuickFilter('payment', this.value)" class="border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 text-[11px] font-black text-slate-700 outline-none focus:border-brand-primary">
+                    <option value="all">💳 كل طرق الدفع</option>
+                    <option value="cash">💵 كاش عند الاستلام</option>
+                    <option value="online">💳 خالص أونلاين</option>
+                    <option value="split">⚖️ نص ونص (كاش + محفظة)</option>
+                    <option value="has_debt">📕 عليه آجل</option>
+                    <option value="has_discount">🎁 طلبات بخصم</option>
+                </select>
+
+                <div class="flex gap-1">
+                    <select id="so-filter-driver" onchange="setOrdersQuickFilter('driver', this.value)" class="flex-1 border border-slate-200 bg-white rounded-lg px-2 py-1.5 text-[11px] font-black text-blue-800 outline-none focus:border-brand-primary">
+                        <option value="all">🛵 كل المناديب</option>
+                    </select>
+                    <button type="button" onclick="resetAllOrdersFilters()" id="so-btn-reset-filters" class="hidden bg-red-100 hover:bg-red-600 text-red-600 hover:text-white px-2.5 rounded-lg text-[10px] font-black transition-all" title="مسح الفلاتر">✕</button>
+                </div>
+            </div>
+        `;
+
+        topToolsArea.appendChild(toolbar);
+
+        // إعادة تنظيم وتنسيق شريط التحديد الجماعي بهوية سمان ههيا (بنفس كل المميزات وبدون حذف أي زر)
+        const bulkBar = document.getElementById('bulk-actions-bar');
+        if (bulkBar && !bulkBar.hasAttribute('data-sman-v2-bulk')) {
+            bulkBar.setAttribute('data-sman-v2-bulk', '1');
+            const isHiddenNow = bulkBar.classList.contains('hidden');
+            bulkBar.className = `${isHiddenNow ? 'hidden ' : ''}bg-white border-2 border-emerald-600/35 rounded-2xl shadow-lg p-2.5 space-y-2 transition-all`;
+            bulkBar.innerHTML = `
+                <div class="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-100">
+                    <div class="flex items-center gap-1.5 text-xs font-black text-slate-800">
+                        <span id="bulk-count" class="bg-brand-primary text-amber-300 px-2 py-0.5 rounded-lg text-[11px] font-black shadow-sm">0</span>
+                        <span>طلب محدد — اختر الإجراء:</span>
+                    </div>
+                    <button type="button" onclick="clearAllBulkSelections()" class="bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 px-2.5 py-1 rounded-xl text-[10px] font-black transition-all flex items-center gap-1" title="إلغاء التحديد">
+                        <span>إلغاء</span><i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <!-- الصف 1: الإجراءات التنفيذية الـ 3 الرئيسية -->
+                <div class="grid grid-cols-3 gap-1.5">
+                    <button type="button" onclick="printSelectedOrdersWaybills()" class="bg-amber-50 hover:bg-amber-500 text-amber-950 hover:text-white border border-amber-300 py-2 px-2 rounded-xl text-[11px] font-black transition-all flex items-center justify-center gap-1 shadow-sm active:scale-95">
+                        <i class="fa-solid fa-print text-amber-600"></i> <span>بوالص</span>
+                    </button>
+                    <button type="button" onclick="sendToSelectedOrders()" class="bg-emerald-50 hover:bg-[#25D366] text-emerald-900 hover:text-white border border-emerald-300 py-2 px-2 rounded-xl text-[11px] font-black transition-all flex items-center justify-center gap-1 shadow-sm active:scale-95">
+                        <i class="fa-brands fa-whatsapp text-emerald-600 text-xs"></i> <span>واتساب</span>
+                    </button>
+                    <button type="button" data-lc-trigger="1" onclick="openBulkDriverDispatchPopover(this)" class="bg-indigo-50 hover:bg-indigo-600 text-indigo-900 hover:text-white border border-indigo-200 py-2 px-2 rounded-xl text-[11px] font-black transition-all flex items-center justify-center gap-1 shadow-sm active:scale-95">
+                        <i class="fa-solid fa-motorcycle text-indigo-600"></i> <span>للمندوب</span>
+                    </button>
+                </div>
+
+                <!-- الصف 2: تحويل الحالة الجماعي بألوان هادئة متناسقة -->
+                <div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                    <button type="button" onclick="bulkChangeStatus('new')" class="bg-slate-50 hover:bg-blue-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all active:scale-95">🆕 جديد</button>
+                    <button type="button" onclick="bulkChangeStatus('processing')" class="bg-slate-50 hover:bg-amber-500 text-slate-700 hover:text-slate-950 border border-slate-200 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all active:scale-95">⏳ تجهيز</button>
+                    <button type="button" onclick="bulkChangeStatus('deferred')" class="bg-slate-50 hover:bg-orange-500 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all active:scale-95">📅 مؤجل</button>
+                    <button type="button" onclick="bulkChangeStatus('no_answer')" class="bg-slate-50 hover:bg-purple-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all active:scale-95">📵 لم يرد</button>
+                    <button type="button" onclick="bulkChangeStatus('completed')" class="bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-600 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all shadow-sm active:scale-95">✅ مكتمل</button>
+                    <button type="button" onclick="bulkChangeStatus('trash')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all active:scale-95"><i class="fa-solid fa-trash ml-0.5"></i> سلة</button>
+                </div>
+            `;
+        }
+
+    };
+
+    window.toggleAdvancedFiltersDrawer = function () {
+        const drawer = document.getElementById('so-advanced-filters-drawer');
+        if (!drawer) return;
+        window.ordersFilterState.filtersOpen = !window.ordersFilterState.filtersOpen;
+        window.ordersFilterState.filtersExpanded = window.ordersFilterState.filtersOpen;
+        if (window.ordersFilterState.filtersOpen) {
+            populateOrdersToolbarDropdowns();
+            drawer.classList.remove('hidden');
+        } else {
+            drawer.classList.add('hidden');
+        }
+    };
+
+    window.setOrdersQuickFilter = function (key, val) {
+        window.ordersFilterState[key] = val;
+        window.ordersRenderLimit = 30;
+        const hasActiveFilter = (
+            window.ordersFilterState.batch !== 'all' ||
+            window.ordersFilterState.zone !== 'all' ||
+            window.ordersFilterState.payment !== 'all' ||
+            window.ordersFilterState.driver !== 'all' ||
+            (document.getElementById('search-order')?.value || '').trim() !== ''
+        );
+        const resetBtn = document.getElementById('so-btn-reset-filters');
+        const dot = document.getElementById('so-active-filters-dot');
+        if (resetBtn) {
+            if (hasActiveFilter) resetBtn.classList.remove('hidden');
+            else resetBtn.classList.add('hidden');
+        }
+        if (dot) {
+            if (hasActiveFilter) dot.classList.remove('hidden');
+            else dot.classList.add('hidden');
+        }
+        window.renderOrdersList();
+    };
+
+    window.resetAllOrdersFilters = function () {
+        window.ordersFilterState.batch = 'all';
+        window.ordersFilterState.zone = 'all';
+        window.ordersFilterState.payment = 'all';
+        window.ordersFilterState.driver = 'all';
+        window.ordersRenderLimit = 30;
+        if (document.getElementById('so-filter-batch')) document.getElementById('so-filter-batch').value = 'all';
+        if (document.getElementById('so-filter-zone')) document.getElementById('so-filter-zone').value = 'all';
+        if (document.getElementById('so-filter-payment')) document.getElementById('so-filter-payment').value = 'all';
+        if (document.getElementById('so-filter-driver')) document.getElementById('so-filter-driver').value = 'all';
+        if (document.getElementById('search-order')) document.getElementById('search-order').value = '';
+        document.getElementById('so-btn-reset-filters')?.classList.add('hidden');
+        document.getElementById('so-active-filters-dot')?.classList.add('hidden');
+        window.renderOrdersList();
+    };
+
+    window.toggleOrdersCompactMode = function () {
+        window.ordersFilterState.compactMode = !window.ordersFilterState.compactMode;
+        const btn = document.getElementById('so-btn-compact');
+        if (btn) {
+            btn.className = window.ordersFilterState.compactMode
+                ? 'bg-sky-500 text-slate-950 px-2.5 py-1 rounded-lg text-[11px] font-black transition-all flex items-center gap-1 shadow-sm'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-lg text-[11px] font-black transition-all flex items-center gap-1';
+            btn.innerHTML = window.ordersFilterState.compactMode
+                ? '<i class="fa-solid fa-expand text-[10px]"></i> تفصيلي'
+                : '<i class="fa-solid fa-compress text-sky-400 text-[10px]"></i> مدمج';
+        }
+        window.renderOrdersList();
+    };
+    window.toggleCompactOrdersMode = window.toggleOrdersCompactMode;
+
+    window.toggleSelectAllVisibleOrders = function () {
+        const cbs = Array.from(document.querySelectorAll('.bulk-order-cb'));
+        if (cbs.length === 0) return;
+        const allChecked = cbs.every(cb => cb.checked);
+        cbs.forEach(cb => { cb.checked = !allChecked; });
+        window.toggleBulkActionBar();
+    };
+
+    window.clearAllBulkSelections = function () {
+        document.querySelectorAll('.bulk-order-cb').forEach(cb => { cb.checked = false; });
+        window.toggleBulkActionBar();
+    };
+
+    function populateOrdersToolbarDropdowns() {
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
+
+        const activeOrders = ordersList.filter(o => o && o.status !== 'trash' && !o.isArchived);
+
+        const batchSelect = document.getElementById('so-filter-batch');
+        if (batchSelect) {
+            const curB = window.ordersFilterState.batch;
+            const batchCounts = {};
+            Object.values(batchesObj).forEach(b => {
+                if (b && b.name && b.name !== 'undefined') batchCounts[b.name.trim()] = 0;
+            });
+            let normalCount = 0;
+            activeOrders.forEach(o => {
+                const bName = getOrderBatchTitle(o);
+                if (bName) batchCounts[bName] = (batchCounts[bName] || 0) + 1;
+                else normalCount++;
+            });
+
+            let bHtml = `<option value="all">🏷️ كل الدفعات والفوري (${activeOrders.length})</option>`;
+            bHtml += `<option value="batches_only" ${curB === 'batches_only' ? 'selected' : ''}>📌 طلبات الدفعات فقط</option>`;
+            bHtml += `<option value="normal_only" ${curB === 'normal_only' ? 'selected' : ''}>❄️ فوري بدون دفعة (${normalCount})</option>`;
+            Object.keys(batchCounts).forEach(bName => {
+                bHtml += `<option value="${bName}" ${curB === bName ? 'selected' : ''}>🏷️ ${bName} (${batchCounts[bName]})</option>`;
+            });
+            batchSelect.innerHTML = bHtml;
+            batchSelect.value = curB;
+        }
+
+        const zoneSelect = document.getElementById('so-filter-zone');
+        if (zoneSelect) {
+            const curZ = window.ordersFilterState.zone;
+            const zoneCounts = {};
+            activeOrders.forEach(o => {
+                const z = (o.zone || 'غير مسجل').trim();
+                zoneCounts[z] = (zoneCounts[z] || 0) + 1;
+            });
+            let zHtml = `<option value="all">📍 كل المناطق</option>`;
+            Object.keys(zoneCounts).sort((a, b) => zoneCounts[b] - zoneCounts[a]).forEach(z => {
+                zHtml += `<option value="${z}" ${curZ === z ? 'selected' : ''}>📍 ${z} (${zoneCounts[z]})</option>`;
+            });
+            zoneSelect.innerHTML = zHtml;
+            zoneSelect.value = curZ;
+        }
+
+        const driverSelect = document.getElementById('so-filter-driver');
+        if (driverSelect) {
+            const curD = window.ordersFilterState.driver;
+            const driverCounts = {};
+            (storeSettings?.drivers || []).forEach(d => {
+                if (d && d.name) driverCounts[d.name.trim()] = 0;
+            });
+            activeOrders.forEach(o => {
+                if (o.driverName && o.driverName.trim() !== '') {
+                    const dName = o.driverName.trim();
+                    driverCounts[dName] = (driverCounts[dName] || 0) + 1;
+                }
+            });
+            let dHtml = `<option value="all">🛵 كل المناديب</option>`;
+            dHtml += `<option value="unassigned" ${curD === 'unassigned' ? 'selected' : ''}>⏳ بدون مندوب</option>`;
+            Object.keys(driverCounts).forEach(dName => {
+                dHtml += `<option value="${dName}" ${curD === dName ? 'selected' : ''}>🛵 ${dName} (${driverCounts[dName]})</option>`;
+            });
+            driverSelect.innerHTML = dHtml;
+            driverSelect.value = curD;
+        }
+    }
+
+    // =========================================================================
+    // 🛵 4. نافذة وتوجيه الطلب للمندوب بخطوة واحدة (بدون إجبارك على فتح واتساب)
+    // =========================================================================
+    window.triggerOrderDriverStep = function (btnEl, orderId) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
         if (!order) return;
+
+        const drivers = (typeof storeSettings !== 'undefined' && Array.isArray(storeSettings.drivers)) ? storeSettings.drivers : [];
+        if (drivers.length === 0) {
+            if (typeof window.openDispatchModal === 'function') {
+                return window.openDispatchModal();
+            }
+            return alert('يرجى إضافة مندوب واحد على الأقل من إعدادات المتجر أولاً!');
+        }
+
+        if (typeof window.openLivePopover === 'function') {
+            const drvButtons = drivers.map(d => {
+                const safeName = (d.name || '').replace(/'/g, "\\'");
+                const safePhone = (d.phone || '').replace(/'/g, "\\'");
+                return `
+                <div class="flex gap-1.5">
+                    <button type="button" onclick="assignSingleOrderToDriver('${orderId}', '${safeName}', '${safePhone}', false)" class="flex-1 bg-indigo-50 hover:bg-indigo-600 text-indigo-900 hover:text-white py-2 px-3 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between shadow-sm">
+                        <span>🛵 ${d.name}</span>
+                        <span class="text-[10px] opacity-80">نقل مباشر ⚡</span>
+                    </button>
+                    <button type="button" onclick="assignSingleOrderToDriver('${orderId}', '${safeName}', '${safePhone}', true)" class="bg-[#25D366] hover:bg-[#1ebd57] text-white px-3 rounded-xl text-xs font-black flex items-center justify-center shadow-sm" title="نقل للطريق مع إرسال رسالة واتساب للمندوب">
+                        <i class="fa-brands fa-whatsapp"></i>
+                    </button>
+                </div>`;
+            }).join('');
+
+            const html = `
+                <div class="space-y-2.5">
+                    <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                        <span class="text-xs font-black text-indigo-800"><i class="fa-solid fa-motorcycle ml-1"></i> اختر المندوب للنقل الفوري</span>
+                        <button type="button" onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <p class="text-[11px] font-bold text-slate-600">العميل: <strong class="text-slate-800">${order.customerName || ''}</strong> (${order.zone || ''})</p>
+                    <div class="space-y-1.5 max-h-52 overflow-y-auto custom-scroll">${drvButtons}</div>
+                    <button type="button" onclick="closeLivePopover(); openDispatchModal();" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 rounded-xl text-[10px] font-black mt-1">
+                        📋 فتح شاشة التوجيه الجماعي للمناديب
+                    </button>
+                </div>
+            `;
+            return window.openLivePopover(btnEl, html);
+        }
+
+        if (typeof window.openDispatchModal === 'function') {
+            window.openDispatchModal();
+        }
+    };
+
+    window.assignSingleOrderToDriver = async function (orderId, driverName, driverPhone, sendWa = false) {
+        if (typeof window.closeLivePopover === 'function') window.closeLivePopover();
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
+        if (!order) return;
+
+        try {
+            await db.collection('orders').doc(orderId).update({
+                driverName: driverName,
+                driverPhone: driverPhone || '',
+                status: 'dispatched',
+                dispatchedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            order.driverName = driverName;
+            order.driverPhone = driverPhone || '';
+            order.status = 'dispatched';
+            if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
+                globalOrdersMap[orderId].driverName = driverName;
+                globalOrdersMap[orderId].driverPhone = driverPhone || '';
+                globalOrdersMap[orderId].status = 'dispatched';
+            }
+
+            if (sendWa && driverPhone) {
+                const itemsStr = Array.isArray(order.items) ? order.items.map(i => `${i.quantity}x ${i.name}`).join(' + ') : '';
+                const payBr = (typeof window.getOrderPaymentBreakdown === 'function')
+                    ? window.getOrderPaymentBreakdown(order)
+                    : { method: order.paymentMethod || 'cash', cash: Number(order.total) || 0, online: 0 };
+
+                const totalToCollect = payBr.method === 'online'
+                    ? '0 ج.م (الحساب خالص أونلاين ✅)'
+                    : (payBr.method === 'split'
+                        ? `${payBr.cash} ج.م كاش (ومدفوع ${payBr.online} ج محفظة ✅)`
+                        : `${order.total || 0} ج.م`);
+
+                const msg = `*🛵 طلب توصيل - سمان ههيا*\n👤 العميل: ${order.customerName || ''}\n📞 موبايل: ${order.customerPhone || ''}${order.customerPhone2 ? '\n📱 بديل: ' + order.customerPhone2 : ''}\n📍 العنوان: ${order.zone || ''} - ${order.customerAddress || ''}\n📦 الأصناف: ${itemsStr}\n💰 المطلوب تحصيله: *${totalToCollect}*${order.driverNote ? '\n⚠️ ملاحظة: ' + order.driverNote.split('\n---\n').pop() : ''}`;
+                const cleanP = driverPhone.toString().trim();
+                const waNum = cleanP.startsWith('0') ? '2' + cleanP : cleanP;
+                window.open(`https://wa.me/${waNum}?text=${encodeURIComponent(msg)}`, '_blank');
+            }
+
+            window.renderOrdersList();
+            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
+            if (typeof window.showToast === 'function') window.showToast(`🛵 خرج الطلب مع المندوب: ${driverName}`);
+        } catch (e) {
+            alert('حدث خطأ أثناء توجيه الطلب للمندوب!');
+        }
+    };
+    // =========================================================================
+    // 💬 5. منظومة رسائل واتساب الـ 5 الذكية للعميل (تعمل بكبسولة شيك بدون مطّ الأزرار)
+    // =========================================================================
+    window.openWhatsAppTemplatesPopover = function (anchorEl, orderId) {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === orderId);
+        if (!order) return;
+
+        const html = `
+            <div class="space-y-2">
+                <div class="flex justify-between items-center border-b border-slate-100 pb-1.5">
+                    <span class="text-xs font-black text-emerald-800"><i class="fa-brands fa-whatsapp text-emerald-600 ml-1"></i> اختر رسالة واتساب لـ (${order.customerName || 'العميل'})</span>
+                    <button type="button" onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="space-y-1.5">
+                    <button type="button" onclick="closeLivePopover(); sendQuickWhatsAppOption('${orderId}', 'invoice')" class="w-full bg-emerald-50 hover:bg-emerald-600 text-emerald-950 hover:text-white py-2 px-3 rounded-xl text-[11px] font-black text-right transition-all flex items-center justify-between border border-emerald-200/80">
+                        <span>🧾 1. إرسال الفاتورة وتفاصيل الطلب</span>
+                        <i class="fa-solid fa-paper-plane text-[10px]"></i>
+                    </button>
+                    <button type="button" onclick="closeLivePopover(); sendQuickWhatsAppOption('${orderId}', 'on_way')" class="w-full bg-indigo-50 hover:bg-indigo-600 text-indigo-950 hover:text-white py-2 px-3 rounded-xl text-[11px] font-black text-right transition-all flex items-center justify-between border border-indigo-200/80">
+                        <span>🛵 2. الطلب خرج وفي الطريق مع المندوب</span>
+                        <i class="fa-solid fa-motorcycle text-[10px]"></i>
+                    </button>
+                    <button type="button" onclick="closeLivePopover(); sendQuickWhatsAppOption('${orderId}', 'no_answer')" class="w-full bg-purple-50 hover:bg-purple-600 text-purple-950 hover:text-white py-2 px-3 rounded-xl text-[11px] font-black text-right transition-all flex items-center justify-between border border-purple-200/80">
+                        <span>📵 3. رنينا عليك ولم يتم الرد (تأكيد الموعد)</span>
+                        <i class="fa-solid fa-phone-slash text-[10px]"></i>
+                    </button>
+                    <button type="button" onclick="closeLivePopover(); sendQuickWhatsAppOption('${orderId}', 'deferred')" class="w-full bg-orange-50 hover:bg-orange-600 text-orange-950 hover:text-white py-2 px-3 rounded-xl text-[11px] font-black text-right transition-all flex items-center justify-between border border-orange-200/80">
+                        <span>📅 4. تأكيد تأجيل وجدولة موعد التسليم</span>
+                        <i class="fa-regular fa-calendar-check text-[10px]"></i>
+                    </button>
+                    <button type="button" onclick="closeLivePopover(); sendQuickWhatsAppOption('${orderId}', 'prepay')" class="w-full bg-amber-50 hover:bg-amber-500 text-amber-950 hover:text-white py-2 px-3 rounded-xl text-[11px] font-black text-right transition-all flex items-center justify-between border border-amber-200/80">
+                        <span>💳 5. طلب تحويل دفعة/الحساب (فودافون كاش)</span>
+                        <i class="fa-solid fa-wallet text-[10px]"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+
+        if (typeof window.openLivePopover === 'function') {
+            window.openLivePopover(anchorEl, html);
+        } else {
+            window.sendMessageToCustomer(order.customerPhone, order.id);
+        }
+    };
+
+    window.sendQuickWhatsAppOption = function (orderId, templateType) {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
+        if (!order) return;
+
+        if (templateType === 'invoice') {
+            return window.sendMessageToCustomer(order.customerPhone, order.id);
+        }
+
+        const cName = order.customerName || 'فندم';
+        const itemsText = (order.items && Array.isArray(order.items)) ? order.items.map(i => `${i.quantity}x ${i.name}`).join(' + ') : '';
+        const total = order.total || 0;
+        const storePhone = (typeof storeSettings !== 'undefined' && storeSettings.storePhone) ? storeSettings.storePhone : '01208027294';
+        const payBr = (typeof window.getOrderPaymentBreakdown === 'function')
+            ? window.getOrderPaymentBreakdown(order)
+            : { method: order.paymentMethod || 'cash', cash: total, online: 0 };
+
+        let msg = '';
+
+        if (templateType === 'on_way') {
+            const drvInfo = order.driverName ? `مع المندوب (${order.driverName}${order.driverPhone ? ' - ' + order.driverPhone : ''})` : 'مع المندوب الآن';
+            const collectTxt = payBr.method === 'online'
+                ? '0 ج (خالص أونلاين ✅)'
+                : (payBr.method === 'split' ? `${payBr.cash} ج كاش (ومدفوع ${payBr.online} ج محفظة ✅)` : `${total} ج.م`);
+            msg = `أهلاً بحضرتك يا ${cName} 🌹\nأوردر "سمان ههيا" خرج لحضرتك وفي الطريق إليك ${drvInfo} 🛵\n\n📦 الأصناف: ${itemsText}\n💰 المطلوب عند الاستلام: ${collectTxt}\n\nيرجى إبقاء الهاتف متاحاً، وتشرفنا بخدمتك!`;
+        } else if (templateType === 'no_answer') {
+            msg = `أهلاً بحضرتك يا ${cName} 🌹\nحاولنا الاتصال بحضرتك لتنسيق تسليم أوردر "سمان ههيا" (${itemsText}) ولكن الهاتف غير متاح أو لم يتم الرد 📵\n\nيرجى التواصل معنا هنا لتأكيد الموعد المناسب للاستلام.`;
+        } else if (templateType === 'deferred') {
+            const schedTxt = order.deferredDisplayStr ? `ليوم (${order.deferredDisplayStr})` : 'للموعد المتفق عليه';
+            msg = `أهلاً بحضرتك يا ${cName} 🌹\nتم تأكيد جدولة وتأجيل تسليم أوردر "سمان ههيا" الخاص بحضرتك (${itemsText}) ${schedTxt} 📅\n\n💰 الإجمالي: ${total} ج.م\nسنتواصل معك قبل خروج الطلب، وتشرفنا بخدمتك دائماً 🤍`;
+        } else if (templateType === 'prepay') {
+            msg = `أهلاً بحضرتك يا ${cName} 🌹\nلتأكيد تجهيز وحجز أوردر "سمان ههيا" الخاص بحضرتك:\n📦 الأصناف: ${itemsText}\n💰 الإجمالي: ${total} ج.م\n\nيرجى تحويل قيمة الطلب على فودافون كاش / إنستاباي على الرقم:\n*${storePhone}*\nوإرسال صورة التحويل هنا لتأكيد التجهيز فوراً ✅`;
+        }
+
+        const cleanPhone = (order.customerPhone || '').toString().trim();
+        const waNumber = cleanPhone.startsWith('0') ? '2' + cleanPhone : cleanPhone;
+        if (waNumber) {
+            window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}`, '_blank');
+        } else {
+            alert('لا يوجد رقم هاتف مسجل للعميل!');
+        }
+    };
+
+    // =========================================================================
+    // 💬 استوديو الملاحظات الموحد بلمسة واحدة (يفتح من أيقونة واحدة شيك)
+    // =========================================================================
+    window.toggleInlineNotes = function (e, orderId, field, forceReopen = false) {
+        if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+        const container = document.getElementById(`inline-notes-container-${orderId}`);
+        if (!container) return;
+
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === orderId);
+        if (!field) {
+            field = (order && !order.driverNote && order.adminNote) ? 'adminNote' : 'driverNote';
+        }
+
+        if (!forceReopen && openInlineNoteId === orderId && !container.classList.contains('hidden')) {
+            container.classList.add('hidden');
+            openInlineNoteId = null;
+            openInlineNoteField = null;
+            return;
+        }
+
+        if (openInlineNoteId && openInlineNoteId !== orderId) {
+            const oldContainer = document.getElementById(`inline-notes-container-${openInlineNoteId}`);
+            if (oldContainer) oldContainer.classList.add('hidden');
+        }
+
+        openInlineNoteId = orderId;
+        openInlineNoteField = field;
+        container.classList.remove('hidden');
+        window.renderInlineNotesContent(orderId, field);
+    };
+
+    window.renderInlineNotesContent = function (orderId, field) {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === orderId);
+        const container = document.getElementById(`inline-notes-content-${orderId}`);
+        if (!order || !container) return;
+
+        const isDriver = (field === 'driverNote');
+        const drvCount = order.driverNote ? order.driverNote.split('\n---\n').filter(Boolean).length : 0;
+        const admCount = order.adminNote ? order.adminNote.split('\n---\n').filter(Boolean).length : 0;
+
+        const quickTags = isDriver
+            ? ['📞 اتصل قبل الوصول', '🏠 العميل هينزل يستلم', '💵 الدفع كاش', '💳 هيحول فودافون كاش', '⏰ التوصيل بعد العصر', '📍 بجوار المسجد']
+            : ['⚡ مستعجل اليوم', '💳 تم استلام التحويل', '🎁 خصم واجب خاص', '📞 تم التأكيد تليفونياً', '❄️ مجهز في الفريزر', '📕 باقي حساب آجل'];
+
+        const chunks = (order[field] || '').split('\n---\n').filter(c => c.trim() !== '');
+
+        const notesListHtml = chunks.length > 0
+            ? chunks.map((chunk, idx) => {
+                const match = chunk.match(/^(\[.*?\])\s*(.*)/s);
+                const dateStr = match ? match[1] : '';
+                const textStr = match ? match[2] : chunk;
+                const formattedTxt = typeof window.formatTags === 'function' ? window.formatTags(textStr) : textStr;
+
+                return `
+                <div class="bg-white border ${isDriver ? 'border-blue-200' : 'border-amber-200'} px-2.5 py-1.5 rounded-xl flex items-center justify-between gap-2 shadow-sm">
+                    <div class="text-[11px] font-black text-slate-800 leading-snug flex-1">
+                        ${dateStr ? `<span class="text-[9px] font-bold ${isDriver ? 'text-blue-600' : 'text-amber-600'} ml-1">${dateStr}</span>` : ''}
+                        <span>${formattedTxt}</span>
+                    </div>
+                    <div class="flex items-center gap-1 shrink-0">
+                        <button type="button" onclick="event.stopPropagation(); editInlineNoteChunk('${orderId}', '${field}', ${idx})" class="bg-slate-100 hover:bg-blue-600 text-slate-600 hover:text-white px-2 py-0.5 rounded-lg text-[10px] font-black transition-colors">تعديل</button>
+                        <button type="button" onclick="event.stopPropagation(); deleteInlineNoteChunk('${orderId}', '${field}', ${idx})" class="bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white px-2 py-0.5 rounded-lg text-[10px] font-black transition-colors"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </div>`;
+            }).join('')
+            : `<div class="text-center py-2 text-[10px] text-slate-400 font-bold bg-white/70 rounded-xl border border-dashed border-slate-200">المس أي جملة جاهزة بالأسفل لحفظها فوراً بضغطة واحدة!</div>`;
+
+        const quickChipsHtml = quickTags.map(tag => {
+            const safeTag = tag.replace(/'/g, "\\'");
+            return `
+                <button type="button" onclick="event.stopPropagation(); instantSaveQuickNote('${orderId}', '${field}', '${safeTag}')" class="${isDriver ? 'bg-white hover:bg-blue-600 text-blue-900 hover:text-white border-blue-200' : 'bg-white hover:bg-amber-500 text-amber-950 hover:text-white border-amber-200'} border px-2 py-1 rounded-lg text-[10px] font-black transition-all shadow-sm active:scale-95">
+                    + ${tag}
+                </button>
+            `;
+        }).join('');
+
+        container.innerHTML = `
+            <div onclick="event.stopPropagation()" class="p-2.5 ${isDriver ? 'bg-blue-50/90 border-blue-300' : 'bg-amber-50/90 border-amber-300'} border rounded-2xl space-y-2 shadow-inner mt-1">
+                <div class="flex items-center justify-between gap-2 pb-1.5 border-b ${isDriver ? 'border-blue-200/80' : 'border-amber-200/80'}">
+                    <div class="flex items-center gap-1">
+                        <button type="button" onclick="openInlineNoteField='driverNote'; renderInlineNotesContent('${orderId}', 'driverNote')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${isDriver ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}">
+                            🛵 للمندوب ${drvCount > 0 ? `(${drvCount})` : ''}
+                        </button>
+                        <button type="button" onclick="openInlineNoteField='adminNote'; renderInlineNotesContent('${orderId}', 'adminNote')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${!isDriver ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}">
+                            🔒 إداري ${admCount > 0 ? `(${admCount})` : ''}
+                        </button>
+                    </div>
+                    <button type="button" onclick="document.getElementById('inline-notes-container-${orderId}').classList.add('hidden'); openInlineNoteId = null;" class="w-6 h-6 rounded-lg bg-white text-slate-500 hover:bg-red-500 hover:text-white flex items-center justify-center shadow-sm">
+                        <i class="fa-solid fa-xmark text-xs"></i>
+                    </button>
+                </div>
+
+                <div class="space-y-1 max-h-36 overflow-y-auto custom-scroll">${notesListHtml}</div>
+
+                <div class="flex flex-wrap gap-1">${quickChipsHtml}</div>
+
+                <div class="flex gap-1.5">
+                    <input type="text" id="inline-input-${orderId}" onkeydown="if(event.key==='Enter'){event.preventDefault(); saveInlineNote('${orderId}', '${field}');}" class="flex-1 border ${isDriver ? 'border-blue-300' : 'border-amber-300'} rounded-xl px-2.5 py-1.5 text-xs font-black bg-white text-slate-800 outline-none" placeholder="${isDriver ? 'اكتب للمندوب واضغط حفظ...' : 'اكتب للإدارة واضغط حفظ...'}">
+                    <button type="button" onclick="saveInlineNote('${orderId}', '${field}')" class="${isDriver ? 'bg-blue-600 text-white' : 'bg-amber-500 text-slate-950'} px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm shrink-0">
+                        حفظ
+                    </button>
+                </div>
+            </div>
+        `;
+    };
+
+    window.instantSaveQuickNote = async function (orderId, field, noteText) {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === orderId);
+        if (!order || !noteText) return;
+
+        const dateStr = new Date().toLocaleString('ar-EG', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const formattedNote = `[${dateStr}] ${noteText.trim()}`;
+        const currentText = order[field] || '';
+        const updatedText = currentText ? `${currentText}\n---\n${formattedNote}` : formattedNote;
+
+        order[field] = updatedText;
+        if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
+            globalOrdersMap[orderId][field] = updatedText;
+        }
+
+        window.renderOrdersList();
+        if (typeof window.showToast === 'function') {
+            window.showToast(field === 'driverNote' ? `🛵 أُضيفت للمندوب: ${noteText}` : `🔒 أُضيفت للإدارة: ${noteText}`);
+        }
+
+        try {
+            await db.collection('orders').doc(orderId).update({ [field]: updatedText });
+        } catch (e) {}
+    };
+
+    window.saveInlineNote = async function (orderId, field) {
+        const input = document.getElementById(`inline-input-${orderId}`);
+        if (!input) return;
+        const text = input.value.trim();
+        if (!text) return;
+        input.value = '';
+        await window.instantSaveQuickNote(orderId, field, text);
+    };
+
+    window.clearSingleNoteFieldQuick = async function (orderId, field) {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === orderId);
+        if (!order || !order[field]) return;
+        const titleAr = field === 'driverNote' ? 'ملاحظة المندوب' : 'الملاحظة الإدارية';
+        if (!confirm(`مسح ${titleAr} من هذا الطلب؟`)) return;
+
+        order[field] = '';
+        if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
+            globalOrdersMap[orderId][field] = '';
+        }
+        window.renderOrdersList();
+        try {
+            await db.collection('orders').doc(orderId).update({ [field]: '' });
+        } catch (e) {}
+    };
+
+    // =========================================================================
+    // 🚀 6. المحرك البريميوم الشيك لبطاقات الطلبات (الطلب واضح وبارز + أزرار رشيقة + أيقونة ملاحظة واحدة)
+    // =========================================================================
+    window.renderOrdersList = function () {
+        window.initSmartOrdersToolbar();
+        if (window.ordersFilterState.filtersOpen) {
+            populateOrdersToolbarDropdowns();
+        }
+
+        const container = document.getElementById('orders-list-vertical');
+        if (!container) return;
+
+        let filterText = (document.getElementById('search-order')?.value || '').toLowerCase();
+        let dynamicCounts = { new: 0, processing: 0, dispatched: 0, deferred: 0, no_answer: 0, completed: 0, canceled: 0 };
+
+        let filterWords = [];
+        let exactPhrases = [];
+        let quotesMatch = filterText.match(/"([^"]+)"/g);
+        if (quotesMatch) {
+            quotesMatch.forEach(q => {
+                exactPhrases.push(q.replace(/"/g, '').trim());
+                filterText = filterText.replace(q, '');
+            });
+        }
+        filterWords = filterWords.concat(filterText.split(' ').filter(w => w.trim() !== ''));
+
+        const fState = window.ordersFilterState;
+
+        let filteredBase = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o => {
+            if (!o || o.status === 'trash' || o.isArchived) return false;
+
+            const realBatchTitle = getOrderBatchTitle(o);
+            const bNameSearch = realBatchTitle ? realBatchTitle : (o.customTag ? `تاج مخصص: ${o.customTag}` : 'أوردرات عادية');
+
+            if (fState.batch !== 'all') {
+                if (fState.batch === 'batches_only' && !realBatchTitle) return false;
+                if (fState.batch === 'normal_only' && realBatchTitle) return false;
+                if (fState.batch !== 'batches_only' && fState.batch !== 'normal_only' && realBatchTitle !== fState.batch) return false;
+            }
+            if (fState.zone !== 'all' && (o.zone || 'غير مسجل').trim() !== fState.zone) return false;
+            if (fState.payment !== 'all') {
+                if (fState.payment === 'online' && o.paymentMethod !== 'online') return false;
+                if (fState.payment === 'split' && o.paymentMethod !== 'split') return false;
+                if (fState.payment === 'cash' && (o.paymentMethod === 'online' || o.paymentMethod === 'split')) return false;
+                if (fState.payment === 'has_debt' && !(Number(o.debt) > 0)) return false;
+                if (fState.payment === 'has_discount' && !(Number(o.discount) > 0)) return false;
+            }
+            if (fState.driver !== 'all') {
+                if (fState.driver === 'unassigned' && o.driverName) return false;
+                if (fState.driver !== 'unassigned' && (o.driverName || '').trim() !== fState.driver) return false;
+            }
+
+            let normPhone1 = window.normalizePhone ? window.normalizePhone(o.customerPhone) : (o.customerPhone || '');
+
+            if (filterWords.length > 0 || exactPhrases.length > 0) {
+                let itemsString = (o.items && Array.isArray(o.items)) ? o.items.map(i => i.name).join(' ') : '';
+                let normPhone2 = window.normalizePhone ? window.normalizePhone(o.customerPhone2) : (o.customerPhone2 || '');
+
+                let searchStr = `${o.customerName || ''} ${o.customerPhone || ''} ${normPhone1} ${o.customerPhone2 || ''} ${normPhone2} ${bNameSearch} ${o.zone || ''} ${o.customerAddress || ''} ${o.driverName || ''} ${itemsString} ${o.adminNote || ''} ${o.driverNote || ''}`.toLowerCase();
+                searchStr = searchStr.replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660).replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0);
+
+                let matchSearch = filterWords.every(word => {
+                    let engWord = word.replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660).replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0);
+                    let normWord = window.normalizePhone ? window.normalizePhone(word) : word;
+                    return searchStr.includes(engWord) || (normWord !== '' && normWord.length > 5 && searchStr.includes(normWord));
+                });
+
+                let matchExact = exactPhrases.every(p => {
+                    let isBatch = bNameSearch.toLowerCase() === p;
+                    let isZone = (o.zone || '').toLowerCase() === p;
+                    let isName = (o.customerName || '').toLowerCase() === p;
+                    let isItem = o.items ? o.items.some(i => i.name.toLowerCase() === p) : false;
+                    return isBatch || isZone || isItem || isName || searchStr.includes(p);
+                });
+
+                if (!matchSearch || !matchExact) return false;
+            }
+
+            let matchSmart = true;
+            if (typeof currentSmartFilter !== 'undefined' && currentSmartFilter === 'vip') {
+                let c = (typeof customersData !== 'undefined' ? customersData : []).find(x => window.normalizePhone(x.phone) === normPhone1);
+                matchSmart = c && (c.ordersCount >= 3 || c.totalSpent >= 1500);
+            } else if (typeof currentSmartFilter !== 'undefined' && currentSmartFilter === 'high_value') {
+                matchSmart = Number(o.total) >= 500;
+            }
+
+            if (matchSmart) {
+                if (dynamicCounts[o.status] !== undefined) dynamicCounts[o.status]++;
+                return true;
+            }
+            return false;
+        });
+
+        ['new', 'processing', 'dispatched', 'deferred', 'no_answer', 'completed', 'canceled'].forEach(s => {
+            let b = document.getElementById(`badge-${s}`);
+            if (b) b.innerText = dynamicCounts[s] || 0;
+        });
+
+        const totalNonCanceled = filteredBase.filter(o => o.status !== 'canceled').length;
+        const tabAllBtn = document.getElementById('tab-all');
+        if (tabAllBtn) {
+            tabAllBtn.innerHTML = `الكل <span id="badge-all" class="mr-1 px-1.5 py-0.5 rounded-md text-[10px] font-black">${totalNonCanceled}</span>`;
+        }
+
+        let activeTab = (typeof currentOrderTab !== 'undefined') ? currentOrderTab : 'all';
+        window.applyCrispOrderTabsVisuals(activeTab);
+
+        let filtered = filteredBase.filter(o => (activeTab === 'all') || (o.status === activeTab));
+
+        const getSafeOrderMs = (ord) => {
+            if (!ord || !ord.createdAt) return 0;
+            if (typeof ord.createdAt.toMillis === 'function') return ord.createdAt.toMillis();
+            if (typeof ord.createdAt.seconds === 'number') return ord.createdAt.seconds * 1000;
+            const parsed = new Date(ord.createdAt).getTime();
+            return isNaN(parsed) ? 0 : parsed;
+        };
+
+        let sortDir = (typeof ordersSortDirection !== 'undefined') ? ordersSortDirection : 'desc';
+        filtered.sort((a, b) => {
+            let timeA = getSafeOrderMs(a);
+            let timeB = getSafeOrderMs(b);
+            return sortDir === 'desc' ? (timeB - timeA) : (timeA - timeB);
+        });
+
+        let sumMeat = 0, sumEggs = 0, sumChicks = 0, sumMoney = 0;
+        filtered.forEach(o => {
+            if (o.status === 'canceled') return;
+            sumMoney += Number(o.total) || 0;
+            if (Array.isArray(o.items)) {
+                o.items.forEach(i => {
+                    const q = Number(i.quantity) || 0;
+                    const t = classifyItemType(i);
+                    if (t === 'egg') sumEggs += q;
+                    else if (t === 'chick') sumChicks += q;
+                    else sumMeat += q;
+                });
+            }
+        });
+
+        if (document.getElementById('so-sum-count')) document.getElementById('so-sum-count').innerText = filtered.length;
+        if (document.getElementById('so-sum-meat')) document.getElementById('so-sum-meat').innerText = Number(sumMeat.toFixed(1));
+        if (document.getElementById('so-sum-money')) document.getElementById('so-sum-money').innerText = sumMoney.toLocaleString() + ' ج';
+        const exWrap = document.getElementById('so-sum-extras-wrap');
+        if (exWrap) {
+            let exParts = [];
+            if (sumEggs > 0) exParts.push(`🥚 بيض: <strong class="text-amber-300">${sumEggs}</strong>`);
+            if (sumChicks > 0) exParts.push(`🐣 كتاكيت: <strong class="text-sky-300">${sumChicks}</strong>`);
+            if (exParts.length > 0) {
+                exWrap.innerHTML = '| ' + exParts.join(' | ');
+                exWrap.classList.remove('hidden');
+            } else {
+                exWrap.classList.add('hidden');
+            }
+        }
+
+        const todayStrEn = new Date().toLocaleDateString('en-US');
+        let compToday = 0;
+        filteredBase.forEach(o => {
+            if (o.status === 'completed' && (o.completedAtStr === todayStrEn || o.orderDate === todayStrEn)) {
+                compToday++;
+            }
+        });
+        const activePipelineTotal = dynamicCounts.new + dynamicCounts.processing + dynamicCounts.dispatched + compToday;
+        const progPct = activePipelineTotal > 0 ? Math.min(100, Math.round(((compToday + (dynamicCounts.dispatched * 0.6) + (dynamicCounts.processing * 0.3)) / activePipelineTotal) * 100)) : 100;
+
+        if (document.getElementById('so-prog-pct')) document.getElementById('so-prog-pct').innerText = progPct + '%';
+        if (document.getElementById('so-prog-bar')) document.getElementById('so-prog-bar').style.width = progPct + '%';
+        if (document.getElementById('so-ready-dispatch-cnt')) document.getElementById('so-ready-dispatch-cnt').innerText = dynamicCounts.processing || 0;
+        if (document.getElementById('so-prog-details')) {
+            document.getElementById('so-prog-details').innerText = `(جاهز: ${dynamicCounts.processing} • بالطريق: ${dynamicCounts.dispatched} • سُلّم اليوم: ${compToday})`;
+        }
+
+        if (filtered.length === 0) {
+            if (!window._crmDataReady && (!allOrdersRaw || allOrdersRaw.length === 0)) {
+                container.innerHTML = [1, 2, 3].map(() => `
+                    <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm space-y-2.5">
+                        <div class="flex justify-between items-center">
+                            <div class="h-4 w-40 rounded-lg skeleton-shimmer"></div>
+                            <div class="h-5 w-16 rounded-lg skeleton-shimmer"></div>
+                        </div>
+                        <div class="h-10 w-full rounded-xl skeleton-shimmer"></div>
+                        <div class="flex justify-between items-center pt-1">
+                            <div class="h-7 w-44 rounded-lg skeleton-shimmer"></div>
+                            <div class="h-7 w-24 rounded-lg skeleton-shimmer"></div>
+                        </div>
+                    </div>
+                `).join('');
+                return;
+            }
+            container.innerHTML = '<div class="text-center text-slate-400 py-16 font-bold border-2 border-dashed border-slate-200 rounded-[2rem] bg-white">لا توجد طلبات مطابقة في هذا القسم.</div>';
+            return;
+        }
+
+        if (typeof window.rebuildTrustCacheIfNeeded === 'function') {
+            window.rebuildTrustCacheIfNeeded();
+        }
+
+        const isCompact = window.ordersFilterState.compactMode;
+        const limitCount = window.ordersRenderLimit || 30;
+        const visibleOrders = filtered.slice(0, limitCount);
+        const remainingCount = filtered.length - visibleOrders.length;
+
+        const statusBorderMap = {
+            new: 'border-r-4 border-r-blue-500',
+            processing: 'border-r-4 border-r-amber-500',
+            dispatched: 'border-r-4 border-r-indigo-500',
+            deferred: 'border-r-4 border-r-orange-500',
+            no_answer: 'border-r-4 border-r-purple-500',
+            completed: 'border-r-4 border-r-emerald-500',
+            canceled: 'border-r-4 border-r-rose-400 opacity-85'
+        };
+
+        let cardsHtml = visibleOrders.map(o => {
+            const safeMs = getSafeOrderMs(o);
+            let d = o.orderDate || (safeMs ? new Date(safeMs).toLocaleDateString('en-US') : 'غير محدد');
+            let ageStr = getOrderAgeLabel(o);
+            let realBatchTitle = getOrderBatchTitle(o);
+            const rightAccentCls = statusBorderMap[o.status] || 'border-r-4 border-r-slate-400';
+
+            const payBr = (typeof window.getOrderPaymentBreakdown === 'function')
+                ? window.getOrderPaymentBreakdown(o)
+                : { method: o.paymentMethod || 'cash', cash: Number(o.total) || 0, online: 0, total: Number(o.total) || 0 };
+
+            let sBadge = o.status === 'new' ? '<span class="bg-blue-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">🆕 جديد</span>' :
+                (o.status === 'processing' ? '<span class="bg-amber-500 text-slate-950 px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">⏳ تجهيز</span>' :
+                (o.status === 'dispatched' ? '<span class="bg-indigo-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">🛵 بالطريق</span>' :
+                (o.status === 'deferred' ? '<span class="bg-orange-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">📅 مؤجل</span>' :
+                (o.status === 'no_answer' ? '<span class="bg-purple-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">📵 لم يرد</span>' :
+                (o.status === 'completed' ? '<span class="bg-emerald-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">✅ مكتمل</span>' :
+                '<span class="bg-rose-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">❌ ملغي</span>')))));
+
+            let trustInfo = (typeof window.fastAnalyzeOrderTrust === 'function')
+                ? window.fastAnalyzeOrderTrust(o)
+                : { cardClass: 'bg-white border-slate-100', badgeHtml: '', bannerHtml: '', stickyHtml: '' };
+
+            const originMeta = getOrderOriginMeta(o);
+            const originDotHtml = `<button type="button" data-lc-trigger="1" onclick="event.stopPropagation(); showOrderOriginPopover(this, '${o.id}')" title="${originMeta.title}" class="w-5 h-5 -mx-0.5 rounded-full hover:bg-slate-100 inline-flex items-center justify-center shrink-0 active:scale-90 transition-transform"><span class="w-2.5 h-2.5 rounded-full ${originMeta.dotCls} ring-2 block"></span></button>`;
+
+            // 📱 1. وضع العرض المدمج السريع (Compact Mode - خاصية مستقلة)
+            if (isCompact) {
+                let compactStepBtn = '';
+                if (o.status === 'new') compactStepBtn = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black">للتجهيز</button>`;
+                else if (o.status === 'processing') compactStepBtn = `<button data-lc-trigger="1" onclick="event.stopPropagation(); triggerOrderDriverStep(this, '${o.id}')" class="bg-indigo-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black">للمندوب</button>`;
+                else if (o.status === 'dispatched') compactStepBtn = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black">تسليم</button>`;
+
+                const compactItemsPills = (o.items && Array.isArray(o.items) && o.items.length > 0)
+                    ? o.items.map((i, idx) => `
+                        <span data-item-idx="${idx}" class="bg-slate-100 hover:bg-emerald-50 text-slate-800 border border-slate-200 px-2 py-0.5 rounded-lg text-[11px] font-black inline-flex items-center gap-1">
+                            <strong class="text-brand-primary">${i.quantity}x</strong> ${i.name}
+                        </span>
+                    `).join('')
+                    : '<span class="text-[10px] text-slate-400 font-bold">بدون أصناف</span>';
+
+                const compactPayBadge = payBr.method === 'online'
+                    ? '<span class="bg-emerald-500 text-white px-1.5 py-0.5 rounded text-[9px] font-black">خالص (أونلاين)</span>'
+                    : (payBr.method === 'split'
+                        ? `<span class="bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[9px] font-black">⚖️ نص (${payBr.cash}ج كاش)</span>`
+                        : '<span class="bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded text-[9px] font-black">كاش</span>');
+
+                return `
+                <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-2.5 rounded-2xl shadow-sm border hover:border-brand-primary transition-all space-y-1.5">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div class="flex flex-wrap items-center gap-1.5 min-w-0">
+                            <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer shrink-0">
+                            ${originDotHtml}
+                            <span onclick="openCustomerCard('${o.customerPhone}')" class="font-black text-slate-800 text-xs sm:text-sm cursor-pointer hover:text-brand-primary">${o.customerName || 'بدون اسم'}</span>
+                            ${trustInfo.badgeHtml}
+                            <a href="tel:${o.customerPhone}" onclick="event.stopPropagation();" class="inline-flex items-center gap-1 text-emerald-800 bg-emerald-50 hover:bg-emerald-600 hover:text-white border border-emerald-200 px-2 py-0.5 rounded-lg text-[10px] font-black transition-colors active:scale-95" title="اضغط للاتصال المباشر"><i class="fa-solid fa-phone text-[9px]"></i><span dir="ltr">${o.customerPhone || ''}</span></a>
+                            <span data-zone-pill="1" ondblclick="inlineEdit(this, '${o.id}', 'zone')" class="text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-lg">${o.zone || 'بدون منطقة'}</span>
+                            ${realBatchTitle ? `<span class="text-[9px] font-black bg-teal-50 text-teal-700 border border-teal-200 px-1.5 py-0.5 rounded">${realBatchTitle}</span>` : ''}
+                            ${compactPayBadge}
+                        </div>
+
+                        <div class="flex items-center gap-1.5 shrink-0 mr-auto sm:mr-0">
+                            <span class="font-black text-brand-primary text-sm sm:text-base">${o.total || 0} <span class="text-[10px]">ج</span></span>
+                            ${sBadge}
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100">
+                        <div class="flex flex-wrap items-center gap-1.5 flex-1 min-w-[180px]">
+                            ${compactItemsPills}
+                        </div>
+                        <div class="flex items-center gap-1 shrink-0">
+                            ${compactStepBtn}
+                            <button onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="bg-[#25D366] hover:bg-[#1ebd57] text-white w-7 h-7 rounded-lg text-xs flex items-center justify-center shadow-sm" title="واتساب"><i class="fa-brands fa-whatsapp"></i></button>
+                            <button onclick="openEditOrderModal('${o.id}')" class="bg-slate-800 hover:bg-slate-900 text-white w-7 h-7 rounded-lg text-[10px] flex items-center justify-center shadow-sm" title="تعديل"><i class="fa-solid fa-pen"></i></button>
+                            <button onclick="printSingleOrderWaybill('${o.id}')" class="bg-amber-50 hover:bg-amber-500 text-amber-800 hover:text-white border border-amber-200 w-7 h-7 rounded-lg text-[10px] flex items-center justify-center shadow-sm" title="بوليصة"><i class="fa-solid fa-print"></i></button>
+                        </div>
+                    </div>
+                </div>`;
+            }
+
+            // 🖥️ 2. الكارت البريميوم المتوازن: (الطلب والأصناف هما البطل الواضح + أزرار رشيقة + أيقونة ملاحظة واحدة)
+            let itemsStr = (o.items && Array.isArray(o.items)) ? o.items.map((i, idx) =>
+                `<div data-item-idx="${idx}" class="bg-white border-2 border-emerald-600/20 hover:border-brand-primary px-2.5 py-1 rounded-xl shadow-sm inline-flex items-center gap-1.5 transition-all">
+                    <span class="bg-brand-primary text-white px-1.5 py-0.5 rounded-md font-black text-[11px] leading-none">${i.quantity}x</span>
+                    <span class="font-black text-slate-900 text-xs sm:text-sm whitespace-nowrap">${i.name}</span>
+                    <span class="text-[10px] text-emerald-700 font-black bg-emerald-50 px-1.5 py-0.5 rounded cursor-pointer border border-emerald-200/70 hover:bg-emerald-600 hover:text-white transition-colors" ondblclick="editItemPrice('${o.id}', ${idx})" title="اضغط مرتين لتعديل السعر">${i.price}ج</span>
+                </div>`
+            ).join('') : '<span class="text-slate-400 text-xs font-bold">لا يوجد تفاصيل</span>';
+
+            let paymentBadge = (payBr.method === 'online')
+                ? '<span class="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1"><i class="fa-solid fa-check-double text-[9px]"></i> خالص (أونلاين)</span>'
+                : (payBr.method === 'split'
+                    ? `<span class="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1">⚖️ نص (${payBr.cash}ج كاش)</span>`
+                    : '<span class="text-[10px] bg-white text-slate-700 border border-slate-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1"><i class="fa-solid fa-money-bill-1-wave text-emerald-600 text-[9px]"></i> كاش</span>');
+
+            if (o.debt && o.debt > 0) {
+                paymentBadge += ` <span class="text-[10px] bg-red-600 text-white px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1">آجل (${o.debt} ج)</span>`;
+            }
+
+            const safeBatchAttr = realBatchTitle.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            let batchTagHtml = realBatchTitle
+                ? `<span onclick="setOrdersQuickFilter('batch', '${safeBatchAttr}')" class="text-[10px] bg-teal-50 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 cursor-pointer hover:bg-teal-600 hover:text-white transition-colors"><i class="fa-solid fa-layer-group text-teal-600 text-[8px]"></i> ${realBatchTitle}</span>`
+                : '';
+
+            let driverBadgeHtml = o.driverName
+                ? `<span class="text-[10px] bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 cursor-pointer hover:bg-blue-600 hover:text-white transition-colors"><i class="fa-solid fa-motorcycle text-blue-600 text-[8px]"></i> مع: ${o.driverName}</span>`
+                : '';
+
+            const timeDisplayStr = (o.status === 'completed' && (o.completedTimeDisplay || o.completedAtStr))
+                ? (o.completedTimeDisplay || o.completedAtStr)
+                : (ageStr ? `${ageStr} • ${d}` : d);
+
+            // فحص الملاحظات المكتوبة فعلياً (لا نعرض أي صناديق رمادية فارغة إذا لم تكن هناك ملاحظة!)
+            const cleanDriverLatest = o.driverNote ? o.driverNote.split('\n---\n').filter(Boolean).pop().replace(/^\[.*?\]\s*/, '') : '';
+            const cleanAdminLatest = o.adminNote ? o.adminNote.split('\n---\n').filter(Boolean).pop().replace(/^\[.*?\]\s*/, '') : '';
+            const totalNotesCount = (o.driverNote ? o.driverNote.split('\n---\n').filter(Boolean).length : 0) + (o.adminNote ? o.adminNote.split('\n---\n').filter(Boolean).length : 0);
+
+            let activeNotesPreviewHtml = '';
+            if (cleanDriverLatest || cleanAdminLatest) {
+                activeNotesPreviewHtml = `
+                    <div class="flex flex-wrap gap-1.5">
+                        ${cleanDriverLatest ? `
+                        <div onclick="toggleInlineNotes(event, '${o.id}', 'driverNote')" class="flex-1 min-w-[140px] cursor-pointer bg-blue-50 border border-blue-200 text-blue-950 px-2.5 py-1 rounded-xl flex items-center justify-between gap-1 text-[10px] font-black">
+                            <span class="truncate"><i class="fa-solid fa-motorcycle text-blue-600 ml-1"></i> ${cleanDriverLatest}</span>
+                            <button type="button" onclick="event.stopPropagation(); clearSingleNoteFieldQuick('${o.id}', 'driverNote')" class="text-blue-400 hover:text-red-600 px-1">×</button>
+                        </div>` : ''}
+                        ${cleanAdminLatest ? `
+                        <div onclick="toggleInlineNotes(event, '${o.id}', 'adminNote')" class="flex-1 min-w-[140px] cursor-pointer bg-amber-50 border border-amber-200 text-amber-950 px-2.5 py-1 rounded-xl flex items-center justify-between gap-1 text-[10px] font-black">
+                            <span class="truncate"><i class="fa-solid fa-lock text-amber-600 ml-1"></i> ${cleanAdminLatest}</span>
+                            <button type="button" onclick="event.stopPropagation(); clearSingleNoteFieldQuick('${o.id}', 'adminNote')" class="text-amber-400 hover:text-red-600 px-1">×</button>
+                        </div>` : ''}
+                    </div>
+                `;
+            }
+
+            // الصف السفلي لقرارات المرحلة: أزرار رشيقة ورفيعة (h-7) وأيقونات صغيرة شيك
+            let workflowGridHtml = '';
+            if (o.status === 'new') {
+                workflowGridHtml = `
+                    <div class="grid grid-cols-4 gap-1">
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 h-7 rounded-lg text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-fire-burner text-[9px]"></i> للتجهيز</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'deferred')" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-regular fa-calendar text-[9px]"></i> تأجيل</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'no_answer')" class="bg-purple-50 hover:bg-purple-600 text-purple-800 hover:text-white border border-purple-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-phone-slash text-[9px]"></i> لم يرد</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'canceled')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-xmark text-[9px]"></i> إلغاء</button>
+                    </div>`;
+            } else if (o.status === 'processing') {
+                workflowGridHtml = `
+                    <div class="grid grid-cols-4 gap-1">
+                        <button type="button" data-lc-trigger="1" onclick="event.stopPropagation(); triggerOrderDriverStep(this, '${o.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white h-7 rounded-lg text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-motorcycle text-[9px]"></i> للمندوب</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-50 hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-check text-[9px]"></i> تسليم</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'deferred')" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-regular fa-calendar text-[9px]"></i> تأجيل</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'canceled')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-xmark text-[9px]"></i> إلغاء</button>
+                    </div>`;
+            } else if (o.status === 'dispatched') {
+                workflowGridHtml = `
+                    <div class="grid grid-cols-4 gap-1">
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-600 hover:bg-emerald-700 text-white h-7 rounded-lg text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-check-double text-[9px]"></i> تم التسليم</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'no_answer')" class="bg-purple-50 hover:bg-purple-600 text-purple-800 hover:text-white border border-purple-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-phone-slash text-[9px]"></i> لم يرد</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'deferred')" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-regular fa-calendar text-[9px]"></i> تأجيل</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-slate-100 hover:bg-slate-700 text-slate-700 hover:text-white h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">↩️ لتجهيز</button>
+                    </div>`;
+            } else if (o.status === 'deferred' || o.status === 'no_answer') {
+                workflowGridHtml = `
+                    <div class="grid grid-cols-3 gap-1">
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 h-7 rounded-lg text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-fire-burner text-[9px]"></i> للتجهيز الآن</button>
+                        <button type="button" onclick="event.stopPropagation(); openDeferredScheduleModal(['${o.id}'])" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-regular fa-clock text-[9px]"></i> الموعد</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'canceled')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-xmark text-[9px]"></i> إلغاء</button>
+                    </div>`;
+            } else if (o.status === 'canceled') {
+                workflowGridHtml = `
+                    <div class="grid grid-cols-2 gap-1">
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'new')" class="bg-blue-600 hover:bg-blue-700 text-white h-7 rounded-lg text-[10px] font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1">↩️ استعادة لجديد</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'trash')" class="bg-red-50 hover:bg-red-600 text-red-600 hover:text-white border border-red-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">🗑️ حذف للسلة</button>
+                    </div>`;
+            }
+
+            return `
+            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-3 rounded-2xl shadow-sm border border-slate-200/90 hover:shadow-md transition-all relative group cursor-pointer space-y-2">
+
+                ${trustInfo.bannerHtml}
+                ${trustInfo.stickyHtml}
+
+                <!-- 1. الهيدر الرشيق: العميل والدائرة الإرشادية يميناً + الحالة وزر الاتصال السهل يساراً -->
+                <div class="flex items-start justify-between gap-2">
+                    <div class="space-y-1 min-w-0 flex-1">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer rounded shrink-0">
+                            ${originDotHtml}
+                            <span class="font-black text-slate-900 text-sm cursor-pointer hover:text-brand-primary border-b border-transparent hover:border-brand-primary border-dashed" onclick="smartNameClick(this, '${o.id}', '${o.customerPhone}', 'customerName')">${o.customerName || 'بدون اسم'}</span>
+                            ${trustInfo.badgeHtml}
+                        </div>
+                        <div class="flex flex-wrap items-center gap-1 pr-5">
+                            <span data-zone-pill="1" class="cursor-pointer text-indigo-900 bg-indigo-50 border border-indigo-200/80 px-2 py-0.5 rounded-md font-black text-[10px]" ondblclick="inlineEdit(this, '${o.id}', 'zone')"><i class="fa-solid fa-location-dot text-indigo-500 ml-0.5 text-[9px]"></i>${o.zone || 'غير مسجل'}</span>
+                            ${o.customerAddress ? `<span class="cursor-pointer text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-200/60 text-[10px]" ondblclick="inlineEdit(this, '${o.id}', 'customerAddress')">${o.customerAddress}</span>` : ''}
+                            ${batchTagHtml}
+                            ${driverBadgeHtml}
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col items-end gap-1 shrink-0">
+                        <div class="flex items-center gap-1">
+                            <span class="text-[9px] font-bold text-slate-400">${timeDisplayStr}</span>
+                            ${sBadge}
+                        </div>
+                        <a href="tel:${o.customerPhone}" onclick="event.stopPropagation();" title="اضغط في أي مكان على الرقم للاتصال المباشر" class="inline-flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-600 text-emerald-900 hover:text-white px-2.5 py-1 rounded-xl border border-emerald-200 transition-colors shadow-sm active:scale-95">
+                            <i class="fa-solid fa-phone text-[10px]"></i>
+                            <span class="text-[11px] font-black tracking-wide" dir="ltr">${o.customerPhone || ''}</span>
+                        </a>
+                        ${o.customerPhone2 ? `
+                        <a href="tel:${o.customerPhone2}" onclick="event.stopPropagation();" title="اتصال بالرقم البديل" class="inline-flex items-center gap-1 bg-purple-50 hover:bg-purple-600 text-purple-800 hover:text-white px-2 py-0.5 rounded-lg border border-purple-200 text-[10px] font-black transition-colors active:scale-95">
+                            <i class="fa-solid fa-phone text-[9px]"></i>
+                            <span dir="ltr">${o.customerPhone2}</span>
+                        </a>` : ''}
+                    </div>
+                </div>
+
+
+                <!-- 2. صندوق الطلب والفاتورة البارز (الأصناف واخدة راحتها بالكامل بدون تكسير + الحساب واضح) -->
+                <div class="bg-slate-50/95 p-2.5 rounded-xl border border-slate-200/90 space-y-2">
+                    <!-- الأصناف هي البطل في السطر الأول من الصندوق -->
+                    <div class="flex flex-wrap items-center gap-1.5 w-full">
+                        ${itemsStr}
+                    </div>
+                    <!-- شريط الحساب والدفع تحت الأصناف مباشرة بوضوح تام -->
+                    <div class="flex items-center justify-between pt-1.5 border-t border-slate-200/70">
+                        <div class="flex items-center gap-1.5">
+                            ${paymentBadge}
+                            <span class="text-[10px] font-bold text-slate-400">(${o.subtotal || o.total || 0} طلبات + ${o.deliveryFee || 0} شحن${o.discount > 0 ? ` - ${o.discount} خصم` : ''})</span>
+                        </div>
+                        <span class="font-black text-brand-primary text-base sm:text-lg leading-none">${o.total || 0} <span class="text-[10px]">ج.م</span></span>
+                    </div>
+                </div>
+
+                ${activeNotesPreviewHtml}
+
+                <!-- حاوية درج الملاحظات الموحد (تفتح من أيقونة الملاحظة الواحدة) -->
+                <div id="inline-notes-container-${o.id}" class="hidden w-full transition-all duration-200 origin-top">
+                    <div id="inline-notes-content-${o.id}"></div>
+                </div>
+
+                <!-- 3. شريط الأدوات المدمج (4 أزرار رشيقة h-7: واتساب بالـ 5 مميزات | بوليصة | ملاحظة | تعديل) -->
+                <div class="space-y-1 pt-0.5">
+                    <div class="grid grid-cols-4 gap-1">
+                        ${o.status === 'completed' ? `
+                            <button type="button" onclick="sendFollowUpWhatsApp('${o.customerPhone}', '${o.customerName}')" class="bg-[#25D366] hover:bg-[#1ebd57] text-white h-7 rounded-lg text-[10px] font-black shadow-sm flex items-center justify-center gap-1 active:scale-95"><i class="fa-brands fa-whatsapp"></i> متابعة</button>
+                            <button type="button" onclick="openLinkArchiveModal('${o.id}')" class="bg-slate-800 hover:bg-slate-900 text-white h-7 rounded-lg text-[10px] font-black shadow-sm flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-link text-amber-400 text-[9px]"></i> أرشفة</button>
+                        ` : `
+                            <div class="inline-flex h-7 rounded-lg overflow-hidden shadow-sm">
+                                <button type="button" onclick="sendMessageToCustomer('${o.customerPhone}', '${o.id}')" class="flex-1 bg-[#25D366] hover:bg-[#1ebd57] text-white text-[10px] font-black flex items-center justify-center gap-1 active:scale-95" title="إرسال الفاتورة مباشرة"><i class="fa-brands fa-whatsapp text-xs"></i> واتساب</button>
+                                <button type="button" data-lc-trigger="1" onclick="event.stopPropagation(); openWhatsAppTemplatesPopover(this, '${o.id}')" class="bg-[#1da851] hover:bg-[#178e43] text-white px-1.5 text-[9px] font-black border-r border-white/20 flex items-center justify-center" title="الـ 5 رسائل الجاهزة للعميل">▾</button>
+                            </div>
+                            <button type="button" onclick="event.stopPropagation(); printSingleOrderWaybill('${o.id}')" class="bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-white border border-amber-200 h-7 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-print text-[9px]"></i> بوليصة</button>
+                        `}
+                        <button type="button" onclick="toggleInlineNotes(event, '${o.id}')" class="${totalNotesCount > 0 ? 'bg-blue-50 text-blue-800 border-blue-200' : 'bg-slate-100 text-slate-700 border-slate-200'} hover:bg-slate-800 hover:text-white border h-7 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 active:scale-95" title="فتح نافذة ملاحظات المندوب والإدارة">
+                            <i class="fa-regular fa-comment-dots text-[9px]"></i> ملاحظة ${totalNotesCount > 0 ? `<span class="bg-blue-600 text-white px-1 rounded text-[8px]">${totalNotesCount}</span>` : '+'}
+                        </button>
+                        <button type="button" onclick="openEditOrderModal('${o.id}')" class="bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white border border-slate-200 h-7 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-pen text-[9px]"></i> تعديل</button>
+                    </div>
+
+                    ${workflowGridHtml}
+                </div>
+            </div>`;
+        }).join('');
+
+        if (remainingCount > 0) {
+            cardsHtml += `
+            <button type="button" onclick="window.ordersRenderLimit = (window.ordersRenderLimit || 30) + 30; renderOrdersList();" class="w-full py-3 bg-white hover:bg-emerald-50 text-brand-primary font-black text-xs rounded-2xl border-2 border-dashed border-brand-primary/30 shadow-sm transition-all flex items-center justify-center gap-2">
+                <i class="fa-solid fa-angles-down"></i> عرض المزيد من الطلبات (متبقي ${remainingCount} طلب)
+            </button>`;
+        }
+
+        container.innerHTML = cardsHtml;
+
+        if (typeof openInlineNoteId !== 'undefined' && openInlineNoteId) {
+            setTimeout(() => { window.toggleInlineNotes(null, openInlineNoteId, openInlineNoteField || 'driverNote', true); }, 50);
+        }
+        if (typeof hookDeferredStatusInterceptors === 'function') {
+            hookDeferredStatusInterceptors();
+        }
+        if (typeof window.decorateDeferredOrderCards === 'function') {
+            window.decorateDeferredOrderCards();
+        }
+    };
+
+
+
+    // =========================================================================
+    // 🛠️ 7. تطوير نافذتي "إنشاء طلب" (مساعد العميل والنقاط) و"تعديل طلب"
+    // =========================================================================
+    const _origCheckCustomerExists = window.checkCustomerExists;
+    window.checkCustomerExists = async function () {
+        if (typeof _origCheckCustomerExists === 'function') {
+            await _origCheckCustomerExists();
+        }
+
+        const phoneInput = document.getElementById('no-phone');
+        if (!phoneInput) return;
+        const normPhone = window.normalizePhone ? window.normalizePhone(phoneInput.value) : phoneInput.value.trim();
+
+        let helperBox = document.getElementById('no-smart-customer-helper');
+        if (!helperBox) {
+            helperBox = document.createElement('div');
+            helperBox.id = 'no-smart-customer-helper';
+            helperBox.className = 'mt-2';
+            const alertBox = document.getElementById('no-blacklist-alert');
+            if (alertBox && alertBox.parentElement) {
+                alertBox.parentElement.insertBefore(helperBox, alertBox.nextSibling);
+            }
+        }
+
+        if (!normPhone || normPhone.length < 10) {
+            helperBox.innerHTML = '';
+            return;
+        }
+
+        const c = (typeof customersData !== 'undefined' ? customersData : []).find(x => window.normalizePhone(x.phone) === normPhone);
+        if (!c) {
+            helperBox.innerHTML = `<div class="bg-sky-50 border border-sky-200 text-sky-800 px-3 py-2 rounded-xl text-xs font-black">🆕 عميل جديد يسجل لأول مرة في سمان ههيا</div>`;
+            return;
+        }
+
+        const pts = Number(c.walletPoints) || 0;
+        const ptVal = Number(storeSettings?.pointValueInEGP) || 0.40;
+        const walletCash = Math.round(pts * ptVal);
+        const oldDebt = Number(c.debt) || 0;
+
+        helperBox.innerHTML = `
+            <div class="bg-emerald-50/80 border border-emerald-200 p-3 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div class="space-y-0.5">
+                    <div class="font-black text-slate-800">👤 ${c.name || 'عميل مسجل'} <span class="text-emerald-700">(${c.ordersCount || 0} طلبات سابقة • إجمالي ${(Number(c.totalSpent) || 0).toLocaleString()} ج)</span></div>
+                    ${oldDebt > 0 ? `<div class="text-red-600 font-black">📕 عليه باقي حساب سابق: ${oldDebt} ج</div>` : ''}
+                    ${pts > 0 ? `<div class="text-amber-700 font-black">🪙 رصيد محفظة الولاء: ${pts} نقطة (تساوي ${walletCash} ج خصم)</div>` : ''}
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                    ${walletCash > 0 ? `<button type="button" onclick="applyCustomerWalletDiscountInNewOrder(${walletCash}, ${pts})" class="bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black shadow-sm">🎁 خصم المحفظة (-${walletCash} ج)</button>` : ''}
+                    <button type="button" onclick="openCustomerCard('${c.phone}')" class="bg-white border border-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg text-[10px] font-black">ملف العميل</button>
+                </div>
+            </div>
+        `;
+    };
+
+    window.applyCustomerWalletDiscountInNewOrder = function (cashDiscount, ptsCount) {
+        const discInput = document.getElementById('no-discount');
+        const notesInput = document.getElementById('no-notes');
+        if (discInput) {
+            discInput.value = cashDiscount;
+            if (typeof window.calcTotal === 'function') window.calcTotal('no');
+        }
+        if (notesInput && !notesInput.value.includes('استبدل نقاطه')) {
+            const msg = `[فعّل خصم المحفظة: استبدل نقاطه (${ptsCount} نقطة) بخصم ${cashDiscount} ج]`;
+            notesInput.value = notesInput.value ? (notesInput.value + '\n' + msg) : msg;
+        }
+        if (typeof window.showToast === 'function') window.showToast(`🎁 تم تطبيق خصم المحفظة (${cashDiscount} ج)`);
+    };
+
+    // =========================================================================
+    // ⚡ 8. الإصلاح المحاسبي الشامل للتحديد الجماعي (bulkChangeStatus + توجيه المحددين للمندوب)
+    // =========================================================================
+    window.openBulkDriverDispatchPopover = function (anchorEl) {
+        const checkedIds = Array.from(document.querySelectorAll('.bulk-order-cb:checked')).map(cb => cb.value);
+        if (checkedIds.length === 0) return;
+
+        const drivers = (typeof storeSettings !== 'undefined' && Array.isArray(storeSettings.drivers)) ? storeSettings.drivers : [];
+        if (drivers.length === 0) {
+            if (typeof window.openDispatchModal === 'function') return window.openDispatchModal();
+            return alert('يرجى إضافة مندوب واحد على الأقل من إعدادات المتجر أولاً!');
+        }
+
+        const drvBtns = drivers.map(d => {
+            const safeName = (d.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const safePhone = (d.phone || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            return `
+                <button type="button" onclick="executeBulkAssignToDriver('${safeName}', '${safePhone}')" class="w-full bg-indigo-50 hover:bg-indigo-600 text-indigo-950 hover:text-white py-2 px-3 rounded-xl text-xs font-black flex items-center justify-between border border-indigo-100 transition-all shadow-sm">
+                    <span>🛵 ${d.name}</span>
+                    <span class="text-[10px] opacity-80">نقل (${checkedIds.length}) طلب ⚡</span>
+                </button>
+            `;
+        }).join('');
+
+        const html = `
+            <div class="space-y-2.5">
+                <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                    <span class="text-xs font-black text-indigo-900"><i class="fa-solid fa-motorcycle ml-1"></i> توجيه الطلبات المحددة (${checkedIds.length})</span>
+                    <button type="button" onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="space-y-1.5 max-h-52 overflow-y-auto custom-scroll">${drvBtns}</div>
+                <button type="button" onclick="closeLivePopover(); if(window.openDispatchModal) openDispatchModal();" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 rounded-xl text-[10px] font-black">
+                    📋 فتح شاشة التوجيه والرسالة التفصيلية
+                </button>
+            </div>
+        `;
+
+        if (typeof window.openLivePopover === 'function') {
+            window.openLivePopover(anchorEl, html);
+        } else if (typeof window.openDispatchModal === 'function') {
+            window.openDispatchModal();
+        }
+    };
+
+    window.executeBulkAssignToDriver = async function (driverName, driverPhone) {
+        if (typeof window.closeLivePopover === 'function') window.closeLivePopover();
+        let checked = Array.from(document.querySelectorAll('.bulk-order-cb:checked')).map(cb => cb.value);
+        if (checked.length === 0) return;
+
+        let blockedNames = [];
+        checked = checked.filter(id => {
+            let o = allOrdersRaw.find(x => x.id === id);
+            if (!o) return false;
+            let bl = window.findBlacklistedCustomerMatch ? window.findBlacklistedCustomerMatch(o.customerPhone, o.customerPhone2, o.customerName, o.customerAddress) : null;
+            if (bl && bl.type === 'exact' && !o.isPrepaidConfirmed && o.paymentMethod !== 'online') {
+                blockedNames.push(o.customerName || o.customerPhone);
+                return false;
+            }
+            return true;
+        });
+        if (blockedNames.length > 0) {
+            alert('⛔ حارس البلاك ليست أوقف توجيه الطلبات التالية لأنها لم تُدفع مقدماً:\n- ' + blockedNames.join('\n- '));
+            if (checked.length === 0) return;
+        }
+
+        try {
+            const dbBatch = db.batch();
+            checked.forEach(id => {
+                const o = allOrdersRaw.find(x => x && x.id === id);
+                if (!o) return;
+                dbBatch.update(db.collection('orders').doc(id), {
+                    driverName: driverName,
+                    driverPhone: driverPhone || '',
+                    status: 'dispatched',
+                    dispatchedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                o.driverName = driverName;
+                o.driverPhone = driverPhone || '';
+                o.status = 'dispatched';
+                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) {
+                    globalOrdersMap[id].driverName = driverName;
+                    globalOrdersMap[id].driverPhone = driverPhone || '';
+                    globalOrdersMap[id].status = 'dispatched';
+                }
+            });
+            await dbBatch.commit();
+
+            window.clearAllBulkSelections();
+            window.renderOrdersList();
+            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
+            if (typeof window.renderReconciliationUI === 'function') window.renderReconciliationUI();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
+            if (typeof window.showToast === 'function') window.showToast(`🛵 تم توجيه (${checked.length}) طلب إلى المندوب: ${driverName}`);
+        } catch (e) {
+            console.error(e);
+            alert('حدث خطأ أثناء توجيه الطلبات للمندوب!');
+        }
+    };
+
+    window.bulkChangeStatus = async function (newStatus) {
+        let checked = Array.from(document.querySelectorAll('.bulk-order-cb:checked')).map(cb => cb.value);
+        if (checked.length === 0) return;
+
+        if (['processing', 'dispatched', 'completed'].includes(newStatus)) {
+            let blockedNames = [];
+            checked = checked.filter(id => {
+                let o = allOrdersRaw.find(x => x.id === id);
+                if (!o) return false;
+                let bl = window.findBlacklistedCustomerMatch ? window.findBlacklistedCustomerMatch(o.customerPhone, o.customerPhone2, o.customerName, o.customerAddress) : null;
+                if (bl && bl.type === 'exact' && !o.isPrepaidConfirmed && o.paymentMethod !== 'online') {
+                    blockedNames.push(o.customerName || o.customerPhone);
+                    return false;
+                }
+                return true;
+            });
+            if (blockedNames.length > 0) {
+                alert('⛔ حارس البلاك ليست أوقف نقل الطلبات التالية لأنها لم تُدفع مقدماً:\n- ' + blockedNames.join('\n- '));
+                if (checked.length === 0) return;
+            }
+        }
+
+        const statusNamesAr = {
+            'new': 'جديد',
+            'processing': 'قيد التجهيز',
+            'dispatched': 'في الطريق',
+            'deferred': 'مؤجل',
+            'no_answer': 'لم يتم الرد',
+            'completed': 'مكتمل',
+            'canceled': 'ملغي',
+            'trash': 'سلة المحذوفات'
+        };
+        const statusName = statusNamesAr[newStatus] || newStatus;
+        const confirmPrompt = `سيتم تحويل [ ${checked.length} ] طلبات إلى حالة (${statusName}). هل تريد التأكيد؟`;
+        const okBulk = (typeof window.execConfirm === 'function')
+            ? await window.execConfirm(confirmPrompt, { title: 'تحديث جماعي للطلبات', tone: newStatus === 'trash' || newStatus === 'canceled' ? 'danger' : 'brand', confirmText: 'تأكيد التحويل' })
+            : confirm(confirmPrompt);
+        if (!okBulk) return;
+
+        const bar = document.getElementById('bulk-actions-bar');
+        if (bar) bar.classList.add('opacity-60', 'pointer-events-none');
+
+        try {
+            let dbBatch = db.batch();
+            let fzNewValues = { ...(typeof storeFreezer !== 'undefined' ? storeFreezer : {}) };
+            let fzTouched = false;
+
+            const nowStr = new Date().toLocaleDateString('en-US');
+            const nowDisplay = new Date().toLocaleString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const ptsPer100 = Number(storeSettings?.pointsPer100) || 5;
+
+            checked.forEach(id => {
+                let o = allOrdersRaw.find(x => x.id === id);
+                if (!o) return;
+                let oldStatus = o.status;
+                let ref = db.collection('orders').doc(id);
+
+                let updateData = { status: newStatus };
+                if (newStatus === 'trash') updateData.deletedAt = firebase.firestore.FieldValue.serverTimestamp();
+                if (newStatus === 'dispatched') updateData.dispatchedAt = firebase.firestore.FieldValue.serverTimestamp();
+                if (newStatus === 'canceled') updateData.canceledAt = firebase.firestore.FieldValue.serverTimestamp();
+
+                if (newStatus === 'completed') {
+                    updateData.completedAtStr = nowStr;
+                    updateData.completedTimeDisplay = nowDisplay;
+                    updateData.completedAt = firebase.firestore.FieldValue.serverTimestamp();
+
+                    o.completedAtStr = nowStr;
+                    o.completedTimeDisplay = nowDisplay;
+
+                    if (oldStatus !== 'completed' && o.customerPhone) {
+                        const orderSub = Number(o.subtotal) || Number(o.total) || 0;
+                        if (orderSub >= 100) {
+                            const earnedPts = Math.floor(orderSub / 100) * ptsPer100;
+                            if (earnedPts > 0) {
+                                const normP = window.normalizePhone ? window.normalizePhone(o.customerPhone) : o.customerPhone.toString().trim();
+                                const cleanPhone = normP.startsWith('0') ? normP : '0' + normP;
+                                if (cleanPhone.length >= 10) {
+                                    dbBatch.set(db.collection('customers').doc(cleanPhone), {
+                                        walletPoints: firebase.firestore.FieldValue.increment(earnedPts)
+                                    }, { merge: true });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                dbBatch.update(ref, updateData);
+
+                if (o.items && Array.isArray(o.items)) {
+                    let wasIn = ['processing', 'dispatched', 'completed', 'deferred'].includes(oldStatus);
+                    let isNowIn = ['processing', 'dispatched', 'completed', 'deferred'].includes(newStatus);
+
+                    if (!wasIn && isNowIn) {
+                        o.items.forEach(i => {
+                            const cur = Math.max(0, Number(fzNewValues[i.id]) || 0);
+                            fzNewValues[i.id] = Math.max(0, cur - (Number(i.quantity) || 0));
+                            storeFreezer[i.id] = fzNewValues[i.id];
+                            fzTouched = true;
+                        });
+                    } else if (wasIn && !isNowIn) {
+                        o.items.forEach(i => {
+                            const cur = Math.max(0, Number(fzNewValues[i.id]) || 0);
+                            fzNewValues[i.id] = cur + (Number(i.quantity) || 0);
+                            storeFreezer[i.id] = fzNewValues[i.id];
+                            fzTouched = true;
+                        });
+                    }
+                }
+
+                o.status = newStatus;
+                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) {
+                    globalOrdersMap[id].status = newStatus;
+                    if (newStatus === 'completed') {
+                        globalOrdersMap[id].completedAtStr = nowStr;
+                        globalOrdersMap[id].completedTimeDisplay = nowDisplay;
+                    }
+                }
+                if (typeof window.syncOrderToGoogleSheet === 'function') {
+                    window.syncOrderToGoogleSheet(o, newStatus === 'trash' ? 'delete' : 'update');
+                }
+            });
+
+            if (fzTouched) {
+                dbBatch.set(db.collection('inventory').doc('freezer'), fzNewValues, { merge: true });
+            }
+
+            await dbBatch.commit();
+
+            if (typeof window.syncWeightHoldForOrderStatus === 'function') {
+                for (const id of checked) {
+                    const oObj = allOrdersRaw.find(x => x && x.id === id);
+                    if (oObj) await window.syncWeightHoldForOrderStatus(oObj, newStatus);
+                }
+            }
+
+            document.querySelectorAll('.bulk-order-cb').forEach(cb => { cb.checked = false; });
+            if (bar) bar.classList.add('hidden');
+            window.renderOrdersList();
+            if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
+            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
+            if (typeof window.renderReconciliationUI === 'function') window.renderReconciliationUI();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
+            if (typeof window.showToast === 'function') window.showToast(`✅ تم تحديث ${checked.length} طلبات إلى (${statusName})`);
+        } catch (e) {
+            console.error(e);
+            alert('حدث خطأ أثناء التحديث الجماعي!');
+        } finally {
+            if (bar) bar.classList.remove('opacity-60', 'pointer-events-none');
+        }
+    };
+
+    // =========================================================================
+    // 📋 9. ورقة التحضير الذكية المربوطة بمخزن الفريزر (Smart Packing List 2.0)
+    // =========================================================================
+    window.openPackingListModal = function () {
+        window.renderSmartPackingList();
+        if (typeof openModal === 'function') openModal('packing-list-modal');
+    };
+
+    window.updatePackingListFilter = function (key, val) {
+        window.ordersFilterState[key] = val;
+        window.renderSmartPackingList();
+    };
+
+    window.renderSmartPackingList = function () {
+        const cont = document.getElementById('packing-list-content');
+        if (!cont) return;
+
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const freezerObj = (typeof storeFreezer !== 'undefined' && storeFreezer) ? storeFreezer : {};
+
+        const scope = window.ordersFilterState.packingScope || 'processing';
+        const pBatch = window.ordersFilterState.packingBatch || 'all';
+        const pZone = window.ordersFilterState.packingZone || 'all';
+
+        const batchSet = new Set();
+        const zoneSet = new Set();
+        ordersList.forEach(o => {
+            if (!o || ['completed', 'canceled', 'trash'].includes(o.status) || o.isArchived) return;
+            const bTitle = getOrderBatchTitle(o);
+            if (bTitle) batchSet.add(bTitle);
+            if (o.zone) zoneSet.add(o.zone.trim());
+        });
+
+        const targetOrders = ordersList.filter(o => {
+            if (!o || o.status === 'trash' || o.isArchived) return false;
+            if (scope === 'processing' && o.status !== 'processing') return false;
+            if (scope === 'new_and_proc' && !['new', 'processing'].includes(o.status)) return false;
+            if (scope === 'dispatched' && o.status !== 'dispatched') return false;
+
+            if (pBatch !== 'all' && getOrderBatchTitle(o) !== pBatch) return false;
+            if (pZone !== 'all' && (o.zone || '').trim() !== pZone) return false;
+            return true;
+        });
+
+        const itemTotals = {};
+        targetOrders.forEach(o => {
+            if (Array.isArray(o.items)) {
+                o.items.forEach(item => {
+                    const k = item.name || 'صنف';
+                    if (!itemTotals[k]) itemTotals[k] = { id: item.id || '', name: k, qty: 0 };
+                    itemTotals[k].qty += Number(item.quantity) || 0;
+                });
+            }
+        });
+
+        let batchOpts = `<option value="all">كل الدفعات</option>`;
+        Array.from(batchSet).forEach(b => { batchOpts += `<option value="${b}" ${pBatch === b ? 'selected' : ''}>${b}</option>`; });
+
+        let zoneOpts = `<option value="all">كل المناطق</option>`;
+        Array.from(zoneSet).forEach(z => { zoneOpts += `<option value="${z}" ${pZone === z ? 'selected' : ''}>${z}</option>`; });
+
+        let html = `
+            <div class="space-y-3 mb-4">
+                <div class="grid grid-cols-3 gap-2">
+                    <select onchange="updatePackingListFilter('packingScope', this.value)" class="border border-slate-200 rounded-xl p-2 text-[11px] font-black bg-white outline-none">
+                        <option value="processing" ${scope === 'processing' ? 'selected' : ''}>⏳ قيد التجهيز فقط</option>
+                        <option value="new_and_proc" ${scope === 'new_and_proc' ? 'selected' : ''}>🆕 جديد + تجهيز معاً</option>
+                        <option value="dispatched" ${scope === 'dispatched' ? 'selected' : ''}>🛵 في الطريق حالياً</option>
+                    </select>
+                    <select onchange="updatePackingListFilter('packingBatch', this.value)" class="border border-slate-200 rounded-xl p-2 text-[11px] font-black bg-white outline-none">${batchOpts}</select>
+                    <select onchange="updatePackingListFilter('packingZone', this.value)" class="border border-slate-200 rounded-xl p-2 text-[11px] font-black bg-white outline-none">${zoneOpts}</select>
+                </div>
+
+                <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
+                    <span class="font-black text-slate-700 text-xs"><i class="fa-solid fa-box text-amber-500 mr-1"></i> إجمالي أوردرات التحضير المفلترة:</span>
+                    <span class="font-black text-brand-primary text-xl">${targetOrders.length} طلب</span>
+                </div>
+            </div>
+        `;
+
+        const sortedKeys = Object.keys(itemTotals).sort((a, b) => itemTotals[b].qty - itemTotals[a].qty);
+        if (sortedKeys.length === 0) {
+            html += `<div class="text-center py-10 border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 font-bold text-sm">لا توجد طلبات مطابقة لتحضيرها حالياً.</div>`;
+        } else {
+            html += `<div class="space-y-2.5" id="print-packing-area">`;
+            sortedKeys.forEach(k => {
+                const info = itemTotals[k];
+                const fzAvailable = Math.max(0, Number(freezerObj[info.id]) || 0);
+                const diff = fzAvailable - info.qty;
+                const isEnough = diff >= 0;
+
+                html += `
+                <label class="bg-white p-4 rounded-2xl border ${isEnough ? 'border-slate-200' : 'border-rose-200 bg-rose-50/20'} shadow-sm flex items-center justify-between gap-3 cursor-pointer hover:border-amber-400 transition-all">
+                    <div class="flex items-center gap-3">
+                        <input type="checkbox" class="w-5 h-5 accent-emerald-600 rounded cursor-pointer">
+                        <div>
+                            <span class="text-sm font-black text-slate-800 block">${info.name}</span>
+                            <span class="text-[10px] font-black ${isEnough ? 'text-cyan-700' : 'text-rose-600'}">
+                                ❄️ بالفريزر حالياً: ${fzAvailable} ${isEnough ? '(متوفر بالكامل ✅)' : `(عجز: ${Math.abs(diff)} يحتاج تجهيز ⚠️)`}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="text-center bg-amber-50 border border-amber-200 px-3.5 py-1.5 rounded-xl shrink-0">
+                        <span class="text-2xl font-black text-amber-600 block leading-none">${Number(info.qty.toFixed(2))}</span>
+                        <span class="text-[9px] font-black text-amber-800">المطلوب</span>
+                    </div>
+                </label>`;
+            });
+            html += `</div>`;
+        }
+
+        cont.innerHTML = html;
+    };
+    // =========================================================================
+    // ⚡ 10. اختصار التوجيه السريع للمندوب بلمسة واحدة (1-Tap Express Dispatch)
+    // =========================================================================
+    window.openExpressBatchDispatchPopover = function (anchorEl) {
+        const procOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o => o && o.status === 'processing' && !o.isArchived);
+        if (procOrders.length === 0) {
+            if (typeof window.showToast === 'function') window.showToast('ℹ️ لا توجد طلبات في مرحلة (قيد التجهيز) حالياً لتوجيهها!');
+            else alert('لا توجد طلبات في مرحلة (قيد التجهيز) حالياً!');
+            return;
+        }
 
         const drivers = (typeof storeSettings !== 'undefined' && Array.isArray(storeSettings.drivers)) ? storeSettings.drivers : [];
         if (drivers.length === 0) {
@@ -694,1073 +1752,817 @@
             return alert('يرجى إضافة مندوب أولاً من قسم إعدادات المتجر!');
         }
 
-        const drvRows = drivers.map(d => {
+        const zonesCount = {};
+        procOrders.forEach(o => {
+            const z = (o.zone || 'غير مسجل').trim();
+            zonesCount[z] = (zonesCount[z] || 0) + 1;
+        });
+
+        let zoneOptions = `<option value="ALL">🌍 كل المناطق الجاهزة (${procOrders.length} طلب)</option>`;
+        Object.keys(zonesCount).forEach(z => {
+            zoneOptions += `<option value="${z}">📍 منطقة: ${z} (${zonesCount[z]} طلب)</option>`;
+        });
+
+        const driverBtns = drivers.map(d => {
             const safeName = (d.name || '').replace(/'/g, "\\'");
             const safePhone = (d.phone || '').replace(/'/g, "\\'");
             return `
-                <div class="flex items-center gap-1.5">
-                    <button onclick="assignSingleOrderToDriver('${orderId}', '${safeName}', '${safePhone}', false)" class="flex-1 bg-indigo-50 hover:bg-indigo-600 text-indigo-900 hover:text-white py-2 px-3 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between border border-indigo-100">
-                        <span>🛵 ${d.name}</span>
-                        <span class="text-[10px] opacity-75">تحويل للطريق</span>
-                    </button>
-                    <button onclick="assignSingleOrderToDriver('${orderId}', '${safeName}', '${safePhone}', true)" class="bg-[#25D366] hover:bg-[#1ebd57] text-white w-9 h-9 rounded-xl text-sm font-black flex items-center justify-center shadow-sm shrink-0" title="تحويل للطريق + إرسال تفاصيل الطلب واتساب للمندوب">
-                        <i class="fa-brands fa-whatsapp"></i>
-                    </button>
-                </div>
+                <button type="button" onclick="executeExpressBatchDispatch('${safeName}', '${safePhone}')" class="w-full bg-indigo-50 hover:bg-indigo-600 text-indigo-950 hover:text-white py-2 px-3 rounded-xl text-xs font-black flex items-center justify-between border border-indigo-100 transition-all shadow-sm">
+                    <span>🛵 توجيه إلى: ${d.name}</span>
+                    <span class="text-[10px] bg-white/80 text-indigo-700 px-2 py-0.5 rounded-lg">بلمسة واحدة ⚡</span>
+                </button>
             `;
         }).join('');
 
         const html = `
             <div class="space-y-2.5">
                 <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                    <span class="text-xs font-black text-indigo-800"><i class="fa-solid fa-motorcycle ml-1"></i> إرسال الطلب مع مندوب</span>
-                    <button onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
+                    <span class="text-xs font-black text-indigo-900"><i class="fa-solid fa-bolt text-amber-500 ml-1"></i> توجيه سريع للجاهز (${procOrders.length} طلب)</span>
+                    <button type="button" onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
                 </div>
-                <div class="bg-slate-50 p-2 rounded-xl border border-slate-100 text-[11px] font-bold text-slate-600">
-                    👤 <strong class="text-slate-800">${order.customerName || ''}</strong> (${order.zone || ''}) - <strong class="text-brand-primary">${order.total || 0} ج</strong>
-                </div>
-                <div class="space-y-1.5 max-h-52 overflow-y-auto custom-scroll pr-0.5">${drvRows}</div>
-                <button onclick="closeLivePopover(); openDispatchModalForOrder('${orderId}')" class="w-full bg-slate-800 hover:bg-slate-900 text-white py-2 rounded-xl text-[10px] font-black flex items-center justify-center gap-1.5">
-                    <i class="fa-solid fa-list-check text-amber-400"></i> فتح شاشة التوجيه الجماعي وخطوط السير
-                </button>
-            </div>
-        `;
-        window.openLivePopover(anchorEl, html);
-    };
-
-    window.openDispatchModalForOrder = function (orderId) {
-        if (typeof window.openDispatchModal === 'function') {
-            window.openDispatchModal();
-            setTimeout(() => {
-                document.querySelectorAll('.disp-cb').forEach(cb => {
-                    cb.checked = (cb.value === orderId);
-                });
-            }, 150);
-        }
-    };
-
-    window.openPaymentCapsulePopover = function (anchorEl, orderId) {
-        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
-        if (!order) return;
-        const isOnline = order.paymentMethod === 'online';
-
-        const html = `
-            <div class="space-y-2.5">
-                <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                    <span class="text-xs font-black text-slate-800"><i class="fa-solid fa-wallet text-emerald-600 ml-1"></i> تبديل حالة الدفع</span>
-                    <button onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <p class="text-[11px] font-bold text-slate-500">العميل: <strong class="text-slate-800">${order.customerName || ''}</strong> (${order.total || 0} ج)</p>
-                <div class="grid grid-cols-2 gap-2">
-                    <button onclick="quickSwitchOrderPayment('${orderId}', 'cash')" class="p-2.5 rounded-xl text-xs font-black border transition-all flex flex-col items-center gap-1 ${!isOnline ? 'bg-slate-800 text-white border-slate-800 shadow-sm' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'}">
-                        <i class="fa-solid fa-money-bill-1-wave text-sm"></i>
-                        <span>💵 كاش</span>
-                    </button>
-                    <button onclick="quickSwitchOrderPayment('${orderId}', 'online')" class="p-2.5 rounded-xl text-xs font-black border transition-all flex flex-col items-center gap-1 ${isOnline ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'}">
-                        <i class="fa-solid fa-check-double text-sm"></i>
-                        <span>💳 خالص أونلاين</span>
-                    </button>
-                </div>
-            </div>
-        `;
-        window.openLivePopover(anchorEl, html);
-    };
-
-    window.quickSwitchOrderPayment = async function (orderId, newMethod) {
-        window.closeLivePopover();
-        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
-        if (!order || order.paymentMethod === newMethod) return;
-
-        try {
-            const updateObj = {
-                paymentMethod: newMethod,
-                isPrepaidConfirmed: newMethod === 'online'
-            };
-            await db.collection('orders').doc(orderId).update(updateObj);
-            order.paymentMethod = newMethod;
-            order.isPrepaidConfirmed = newMethod === 'online';
-            if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
-                globalOrdersMap[orderId].paymentMethod = newMethod;
-            }
-            if (typeof window.syncOrderToGoogleSheet === 'function') {
-                window.syncOrderToGoogleSheet(order, 'update');
-            }
-            window.renderOrdersList();
-            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
-            if (typeof window.calculateDriverReconciliation === 'function') window.calculateDriverReconciliation();
-            notifyQuickToast(newMethod === 'online' ? '💳 تم تحويل الطلب إلى: خالص أونلاين' : '💵 تم تحويل الطلب إلى: الدفع كاش');
-        } catch (e) {
-            alert('حدث خطأ أثناء تحديث طريقة الدفع!');
-        }
-    };
-
-    window.openItemQtyCapsulePopover = function (anchorEl, orderId, itemIdx) {
-        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
-        if (!order || !Array.isArray(order.items) || !order.items[itemIdx]) return;
-        const item = order.items[itemIdx];
-
-        const html = `
-            <div class="space-y-3">
-                <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                    <span class="text-xs font-black text-slate-800 truncate"><i class="fa-solid fa-boxes-stacked text-indigo-500 ml-1"></i> ${item.name}</span>
-                    <button onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <div class="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl p-1.5">
-                    <button type="button" onclick="stepLiveItemQty(-1)" class="w-9 h-9 rounded-lg bg-white border border-slate-200 text-red-600 font-black hover:bg-red-50 text-base shadow-sm">-</button>
-                    <input type="number" id="lc-item-qty-input" value="${item.quantity}" min="0" step="0.5" class="w-20 bg-transparent text-center font-black text-lg text-brand-primary outline-none">
-                    <button type="button" onclick="stepLiveItemQty(1)" class="w-9 h-9 rounded-lg bg-white border border-slate-200 text-emerald-600 font-black hover:bg-emerald-50 text-base shadow-sm">+</button>
-                </div>
-                <div class="flex gap-2">
-                    <button onclick="saveLiveItemQtyChange('${orderId}', ${itemIdx})" class="flex-1 bg-brand-primary hover:bg-emerald-800 text-white py-2 rounded-xl text-xs font-black shadow-sm transition-all">
-                        <i class="fa-solid fa-check ml-1"></i> حفظ وتحديث الحساب
-                    </button>
-                </div>
-                <p class="text-[9px] font-bold text-slate-400 text-center">ملاحظة: وضع الكمية 0 يحذف الصنف من الطلب</p>
-            </div>
-        `;
-        window.openLivePopover(anchorEl, html);
-    };
-
-    window.stepLiveItemQty = function (delta) {
-        const inp = document.getElementById('lc-item-qty-input');
-        if (!inp) return;
-        let v = parseFloat(inp.value) || 0;
-        v = Math.max(0, Number((v + delta).toFixed(2)));
-        inp.value = v;
-    };
-
-    window.saveLiveItemQtyChange = async function (orderId, itemIdx) {
-        const inp = document.getElementById('lc-item-qty-input');
-        if (!inp) return;
-        const newQty = Math.max(0, parseFloat(inp.value) || 0);
-        window.closeLivePopover();
-
-        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
-        if (!order || !Array.isArray(order.items) || !order.items[itemIdx]) return;
-
-        const targetItem = order.items[itemIdx];
-        const oldQty = Number(targetItem.quantity) || 0;
-        const diffQty = newQty - oldQty;
-        if (diffQty === 0) return;
-
-        const newItems = [...order.items];
-        if (newQty === 0) {
-            if (newItems.length === 1) {
-                return alert('لا يمكن حذف الصنف الوحيد في الطلب! يمكنك إلغاء الطلب أو تعديله بالكامل.');
-            }
-            newItems.splice(itemIdx, 1);
-        } else {
-            newItems[itemIdx] = { ...targetItem, quantity: newQty };
-        }
-
-        const newSubtotal = newItems.reduce((sum, i) => sum + ((Number(i.quantity) || 0) * (Number(i.price) || 0)), 0);
-        const delFee = Number(order.deliveryFee) || 0;
-        const disc = Number(order.discount) || 0;
-        const newTotal = Math.max(0, newSubtotal + delFee - disc);
-        const totalMoneyDiff = newTotal - (Number(order.total) || 0);
-
-        try {
-            const batch = db.batch();
-            const orderRef = db.collection('orders').doc(orderId);
-            batch.update(orderRef, {
-                items: newItems,
-                subtotal: newSubtotal,
-                total: newTotal
-            });
-
-            if (targetItem.id) {
-                batch.set(db.collection('inventory').doc('stock'), {
-                    [targetItem.id]: firebase.firestore.FieldValue.increment(-diffQty)
-                }, { merge: true });
-
-                if (order.batchId && typeof storeBatches !== 'undefined' && storeBatches[order.batchId]) {
-                    batch.set(db.collection('inventory').doc('batches'), {
-                        [order.batchId]: {
-                            booked: { [targetItem.id]: firebase.firestore.FieldValue.increment(diffQty) }
-                        }
-                    }, { merge: true });
-                }
-
-                if (['processing', 'dispatched', 'deferred'].includes(order.status) && typeof storeFreezer !== 'undefined') {
-                    const curFz = Math.max(0, Number(storeFreezer[targetItem.id]) || 0);
-                    const nextFz = Math.max(0, curFz - diffQty);
-                    storeFreezer[targetItem.id] = nextFz;
-                    batch.set(db.collection('inventory').doc('freezer'), {
-                        [targetItem.id]: nextFz
-                    }, { merge: true });
-                }
-            }
-
-            if (totalMoneyDiff !== 0 && order.customerPhone) {
-                const cleanPhone = order.customerPhone.startsWith('0') ? order.customerPhone : '0' + order.customerPhone;
-                batch.set(db.collection('customers').doc(cleanPhone), {
-                    totalSpent: firebase.firestore.FieldValue.increment(totalMoneyDiff)
-                }, { merge: true });
-            }
-
-            await batch.commit();
-            order.items = newItems;
-            order.subtotal = newSubtotal;
-            order.total = newTotal;
-
-            if (typeof window.syncOrderToGoogleSheet === 'function') {
-                window.syncOrderToGoogleSheet(order, 'update');
-            }
-            window.renderOrdersList();
-            notifyQuickToast(`✅ تم تحديث الكمية والإجمالي (${newTotal} ج)`);
-        } catch (e) {
-            console.error(e);
-            alert('حدث خطأ أثناء حفظ الكمية الجديدة!');
-        }
-    };
-
-    window.openDebtCapsulePopover = function (anchorEl, customerPhone, orderId = null) {
-        const normP = window.normalizePhone ? window.normalizePhone(customerPhone) : customerPhone;
-        const cust = (typeof customersData !== 'undefined' ? customersData : []).find(c => window.normalizePhone(c.phone) === normP);
-        const order = orderId ? (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId) : null;
-
-        const debtVal = order && Number(order.debt) > 0 ? Number(order.debt) : (Number(cust?.debt) || 0);
-        const cName = order?.customerName || cust?.name || 'العميل';
-        const phoneToUse = cust?.phone || customerPhone;
-
-        const html = `
-            <div class="space-y-2.5">
-                <div class="flex justify-between items-center border-b border-red-100 pb-2">
-                    <span class="text-xs font-black text-red-700"><i class="fa-solid fa-hand-holding-dollar ml-1"></i> تسوية مديونية سريعة</span>
-                    <button onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <div class="bg-red-50 border border-red-100 rounded-xl p-2.5 flex justify-between items-center">
-                    <span class="text-xs font-bold text-slate-700">${cName}</span>
-                    <span class="text-sm font-black text-red-600">${debtVal} ج</span>
+                <div>
+                    <label class="text-[10px] font-black text-slate-500 block mb-1">1. اختر خط السير / المنطقة:</label>
+                    <select id="express-dispatch-zone-sel" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black text-slate-800 bg-slate-50 outline-none">
+                        ${zoneOptions}
+                    </select>
                 </div>
                 <div class="space-y-1.5">
-                    <button onclick="executeQuickDebtSettle('${phoneToUse}', ${debtVal}, '${orderId || ''}', 'full')" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-sm transition-all">
-                        <i class="fa-solid fa-check-double"></i> سدد المبلغ بالكامل (${debtVal} ج)
-                    </button>
-                    <button onclick="executeQuickDebtSettle('${phoneToUse}', ${debtVal}, '${orderId || ''}', 'partial')" class="w-full bg-slate-800 hover:bg-slate-900 text-white py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-sm transition-all">
-                        <i class="fa-solid fa-coins text-amber-400"></i> سدد جزء من المبلغ...
-                    </button>
-                    <button onclick="sendQuickDebtWhatsAppReminder('${phoneToUse}', '${cName}', ${debtVal})" class="w-full bg-[#25D366] hover:bg-[#1ebd57] text-white py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-sm transition-all">
-                        <i class="fa-brands fa-whatsapp"></i> إرسال تذكير واتساب بالمتبقي
-                    </button>
+                    <label class="text-[10px] font-black text-slate-500 block">2. اضغط على اسم المندوب للنقل الفوري:</label>
+                    ${driverBtns}
                 </div>
             </div>
         `;
-        window.openLivePopover(anchorEl, html);
-    };
 
-    window.executeQuickDebtSettle = async function (phone, currentDebt, orderId, mode) {
-        window.closeLivePopover();
-        if (!phone || currentDebt <= 0) return;
-
-        let payAmount = currentDebt;
-        if (mode === 'partial') {
-            const inp = prompt(`المبلغ المتبقي الحالي: ${currentDebt} ج\nأدخل المبلغ الذي دفعه العميل الآن:`, '');
-            if (inp === null || inp.trim() === '') return;
-            payAmount = parseFloat(inp);
-            if (isNaN(payAmount) || payAmount <= 0 || payAmount > currentDebt) {
-                return alert('يرجى إدخال مبلغ صحيح لا يتخطى قيمة المديونية!');
-            }
-        } else {
-            if (!confirm(`تأكيد استلام مبلغ (${payAmount} ج) وتسوية مديونية العميل؟`)) return;
-        }
-
-        try {
-            const cleanPhone = phone.startsWith('0') ? phone : '0' + phone;
-            const batch = db.batch();
-            const custRef = db.collection('customers').doc(cleanPhone);
-
-            const noteText = `[${new Date().toLocaleDateString('ar-EG')}] ✅ تم تحصيل ${payAmount} ج من المديونية السابقة.`;
-            batch.set(custRef, {
-                debt: firebase.firestore.FieldValue.increment(-payAmount),
-                timelineNotes: firebase.firestore.FieldValue.arrayUnion({
-                    id: 'debt_' + Date.now(),
-                    text: noteText,
-                    type: 'note',
-                    timestamp: Date.now()
-                })
-            }, { merge: true });
-
-            if (orderId) {
-                const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
-                if (order) {
-                    const remOrderDebt = Math.max(0, (Number(order.debt) || 0) - payAmount);
-                    const updatedAdminNote = order.adminNote ? `${order.adminNote}\n---\n${noteText}` : noteText;
-                    batch.update(db.collection('orders').doc(orderId), {
-                        debt: remOrderDebt,
-                        adminNote: updatedAdminNote
-                    });
-                    order.debt = remOrderDebt;
-                    order.adminNote = updatedAdminNote;
-                }
-            }
-
-            await batch.commit();
-            if (typeof window.refreshCustomersData === 'function') window.refreshCustomersData();
-            window.renderOrdersList();
-            notifyQuickToast(`✅ تم تسديد ${payAmount} ج وتحديث سجل المديونيات`);
-        } catch (e) {
-            console.error(e);
-            alert('حدث خطأ أثناء تسوية المديونية!');
+        if (typeof window.openLivePopover === 'function') {
+            window.openLivePopover(anchorEl, html);
+        } else if (typeof window.openDispatchModal === 'function') {
+            window.openDispatchModal();
         }
     };
 
-    window.sendQuickDebtWhatsAppReminder = function (phone, name, amount) {
-        window.closeLivePopover();
-        const storePhone = (typeof storeSettings !== 'undefined' && storeSettings.storePhone) ? storeSettings.storePhone : '01208027294';
-        const msg = `أهلاً بحضرتك يا ${name || 'فندم'} 🌹\nتذكير ودي من "سمان ههيا" بخصوص باقي الحساب المسجل بقيمة (${amount} ج.م).\nيمكنك التحويل عبر فودافون كاش أو إنستاباي على الرقم:\n*${storePhone}*\nشكراً جزيلاً لذوقك وتعاملك معنا 🤍`;
-        const cleanPhone = (phone || '').toString().trim();
-        const waNumber = cleanPhone.startsWith('0') ? '2' + cleanPhone : cleanPhone;
-        if (waNumber) window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}`, '_blank');
-    };
+    window.executeExpressBatchDispatch = async function (driverName, driverPhone) {
+        const selectedZone = document.getElementById('express-dispatch-zone-sel')?.value || 'ALL';
+        if (typeof window.closeLivePopover === 'function') window.closeLivePopover();
 
-    window.openDriverCapsulePopover = function (anchorEl, orderId, driverName) {
-        const dName = (driverName || '').trim();
-        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
-        const drvOrders = ordersList.filter(o => o && o.status !== 'trash' && !o.isArchived && (o.driverName || '').trim() === dName);
-
-        const inWayCount = drvOrders.filter(o => o.status === 'dispatched').length;
-        const unsettledOrders = drvOrders.filter(o => o.status === 'completed' && !o.isReconciled && !o.isSupplied);
-        const cashWithDriver = unsettledOrders.reduce((s, o) => s + (o.paymentMethod === 'online' ? 0 : (Number(o.total) || 0)), 0);
-
-        const drvObj = (storeSettings?.drivers || []).find(d => (d.name || '').trim() === dName);
-        const drvPhone = drvObj?.phone || '';
-
-        let otherDriversOpts = `<option value="">-- نقل الأوردر لمندوب آخر --</option>`;
-        (storeSettings?.drivers || []).forEach(d => {
-            if (d.name && d.name.trim() !== dName) {
-                otherDriversOpts += `<option value="${d.name.trim()}|${d.phone || ''}">🛵 ${d.name}</option>`;
-            }
+        let targetOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o => {
+            if (!o || o.status !== 'processing' || o.isArchived) return false;
+            if (selectedZone !== 'ALL' && (o.zone || 'غير مسجل').trim() !== selectedZone) return false;
+            const bl = window.findBlacklistedCustomerMatch ? window.findBlacklistedCustomerMatch(o.customerPhone, o.customerPhone2, o.customerName, o.customerAddress) : null;
+            if (bl && bl.type === 'exact' && !o.isPrepaidConfirmed && o.paymentMethod !== 'online') return false;
+            return true;
         });
-        otherDriversOpts += `<option value="REMOVE|">❌ إلغاء تعيين المندوب (إرجاع للتجهيز)</option>`;
 
-        const html = `
-            <div class="space-y-2.5">
-                <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                    <span class="text-xs font-black text-blue-800"><i class="fa-solid fa-motorcycle ml-1"></i> نبض المندوب: ${dName}</span>
-                    <button onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <div class="grid grid-cols-2 gap-2 text-center">
-                    <div class="bg-blue-50 border border-blue-100 p-2 rounded-xl">
-                        <span class="text-[10px] font-bold text-blue-600 block">معه بالطريق</span>
-                        <span class="text-sm font-black text-blue-900">${inWayCount} طلب</span>
-                    </div>
-                    <div class="bg-amber-50 border border-amber-200 p-2 rounded-xl">
-                        <span class="text-[10px] font-bold text-amber-700 block">كاش بعهدته</span>
-                        <span class="text-sm font-black text-amber-900">${cashWithDriver} ج</span>
-                    </div>
-                </div>
-                <select onchange="if(this.value) reassignOrderDriverQuick('${orderId}', this.value)" class="w-full border border-slate-200 rounded-xl p-2 text-[11px] font-black text-slate-700 bg-slate-50 outline-none">
-                    ${otherDriversOpts}
-                </select>
-                <div class="grid grid-cols-2 gap-1.5 pt-1">
-                    <button onclick="closeLivePopover(); setOrdersQuickFilter('driver', '${dName}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-xl text-[10px] font-black">
-                        🔍 فلترة طلباته
-                    </button>
-                    <button onclick="jumpToDriverReconcile('${dName}')" class="bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-xl text-[10px] font-black">
-                        💰 تقفيل عهدته
-                    </button>
-                </div>
-                ${drvPhone ? `<a href="tel:${drvPhone}" class="block text-center bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-xl text-[11px] font-black"><i class="fa-solid fa-phone ml-1"></i> اتصال بالمندوب (${drvPhone})</a>` : ''}
-            </div>
-        `;
-        window.openLivePopover(anchorEl, html);
-    };
-
-    window.reassignOrderDriverQuick = async function (orderId, valStr) {
-        window.closeLivePopover();
-        const [newName, newPhone] = valStr.split('|');
-        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
-        if (!order) return;
+        if (targetOrders.length === 0) return alert('لا توجد طلبات مطابقة جاهزة للتوجيه!');
 
         try {
-            if (newName === 'REMOVE') {
-                await db.collection('orders').doc(orderId).update({
-                    driverName: firebase.firestore.FieldValue.delete(),
-                    driverPhone: firebase.firestore.FieldValue.delete(),
-                    status: 'processing'
-                });
-                delete order.driverName;
-                delete order.driverPhone;
-                order.status = 'processing';
-                notifyQuickToast('🔄 تم إلغاء تعيين المندوب وإرجاع الطلب للتجهيز');
-            } else {
-                await db.collection('orders').doc(orderId).update({
-                    driverName: newName,
-                    driverPhone: newPhone || '',
+            const batch = db.batch();
+            targetOrders.forEach(o => {
+                batch.update(db.collection('orders').doc(o.id), {
+                    driverName: driverName,
+                    driverPhone: driverPhone || '',
                     status: 'dispatched',
                     dispatchedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
-                order.driverName = newName;
-                order.driverPhone = newPhone || '';
-                order.status = 'dispatched';
-                notifyQuickToast(`🛵 تم نقل الطلب للمندوب: ${newName}`);
-            }
-            window.renderOrdersList();
-        } catch (e) {
-            alert('حدث خطأ أثناء تغيير المندوب!');
-        }
-    };
-
-    window.jumpToDriverReconcile = function (driverName) {
-        window.closeLivePopover();
-        const reconBtn = document.querySelector('button[onclick*="switchTab(\'reconciliation\'"]');
-        if (reconBtn) switchTab('reconciliation', reconBtn);
-        setTimeout(() => {
-            const sel = document.getElementById('recon-driver-select');
-            if (sel && driverName) {
-                sel.value = driverName;
-                if (typeof window.calculateDriverReconciliation === 'function') {
-                    window.calculateDriverReconciliation();
+                o.driverName = driverName;
+                o.driverPhone = driverPhone || '';
+                o.status = 'dispatched';
+                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[o.id]) {
+                    globalOrdersMap[o.id].driverName = driverName;
+                    globalOrdersMap[o.id].driverPhone = driverPhone || '';
+                    globalOrdersMap[o.id].status = 'dispatched';
                 }
+            });
+
+            await batch.commit();
+            window.renderOrdersList();
+            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
+            if (typeof window.showToast === 'function') {
+                window.showToast(`🛵 تم توجيه (${targetOrders.length}) طلب إلى المندوب (${driverName}) في لمحة بصر!`);
             }
-        }, 120);
-    };
-
-    window.openZoneCapsulePopover = function (anchorEl, orderId, zoneName) {
-        const z = (zoneName || 'غير مسجل').trim();
-        const procInZone = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(
-            o => o && o.status === 'processing' && !o.isArchived && (o.zone || 'غير مسجل').trim() === z
-        );
-
-        const html = `
-            <div class="space-y-2">
-                <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                    <span class="text-xs font-black text-indigo-800"><i class="fa-solid fa-map-location-dot ml-1"></i> منطقة: ${z}</span>
-                    <button onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <button onclick="closeLivePopover(); setOrdersQuickFilter('zone', '${z}')" class="w-full bg-indigo-50 hover:bg-indigo-600 text-indigo-800 hover:text-white py-2 px-3 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between">
-                    <span>🔍 عرض طلبات (${z}) فقط</span>
-                    <i class="fa-solid fa-filter text-[10px]"></i>
-                </button>
-                <button onclick="quickDispatchZoneOrders('${z}')" class="w-full bg-blue-50 hover:bg-blue-600 text-blue-800 hover:text-white py-2 px-3 rounded-xl text-xs font-black text-right transition-all flex items-center justify-between">
-                    <span>🛵 توجيه جاهز المنطقة للمندوب</span>
-                    <span class="bg-white text-blue-700 px-1.5 py-0.5 rounded text-[10px]">${procInZone.length} طلب</span>
-                </button>
-            </div>
-        `;
-        window.openLivePopover(anchorEl, html);
-    };
-
-    window.quickDispatchZoneOrders = function (zoneName) {
-        window.closeLivePopover();
-        if (typeof window.openDispatchModal === 'function') {
-            window.openDispatchModal();
-            setTimeout(() => {
-                document.querySelectorAll('.disp-cb').forEach(cb => {
-                    const o = (typeof dispatchOrdersRaw !== 'undefined' ? dispatchOrdersRaw : []).find(x => x.id === cb.value);
-                    cb.checked = !!(o && (o.zone || 'غير مسجل').trim() === zoneName);
-                });
-            }, 120);
+        } catch (e) {
+            alert('حدث خطأ أثناء التوجيه السريع للمندوب!');
         }
     };
 
     // =========================================================================
-    // 💓 7. السطر العلوي الموحد الرشيق (46px فقط) + شريط الموبايل السفلي
+    // ⚡ 10. اختصار التوجيه السريع للمندوب بلمسة واحدة (1-Tap Express Dispatch)
     // =========================================================================
-    window.syncBottomDockActiveTab = function (activeTabId) {
-        const cur = activeTabId || window.smanCurrentActiveTab || 'dashboard';
-        document.querySelectorAll('.lc-dock-btn').forEach(btn => {
-            const t = btn.getAttribute('data-dock-tab');
-            if (t === cur) {
-                btn.className = 'lc-dock-btn flex flex-col items-center justify-center py-1 px-2 rounded-xl text-brand-primary font-black scale-105 transition-all';
-            } else {
-                btn.className = 'lc-dock-btn flex flex-col items-center justify-center py-1 px-2 rounded-xl text-slate-400 hover:text-slate-700 font-bold transition-all';
-            }
+    window.openExpressBatchDispatchPopover = function (anchorEl) {
+        const procOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o => o && o.status === 'processing' && !o.isArchived);
+        if (procOrders.length === 0) {
+            if (typeof window.showToast === 'function') window.showToast('ℹ️ لا توجد طلبات في مرحلة (قيد التجهيز) حالياً لتوجيهها!');
+            else alert('لا توجد طلبات في مرحلة (قيد التجهيز) حالياً!');
+            return;
+        }
+
+        const drivers = (typeof storeSettings !== 'undefined' && Array.isArray(storeSettings.drivers)) ? storeSettings.drivers : [];
+        if (drivers.length === 0) {
+            if (typeof window.openDispatchModal === 'function') return window.openDispatchModal();
+            return alert('يرجى إضافة مندوب أولاً من قسم إعدادات المتجر!');
+        }
+
+        const zonesCount = {};
+        procOrders.forEach(o => {
+            const z = (o.zone || 'غير مسجل').trim();
+            zonesCount[z] = (zonesCount[z] || 0) + 1;
         });
-    };
 
-    window.initLiveHeaderAndSidebarUI = function () {
-        const oldSecondRibbon = document.getElementById('lc-top-five-icons-ribbon');
-        if (oldSecondRibbon) oldSecondRibbon.remove();
+        let zoneOptions = `<option value="ALL">🌍 كل المناطق الجاهزة (${procOrders.length} طلب)</option>`;
+        Object.keys(zonesCount).forEach(z => {
+            zoneOptions += `<option value="${z}">📍 منطقة: ${z} (${zonesCount[z]} طلب)</option>`;
+        });
 
-        const headerEl = document.querySelector('header');
-        const headerLeftGroup = headerEl ? headerEl.firstElementChild : null;
-        const headerRight = document.querySelector('header .flex.items-center.gap-3') || (headerEl ? headerEl.lastElementChild : null);
-
-        if (headerLeftGroup) {
-            headerLeftGroup.className = 'flex items-center gap-1.5 shrink-0 min-w-0';
-            const hdrTitle = document.getElementById('header-title');
-            if (hdrTitle) {
-                hdrTitle.className = 'text-xs sm:text-base font-black text-slate-800 tracking-tight truncate max-w-[90px] sm:max-w-none';
-            }
-            const menuBtn = headerLeftGroup.querySelector('button[onclick*="toggleSidebar"]');
-            if (menuBtn) {
-                menuBtn.className = 'md:hidden w-8 h-8 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 flex items-center justify-center hover:bg-slate-200 transition-colors shrink-0 text-xs';
-            }
-        }
-
-        if (headerRight) {
-            headerRight.className = 'flex items-center gap-1 sm:gap-1.5 lc-no-scrollbar py-0.5';
-
-            const oldUpdateBtn = headerRight.querySelector('button[onclick*="forceUpdateAppNow"]:not([data-lc-slim])');
-            if (oldUpdateBtn) oldUpdateBtn.classList.add('hidden');
-
-            const staticLiveSpan = headerRight.querySelector('span.text-emerald-600');
-            if (staticLiveSpan) staticLiveSpan.classList.add('hidden');
-
-            const origAddBtn = headerRight.querySelector('button[onclick*="add-order-modal"], button[onclick*="safeOpenAddOrderModal"]');
-            if (origAddBtn) {
-                origAddBtn.className = 'hidden md:flex bg-brand-primary hover:bg-emerald-800 text-white px-3 py-1.5 rounded-xl text-xs font-black shadow-sm transition-all items-center gap-1 active:scale-95 shrink-0';
-                origAddBtn.setAttribute('onclick', 'safeOpenAddOrderModal()');
-                origAddBtn.innerHTML = '<i class="fa-solid fa-plus text-amber-300"></i> <span>طلب جديد</span>';
-            }
-
-            const saveBtn = document.getElementById('global-save-btn');
-            if (saveBtn) {
-                const showSaveNow = ['inventory', 'settings', 'marketing', 'batches'].includes(window.smanCurrentActiveTab || '');
-                saveBtn.className = `bg-slate-900 hover:bg-slate-800 text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black shadow-sm transition-all flex items-center gap-1 shrink-0${showSaveNow ? '' : ' hidden'}`;
-                saveBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up text-amber-400"></i> <span>حفظ</span>';
-            }
-
-
-            if (!document.getElementById('lc-header-pulse-bar')) {
-                const inlineBar = document.createElement('div');
-                inlineBar.id = 'lc-header-pulse-bar';
-                inlineBar.className = 'flex items-center gap-1 sm:gap-1.5 shrink-0';
-                inlineBar.innerHTML = `
-                    <!-- 1. كبسولة الفريزر -->
-                    <button type="button" onclick="openFreezerModal()" id="lc-hdr-freezer-btn" title="مخزن الفريزر الفعلي" class="lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-900 border border-cyan-200/80 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shrink-0">
-                        <i class="fa-solid fa-snowflake text-cyan-600"></i>
-                        <strong id="lc-hdr-freezer-count">0</strong>
-                    </button>
-
-                    <!-- 2. كبسولة المناديب -->
-                    <button type="button" onclick="jumpToRadarOrRecon()" id="lc-hdr-drivers-btn" title="رادار وتقفيل المناديب" class="lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200/80 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shrink-0">
-                        <i class="fa-solid fa-motorcycle text-indigo-600"></i>
-                        <strong id="lc-hdr-drivers-count">0</strong>
-                    </button>
-
-                    <!-- 3. كبسولة طابعة البوالص (Deli 750W) -->
-                    <button type="button" onclick="if(window.openWaybillSettingsModal) openWaybillSettingsModal();" id="lc-hdr-printer-btn" title="استوديو طابعة البوالص الحرارية Deli 750W" class="lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/80 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shrink-0">
-                        <i class="fa-solid fa-print text-amber-600"></i>
-                        <span class="hidden sm:inline">Deli</span>
-                    </button>
-
-                    <!-- 4. كبسولة جرس المهام -->
-                    <button type="button" onclick="openSmartBellNotifications(this)" data-lc-trigger="1" id="lc-hdr-bell-btn" title="رادار المهام والتنبيهات الفوري" class="lc-capsule relative h-8 w-8 sm:w-auto sm:px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200/80 text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 shrink-0">
-                        <i class="fa-solid fa-bell text-emerald-600"></i>
-                        <span class="hidden lg:inline">المهام</span>
-                        <span id="lc-hdr-bell-badge" class="hidden absolute -top-1 -left-1 bg-red-600 text-white text-[9px] font-black min-w-[16px] h-[16px] px-1 rounded-full flex items-center justify-center shadow-sm border border-white">0</span>
-                    </button>
-
-                    <!-- 5. كبسولة وضع المسابقة 🏆 -->
-                    <button type="button" onclick="openCompetitionPitchModal()" id="lc-pitch-mode-btn" title="وضع العرض التنفيذي للمسابقة وإخفاء أرقام العملاء" class="lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 border border-amber-500/30 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0">
-                        <i class="fa-solid fa-trophy text-slate-950"></i>
-                        <span class="hidden xl:inline">المسابقة</span>
-                    </button>
-
-                    <!-- 6. كبسولة التحديث الواضحة -->
-                    <button type="button" data-lc-slim="1" onclick="forceUpdateAppNow()" title="تحديث فوري لأحدث نسخة" class="lc-capsule h-8 px-2.5 rounded-xl bg-sky-50 hover:bg-sky-600 text-sky-900 hover:text-white border border-sky-300 text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 shadow-sm shrink-0">
-                        <i class="fa-solid fa-rotate text-sky-600"></i>
-                        <span>تحديث</span>
-                    </button>
-                `;
-                headerRight.insertBefore(inlineBar, headerRight.firstChild);
-            }
-        }
-
-        const oldFab = document.getElementById('lc-mobile-fab-add-order');
-        if (oldFab) oldFab.remove();
-
-        if (!document.getElementById('lc-mobile-bottom-dock')) {
-            const dock = document.createElement('nav');
-            dock.id = 'lc-mobile-bottom-dock';
-            dock.className = 'md:hidden fixed bottom-0 inset-x-0 z-[65] bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 shadow-[0_-8px_25px_rgba(15,23,42,0.08)] grid grid-cols-5 items-center';
-            dock.innerHTML = `
-                <button type="button" data-dock-tab="dashboard" onclick="switchTab('dashboard', document.querySelector('#sidebar button[onclick*=\\'dashboard\\']')); syncBottomDockActiveTab('dashboard');" class="lc-dock-btn flex flex-col items-center justify-center py-1 px-2 rounded-xl text-brand-primary font-black">
-                    <i class="fa-solid fa-chart-pie text-sm mb-0.5"></i>
-                    <span class="text-[10px]">القيادة</span>
-                </button>
-                <button type="button" data-dock-tab="orders" onclick="switchTab('orders', document.querySelector('#sidebar button[onclick*=\\'orders\\']')); syncBottomDockActiveTab('orders');" class="lc-dock-btn flex flex-col items-center justify-center py-1 px-2 rounded-xl text-slate-400 font-bold">
-                    <i class="fa-solid fa-bolt text-sm mb-0.5"></i>
-                    <span class="text-[10px]">الطلبات</span>
-                </button>
-                <button type="button" onclick="safeOpenAddOrderModal()" class="flex flex-col items-center justify-center -mt-5">
-                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-brand-dark to-emerald-600 text-white shadow-lg shadow-brand-primary/35 border-2 border-white flex items-center justify-center text-lg active:scale-90 transition-transform">
-                        <i class="fa-solid fa-plus text-amber-300"></i>
-                    </div>
-                    <span class="text-[9px] font-black text-brand-primary mt-0.5">طلب جديد</span>
-                </button>
-                <button type="button" data-dock-tab="batches" onclick="switchTab('batches', document.querySelector('#sidebar button[onclick*=\\'batches\\']')); syncBottomDockActiveTab('batches');" class="lc-dock-btn flex flex-col items-center justify-center py-1 px-2 rounded-xl text-slate-400 font-bold">
-                    <i class="fa-solid fa-layer-group text-sm mb-0.5"></i>
-                    <span class="text-[10px]">الدفعات</span>
-                </button>
-                <button type="button" data-dock-tab="radar" onclick="jumpToRadarOrRecon(); syncBottomDockActiveTab('radar');" class="lc-dock-btn flex flex-col items-center justify-center py-1 px-2 rounded-xl text-slate-400 font-bold">
-                    <i class="fa-solid fa-satellite-dish text-sm mb-0.5"></i>
-                    <span class="text-[10px]">المناديب</span>
+        const driverBtns = drivers.map(d => {
+            const safeName = (d.name || '').replace(/'/g, "\\'");
+            const safePhone = (d.phone || '').replace(/'/g, "\\'");
+            return `
+                <button type="button" onclick="executeExpressBatchDispatch('${safeName}', '${safePhone}')" class="w-full bg-indigo-50 hover:bg-indigo-600 text-indigo-950 hover:text-white py-2 px-3 rounded-xl text-xs font-black flex items-center justify-between border border-indigo-100 transition-all shadow-sm">
+                    <span>🛵 توجيه إلى: ${d.name}</span>
+                    <span class="text-[10px] bg-white/80 text-indigo-700 px-2 py-0.5 rounded-lg">بلمسة واحدة ⚡</span>
                 </button>
             `;
-            document.body.appendChild(dock);
-        }
-
-        window.syncBottomDockActiveTab();
-
-        const sidebarMap = [
-            { tab: 'orders', id: 'lc-sb-orders', cls: 'bg-amber-500 text-slate-950' },
-            { tab: 'notes', id: 'lc-sb-notes', cls: 'bg-rose-500 text-white' },
-            { tab: 'debts', id: 'lc-sb-debts', cls: 'bg-red-500 text-white' },
-            { tab: 'batches', id: 'lc-sb-batches', cls: 'bg-teal-500 text-white' },
-            { tab: 'radar', id: 'lc-sb-radar', cls: 'bg-indigo-500 text-white' },
-            { tab: 'reconciliation', id: 'lc-sb-recon', cls: 'bg-emerald-500 text-white' }
-        ];
-
-        sidebarMap.forEach(item => {
-            const btn = document.querySelector(`#sidebar button[onclick*="switchTab('${item.tab}'"]`);
-            if (btn && !document.getElementById(item.id)) {
-                btn.classList.add('justify-between');
-                const labelText = btn.innerHTML;
-                btn.innerHTML = `<span class="flex items-center">${labelText}</span><span id="${item.id}" class="hidden ${item.cls} text-[10px] font-black px-2 py-0.5 rounded-full shadow-sm">0</span>`;
-            }
-        });
-    };
-
-    function getOrderCashForDriver(o) {
-        if (!o || o.paymentMethod === 'online') return 0;
-        if (o.paymentMethod === 'split') {
-            return (o.paidCash !== undefined) ? (Number(o.paidCash) || 0) : Math.max(0, (Number(o.total) || 0) - (Number(o.paidOnline) || 0));
-        }
-        return Number(o.total) || 0;
-    }
-
-    window.updateLiveHeaderAndSidebar = function () {
-        window.initLiveHeaderAndSidebarUI();
-        window.restructureOrdersStickyLayout();
-
-        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
-        const custList = (typeof customersData !== 'undefined' && Array.isArray(customersData)) ? customersData : [];
-        const freezerObj = (typeof storeFreezer !== 'undefined' && storeFreezer) ? storeFreezer : {};
-        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
-        const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
-
-        let totalFreezerMeat = 0;
-        Object.keys(freezerObj).forEach(pId => {
-            const q = Math.max(0, Number(freezerObj[pId]) || 0);
-            if (q > 0) {
-                const pName = String(prodsObj[pId]?.name || '').toLowerCase();
-                const isExtra = prodsObj[pId]?.isExtra || pId === 'eggs' || pId === 'chicks' || pName.includes('بيض') || pName.includes('كتكوت') || pName.includes('كتاكيت');
-                if (!isExtra) totalFreezerMeat += q;
-            }
-        });
-        const fzEl = document.getElementById('lc-hdr-freezer-count');
-        if (fzEl) fzEl.innerHTML = `${totalFreezerMeat}<span class="hidden sm:inline mr-0.5">طبق</span>`;
-
-        let newCount = 0, procCount = 0, dispCount = 0, noAnsCount = 0, notesCount = 0;
-        let unsettledGrossCash = 0;
-
-        ordersList.forEach(o => {
-            if (!o || o.status === 'trash' || o.isArchived) return;
-            if (o.status === 'new') newCount++;
-            else if (o.status === 'processing') procCount++;
-            else if (o.status === 'dispatched') dispCount++;
-            else if (o.status === 'no_answer' || o.status === 'deferred') noAnsCount++;
-
-            if (!['completed', 'canceled'].includes(o.status) && (o.adminNote || o.driverNote)) {
-                notesCount++;
-            }
-            if (o.status === 'completed' && o.driverName && !o.isReconciled && !o.isSupplied) {
-                unsettledGrossCash += getOrderCashForDriver(o);
-            }
-        });
-
-        const drvBtn = document.getElementById('lc-hdr-drivers-btn');
-        const drvCnt = document.getElementById('lc-hdr-drivers-count');
-        if (drvCnt) {
-            if (unsettledGrossCash > 0) {
-                drvCnt.innerHTML = `<span>${dispCount}</span><span class="hidden md:inline"> • ${unsettledGrossCash.toLocaleString()}ج</span>`;
-                if (drvBtn) drvBtn.className = 'lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shrink-0';
-            } else if (dispCount > 0) {
-                drvCnt.innerHTML = `<span>${dispCount}</span><span class="hidden sm:inline"> بالطريق</span>`;
-                if (drvBtn) drvBtn.className = 'lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shrink-0';
-            } else {
-                drvCnt.innerHTML = `<span>0</span>`;
-                if (drvBtn) drvBtn.className = 'lc-capsule h-8 px-2 sm:px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 text-[10px] sm:text-[11px] font-black flex items-center gap-1 shrink-0';
-            }
-        }
-
-        let batchAlertCount = 0;
-        Object.keys(batchesObj).forEach(bId => {
-            if (batchesObj[bId]?.isOpen && typeof window.getBatchCeilingAndRemaining === 'function') {
-                const cap = window.getBatchCeilingAndRemaining(bId);
-                if (cap.ceilingPairs > 0 && cap.remainingPairs <= 5) batchAlertCount++;
-            }
-        });
-
-        const pendingFarmBatches = Object.keys(batchesObj).filter(bId => batchesObj[bId] && batchesObj[bId].pendingApproval === true);
-        if (typeof window.checkPendingFarmBatchesBanner === 'function') {
-            window.checkPendingFarmBatchesBanner(pendingFarmBatches);
-        }
-
-        let activeTasksGroups = 0;
-        if (pendingFarmBatches.length > 0) activeTasksGroups++;
-        if (newCount > 0) activeTasksGroups++;
-        if (procCount > 0) activeTasksGroups++;
-        if (noAnsCount > 0) activeTasksGroups++;
-        if (unsettledGrossCash > 0) activeTasksGroups++;
-        if (batchAlertCount > 0) activeTasksGroups++;
-
-        const bellBadge = document.getElementById('lc-hdr-bell-badge');
-        if (bellBadge) {
-            if (activeTasksGroups > 0) {
-                bellBadge.innerText = activeTasksGroups;
-                bellBadge.classList.remove('hidden');
-            } else {
-                bellBadge.classList.add('hidden');
-            }
-        }
-
-        const setSbBadge = (id, val, suffix = '') => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            if (val > 0) {
-                el.innerText = val.toLocaleString() + suffix;
-                el.classList.remove('hidden');
-            } else {
-                el.classList.add('hidden');
-            }
-        };
-
-        const totalMarketDebt = custList.reduce((s, c) => s + (Number(c.debt) > 0 ? Number(c.debt) : 0), 0);
-        const openBatchesCount = Object.values(batchesObj).filter(b => b && b.isOpen && b.name && b.name !== 'undefined').length;
-
-        setSbBadge('lc-sb-orders', newCount + procCount + dispCount);
-        setSbBadge('lc-sb-notes', notesCount);
-        setSbBadge('lc-sb-debts', totalMarketDebt, ' ج');
-        setSbBadge('lc-sb-batches', openBatchesCount);
-        setSbBadge('lc-sb-radar', dispCount);
-        setSbBadge('lc-sb-recon', unsettledGrossCash, ' ج');
-    };
-
-    window.jumpToRadarOrRecon = function () {
-        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
-        const hasUnsettled = ordersList.some(o => o && o.status === 'completed' && o.driverName && !o.isReconciled && !o.isSupplied && getOrderCashForDriver(o) > 0);
-        const targetTab = hasUnsettled ? 'reconciliation' : 'radar';
-        const btn = document.querySelector(`#sidebar button[onclick*="switchTab('${targetTab}'"]`);
-        if (btn) switchTab(targetTab, btn);
-    };
-
-    window.openSmartBellNotifications = function (anchorEl) {
-        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
-        const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
-
-        let newCount = 0, newMoney = 0;
-        let procCount = 0, dispCount = 0, noAnsCount = 0;
-        let unsettledCash = 0, unsettledOrdersCount = 0;
-
-        ordersList.forEach(o => {
-            if (!o || o.status === 'trash' || o.isArchived) return;
-            if (o.status === 'new') { newCount++; newMoney += (Number(o.total) || 0); }
-            else if (o.status === 'processing') procCount++;
-            else if (o.status === 'dispatched') dispCount++;
-            else if (o.status === 'no_answer' || o.status === 'deferred') noAnsCount++;
-            else if (o.status === 'completed' && o.driverName && !o.isReconciled && !o.isSupplied) {
-                const c = getOrderCashForDriver(o);
-                if (c > 0) { unsettledCash += c; unsettledOrdersCount++; }
-            }
-        });
-
-        let itemsHtml = '';
-        const pendingFarmIds = Object.keys(batchesObj).filter(bId => batchesObj[bId] && batchesObj[bId].pendingApproval === true);
-        if (pendingFarmIds.length > 0) {
-            const firstName = batchesObj[pendingFarmIds[0]]?.name || 'دفعة جديدة';
-            itemsHtml += `
-                <div onclick="closeLivePopover(); switchTab('batches', document.querySelector('#sidebar button[onclick*=\\'batches\\']'));" class="p-2.5 rounded-xl bg-amber-100 hover:bg-amber-200 border-2 border-amber-400 cursor-pointer flex justify-between items-center transition-all shadow-sm">
-                    <div>
-                        <span class="text-xs font-black text-amber-950 block">🐣 دفعة من المزرعة بانتظار إذنك!</span>
-                        <span class="text-[10px] font-bold text-amber-800">${firstName}${pendingFarmIds.length > 1 ? ` (+${pendingFarmIds.length - 1} أخرى)` : ''} — مخفية عن المتجر حالياً</span>
-                    </div>
-                    <span class="bg-slate-900 text-amber-300 text-[10px] font-black px-2.5 py-1 rounded-xl shrink-0">اعتماد</span>
-                </div>`;
-        }
-
-        if (newCount > 0) {
-            itemsHtml += `
-                <div onclick="closeLivePopover(); switchTab('orders', document.querySelector('#sidebar button[onclick*=\\'orders\\']')); setOrderTab('new');" class="p-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 cursor-pointer flex justify-between items-center transition-all">
-                    <div>
-                        <span class="text-xs font-black text-blue-950 block">🆕 طلبات جديدة تنتظر التأكيد</span>
-                        <span class="text-[10px] font-bold text-blue-700">إجمالي قيمتها: ${newMoney.toLocaleString()} ج</span>
-                    </div>
-                    <span class="bg-blue-600 text-white text-xs font-black px-2.5 py-1 rounded-xl shadow-sm">${newCount} طلب</span>
-                </div>`;
-        }
-
-        if (procCount > 0) {
-            itemsHtml += `
-                <div onclick="closeLivePopover(); switchTab('orders', document.querySelector('#sidebar button[onclick*=\\'orders\\']')); setOrderTab('processing');" class="p-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 cursor-pointer flex justify-between items-center transition-all">
-                    <div>
-                        <span class="text-xs font-black text-amber-950 block">⏳ طلبات قيد التجهيز والتحضير</span>
-                        <span class="text-[10px] font-bold text-amber-700">اضغط لمراجعتها أو توجيهها للمندوب</span>
-                    </div>
-                    <span class="bg-amber-500 text-slate-950 text-xs font-black px-2.5 py-1 rounded-xl shadow-sm">${procCount} طلب</span>
-                </div>`;
-        }
-
-        if (unsettledCash > 0) {
-            itemsHtml += `
-                <div onclick="closeLivePopover(); switchTab('reconciliation', document.querySelector('#sidebar button[onclick*=\\'reconciliation\\']'));" class="p-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 cursor-pointer flex justify-between items-center transition-all">
-                    <div>
-                        <span class="text-xs font-black text-emerald-950 block">💰 عهدة كاش مع المناديب للتوريد</span>
-                        <span class="text-[10px] font-bold text-emerald-700">من إجمالي (${unsettledOrdersCount}) طلبات مسلمة</span>
-                    </div>
-                    <span class="bg-emerald-600 text-white text-xs font-black px-2.5 py-1 rounded-xl shadow-sm">${unsettledCash.toLocaleString()} ج</span>
-                </div>`;
-        }
-
-        if (dispCount > 0) {
-            itemsHtml += `
-                <div onclick="closeLivePopover(); switchTab('radar', document.querySelector('#sidebar button[onclick*=\\'radar\\']'));" class="p-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 cursor-pointer flex justify-between items-center transition-all">
-                    <div>
-                        <span class="text-xs font-black text-indigo-950 block">🛵 طلبات في الطريق مع المناديب</span>
-                        <span class="text-[10px] font-bold text-indigo-700">اضغط لفتح رادار خطوط السير</span>
-                    </div>
-                    <span class="bg-indigo-600 text-white text-xs font-black px-2.5 py-1 rounded-xl shadow-sm">${dispCount} طلب</span>
-                </div>`;
-        }
-
-        if (noAnsCount > 0) {
-            itemsHtml += `
-                <div onclick="closeLivePopover(); switchTab('orders', document.querySelector('#sidebar button[onclick*=\\'orders\\']')); setOrderTab('no_answer');" class="p-2.5 rounded-xl bg-purple-50 hover:bg-purple-100 border border-purple-200 cursor-pointer flex justify-between items-center transition-all">
-                    <div>
-                        <span class="text-xs font-black text-purple-950 block">📵 طلبات لم يرد / مؤجلة</span>
-                        <span class="text-[10px] font-bold text-purple-700">تحتاج إعادة تواصل مع العميل</span>
-                    </div>
-                    <span class="bg-purple-600 text-white text-xs font-black px-2.5 py-1 rounded-xl shadow-sm">${noAnsCount} طلب</span>
-                </div>`;
-        }
-
-        Object.keys(batchesObj).forEach(bId => {
-            const b = batchesObj[bId];
-            if (b && b.isOpen && typeof window.getBatchCeilingAndRemaining === 'function') {
-                const cap = window.getBatchCeilingAndRemaining(bId);
-                if (cap.ceilingPairs > 0 && cap.remainingPairs <= 5) {
-                    itemsHtml += `
-                        <div onclick="closeLivePopover(); switchTab('batches', document.querySelector('#sidebar button[onclick*=\\'batches\\']'));" class="p-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 cursor-pointer flex justify-between items-center transition-all">
-                            <div>
-                                <span class="text-xs font-black text-rose-950 block">🐣 دفعة (${b.name}) أوشكت على الاكتمال</span>
-                                <span class="text-[10px] font-bold text-rose-700">حُجز ${cap.bookedPairs} من ${cap.ceilingPairs} جوز</span>
-                            </div>
-                            <span class="bg-rose-600 text-white text-[10px] font-black px-2 py-1 rounded-xl">متبقي ${cap.remainingPairs}</span>
-                        </div>`;
-                }
-            }
-        });
-
-        if (!itemsHtml) {
-            itemsHtml = `<div class="text-center py-6 text-xs font-bold text-slate-400">لا توجد مهام معلقة حالياً، كل العمليات منتظمة ✅</div>`;
-        }
+        }).join('');
 
         const html = `
             <div class="space-y-2.5">
                 <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                    <span class="text-xs font-black text-slate-800"><i class="fa-solid fa-bell text-amber-500 ml-1"></i> رادار المهام والعمليات الفوري</span>
-                    <button onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
+                    <span class="text-xs font-black text-indigo-900"><i class="fa-solid fa-bolt text-amber-500 ml-1"></i> توجيه سريع للجاهز (${procOrders.length} طلب)</span>
+                    <button type="button" onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
                 </div>
-                <div class="space-y-2 max-h-80 overflow-y-auto custom-scroll pr-0.5">${itemsHtml}</div>
+                <div>
+                    <label class="text-[10px] font-black text-slate-500 block mb-1">1. اختر خط السير / المنطقة:</label>
+                    <select id="express-dispatch-zone-sel" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black text-slate-800 bg-slate-50 outline-none">
+                        ${zoneOptions}
+                    </select>
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-[10px] font-black text-slate-500 block">2. اضغط على اسم المندوب للنقل الفوري:</label>
+                    ${driverBtns}
+                </div>
             </div>
         `;
-        window.openLivePopover(anchorEl, html);
+
+        if (typeof window.openLivePopover === 'function') {
+            window.openLivePopover(anchorEl, html);
+        } else if (typeof window.openDispatchModal === 'function') {
+            window.openDispatchModal();
+        }
     };
 
-    // =========================================================================
-    // 🌪️ 8. نظام التمرير المستقر المضاد للاهتزاز (Zero-Jitter Hysteresis Scroll)
-    // =========================================================================
-    window.initZeroClutterOrdersScroll = function () {
-        const mainScroll = document.querySelector('main > div.flex-1.overflow-y-auto.custom-scroll');
-        if (mainScroll && !mainScroll.hasAttribute('data-lc-scroll-bound')) {
-            mainScroll.setAttribute('data-lc-scroll-bound', '1');
+    window.executeExpressBatchDispatch = async function (driverName, driverPhone) {
+        const selectedZone = document.getElementById('express-dispatch-zone-sel')?.value || 'ALL';
+        if (typeof window.closeLivePopover === 'function') window.closeLivePopover();
 
-            let lastScrollY = mainScroll.scrollTop || 0;
-            let accDelta = 0;
-            let lockUntilMs = 0;
-            let rafPending = false;
+        let targetOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o => {
+            if (!o || o.status !== 'processing' || o.isArchived) return false;
+            if (selectedZone !== 'ALL' && (o.zone || 'غير مسجل').trim() !== selectedZone) return false;
+            const bl = window.findBlacklistedCustomerMatch ? window.findBlacklistedCustomerMatch(o.customerPhone, o.customerPhone2, o.customerName, o.customerAddress) : null;
+            if (bl && bl.type === 'exact' && !o.isPrepaidConfirmed && o.paymentMethod !== 'online') return false;
+            return true;
+        });
 
-            const processScrollFrame = () => {
-                rafPending = false;
-                const nowMs = Date.now();
-                const st = Math.max(0, mainScroll.scrollTop);
-                const maxScroll = Math.max(0, mainScroll.scrollHeight - mainScroll.clientHeight);
-                const delta = st - lastScrollY;
-                lastScrollY = st;
+        if (targetOrders.length === 0) return alert('لا توجد طلبات مطابقة جاهزة للتوجيه!');
 
-                // أثناء قفل الحركة (400ms) نتجاهل ارتدادات تغيير الارتفاع تماماً لمنع أي رعشة
-                if (nowMs < lockUntilMs) {
-                    accDelta = 0;
-                    return;
+        try {
+            const batch = db.batch();
+            targetOrders.forEach(o => {
+                batch.update(db.collection('orders').doc(o.id), {
+                    driverName: driverName,
+                    driverPhone: driverPhone || '',
+                    status: 'dispatched',
+                    dispatchedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                o.driverName = driverName;
+                o.driverPhone = driverPhone || '';
+                o.status = 'dispatched';
+                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[o.id]) {
+                    globalOrdersMap[o.id].driverName = driverName;
+                    globalOrdersMap[o.id].driverPhone = driverPhone || '';
+                    globalOrdersMap[o.id].status = 'dispatched';
                 }
+            });
 
-                // إذا كانت القائمة قصيرة ولا يوجد محتوى كافٍ للتمرير، نُبقي كل شيء ظاهراً وثابتاً
-                if (maxScroll < 180) {
-                    if (document.body.classList.contains('lc-bars-hidden-on-scroll')) {
-                        document.body.classList.remove('lc-bars-hidden-on-scroll');
-                        lockUntilMs = nowMs + 400;
-                    }
-                    accDelta = 0;
-                    return;
-                }
-
-                const activeEl = document.activeElement;
-                const activeTag = activeEl ? activeEl.tagName : '';
-                const isSearchFocused = activeEl && activeEl.id === 'search-order';
-
-                if (!isSearchFocused && activeTag !== 'SELECT' && activeTag !== 'TEXTAREA') {
-                    // تجميع مسافة السحب في نفس الاتجاه وتصفيرها عند عكس الاتجاه
-                    if ((delta > 0 && accDelta < 0) || (delta < 0 && accDelta > 0)) {
-                        accDelta = delta;
-                    } else {
-                        accDelta += delta;
-                    }
-
-                    const isHidden = document.body.classList.contains('lc-bars-hidden-on-scroll');
-                    const isNearBottom = st >= (maxScroll - 75);
-
-                    // إظهار فوري عند الوصول لأعلى الصفحة
-                    if (st <= 24) {
-                        if (isHidden) {
-                            document.body.classList.remove('lc-bars-hidden-on-scroll');
-                            lockUntilMs = nowMs + 600;
-                        }
-                        accDelta = 0;
-                    }
-                    // عند النزول المتعمد بمقدار 75px: نطوي مربع البحث فقط بهدوء وتبقى التبويبات والهيدر ثابتين
-                    else if (!isHidden && st > 120 && !isNearBottom && accDelta >= 75) {
-                        document.body.classList.add('lc-bars-hidden-on-scroll');
-                        lockUntilMs = nowMs + 600;
-                        accDelta = 0;
-                    }
-                    // عند الصعود المتعمد بمقدار 55px: يعود مربع البحث بنعومة تامة
-                    else if (isHidden && !isNearBottom && accDelta <= -55) {
-                        document.body.classList.remove('lc-bars-hidden-on-scroll');
-                        lockUntilMs = nowMs + 600;
-                        accDelta = 0;
-                    }
-                }
-
-                const ordersView = document.getElementById('view-orders');
-                if (ordersView && ordersView.classList.contains('active')) {
-                    const drawer = document.getElementById('so-advanced-filters-drawer');
-                    if (activeTag !== 'SELECT' && drawer && !drawer.classList.contains('hidden') && accDelta > 80) {
-                        drawer.classList.add('hidden');
-                        if (window.ordersFilterState) {
-                            window.ordersFilterState.filtersExpanded = false;
-                            window.ordersFilterState.filtersOpen = false;
-                        }
-                    }
-                }
-
-                if (window.liveConnectState) {
-                    window.liveConnectState.lastScrollTop = st;
-                }
-            };
-
-            mainScroll.addEventListener('scroll', () => {
-                if (!rafPending) {
-                    rafPending = true;
-                    requestAnimationFrame(processScrollFrame);
-                }
-            }, { passive: true });
+            await batch.commit();
+            window.renderOrdersList();
+            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
+            if (typeof window.showToast === 'function') {
+                window.showToast(`🛵 تم توجيه (${targetOrders.length}) طلب إلى المندوب (${driverName}) في لمحة بصر!`);
+            }
+        } catch (e) {
+            alert('حدث خطأ أثناء التوجيه السريع للمندوب!');
         }
     };
 
     // =========================================================================
-    // 🔗 9. الربط التلقائي السريع مع دوال النظام
+    // ⏰ 11. منظومة جدولة الطلبات المؤجلة بالتقويم والمنبه الحي (Deferred Scheduler & Alarm)
     // =========================================================================
-    function hookIntoSystemFunctions() {
-        if (typeof window.renderOrdersList === 'function' && !window.renderOrdersList._lcHooked) {
-            const _origRenderOrders = window.renderOrdersList;
-            const wrappedRenderOrders = function () {
-                const res = _origRenderOrders.apply(this, arguments);
-                window.restructureOrdersStickyLayout();
-                window.initZeroClutterOrdersScroll();
-                window.enhanceOrderCardsLive();
-                window.updateLiveHeaderAndSidebar();
-                return res;
-            };
-            wrappedRenderOrders._lcHooked = true;
-            window.renderOrdersList = wrappedRenderOrders;
+    window._deferredTargetOrderIds = [];
+    window._bypassDeferredModal = false;
+
+    function toLocalDateStr(d) {
+        const yr = d.getFullYear();
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const da = String(d.getDate()).padStart(2, '0');
+        return `${yr}-${mo}-${da}`;
+    }
+
+    function toLocalTimeStr(d) {
+        const hr = String(d.getHours()).padStart(2, '0');
+        const mn = String(d.getMinutes()).padStart(2, '0');
+        return `${hr}:${mn}`;
+    }
+
+    function parseLocalDateTimeToMs(dateStr, timeStr) {
+        if (!dateStr) return 0;
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const [hr, mn] = (timeStr || '12:00').split(':').map(Number);
+        const dt = new Date(y, (m || 1) - 1, d || 1, hr || 0, mn || 0, 0, 0);
+        return isNaN(dt.getTime()) ? 0 : dt.getTime();
+    }
+
+    function formatArabicScheduleLabel(ms) {
+        if (!ms) return '';
+        const dt = new Date(ms);
+        const datePart = dt.toLocaleDateString('ar-EG', { weekday: 'short', month: 'short', day: 'numeric' });
+        const timePart = dt.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true });
+        return `${datePart} - ${timePart}`;
+    }
+
+    function formatRemainingCountdown(targetMs) {
+        if (!targetMs) return '';
+        const diff = targetMs - Date.now();
+        if (diff <= 0) return '🚨 حان الموعد الآن!';
+        const totalMins = Math.floor(diff / 60000);
+        if (totalMins < 60) return `باقي ${totalMins} دقيقة`;
+        const hrs = Math.floor(totalMins / 60);
+        const mins = totalMins % 60;
+        if (hrs < 24) return `باقي ${hrs} س${mins > 0 ? ` و ${mins} د` : ''}`;
+        const days = Math.floor(hrs / 24);
+        const remHrs = hrs % 24;
+        return `باقي ${days} يوم${remHrs > 0 ? ` و ${remHrs} س` : ''}`;
+    }
+
+    // نغمة تنبيه صوتية واضحة تعمل أوفلاين 100% عبر Web Audio API
+    window.playDeferredAlarmChime = function () {
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return;
+            const ctx = new AudioCtx();
+            const notes = [587.33, 880, 587.33, 880];
+            notes.forEach((freq, idx) => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.18);
+                gain.gain.setValueAtTime(0.25, ctx.currentTime + idx * 0.18);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.18 + 0.16);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(ctx.currentTime + idx * 0.18);
+                osc.stop(ctx.currentTime + idx * 0.18 + 0.17);
+            });
+        } catch (e) {}
+    };
+
+    function ensureDeferredScheduleModalExists() {
+        let modal = document.getElementById('deferred-schedule-modal');
+        if (modal) return modal;
+
+        modal = document.createElement('div');
+        modal.id = 'deferred-schedule-modal';
+        modal.className = 'fixed inset-0 bg-slate-900/75 backdrop-blur-sm z-[230] hidden flex items-center justify-center p-3 sm:p-4';
+        modal.innerHTML = `
+            <div class="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-md overflow-hidden flex flex-col border-2 border-orange-300">
+                <div class="bg-gradient-to-l from-slate-900 via-orange-950 to-slate-900 text-white p-4 flex justify-between items-center">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-10 h-10 rounded-xl bg-orange-500/20 border border-orange-400/40 flex items-center justify-center text-orange-300 text-lg">
+                            <i class="fa-regular fa-calendar-check"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-sm sm:text-base font-black text-white">جدولة موعد الطلب المؤجل ⏰</h3>
+                            <p id="def-modal-subtitle" class="text-[11px] text-orange-200 font-bold">اختر التاريخ والوقت ليذكرك السيستم بإشعار تلقائي</p>
+                        </div>
+                    </div>
+                    <button type="button" onclick="cancelDeferredScheduleModal()" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-red-500 text-white flex items-center justify-center transition-colors">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <div class="p-4 sm:p-5 space-y-4 bg-slate-50/70">
+                    <!-- اختصارات سريعة بضغطة واحدة -->
+                    <div>
+                        <label class="text-[10px] font-black text-slate-500 block mb-1.5">⚡ اختصارات سريعة للموعد:</label>
+                        <div class="grid grid-cols-3 gap-1.5">
+                            <button type="button" onclick="applyDeferredQuickPreset(1, 0)" class="bg-white hover:bg-orange-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[11px] font-black transition-all shadow-sm">⏱️ بعد ساعة</button>
+                            <button type="button" onclick="applyDeferredQuickPreset(3, 0)" class="bg-white hover:bg-orange-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[11px] font-black transition-all shadow-sm">⏱️ بعد 3 ساعات</button>
+                            <button type="button" onclick="applyDeferredQuickPreset(0, 1, '10:00')" class="bg-white hover:bg-orange-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[11px] font-black transition-all shadow-sm">🌅 غداً 10 ص</button>
+                            <button type="button" onclick="applyDeferredQuickPreset(0, 1, '14:00')" class="bg-white hover:bg-orange-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[11px] font-black transition-all shadow-sm">☀️ غداً 2 ظهراً</button>
+                            <button type="button" onclick="applyDeferredQuickPreset(0, 1, '19:00')" class="bg-white hover:bg-orange-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[11px] font-black transition-all shadow-sm">🌙 غداً 7 مساءً</button>
+                            <button type="button" onclick="applyDeferredQuickPreset(0, 2, '12:00')" class="bg-white hover:bg-orange-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[11px] font-black transition-all shadow-sm">📅 بعد يومين</button>
+                        </div>
+                    </div>
+
+                    <!-- اختيار التاريخ والوقت من النتيجة والساعة -->
+                    <div class="grid grid-cols-2 gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
+                        <div>
+                            <label class="text-[10px] font-black text-orange-800 block mb-1"><i class="fa-regular fa-calendar ml-1"></i> التاريخ (النتيجة) *</label>
+                            <input type="date" id="def-sched-date" onchange="updateDeferredLivePreviewText()" class="w-full border-2 border-orange-200 focus:border-orange-500 rounded-xl p-2 text-xs font-black text-slate-800 bg-orange-50/30 outline-none">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-black text-orange-800 block mb-1"><i class="fa-regular fa-clock ml-1"></i> الساعة (الوقت) *</label>
+                            <input type="time" id="def-sched-time" onchange="updateDeferredLivePreviewText()" class="w-full border-2 border-orange-200 focus:border-orange-500 rounded-xl p-2 text-xs font-black text-slate-800 bg-orange-50/30 outline-none">
+                        </div>
+                        <div class="col-span-2 bg-orange-50 border border-orange-200/80 px-3 py-2 rounded-xl text-center">
+                            <span id="def-sched-live-preview" class="text-xs font-black text-orange-900"></span>
+                        </div>
+                    </div>
+
+                    <!-- سبب التأجيل أو ملاحظة الإشعار -->
+                    <div>
+                        <label class="text-[10px] font-black text-slate-500 block mb-1.5">📝 سبب التأجيل (يظهر مع الإشعار):</label>
+                        <div class="flex flex-wrap gap-1 mb-2">
+                            <button type="button" onclick="document.getElementById('def-sched-reason').value='طلب التوصيل في هذا الموعد'" class="bg-white border border-slate-200 text-slate-600 hover:bg-slate-800 hover:text-white px-2 py-0.5 rounded-lg text-[10px] font-bold transition-colors">طلب التوصيل بالموعد</button>
+                            <button type="button" onclick="document.getElementById('def-sched-reason').value='العميل مسافر ويعود بالموعد'" class="bg-white border border-slate-200 text-slate-600 hover:bg-slate-800 hover:text-white px-2 py-0.5 rounded-lg text-[10px] font-bold transition-colors">العميل مسافر</button>
+                            <button type="button" onclick="document.getElementById('def-sched-reason').value='بانتظار تحويل فودافون كاش'" class="bg-white border border-slate-200 text-slate-600 hover:bg-slate-800 hover:text-white px-2 py-0.5 rounded-lg text-[10px] font-bold transition-colors">انتظار تحويل</button>
+                        </div>
+                        <input type="text" id="def-sched-reason" placeholder="اكتب ملاحظة أو سبب التأجيل (اختياري)..." class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-white outline-none focus:border-orange-500">
+                    </div>
+                </div>
+
+                <div class="p-4 bg-white border-t border-slate-100 flex gap-2">
+                    <button type="button" onclick="confirmDeferredOrderSchedule()" id="btn-confirm-deferred-sched" class="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-black py-3 rounded-xl text-xs sm:text-sm shadow-lg shadow-orange-600/25 transition-all flex items-center justify-center gap-2 active:scale-95">
+                        <i class="fa-solid fa-bell text-amber-200"></i> تأكيد التأجيل وضبط الإشعار
+                    </button>
+                    <button type="button" onclick="cancelDeferredScheduleModal()" class="bg-slate-100 hover:bg-slate-200 text-slate-600 font-black px-4 py-3 rounded-xl text-xs transition-all">
+                        إلغاء
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    window.applyDeferredQuickPreset = function (addHours, addDays, fixedTimeStr = null) {
+        const dt = new Date();
+        if (addDays > 0) dt.setDate(dt.getDate() + addDays);
+        if (addHours > 0) dt.setHours(dt.getHours() + addHours);
+
+        const dateInp = document.getElementById('def-sched-date');
+        const timeInp = document.getElementById('def-sched-time');
+        if (dateInp) dateInp.value = toLocalDateStr(dt);
+        if (timeInp) timeInp.value = fixedTimeStr ? fixedTimeStr : toLocalTimeStr(dt);
+        window.updateDeferredLivePreviewText();
+    };
+
+    window.updateDeferredLivePreviewText = function () {
+        const dVal = document.getElementById('def-sched-date')?.value || '';
+        const tVal = document.getElementById('def-sched-time')?.value || '';
+        const prevEl = document.getElementById('def-sched-live-preview');
+        if (!prevEl) return;
+
+        const ms = parseLocalDateTimeToMs(dVal, tVal);
+        if (!ms) {
+            prevEl.innerText = 'يرجى تحديد التاريخ والوقت';
+            return;
+        }
+        const label = formatArabicScheduleLabel(ms);
+        const rem = formatRemainingCountdown(ms);
+        prevEl.innerHTML = `🔔 سيتم تنبيهك يوم: <strong class="underline">${label}</strong> (${rem})`;
+    };
+
+    window.openDeferredScheduleModal = function (orderIdsArray) {
+        const ids = Array.isArray(orderIdsArray) ? orderIdsArray : [orderIdsArray];
+        if (ids.length === 0) return;
+        window._deferredTargetOrderIds = ids;
+
+        ensureDeferredScheduleModalExists();
+
+        try {
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission().catch(() => {});
+            }
+        } catch (e) {}
+
+        const firstOrd = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === ids[0]);
+        const subEl = document.getElementById('def-modal-subtitle');
+        if (subEl) {
+            subEl.innerText = ids.length === 1 && firstOrd
+                ? `العميل: ${firstOrd.customerName || 'بدون اسم'} (${firstOrd.zone || ''})`
+                : `تأجيل جماعي لعدد (${ids.length}) طلبات محددة`;
         }
 
-        if (typeof window.refreshCustomersData === 'function' && !window.refreshCustomersData._lcHooked) {
-            const _origRefreshCust = window.refreshCustomersData;
-            const wrappedRefreshCust = function () {
-                const res = _origRefreshCust.apply(this, arguments);
-                setTimeout(() => {
-                    window.updateLiveHeaderAndSidebar();
-                }, 250);
+        const dateInp = document.getElementById('def-sched-date');
+        const timeInp = document.getElementById('def-sched-time');
+        const reasonInp = document.getElementById('def-sched-reason');
+
+        if (firstOrd && firstOrd.deferredDate && firstOrd.deferredTime) {
+            if (dateInp) dateInp.value = firstOrd.deferredDate;
+            if (timeInp) timeInp.value = firstOrd.deferredTime;
+            if (reasonInp) reasonInp.value = firstOrd.deferredReason || '';
+        } else {
+            window.applyDeferredQuickPreset(0, 1, '12:00');
+            if (reasonInp) reasonInp.value = '';
+        }
+
+        window.updateDeferredLivePreviewText();
+        if (typeof openModal === 'function') openModal('deferred-schedule-modal');
+        else document.getElementById('deferred-schedule-modal')?.classList.remove('hidden');
+    };
+
+    window.cancelDeferredScheduleModal = function () {
+        window._deferredTargetOrderIds = [];
+        if (typeof closeModal === 'function') closeModal('deferred-schedule-modal');
+        else document.getElementById('deferred-schedule-modal')?.classList.add('hidden');
+        window.renderOrdersList();
+    };
+
+    window.confirmDeferredOrderSchedule = async function () {
+        const ids = window._deferredTargetOrderIds || [];
+        if (ids.length === 0) return window.cancelDeferredScheduleModal();
+
+        const dVal = document.getElementById('def-sched-date')?.value || '';
+        const tVal = document.getElementById('def-sched-time')?.value || '';
+        const reason = (document.getElementById('def-sched-reason')?.value || '').trim();
+
+        const targetMs = parseLocalDateTimeToMs(dVal, tVal);
+        if (!targetMs) return alert('برجاء تحديد التاريخ والوقت بشكل صحيح!');
+
+        const displayStr = formatArabicScheduleLabel(targetMs);
+        const btn = document.getElementById('btn-confirm-deferred-sched');
+        const origHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري حفظ الموعد وضبط المنبه...';
+        }
+
+        try {
+            window._bypassDeferredModal = true;
+
+            for (const id of ids) {
+                const ord = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === id);
+                if (!ord) continue;
+
+                if (ord.status !== 'deferred' && typeof window._origUpdateOrderStatusForDeferred === 'function') {
+                    await window._origUpdateOrderStatusForDeferred(id, 'deferred');
+                }
+
+                const noteChunk = `[📅 مؤجل لموعد: ${displayStr}]${reason ? ' — ' + reason : ''}`;
+                const updatedAdminNote = ord.adminNote ? `${ord.adminNote}\n---\n${noteChunk}` : noteChunk;
+
+                const scheduleData = {
+                    status: 'deferred',
+                    deferredDate: dVal,
+                    deferredTime: tVal,
+                    deferredUntilMs: targetMs,
+                    deferredDisplayStr: displayStr,
+                    deferredReason: reason,
+                    deferredAlertDismissed: false,
+                    deferredNotifiedOnce: false,
+                    adminNote: updatedAdminNote
+                };
+
+                await db.collection('orders').doc(id).update(scheduleData);
+
+                Object.assign(ord, scheduleData);
+                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) {
+                    Object.assign(globalOrdersMap[id], scheduleData);
+                }
+            }
+
+            if (typeof closeModal === 'function') closeModal('deferred-schedule-modal');
+            else document.getElementById('deferred-schedule-modal')?.classList.add('hidden');
+
+            document.querySelectorAll('.bulk-order-cb').forEach(cb => { cb.checked = false; });
+            document.getElementById('bulk-actions-bar')?.classList.add('hidden');
+
+            window.renderOrdersList();
+            window.checkDueDeferredOrdersNow();
+            if (typeof window.showToast === 'function') {
+                window.showToast(`⏰ تم تأجيل الطلب وضبط المنبه ليوم (${displayStr})`);
+            }
+        } catch (e) {
+            console.error('Deferred schedule save error:', e);
+            alert('حدث خطأ أثناء حفظ موعد التأجيل!');
+        } finally {
+            window._bypassDeferredModal = false;
+            window._deferredTargetOrderIds = [];
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+            }
+        }
+    };
+
+    // ⚖️ إدارة دورة حجز الأوزان القادمة من متجر العملاء (فك تلقائي عند الإلغاء/السلة + خصم نهائي عند الإكمال)
+    window.syncWeightHoldForOrderStatus = async function (orderObj, newStatus) {
+        if (!orderObj || !orderObj.id || !Array.isArray(orderObj.items)) return;
+        const hasWeightItem = orderObj.items.some(i =>
+            i && (i.isWeightBased || (typeof storeProducts !== 'undefined' && storeProducts[i.id]?.isWeightBased))
+        );
+        if (!hasWeightItem) return;
+
+        const holdsRef = db.collection('inventory').doc('weight_holds');
+
+        try {
+            if (newStatus === 'canceled' || newStatus === 'trash') {
+                await holdsRef.update({
+                    [orderObj.id]: firebase.firestore.FieldValue.delete()
+                }).catch(() => {});
+                return;
+            }
+
+            if (newStatus === 'completed') {
+                const holdsSnap = await holdsRef.get().catch(() => null);
+                const holdsData = (holdsSnap && holdsSnap.exists) ? (holdsSnap.data() || {}) : {};
+                const orderHoldMap = holdsData[orderObj.id];
+                if (!orderHoldMap || typeof orderHoldMap !== 'object') return;
+
+                let invTouched = false;
+                Object.keys(orderHoldMap).forEach(prodId => {
+                    const gramsToDeduct = Array.isArray(orderHoldMap[prodId]) ? orderHoldMap[prodId] : [];
+                    if (!storeProducts || !storeProducts[prodId] || gramsToDeduct.length === 0) return;
+
+                    const curArr = typeof window.parseWeightsArray === 'function'
+                        ? window.parseWeightsArray(storeProducts[prodId].weightsList)
+                        : String(storeProducts[prodId].weightsList || '').split(/[\s,،;\n\r\-]+/).map(Number).filter(n => !isNaN(n) && n > 0);
+
+                    gramsToDeduct.forEach(g => {
+                        const idx = curArr.indexOf(Number(g));
+                        if (idx > -1) curArr.splice(idx, 1);
+                    });
+
+                    storeProducts[prodId].weightsList = curArr.join(' ');
+                    if (typeof storeStock !== 'undefined') storeStock[prodId] = curArr.length;
+                    invTouched = true;
+                });
+
+                const finalizeBatch = db.batch();
+                if (invTouched) {
+                    finalizeBatch.set(db.collection('inventory').doc('settings'), { productsData: storeProducts }, { merge: true });
+                    finalizeBatch.set(db.collection('inventory').doc('stock'), storeStock, { merge: true });
+                }
+                finalizeBatch.set(holdsRef, {
+                    [orderObj.id]: firebase.firestore.FieldValue.delete()
+                }, { merge: true });
+                await finalizeBatch.commit();
+
+                if (typeof window.renderInventoryUI === 'function' && window.smanCurrentActiveTab === 'inventory') {
+                    window.renderInventoryUI();
+                }
+                if (typeof window.generateDynamicOrderInputs === 'function') {
+                    window.generateDynamicOrderInputs();
+                }
+                return;
+            }
+
+            // في حالة استعادة طلب موقع من (ملغي) إلى (جديد/تجهيز): إعادة تفعيل الحجز تلقائياً
+            if (['new', 'processing', 'dispatched', 'deferred', 'no_answer'].includes(newStatus) && orderObj.source !== 'admin_crm') {
+                const holdPayload = {};
+                orderObj.items.forEach(i => {
+                    if (i && i.isWeightBased && Array.isArray(i.selectedWeightsGrams) && i.selectedWeightsGrams.length > 0) {
+                        holdPayload[i.id] = i.selectedWeightsGrams.map(Number);
+                    }
+                });
+                if (Object.keys(holdPayload).length > 0) {
+                    await holdsRef.set({ [orderObj.id]: holdPayload }, { merge: true }).catch(() => {});
+                }
+            }
+        } catch (err) {
+            console.warn('Weight hold sync info:', err);
+        }
+    };
+
+    function hookDeferredStatusInterceptors() {
+        if (typeof window.updateOrderStatus === 'function' && !window.updateOrderStatus._deferredHooked) {
+            window._origUpdateOrderStatusForDeferred = window.updateOrderStatus;
+            const wrappedUpdateStatus = async function (id, newStatus) {
+                if (newStatus === 'deferred' && !window._bypassDeferredModal) {
+                    window.openDeferredScheduleModal([id]);
+                    return;
+                }
+                const ord = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === id);
+                if (ord && ord.status === 'deferred' && newStatus !== 'deferred') {
+                    ord.deferredAlertDismissed = true;
+                    db.collection('orders').doc(id).update({ deferredAlertDismissed: true }).catch(() => {});
+                }
+                const res = await window._origUpdateOrderStatusForDeferred.apply(this, arguments);
+                if (ord) {
+                    window.syncWeightHoldForOrderStatus(ord, newStatus);
+                }
+                window.checkDueDeferredOrdersNow();
                 return res;
             };
-            wrappedRefreshCust._lcHooked = true;
-            window.refreshCustomersData = wrappedRefreshCust;
+            wrappedUpdateStatus._deferredHooked = true;
+            window.updateOrderStatus = wrappedUpdateStatus;
+        }
+
+
+        if (typeof window.bulkChangeStatus === 'function' && !window.bulkChangeStatus._deferredHooked) {
+            const _origBulkStatus = window.bulkChangeStatus;
+            const wrappedBulkStatus = async function (newStatus) {
+                if (newStatus === 'deferred' && !window._bypassDeferredModal) {
+                    const checkedIds = Array.from(document.querySelectorAll('.bulk-order-cb:checked')).map(cb => cb.value);
+                    if (checkedIds.length === 0) return;
+                    window.openDeferredScheduleModal(checkedIds);
+                    return;
+                }
+                return _origBulkStatus.apply(this, arguments);
+            };
+            wrappedBulkStatus._deferredHooked = true;
+            window.bulkChangeStatus = wrappedBulkStatus;
         }
     }
-    // 🔔 إشعار حي فوري + نغمة لطيفة عند وصول أي دفعة جديدة من المزرعة/المفرخة بانتظار إذن المدير
-    window._notifiedFarmBatchIds = window._notifiedFarmBatchIds || {};
-    window._farmBannerDismissedKey = '';
 
-    window.checkPendingFarmBatchesBanner = function (pendingIds) {
-        let banner = document.getElementById('lc-farm-approval-banner');
-        const list = Array.isArray(pendingIds) ? pendingIds : [];
+    window.decorateDeferredOrderCards = function () {
+        const container = document.getElementById('orders-list-vertical');
+        if (!container) return;
 
-        if (list.length === 0) {
-            if (banner) banner.classList.add('hidden');
+        const cards = container.querySelectorAll('.order-card[data-id]');
+        cards.forEach(card => {
+            const orderId = card.getAttribute('data-id');
+            const o = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(x => x && x.id === orderId);
+            if (!o || o.status !== 'deferred') return;
+
+            let oldBanner = card.querySelector('.def-schedule-card-banner');
+            if (oldBanner) oldBanner.remove();
+
+            const banner = document.createElement('div');
+            banner.className = 'def-schedule-card-banner';
+
+            if (o.deferredUntilMs) {
+                const isDue = o.deferredUntilMs <= Date.now();
+                const remTxt = formatRemainingCountdown(o.deferredUntilMs);
+
+                banner.innerHTML = `
+                    <div class="${isDue ? 'bg-red-600 text-white animate-pulse border-red-700' : 'bg-orange-50 text-orange-950 border-orange-300'} border-2 px-3 py-2 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs font-black shadow-sm">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <i class="fa-solid ${isDue ? 'fa-bell fa-shake text-amber-300' : 'fa-clock text-orange-600'}"></i>
+                            <span>موعد التأجيل: <strong>${o.deferredDisplayStr || ''}</strong></span>
+                            <span class="px-2 py-0.5 rounded-lg text-[10px] ${isDue ? 'bg-white text-red-700' : 'bg-orange-200/80 text-orange-900'}">${remTxt}</span>
+                            ${o.deferredReason ? `<span class="text-[10px] opacity-90">• (${o.deferredReason})</span>` : ''}
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            ${isDue ? `<button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-400 hover:bg-amber-300 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm">🔥 ابدأ التجهيز الآن</button>` : ''}
+                            <button type="button" onclick="event.stopPropagation(); openDeferredScheduleModal(['${o.id}'])" class="${isDue ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-white hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-300'} px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors">
+                                📅 تغيير الموعد
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else {
+                banner.innerHTML = `
+                    <div class="bg-orange-50 border border-orange-200 text-orange-900 px-3 py-2 rounded-xl flex items-center justify-between gap-2 text-xs font-black">
+                        <span><i class="fa-regular fa-calendar-plus text-orange-600 ml-1"></i> هذا الطلب مؤجل بدون موعد منبه محدد</span>
+                        <button type="button" onclick="event.stopPropagation(); openDeferredScheduleModal(['${o.id}'])" class="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded-lg text-[10px] font-black shadow-sm">
+                            ⏰ تحديد التاريخ والوقت
+                        </button>
+                    </div>
+                `;
+            }
+
+            card.insertBefore(banner, card.firstChild);
+        });
+    };
+
+    window.checkDueDeferredOrdersNow = function () {
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const nowMs = Date.now();
+
+        const dueOrders = ordersList.filter(o =>
+            o &&
+            o.status === 'deferred' &&
+            !o.isArchived &&
+            o.deferredUntilMs &&
+            o.deferredUntilMs <= nowMs &&
+            !o.deferredAlertDismissed
+        );
+
+        let alarmBar = document.getElementById('deferred-due-alarm-bar');
+
+        if (dueOrders.length === 0) {
+            if (alarmBar) alarmBar.classList.add('hidden');
             return;
         }
 
-        const sig = list.slice().sort().join(',');
-        let hasBrandNew = false;
-        list.forEach(id => {
-            if (!window._notifiedFarmBatchIds[id]) {
-                window._notifiedFarmBatchIds[id] = true;
-                hasBrandNew = true;
+        let shouldRingNow = false;
+        dueOrders.forEach(o => {
+            if (!o.deferredNotifiedOnce) {
+                o.deferredNotifiedOnce = true;
+                shouldRingNow = true;
+                db.collection('orders').doc(o.id).update({ deferredNotifiedOnce: true }).catch(() => {});
+
+                try {
+                    if ('Notification' in window && Notification.permission === 'granted') {
+                        const itemsTxt = Array.isArray(o.items) ? o.items.map(i => `${i.quantity}x ${i.name}`).join(' + ') : '';
+                        new Notification(`⏰ حان موعد طلب مؤجل: ${o.customerName || 'عميل'}`, {
+                            body: `المنطقة: ${o.zone || ''} | الأصناف: ${itemsTxt} | الإجمالي: ${o.total || 0} ج`,
+                            icon: 'super.png'
+                        });
+                    }
+                } catch (e) {}
             }
         });
 
-        if (hasBrandNew && typeof window.playDeferredAlarmChime === 'function') {
+        if (shouldRingNow) {
             window.playDeferredAlarmChime();
         }
 
-        if (window._farmBannerDismissedKey === sig) return;
-
-        if (!banner) {
-            banner = document.createElement('div');
-            banner.id = 'lc-farm-approval-banner';
-            banner.className = 'fixed top-14 left-1/2 -translate-x-1/2 z-[210] w-[94vw] max-w-xl bg-gradient-to-l from-[#042f2e] via-[#064e3b] to-[#0f172a] text-white px-4 py-3 rounded-2xl shadow-2xl border-2 border-amber-400 flex items-center justify-between gap-3';
-            document.body.appendChild(banner);
+        if (!alarmBar) {
+            alarmBar = document.createElement('div');
+            alarmBar.id = 'deferred-due-alarm-bar';
+            alarmBar.className = 'fixed top-14 left-1/2 -translate-x-1/2 z-[215] w-[95vw] max-w-2xl bg-gradient-to-l from-red-700 via-red-600 to-orange-600 text-white p-3.5 rounded-2xl shadow-2xl border-2 border-amber-300 space-y-2.5';
+            document.body.appendChild(alarmBar);
         }
 
-        const firstBatch = (typeof storeBatches !== 'undefined' && storeBatches[list[0]]) ? storeBatches[list[0]] : {};
-        banner.innerHTML = `
-            <div class="flex items-center gap-2.5 min-w-0">
-                <span class="w-9 h-9 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center text-base shrink-0 shadow">
-                    <i class="fa-solid fa-bell fa-shake"></i>
-                </span>
-                <div class="min-w-0">
-                    <div class="text-xs sm:text-sm font-black text-amber-300 truncate">🐣 وصلت دفعة جديدة من المزرعة بانتظار إذنك!</div>
-                    <div class="text-[11px] font-bold text-emerald-100 truncate">${firstBatch.name || 'دفعة جديدة'}${list.length > 1 ? ` (+${list.length - 1} دفعات أخرى)` : ''} • مخفية عن موقع العملاء حتى توافق</div>
+        const rowsHtml = dueOrders.slice(0, 4).map(o => {
+            const itemsTxt = Array.isArray(o.items) ? o.items.map(i => `${i.quantity}x ${i.name}`).join(' + ') : '';
+            return `
+                <div class="bg-black/25 p-2.5 rounded-xl border border-white/15 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                        <div class="text-xs font-black flex items-center gap-1.5">
+                            <span class="bg-amber-400 text-slate-950 px-2 py-0.5 rounded text-[10px]">⏰ ${o.deferredDisplayStr || 'حان الموعد'}</span>
+                            <span>${o.customerName || 'عميل'} (${o.zone || ''})</span>
+                            <span class="text-amber-300">${o.total || 0} ج</span>
+                        </div>
+                        <p class="text-[11px] text-red-100 font-bold mt-0.5">${itemsTxt} ${o.deferredReason ? `• (${o.deferredReason})` : ''}</p>
+                    </div>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <button type="button" onclick="updateOrderStatus('${o.id}', 'processing')" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black shadow-md transition-all">
+                            🔥 للتجهيز الآن
+                        </button>
+                        <button type="button" onclick="openDeferredScheduleModal(['${o.id}'])" class="bg-white/20 hover:bg-white/30 text-white px-2.5 py-1.5 rounded-xl text-[10px] font-black">
+                            📅 تأجيل
+                        </button>
+                        <button type="button" onclick="dismissDeferredOrderAlert('${o.id}')" class="bg-black/30 hover:bg-black/50 text-white/80 px-2 py-1.5 rounded-xl text-[10px] font-black" title="كتم التنبيه">
+                            🔕
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        alarmBar.innerHTML = `
+            <div class="flex items-center justify-between border-b border-white/20 pb-2">
+                <div class="flex items-center gap-2 text-xs sm:text-sm font-black">
+                    <i class="fa-solid fa-bell fa-shake text-amber-300 text-base"></i>
+                    <span>تنبيه المواعيد: لديك (${dueOrders.length}) طلب مؤجل حان موعد تجهيزه الآن!</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <button type="button" onclick="playDeferredAlarmChime()" class="bg-white/15 hover:bg-white/25 text-white px-2 py-1 rounded-lg text-[10px] font-black" title="اختبار الصوت">🔊</button>
+                    <button type="button" onclick="document.getElementById('deferred-due-alarm-bar').classList.add('hidden')" class="bg-white/15 hover:bg-white/25 text-white w-7 h-7 rounded-lg text-xs font-black flex items-center justify-center">✕</button>
                 </div>
             </div>
-            <div class="flex items-center gap-1.5 shrink-0">
-                <button type="button" onclick="window._farmBannerDismissedKey='${sig}'; document.getElementById('lc-farm-approval-banner').classList.add('hidden'); switchTab('batches', document.querySelector('#sidebar button[onclick*=\\'batches\\']'));" class="bg-amber-400 hover:bg-amber-300 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black shadow active:scale-95">
-                    مراجعة الآن
-                </button>
-                <button type="button" onclick="window._farmBannerDismissedKey='${sig}'; document.getElementById('lc-farm-approval-banner').classList.add('hidden');" class="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs flex items-center justify-center">✕</button>
-            </div>
+            <div class="space-y-2 max-h-60 overflow-y-auto custom-scroll">${rowsHtml}</div>
         `;
-        banner.classList.remove('hidden');
+        alarmBar.classList.remove('hidden');
     };
 
-    function bootLiveConnect() {
-        injectLiveConnectStyles();
-        hookIntoSystemFunctions();
-        window.initLiveHeaderAndSidebarUI();
-        window.restructureOrdersStickyLayout();
-        window.initZeroClutterOrdersScroll();
-        window.enhanceOrderCardsLive();
-        window.updateLiveHeaderAndSidebar();
+    window.dismissDeferredOrderAlert = async function (orderId) {
+        const ord = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === orderId);
+        if (ord) {
+            ord.deferredAlertDismissed = true;
+            await db.collection('orders').doc(orderId).update({ deferredAlertDismissed: true }).catch(() => {});
+        }
+        window.checkDueDeferredOrdersNow();
+        window.renderOrdersList();
+    };
+
+    const _origRenderOrdersForDeferred = window.renderOrdersList;
+    window.renderOrdersList = function () {
+        const res = _origRenderOrdersForDeferred.apply(this, arguments);
+        hookDeferredStatusInterceptors();
+        window.decorateDeferredOrderCards();
+        return res;
+    };
+
+    function bootOrdersAndDeferredEngine() {
+        window.initSmartOrdersToolbar();
+        hookDeferredStatusInterceptors();
+        window.decorateDeferredOrderCards();
+        window.checkDueDeferredOrdersNow();
+        setInterval(() => {
+            window.checkDueDeferredOrdersNow();
+            if (typeof currentOrderTab !== 'undefined' && currentOrderTab === 'deferred') {
+                document.querySelectorAll('.order-card[data-id]').forEach(card => {
+                    const ord = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(x => x && x.id === card.getAttribute('data-id'));
+                    if (!ord || !ord.deferredUntilMs) return;
+                    const remSpan = card.querySelector('.def-schedule-card-banner span.rounded');
+                    if (remSpan) {
+                        const newRem = formatRemainingCountdown(ord.deferredUntilMs);
+                        if (remSpan.innerText !== newRem) remSpan.innerText = newRem;
+                    }
+                });
+            }
+        }, 30000);
+
     }
 
     if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', () => setTimeout(bootLiveConnect, 350));
+        window.addEventListener('DOMContentLoaded', bootOrdersAndDeferredEngine);
     } else {
-        setTimeout(bootLiveConnect, 350);
+        bootOrdersAndDeferredEngine();
     }
 })();
