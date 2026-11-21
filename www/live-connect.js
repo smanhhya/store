@@ -158,9 +158,98 @@
             body.pitch-privacy-mode [dir="ltr"]:not(input):not(textarea):hover {
                 filter: blur(0);
             }
+
+            /* 👑 الترقية البريميوم رويال (Royal Emerald & Gold) للقائمة الجانبية والصفحات القديمة 👑 */
+            #sidebar {
+                background: radial-gradient(circle at top right, rgba(245, 158, 11, 0.14), transparent 36%),
+                            linear-gradient(180deg, #031d19 0%, #05352a 48%, #021a15 100%) !important;
+                border-left: 1px solid rgba(245, 158, 11, 0.22) !important;
+                box-shadow: -12px 0 38px rgba(2, 20, 16, 0.45) !important;
+            }
+            #sidebar > div:first-child {
+                background: linear-gradient(135deg, rgba(245, 158, 11, 0.14), rgba(6, 78, 59, 0.35)) !important;
+                border-bottom: 1px solid rgba(245, 158, 11, 0.22) !important;
+            }
+            #sidebar .nav-btn {
+                border: 1px solid transparent;
+                border-radius: 0.95rem !important;
+                padding: 0.62rem 0.75rem !important;
+                margin-bottom: 0.22rem !important;
+                color: rgba(236, 253, 245, 0.82) !important;
+                transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+            }
+            #sidebar .nav-btn i {
+                width: 2rem !important;
+                height: 2rem !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                border-radius: 0.7rem !important;
+                background: rgba(255, 255, 255, 0.08) !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                margin-left: 0.65rem !important;
+                font-size: 0.85rem !important;
+                transition: all 0.2s ease !important;
+            }
+            #sidebar .nav-btn:hover {
+                background: rgba(255, 255, 255, 0.08) !important;
+                border-color: rgba(245, 158, 11, 0.25) !important;
+                color: #ffffff !important;
+                transform: translateX(-3px);
+            }
+            #sidebar .nav-btn.active {
+                background: linear-gradient(90deg, rgba(245, 158, 11, 0.22) 0%, rgba(16, 185, 129, 0.28) 100%) !important;
+                border: 1px solid rgba(245, 158, 11, 0.55) !important;
+                color: #ffffff !important;
+                box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.45) !important;
+            }
+            #sidebar .nav-btn.active i {
+                background: linear-gradient(135deg, #f59e0b, #fbbf24) !important;
+                color: #031d19 !important;
+                border-color: #fde68a !important;
+                box-shadow: 0 3px 10px rgba(245, 158, 11, 0.35);
+            }
+
+            /* ترقية رؤوس وجداول الصفحات القديمة (البلاك ليست، المديونيات، أرشيف الدفعات، سلة المحذوفات) */
+            #view-blacklist > div:first-child,
+            #view-debts > div:first-child,
+            #view-archive > div:first-child,
+            #view-trash > div:first-child {
+                background: linear-gradient(135deg, #042f2e 0%, #064e3b 58%, #0f172a 100%) !important;
+                border: 1.5px solid rgba(245, 158, 11, 0.38) !important;
+                color: #ffffff !important;
+                box-shadow: 0 12px 28px -8px rgba(4, 47, 46, 0.28) !important;
+            }
+            #view-blacklist > div:first-child h2,
+            #view-debts > div:first-child h2,
+            #view-archive > div:first-child h3,
+            #view-trash > div:first-child h3 {
+                color: #fef3c7 !important;
+            }
+            #view-blacklist > div:first-child p,
+            #view-debts > div:first-child p,
+            #view-archive > div:first-child p,
+            #view-trash > div:first-child p {
+                color: rgba(209, 250, 229, 0.85) !important;
+            }
+            #view-blacklist > div:first-child input,
+            #view-debts > div:first-child input {
+                background: rgba(255, 255, 255, 0.96) !important;
+                color: #0f172a !important;
+                border-color: rgba(245, 158, 11, 0.4) !important;
+            }
+            #view-blacklist thead,
+            #view-debts thead {
+                background: linear-gradient(90deg, #064e3b, #0f172a) !important;
+                color: #fde68a !important;
+            }
+            #view-debts thead th {
+                color: #fde68a !important;
+            }
         `;
         document.head.appendChild(style);
     }
+
 
     // =========================================================================
     // 🧩 3. فصل الخانات العلوية عن تبويبات (جديد ومكتمل) لتثبيت التبويبات وحدها
@@ -1159,9 +1248,10 @@
                         <span class="hidden xl:inline">المسابقة</span>
                     </button>
 
-                    <!-- 6. كبسولة التحديث -->
-                    <button type="button" data-lc-slim="1" onclick="forceUpdateAppNow()" title="تحديث فوري لأحدث نسخة" class="lc-capsule h-8 w-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-[11px] font-black flex items-center justify-center shrink-0">
+                    <!-- 6. كبسولة التحديث الواضحة -->
+                    <button type="button" data-lc-slim="1" onclick="forceUpdateAppNow()" title="تحديث فوري لأحدث نسخة" class="lc-capsule h-8 px-2.5 rounded-xl bg-sky-50 hover:bg-sky-600 text-sky-900 hover:text-white border border-sky-300 text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 shadow-sm shrink-0">
                         <i class="fa-solid fa-rotate text-sky-600"></i>
+                        <span>تحديث</span>
                     </button>
                 `;
                 headerRight.insertBefore(inlineBar, headerRight.firstChild);
@@ -1294,7 +1384,13 @@
             }
         });
 
+        const pendingFarmBatches = Object.keys(batchesObj).filter(bId => batchesObj[bId] && batchesObj[bId].pendingApproval === true);
+        if (typeof window.checkPendingFarmBatchesBanner === 'function') {
+            window.checkPendingFarmBatchesBanner(pendingFarmBatches);
+        }
+
         let activeTasksGroups = 0;
+        if (pendingFarmBatches.length > 0) activeTasksGroups++;
         if (newCount > 0) activeTasksGroups++;
         if (procCount > 0) activeTasksGroups++;
         if (noAnsCount > 0) activeTasksGroups++;
@@ -1362,6 +1458,18 @@
         });
 
         let itemsHtml = '';
+        const pendingFarmIds = Object.keys(batchesObj).filter(bId => batchesObj[bId] && batchesObj[bId].pendingApproval === true);
+        if (pendingFarmIds.length > 0) {
+            const firstName = batchesObj[pendingFarmIds[0]]?.name || 'دفعة جديدة';
+            itemsHtml += `
+                <div onclick="closeLivePopover(); switchTab('batches', document.querySelector('#sidebar button[onclick*=\\'batches\\']'));" class="p-2.5 rounded-xl bg-amber-100 hover:bg-amber-200 border-2 border-amber-400 cursor-pointer flex justify-between items-center transition-all shadow-sm">
+                    <div>
+                        <span class="text-xs font-black text-amber-950 block">🐣 دفعة من المزرعة بانتظار إذنك!</span>
+                        <span class="text-[10px] font-bold text-amber-800">${firstName}${pendingFarmIds.length > 1 ? ` (+${pendingFarmIds.length - 1} أخرى)` : ''} — مخفية عن المتجر حالياً</span>
+                    </div>
+                    <span class="bg-slate-900 text-amber-300 text-[10px] font-black px-2.5 py-1 rounded-xl shrink-0">اعتماد</span>
+                </div>`;
+        }
 
         if (newCount > 0) {
             itemsHtml += `
@@ -1582,6 +1690,61 @@
             window.refreshCustomersData = wrappedRefreshCust;
         }
     }
+    // 🔔 إشعار حي فوري + نغمة لطيفة عند وصول أي دفعة جديدة من المزرعة/المفرخة بانتظار إذن المدير
+    window._notifiedFarmBatchIds = window._notifiedFarmBatchIds || {};
+    window._farmBannerDismissedKey = '';
+
+    window.checkPendingFarmBatchesBanner = function (pendingIds) {
+        let banner = document.getElementById('lc-farm-approval-banner');
+        const list = Array.isArray(pendingIds) ? pendingIds : [];
+
+        if (list.length === 0) {
+            if (banner) banner.classList.add('hidden');
+            return;
+        }
+
+        const sig = list.slice().sort().join(',');
+        let hasBrandNew = false;
+        list.forEach(id => {
+            if (!window._notifiedFarmBatchIds[id]) {
+                window._notifiedFarmBatchIds[id] = true;
+                hasBrandNew = true;
+            }
+        });
+
+        if (hasBrandNew && typeof window.playDeferredAlarmChime === 'function') {
+            window.playDeferredAlarmChime();
+        }
+
+        if (window._farmBannerDismissedKey === sig) return;
+
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'lc-farm-approval-banner';
+            banner.className = 'fixed top-14 left-1/2 -translate-x-1/2 z-[210] w-[94vw] max-w-xl bg-gradient-to-l from-[#042f2e] via-[#064e3b] to-[#0f172a] text-white px-4 py-3 rounded-2xl shadow-2xl border-2 border-amber-400 flex items-center justify-between gap-3';
+            document.body.appendChild(banner);
+        }
+
+        const firstBatch = (typeof storeBatches !== 'undefined' && storeBatches[list[0]]) ? storeBatches[list[0]] : {};
+        banner.innerHTML = `
+            <div class="flex items-center gap-2.5 min-w-0">
+                <span class="w-9 h-9 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center text-base shrink-0 shadow">
+                    <i class="fa-solid fa-bell fa-shake"></i>
+                </span>
+                <div class="min-w-0">
+                    <div class="text-xs sm:text-sm font-black text-amber-300 truncate">🐣 وصلت دفعة جديدة من المزرعة بانتظار إذنك!</div>
+                    <div class="text-[11px] font-bold text-emerald-100 truncate">${firstBatch.name || 'دفعة جديدة'}${list.length > 1 ? ` (+${list.length - 1} دفعات أخرى)` : ''} • مخفية عن موقع العملاء حتى توافق</div>
+                </div>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+                <button type="button" onclick="window._farmBannerDismissedKey='${sig}'; document.getElementById('lc-farm-approval-banner').classList.add('hidden'); switchTab('batches', document.querySelector('#sidebar button[onclick*=\\'batches\\']'));" class="bg-amber-400 hover:bg-amber-300 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black shadow active:scale-95">
+                    مراجعة الآن
+                </button>
+                <button type="button" onclick="window._farmBannerDismissedKey='${sig}'; document.getElementById('lc-farm-approval-banner').classList.add('hidden');" class="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs flex items-center justify-center">✕</button>
+            </div>
+        `;
+        banner.classList.remove('hidden');
+    };
 
     function bootLiveConnect() {
         injectLiveConnectStyles();
