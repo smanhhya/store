@@ -414,6 +414,101 @@
             console.error('Update batch track type error:', e);
         }
     };
+    // 🔔 بوابة موافقة المدير على الدفعات الواردة من المزرعة/المفرخة قبل ظهورها للعملاء
+    window.getPendingFarmBatches = function () {
+        const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
+        return Object.keys(batchesObj)
+            .filter(bId => batchesObj[bId] && batchesObj[bId].pendingApproval === true)
+            .map(bId => ({ id: bId, ...batchesObj[bId] }))
+            .sort((a, b) => (Number(b.farmSyncedAt) || 0) - (Number(a.farmSyncedAt) || 0));
+    };
+
+    window.approveFarmBatch = async function (bId, publishToStore = true) {
+        if (!storeBatches[bId]) return;
+        const b = storeBatches[bId];
+        const updates = {
+            pendingApproval: false,
+            isVisible: Boolean(publishToStore),
+            isOpen: Boolean(publishToStore),
+            approvedAt: Date.now()
+        };
+        Object.assign(b, updates);
+
+        try {
+            await db.collection('inventory').doc('batches').set({
+                [bId]: updates
+            }, { merge: true });
+
+            window.batchUIState.viewMode = 'focus';
+            window.batchUIState.focusedBatchId = bId;
+            window.renderBatchesUI();
+            if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
+            if (typeof window.showToast === 'function') {
+                window.showToast(publishToStore
+                    ? `✅ تم اعتماد ونشر (${b.name}) على موقع العملاء بنجاح!`
+                    : `👁️ تم اعتماد (${b.name}) وإبقائها مخفية للمراجعة.`);
+            }
+        } catch (e) {
+            console.error('Approve farm batch error:', e);
+            alert('حدث خطأ أثناء اعتماد الدفعة!');
+        }
+    };
+
+    function buildPendingFarmApprovalCardHtml() {
+        const pendingList = window.getPendingFarmBatches();
+        if (pendingList.length === 0) return '';
+
+        const rowsHtml = pendingList.map(b => {
+            const trackType = window.getBatchTrackType(b);
+            const tMeta = getTrackMeta(trackType);
+            const stageTxt = b.stage === 'rearing' ? 'عنبر التربية' : 'المفرخة (الماكينة)';
+            const statsParts = [];
+            if (Number(b.initialEggs) > 0) statsParts.push(`🥚 ${b.initialEggs} بيضة`);
+            if (Number(b.hatchedChicks) > 0) statsParts.push(`🐣 ${b.hatchedChicks} كتكوت`);
+            if (Number(b.expectedPairs) > 0) statsParts.push(`🥩 متوقع ~${b.expectedPairs} جوز`);
+
+            return `
+                <div class="bg-white/10 border border-amber-400/30 rounded-2xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    <div class="space-y-1 min-w-0">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <span class="bg-amber-400 text-slate-950 px-2 py-0.5 rounded-lg text-[10px] font-black">بانتظار إذنك</span>
+                            <span class="font-black text-white text-sm">${escapeHtmlSafe(b.name || 'دفعة جديدة')}</span>
+                            <span class="text-[10px] font-bold text-emerald-200 bg-black/25 px-2 py-0.5 rounded-lg">${tMeta.icon} ${stageTxt}</span>
+                        </div>
+                        <p class="text-[11px] font-bold text-amber-100/90">${statsParts.join(' • ') || 'دفعة جديدة واردة من سيستم المزرعة'}</p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-1.5 shrink-0">
+                        <button type="button" onclick="approveFarmBatch('${b.id}', true)" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-2 rounded-xl text-[11px] font-black shadow-md transition-all active:scale-95 flex items-center gap-1">
+                            <i class="fa-solid fa-check-double"></i> اعتماد ونشر بالموقع
+                        </button>
+                        <button type="button" onclick="approveFarmBatch('${b.id}', false)" class="bg-white/15 hover:bg-white/25 text-white border border-white/20 px-2.5 py-2 rounded-xl text-[11px] font-black transition-all">
+                            اعتماد (مخفية)
+                        </button>
+                        <button type="button" onclick="deleteBatchUI('${b.id}')" class="bg-rose-500/20 hover:bg-rose-600 text-rose-200 hover:text-white border border-rose-400/30 w-9 h-9 rounded-xl flex items-center justify-center transition-all" title="حذف الدفعة">
+                            <i class="fa-solid fa-trash text-xs"></i>
+                        </button>
+                    </div>
+                </div>`;
+        }).join('');
+
+        return `
+            <div class="w-full max-w-full overflow-hidden bg-gradient-to-l from-[#042f2e] via-[#064e3b] to-[#0f172a] border-2 border-amber-400/70 rounded-[1.5rem] p-4 shadow-xl space-y-3">
+                <div class="flex items-center justify-between gap-2 pb-2 border-b border-white/10">
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-9 h-9 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center text-base shadow-md shrink-0">
+                            <i class="fa-solid fa-bell fa-shake"></i>
+                        </span>
+                        <div>
+                            <h4 class="text-sm font-black text-white">دفعات واردة من المزرعة بانتظار موافقتك (${pendingList.length})</h4>
+                            <p class="text-[10px] font-bold text-amber-200/90">هذه الدفعات مخفية تماماً عن موقع العملاء ولن تظهر إلا بعد ضغطك على «اعتماد ونشر».</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="space-y-2">${rowsHtml}</div>
+            </div>
+        `;
+    }
 
     window.toggleBatchBooleanFlag = async function (bId, field, checkedVal) {
         if (!storeBatches[bId]) return;
@@ -745,22 +840,24 @@
         const focusedId = window.batchUIState.focusedBatchId;
         const viewMode = window.batchUIState.viewMode || 'focus';
 
-        // 1. شريط اختيار الدفعات الأنيق في الأعلى (يميز كل مسار بأيقونته: 🥩 / 🐣 / ⚖️)
+        // 1. شريط اختيار الدفعات الأنيق في الأعلى (يميز كل مسار بأيقونته: 🥩 / 🐣 / ⚖️ ويميز دفعات انتظار الإذن)
         const selectorPillsHtml = batchIds.map(bId => {
             const m = batchMetaMap[bId];
             const isSel = (viewMode === 'focus' && focusedId === bId);
-            const statusDot = m.b.isOpen ? '🟢' : (m.b.slaughteredAt ? '🛵' : '🔒');
-            const remTxt = m.cap.ceilingPairs > 0 ? `متبقي ${m.cap.remainingPairs} ${m.tMeta.unitLabel}` : `${m.metrics.totalOrders} طلب`;
+            const isPending = m.b.pendingApproval === true;
+            const statusDot = isPending ? '🔔' : (m.b.isOpen ? '🟢' : (m.b.slaughteredAt ? '🛵' : '🔒'));
+            const remTxt = isPending ? 'بانتظار الإذن' : (m.cap.ceilingPairs > 0 ? `متبقي ${m.cap.remainingPairs} ${m.tMeta.unitLabel}` : `${m.metrics.totalOrders} طلب`);
 
             return `
-                <button type="button" onclick="selectFocusedBatch('${bId}')" class="whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black border transition-all flex items-center gap-1.5 shrink-0 ${isSel ? 'bg-teal-600 text-white border-teal-600 shadow-md' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'}">
+                <button type="button" onclick="selectFocusedBatch('${bId}')" class="whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black border transition-all flex items-center gap-1.5 shrink-0 ${isSel ? 'bg-teal-600 text-white border-teal-600 shadow-md' : (isPending ? 'bg-amber-50 text-amber-950 border-amber-400' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100')}">
                     <span>${m.tMeta.icon} ${statusDot} ${escapeHtmlSafe(m.b.name)}</span>
-                    <span class="text-[10px] px-1.5 py-0.5 rounded-md ${isSel ? 'bg-white/20 text-amber-200' : 'bg-white text-slate-500 border border-slate-200'}">${remTxt}</span>
+                    <span class="text-[10px] px-1.5 py-0.5 rounded-md ${isSel ? 'bg-white/20 text-amber-200' : (isPending ? 'bg-amber-400 text-slate-950' : 'bg-white text-slate-500 border border-slate-200')}">${remTxt}</span>
                 </button>
             `;
         }).join('');
 
         const topSelectorBarHtml = `
+            ${buildPendingFarmApprovalCardHtml()}
             ${globalOverbookedAlerts.length > 0 ? `
             <div class="bg-red-600 text-white px-3.5 py-2 rounded-xl text-[11px] font-black shadow-sm flex items-center gap-2">
                 <i class="fa-solid fa-triangle-exclamation text-amber-300 shrink-0"></i>
