@@ -288,18 +288,124 @@
         };
     };
 
-    function getBatchBioStatus(b) {
-        if (!b) return { ageDays: null, targetAge: 40, remainingDays: null, stageLabel: 'غير محدد', stageColor: 'bg-slate-100 text-slate-600 border-slate-200', autoMsg: '' };
+    function toWesternDigitsCRM(str) {
+        return String(str || '')
+            .replace(/[\u0660-\u0669]/g, c => String(c.charCodeAt(0) - 0x0660))
+            .replace(/[\u06F0-\u06F9]/g, c => String(c.charCodeAt(0) - 0x06F0));
+    }
 
-        const trackType = window.getBatchTrackType(b);
-        const targetAge = Number(b.slaughterAge) || 40;
-        let ageDays = null;
-        let remainingDays = null;
+    function parseDateFromBatchNameCRM(batchName, fallbackDate) {
+        if (!batchName) return null;
+        const norm = toWesternDigitsCRM(batchName);
+        const m = norm.match(/(?:^|[^\d])(\d{1,2})\s*[\/\-]\s*(\d{1,2})(?:\s*[\/\-]\s*(\d{2,4}))?(?!\d)/);
+        if (!m) return null;
+
+        const a = parseInt(m[1], 10);
+        const b = parseInt(m[2], 10);
+        const yRaw = m[3] ? parseInt(m[3], 10) : null;
+        const now = new Date();
+        const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        const makeValidDate = (dayNum, monthNum, yearOpt) => {
+            if (monthNum < 1 || monthNum > 12 || dayNum < 1 || dayNum > 31) return null;
+            if (yearOpt !== null && !isNaN(yearOpt)) {
+                const yr = yearOpt < 100 ? 2000 + yearOpt : yearOpt;
+                const d = new Date(yr, monthNum - 1, dayNum);
+                return (d.getMonth() === monthNum - 1 && d.getDate() === dayNum) ? d : null;
+            }
+            const cands = [];
+            [todayMid.getFullYear() - 1, todayMid.getFullYear(), todayMid.getFullYear() + 1].forEach(yr => {
+                const d = new Date(yr, monthNum - 1, dayNum);
+                if (d.getMonth() === monthNum - 1 && d.getDate() === dayNum) {
+                    const diff = Math.round((d.getTime() - todayMid.getTime()) / 86400000);
+                    const score = diff >= -45 ? Math.abs(diff) : Math.abs(diff) + 400;
+                    cands.push({ score, d });
+                }
+            });
+            cands.sort((x, y) => x.score - y.score);
+            return cands[0] ? cands[0].d : null;
+        };
+
+        const candDM = makeValidDate(a, b, yRaw);
+        const candMD = makeValidDate(b, a, yRaw);
+        if (candDM && !candMD) return candDM;
+        if (candMD && !candDM) return candMD;
+        if (!candDM && !candMD) return null;
+
+        const anchor = (fallbackDate instanceof Date && !isNaN(fallbackDate.getTime())) ? fallbackDate : todayMid;
+        const distDM = Math.abs(Math.round((candDM.getTime() - anchor.getTime()) / 86400000));
+        const distMD = Math.abs(Math.round((candMD.getTime() - anchor.getTime()) / 86400000));
+        return (distMD + 45 < distDM) ? candMD : candDM;
+    }
+
+    function formatArabicRangeCRM(startD, endD) {
+        if (!startD || isNaN(startD.getTime())) return 'غير محدد بعد';
+        const months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+        const d1 = startD.getDate();
+        const m1 = months[startD.getMonth()];
+        if (endD && !isNaN(endD.getTime()) && (endD.getDate() !== d1 || endD.getMonth() !== startD.getMonth())) {
+            const d2 = endD.getDate();
+            const m2 = months[endD.getMonth()];
+            return m1 === m2 ? `من ${d1} إلى ${d2} ${m1}` : `من ${d1} ${m1} إلى ${d2} ${m2}`;
+        }
+        return `بداية من ${d1} ${m1}`;
+    }
+
+    function resolveBatchDeliveryWindowCRM(b) {
+        if (!b) return { startDate: null, endDate: null, phrase: 'غير محدد بعد', minAge: 38, maxAge: 45 };
+        const minAge = Number(b.slaughterAgeMin) || 38;
+        const maxAge = Math.max(Number(b.slaughterAgeMax) || Number(b.slaughterAge) || 45, minAge + 5);
+
+        const sStored = b.deliveryStart ? new Date(b.deliveryStart) : null;
+        const validStart = (sStored && !isNaN(sStored.getTime())) ? sStored : null;
+        const eStored = b.deliveryEnd ? new Date(b.deliveryEnd) : null;
+        const validEnd = (eStored && !isNaN(eStored.getTime())) ? eStored : null;
+
+        const nameDate = parseDateFromBatchNameCRM(b.name, validStart);
+        if (nameDate) {
+            const endPlus2 = new Date(nameDate.getFullYear(), nameDate.getMonth(), nameDate.getDate() + 2);
+            return { startDate: nameDate, endDate: endPlus2, phrase: formatArabicRangeCRM(nameDate, endPlus2), minAge, maxAge };
+        }
+
+        if (validStart) {
+            const effEnd = (validEnd && validEnd.getTime() > validStart.getTime())
+                ? validEnd
+                : new Date(validStart.getFullYear(), validStart.getMonth(), validStart.getDate() + 2);
+            return { startDate: validStart, endDate: effEnd, phrase: formatArabicRangeCRM(validStart, effEnd), minAge, maxAge };
+        }
 
         if (b.hatchDate) {
-            ageDays = Math.max(0, Math.floor((Date.now() - b.hatchDate) / (1000 * 60 * 60 * 24)));
-            remainingDays = targetAge - ageDays;
+            const hMs = Number(b.hatchDate);
+            if (!isNaN(hMs) && hMs > 0) {
+                const sD = new Date(hMs + minAge * 86400000);
+                const eD = new Date(hMs + maxAge * 86400000);
+                return { startDate: sD, endDate: eD, phrase: formatArabicRangeCRM(sD, eD), minAge, maxAge };
+            }
         }
+
+        return { startDate: null, endDate: null, phrase: 'غير محدد بعد', minAge, maxAge };
+    }
+
+    function getBatchBioStatus(b, metrics) {
+        if (!b) return { ageDays: null, minAge: 38, targetAge: 45, remainingDays: null, deliveryPhrase: 'غير محدد بعد', stageLabel: 'غير محدد', stageColor: 'bg-slate-100 text-slate-600 border-slate-200', autoMsg: '' };
+
+        const trackType = window.getBatchTrackType(b);
+        const win = resolveBatchDeliveryWindowCRM(b);
+        const minAge = win.minAge;
+        const maxAge = win.maxAge;
+        const deliveryPhrase = win.phrase;
+        const deliveryTextPart = deliveryPhrase !== 'غير محدد بعد' ? ` — التسليم المتوقع (${deliveryPhrase})` : '';
+
+        let ageDays = null;
+        let remainingDays = null;
+        if (b.hatchDate) {
+            ageDays = Math.max(0, Math.floor((Date.now() - Number(b.hatchDate)) / 86400000));
+            remainingDays = minAge - ageDays;
+        }
+
+        const activeOrdersCount = metrics ? (Number(metrics.activeOrders) || 0) : 0;
+        const completedOrdersCount = metrics ? (Number(metrics.completedOrders) || 0) : 0;
+        const isFutureDelivery = Boolean(win.startDate && win.startDate.getTime() > Date.now() + 86400000);
 
         let stageLabel = '📋 جاهزة للتشغيل';
         let stageColor = 'bg-slate-100 text-slate-700 border-slate-200';
@@ -313,14 +419,14 @@
             if (!b.isOpen) {
                 stageLabel = '🔒 اكتمل حجز التفريخ';
                 stageColor = 'bg-amber-50 text-amber-800 border-amber-200';
-                autoMsg = '🐣 اكتمل حجز دورة الكتاكيت وجاري التجهيز للتسليم حسب الموعد.';
+                autoMsg = `🐣 اكتمل حجز دورة الكتاكيت${deliveryTextPart} وهنتواصل معاك قبلها للتأكيد.`;
             } else {
                 stageLabel = '🐣 حجز تفريخ مفتوح';
                 stageColor = 'bg-amber-50 text-amber-900 border-amber-300';
-                autoMsg = '🐣 متاح حجز كتاكيت عمر يوم في هذه الدورة بشكل مستقل عن السمان المذبوح.';
+                autoMsg = `🐣 متاح حجز كتاكيت عمر يوم في هذه الدورة${deliveryTextPart} وهنتواصل معاك قبلها للتأكيد.`;
             }
         } else if (trackType === 'weight') {
-            if (b.slaughteredAt) {
+            if (b.slaughteredAt && !b.isOpen) {
                 stageLabel = '⚖️ تم التجهيز والوزن';
                 stageColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
                 autoMsg = '⚖️ تم تجهيز الأوزان الطازجة ومتاحة للطلب المباشر بالجرام.';
@@ -333,47 +439,52 @@
                 stageColor = 'bg-indigo-50 text-indigo-800 border-indigo-200';
                 autoMsg = '⚖️ متاح الطلب بالوزن الطازج مباشرة.';
             }
-        } else if (b.slaughteredAt) {
-            const daysSinceSlaughter = (Date.now() - b.slaughteredAt) / (1000 * 60 * 60 * 24);
-            if (daysSinceSlaughter >= 3) {
+        } else if (b.slaughteredAt && !b.isOpen && !isFutureDelivery) {
+            const daysSinceSlaughter = (Date.now() - Number(b.slaughteredAt)) / 86400000;
+            if (activeOrdersCount === 0 && completedOrdersCount > 0 && daysSinceSlaughter >= 2) {
                 stageLabel = '✅ تم التسليم بالكامل';
                 stageColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
                 autoMsg = '✅ تم تسليم هذه الدفعة للعملاء بالكامل. بالهنا والشفا!';
             } else {
                 stageLabel = '🛵 تم الذبح وجاري التوزيع';
                 stageColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
-                autoMsg = '🛵 تم الذبح وجاري التوزيع.. انتظروا تواصل المناديب للتسليم!';
+                autoMsg = `🛵 تم الذبح الطازج وجاري التوزيع${activeOrdersCount > 0 ? ` (${activeOrdersCount} طلب قيد التسليم)` : ''} — هنتواصل معاك قبل تحرك المندوب!`;
             }
         } else if (!b.isOpen) {
             stageLabel = '🔒 مكتملة الحجز';
             stageColor = 'bg-amber-50 text-amber-800 border-amber-200';
-            autoMsg = '✅ الدورة اكتملت واكتفينا بالحجز! السمان الآن في مرحلة التجهيز والذبح وجاري ترتيب مواعيد التسليم.';
+            autoMsg = `✅ اكتمل الحجز على الدفعة${deliveryTextPart} — جاري التجهيز وهنتواصل معاك قبلها للتأكيد وتحديد الوقت المناسب.`;
         } else if (ageDays !== null) {
-            if (remainingDays <= 0) {
-                stageLabel = '🔪 جاهز للذبح الآن';
+            if (ageDays > maxAge) {
+                stageLabel = `🔪 جاهز للذبح الآن (${ageDays}ي)`;
                 stageColor = 'bg-rose-50 text-rose-700 border-rose-200';
-                autoMsg = '🔪 السمان وصل لمرحلة النضج وجاهز فريش! سيتم قفل الحجز وتحديد مواعيد التسليم قريباً.';
+                autoMsg = `🔪 السمان جاهز فريش للذبح والتسليم${deliveryTextPart} — هنتواصل معاك قبلها للتأكيد قبل تحرك المندوب!`;
+            } else if (ageDays >= minAge) {
+                stageLabel = `🔪 فترة الذبح الآمنة (${ageDays} / ${minAge}–${maxAge}ي)`;
+                stageColor = 'bg-emerald-50 text-emerald-800 border-emerald-300';
+                autoMsg = `🔪 الدفعة الآن في فترة الجاهزية والذبح الطازج الآمنة (${minAge}–${maxAge} يوم)${deliveryTextPart} — وهنتواصل معاك قبلها للتأكيد.`;
             } else if (remainingDays <= 5) {
-                stageLabel = `⏳ باقي ${remainingDays}ي للذبح`;
+                stageLabel = `⏳ قرب يجهز (${ageDays}ي • الذبح ${minAge}–${maxAge}ي)`;
                 stageColor = 'bg-amber-50 text-amber-800 border-amber-200';
-                autoMsg = '⏳ أيام بسيطة جداً والسمان يكون جاهز! استعدوا لاستلام أوردراتكم قريباً.';
+                autoMsg = `⏳ الدفعة بتكمل أوزانها النهائية${deliveryTextPart} — وهنتواصل معاك قبلها للتأكيد قبل الذبح والتوصيل.`;
             } else if (ageDays <= 15) {
                 stageLabel = `🐣 تحضين (${ageDays} يوم)`;
                 stageColor = 'bg-sky-50 text-sky-700 border-sky-200';
-                autoMsg = '🐣 السمان حالياً في مرحلة التحضين والرعاية الأولية، بنجهزلكم أفضل جودة إن شاء الله!';
+                autoMsg = `🐣 الدفعة في مرحلة التحضين والرعاية${deliveryTextPart} — وهنتواصل معاك قبلها للتأكيد.`;
             } else {
-                stageLabel = `📈 تسمين (${ageDays}/${targetAge} يوم)`;
+                stageLabel = `📈 تسمين (${ageDays}ي • الذبح ${minAge}–${maxAge}ي)`;
                 stageColor = 'bg-purple-50 text-purple-700 border-purple-200';
-                autoMsg = '📈 السمان بيكبر وفي مرحلة التسمين وبناء اللحم الممتاز، تابعونا لتحديد موعد الذبح قريباً.';
+                autoMsg = `📈 السمان في مرحلة التسمين وبناء اللحم${deliveryTextPart} — وهنتواصل معاك قبلها للتأكيد.`;
             }
         } else {
             stageLabel = '🟢 مفتوحة للحجز';
             stageColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-            autoMsg = 'متاح الحجز الآن في هذه الدفعة.';
+            autoMsg = `🟢 متاح الحجز الآن${deliveryTextPart} — وهنتواصل معاك قبلها للتأكيد قبل الذبح والتوصيل 🌿`;
         }
 
-        return { ageDays, targetAge, remainingDays, stageLabel, stageColor, autoMsg };
+        return { ageDays, minAge, targetAge: maxAge, remainingDays, deliveryPhrase, stageLabel, stageColor, autoMsg };
     }
+
 
     // دوال التنقل وتغيير نوع المسار داخل مركز قيادة الدفعات
     window.selectFocusedBatch = function (bId) {
@@ -797,7 +908,7 @@
             const trackType = window.getBatchTrackType(b);
             const tMeta = getTrackMeta(trackType);
             const metrics = window.getBatchDeepMetrics(bId, b.name);
-            const bio = getBatchBioStatus(b);
+            const bio = getBatchBioStatus(b, metrics);
             const cap = window.getBatchCeilingAndRemaining(bId);
 
             let hasBookingMismatch = false;
@@ -1107,9 +1218,11 @@
 
         // --- التبويب 3: الذبح / التجهيز، الواتساب، إعدادات العرض، والإغلاق ---
         else {
-            const delWindowStr = (b.deliveryStart || b.deliveryEnd)
-                ? `${b.deliveryStart || ''} ${b.deliveryEnd ? '⬅️ ' + b.deliveryEnd : ''}`
-                : 'غير محدد بعد';
+            const delWindowStr = (bio.deliveryPhrase && bio.deliveryPhrase !== 'غير محدد بعد')
+                ? `${bio.deliveryPhrase} (عمر الأمان ${bio.minAge}–${bio.targetAge} يوم)`
+                : ((b.deliveryStart || b.deliveryEnd)
+                    ? `${b.deliveryStart || ''} ${b.deliveryEnd ? '⬅️ ' + b.deliveryEnd : ''}`
+                    : 'غير محدد بعد');
 
             const step3Title = trackType === 'chicks' ? '3. تأكيد الفقس والتجهيز للتسليم' : '3. إتمام الذبح والترحيل للفريزر';
             const step3Desc = b.expectedValue
