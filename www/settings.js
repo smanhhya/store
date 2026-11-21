@@ -804,10 +804,248 @@
         });
     };
 
-    window.renderSettingsUI = function () {
-        if (!document.getElementById('st-name')) return;
-        window._settingsUIRenderedOnce = true;
+    // تنظيف البيانات من أي قيم undefined أو NaN قبل الإرسال لقاعدة بيانات Firebase
+    function sanitizeForFirestore(val) {
+        if (val === undefined) return null;
+        if (typeof val === 'number' && isNaN(val)) return 0;
+        if (val === null || typeof val !== 'object') return val;
+        if (Array.isArray(val)) {
+            return val.filter(item => item !== undefined).map(sanitizeForFirestore);
+        }
+        const out = {};
+        Object.keys(val).forEach(k => {
+            if (val[k] !== undefined) {
+                out[k] = sanitizeForFirestore(val[k]);
+            }
+        });
+        return out;
+    }
 
+    // حفظ ما كتبه المستخدم في خانات الإعدادات والمناطق والمناديب داخل الذاكرة قبل إعادة الرسم
+    function captureSettingsInputsIntoMemory() {
+        if (document.getElementById('st-name')) {
+            storeSettings.storeName = document.getElementById('st-name').value.trim();
+            storeSettings.storePhone = document.getElementById('st-phone').value.trim();
+            storeSettings.minOrder = parseInt(document.getElementById('st-min-order').value) || 0;
+            storeSettings.storeOpen = Boolean(document.getElementById('st-is-open').checked);
+            storeSettings.freeDeliveryActive = Boolean(document.getElementById('st-free-del').checked);
+            storeSettings.freeDeliveryThreshold = parseInt(document.getElementById('st-free-th').value) || 0;
+            if (document.getElementById('st-pts-per-100')) {
+                storeSettings.pointsPer100 = parseFloat(document.getElementById('st-pts-per-100').value) || 5;
+            }
+            if (document.getElementById('st-pts-value')) {
+                storeSettings.pointValueInEGP = parseFloat(document.getElementById('st-pts-value').value) || 0.40;
+            }
+        }
+
+        if (document.getElementById('st-hero-msg')) storeSettings.heroMessage = document.getElementById('st-hero-msg').value.trim();
+        if (document.getElementById('st-closed-msg')) storeSettings.closedMessage = document.getElementById('st-closed-msg').value.trim();
+        if (document.getElementById('st-store-desc')) storeSettings.storeDesc = document.getElementById('st-store-desc').value.trim();
+        if (document.getElementById('st-gsheet-url')) storeSettings.googleSheetWebhookUrl = document.getElementById('st-gsheet-url').value.trim();
+
+        if (document.getElementById('admin-whatsapp-template')) {
+            storeSettings.whatsappTemplate = document.getElementById('admin-whatsapp-template').value;
+            storeSettings.dispatchTemplate = document.getElementById('admin-dispatch-template').value;
+            storeSettings.ticktickTemplate = document.getElementById('admin-ticktick-template').value;
+            storeSettings.batchHashtag = document.getElementById('admin-batch-hashtag').value.trim();
+        }
+
+        const zCont = document.getElementById('zones-list-container');
+        if (zCont) {
+            const zRows = zCont.querySelectorAll('[data-zone-row="1"]');
+            if (zRows.length > 0) {
+                const liveZones = [];
+                zRows.forEach(row => {
+                    const nameInp = row.querySelector('[data-zone-field="name"]');
+                    const priceInp = row.querySelector('[data-zone-field="price"]');
+                    liveZones.push({
+                        name: (nameInp?.value || '').trim(),
+                        price: parseInt(priceInp?.value) || 0
+                    });
+                });
+                storeSettings.deliveryZones = liveZones;
+            }
+        }
+
+        const dCont = document.getElementById('drivers-list-container');
+        if (dCont) {
+            const dCards = dCont.querySelectorAll('[data-driver-row="1"]');
+            if (dCards.length > 0) {
+                const liveDrivers = [];
+                dCards.forEach(card => {
+                    const nameInp = card.querySelector('[data-driver-field="name"]');
+                    const phoneInp = card.querySelector('[data-driver-field="phone"]');
+                    const pinInp = card.querySelector('[data-driver-field="pin"]');
+                    liveDrivers.push({
+                        name: (nameInp?.value || '').trim(),
+                        phone: (phoneInp?.value || '').trim(),
+                        pin: (pinInp?.value || '').trim()
+                    });
+                });
+                storeSettings.drivers = liveDrivers;
+            }
+        }
+
+        if (document.getElementById('wb-paper-size')) {
+            storeSettings.waybillConfig = {
+                ...(storeSettings.waybillConfig || {}),
+                slogan: document.getElementById('wb-slogan')?.value.trim() || '',
+                footerMsg: document.getElementById('wb-footer-msg')?.value.trim() || '',
+                logoUrl: document.getElementById('wb-logo-url')?.value.trim() || '',
+                paperSize: document.getElementById('wb-paper-size')?.value || '70x130',
+                showBarcode: Boolean(document.getElementById('wb-show-barcode')?.checked),
+                showBreakdown: Boolean(document.getElementById('wb-show-breakdown')?.checked),
+                showDriverNote: Boolean(document.getElementById('wb-show-driver-note')?.checked)
+            };
+        } else if (typeof window.getWaybillConfig === 'function') {
+            storeSettings.waybillConfig = window.getWaybillConfig();
+        }
+    }
+
+    function updateStoreOpenLiveBadge(isOpenNow) {
+        const badge = document.getElementById('st-open-live-badge');
+        if (!badge) return;
+        if (isOpenNow) {
+            badge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300';
+            badge.textContent = '🟢 مفتوح الآن على الموقع';
+        } else {
+            badge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-black bg-rose-100 text-rose-700 border border-rose-300';
+            badge.textContent = '🔴 مغلق الآن على الموقع';
+        }
+    }
+
+    // حفظ فوري لحالة فتح/إغلاق المتجر بمجرد الضغط على العلامة بدون انتظار أي زر آخر
+    window.quickToggleStoreOpen = async function (isOpenNow) {
+        const val = Boolean(isOpenNow);
+        storeSettings.storeOpen = val;
+        updateStoreOpenLiveBadge(val);
+
+        if (typeof auth !== 'undefined' && !auth.currentUser) {
+            alert('⚠️ يرجى تسجيل الدخول بحساب الأدمن أولاً حتى يتم حفظ حالة المتجر في السيرفر.');
+            return;
+        }
+
+        try {
+            await db.collection('inventory').doc('settings').set({ storeOpen: val }, { merge: true });
+            if (typeof window.saveInventoryFastMirror === 'function') window.saveInventoryFastMirror();
+            const msg = val ? '🟢 تم فتح المتجر الآن بنجاح!' : '🔴 تم إغلاق المتجر مؤقتاً بنجاح!';
+            if (typeof window.showToast === 'function') window.showToast(msg);
+            else if (typeof window.showQuickAppToast === 'function') window.showQuickAppToast(msg);
+        } catch (err) {
+            console.error('Toggle storeOpen error:', err);
+            alert('تعذر تغيير حالة المتجر في قاعدة البيانات: ' + (err.message || err));
+        }
+    };
+
+    function ensureSettingsInlineSaveBar() {
+        const settingsView = document.getElementById('view-settings');
+        if (!settingsView) return;
+
+        // ضمان ظهور زر الحفظ العلوي أيضاً داخل شاشة الإعدادات
+        const topSaveBtn = document.getElementById('global-save-btn');
+        if (topSaveBtn && settingsView.classList.contains('active')) {
+            topSaveBtn.classList.remove('hidden');
+        }
+
+        // شريط حفظ بارز وثابت داخل صفحة إعدادات المتجر نفسها
+        if (!document.getElementById('st-inline-save-bar')) {
+            const bar = document.createElement('div');
+            bar.id = 'st-inline-save-bar';
+            bar.className = 'sticky top-0 z-20 bg-gradient-to-l from-slate-900 via-emerald-950 to-slate-900 text-white p-3 rounded-2xl shadow-lg border border-amber-400/35 flex flex-wrap items-center justify-between gap-2.5';
+            bar.innerHTML = `
+                <div class="flex items-center gap-2 text-xs font-black">
+                    <i class="fa-solid fa-sliders text-amber-400"></i>
+                    <span>بعد تعديل البيانات أو إضافة منطقة/مندوب اضغط حفظ:</span>
+                </div>
+                <button type="button" id="st-inline-save-btn" onclick="saveAllSettings(false)" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2 rounded-xl text-xs font-black shadow-md flex items-center gap-1.5 active:scale-95 transition-all shrink-0">
+                    <i class="fa-solid fa-floppy-disk"></i>
+                    <span>حفظ كل الإعدادات الآن</span>
+                </button>
+            `;
+            settingsView.insertBefore(bar, settingsView.firstChild);
+        }
+
+        // ربط خانة "المتجر مفتوح" بالحفظ الفوري وإضافة شارة الحالة بجانبها
+        const openCb = document.getElementById('st-is-open');
+        if (openCb && !openCb.hasAttribute('data-instant-bound')) {
+            openCb.setAttribute('data-instant-bound', '1');
+            openCb.addEventListener('change', () => {
+                window.quickToggleStoreOpen(openCb.checked);
+            });
+            const lbl = openCb.closest('label');
+            if (lbl && !document.getElementById('st-open-live-badge')) {
+                const badge = document.createElement('span');
+                badge.id = 'st-open-live-badge';
+                badge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-black';
+                lbl.appendChild(badge);
+            }
+        }
+        if (openCb) updateStoreOpenLiveBadge(Boolean(openCb.checked));
+    }
+
+    function renderZonesListOnly() {
+        const zCont = document.getElementById('zones-list-container');
+        if (!zCont) return;
+        const zones = Array.isArray(storeSettings.deliveryZones) ? storeSettings.deliveryZones : [];
+        zCont.innerHTML = zones.map((z, i) => `
+            <div data-zone-row="1" class="flex items-center gap-1.5 bg-slate-50 p-1.5 rounded-xl border border-slate-200/80">
+                <span class="text-[10px] font-black text-slate-400 w-5 text-center shrink-0">${i + 1}</span>
+                <input type="text" data-zone-field="name" value="${escSettingsHtml(z.name || '')}" oninput="if(storeSettings.deliveryZones[${i}]) storeSettings.deliveryZones[${i}].name=this.value.trim();" onchange="if(storeSettings.deliveryZones[${i}]) storeSettings.deliveryZones[${i}].name=this.value.trim(); if(window.generateDynamicOrderInputs) generateDynamicOrderInputs();" class="flex-1 min-w-0 border border-slate-200 rounded-lg p-2 text-xs font-black text-slate-800 bg-white outline-none focus:border-indigo-400" placeholder="اسم المنطقة">
+                <div class="relative w-20 shrink-0">
+                    <input type="number" data-zone-field="price" value="${Number(z.price) || 0}" oninput="if(storeSettings.deliveryZones[${i}]) storeSettings.deliveryZones[${i}].price=parseInt(this.value)||0;" onchange="if(storeSettings.deliveryZones[${i}]) storeSettings.deliveryZones[${i}].price=parseInt(this.value)||0; if(window.generateDynamicOrderInputs) generateDynamicOrderInputs();" class="w-full border border-slate-200 rounded-lg py-2 pr-2 pl-5 text-xs font-black text-indigo-700 bg-white outline-none text-center" placeholder="0">
+                    <span class="absolute left-1.5 top-2 text-[10px] font-bold text-slate-400">ج</span>
+                </div>
+                <button type="button" onclick="removeZoneItemUI(${i})" class="w-8 h-8 shrink-0 bg-white border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors flex items-center justify-center"><i class="fa-solid fa-trash text-xs"></i></button>
+            </div>
+        `).join('') || `<div class="text-center py-6 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-xl">لا توجد مناطق مسجلة، اضغط (+).</div>`;
+    }
+
+    function renderDriversListOnly() {
+        const dCont = document.getElementById('drivers-list-container');
+        if (!dCont) return;
+        const drivers = Array.isArray(storeSettings.drivers) ? storeSettings.drivers : [];
+        dCont.innerHTML = drivers.map((d, i) => `
+            <div data-driver-row="1" class="bg-slate-50 p-2 rounded-xl border border-slate-200/80 space-y-1.5">
+                <div class="flex items-center gap-1.5">
+                    <input type="text" data-driver-field="name" value="${escSettingsHtml(d.name || '')}" oninput="if(storeSettings.drivers[${i}]) storeSettings.drivers[${i}].name=this.value.trim();" placeholder="اسم المندوب" class="flex-1 min-w-0 border border-slate-200 rounded-lg p-2 text-xs font-black text-slate-800 bg-white outline-none">
+                    <button type="button" onclick="removeDriverItemUI(${i})" class="w-8 h-8 shrink-0 bg-white border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors flex items-center justify-center"><i class="fa-solid fa-trash text-xs"></i></button>
+                </div>
+                <div class="grid grid-cols-3 gap-1.5">
+                    <input type="tel" data-driver-field="phone" value="${escSettingsHtml(d.phone || '')}" oninput="if(storeSettings.drivers[${i}]) storeSettings.drivers[${i}].phone=this.value.trim();" placeholder="رقم الواتساب" class="col-span-2 border border-slate-200 rounded-lg p-1.5 text-xs font-bold text-slate-800 bg-white outline-none text-left" dir="ltr">
+                    <input type="text" data-driver-field="pin" value="${escSettingsHtml(d.pin || '')}" oninput="if(storeSettings.drivers[${i}]) storeSettings.drivers[${i}].pin=this.value.trim();" placeholder="PIN" title="الرقم السري للمندوب" class="col-span-1 border border-blue-200 rounded-lg p-1.5 text-xs font-black text-blue-700 bg-blue-50/40 outline-none text-center">
+                </div>
+            </div>
+        `).join('') || `<div class="text-center py-6 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-xl">لا يوجد مناديب مسجلين، اضغط (+).</div>`;
+    }
+
+    window.removeZoneItemUI = function (idx) {
+        captureSettingsInputsIntoMemory();
+        if (Array.isArray(storeSettings.deliveryZones)) {
+            storeSettings.deliveryZones.splice(idx, 1);
+        }
+        renderZonesListOnly();
+        if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
+    };
+
+    window.removeDriverItemUI = function (idx) {
+        captureSettingsInputsIntoMemory();
+        if (Array.isArray(storeSettings.drivers)) {
+            storeSettings.drivers.splice(idx, 1);
+        }
+        renderDriversListOnly();
+    };
+
+    window.renderSettingsUI = function (forceRefresh = false) {
+        if (!document.getElementById('st-name')) return;
+
+        // حماية ما يكتبه المستخدم: لا نُعيد مسح الحقول أثناء التحديث التلقائي إذا كان المؤشر داخل خانة كتابة
+        const settingsView = document.getElementById('view-settings');
+        const activeEl = document.activeElement;
+        if (!forceRefresh && settingsView && activeEl && settingsView.contains(activeEl) && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeEl.tagName)) {
+            return;
+        }
+
+        window._settingsUIRenderedOnce = true;
         window.switchSettingsSubTab(window.settingsSubTabState || 'store');
 
         document.getElementById('st-name').value = storeSettings.storeName || '';
@@ -818,57 +1056,16 @@
         document.getElementById('st-free-th').value = storeSettings.freeDeliveryThreshold || 0;
         document.getElementById('st-free-th').disabled = !storeSettings.freeDeliveryActive;
 
-        // نصوص واجهة متجر العملاء
         if (document.getElementById('st-hero-msg')) document.getElementById('st-hero-msg').value = storeSettings.heroMessage || '';
         if (document.getElementById('st-closed-msg')) document.getElementById('st-closed-msg').value = storeSettings.closedMessage || '';
         if (document.getElementById('st-store-desc')) document.getElementById('st-store-desc').value = storeSettings.storeDesc || '';
+        if (document.getElementById('st-pts-per-100')) document.getElementById('st-pts-per-100').value = storeSettings.pointsPer100 || 5;
+        if (document.getElementById('st-pts-value')) document.getElementById('st-pts-value').value = storeSettings.pointValueInEGP || 0.40;
+        if (document.getElementById('st-gsheet-url')) document.getElementById('st-gsheet-url').value = storeSettings.googleSheetWebhookUrl || '';
 
-        if (document.getElementById('st-pts-per-100')) {
-            document.getElementById('st-pts-per-100').value = storeSettings.pointsPer100 || 5;
-        }
-        if (document.getElementById('st-pts-value')) {
-            document.getElementById('st-pts-value').value = storeSettings.pointValueInEGP || 0.40;
-        }
-        if (document.getElementById('st-gsheet-url')) {
-            document.getElementById('st-gsheet-url').value = storeSettings.googleSheetWebhookUrl || '';
-        }
+        renderZonesListOnly();
+        renderDriversListOnly();
 
-        // 1. رسم مناطق التوصيل (موزونة 100% للموبايل بدون خروج حواف)
-        const zCont = document.getElementById('zones-list-container');
-        if (zCont) {
-            const zones = storeSettings.deliveryZones || [];
-            zCont.innerHTML = zones.map((z, i) => `
-                <div class="flex items-center gap-1.5 bg-slate-50 p-1.5 rounded-xl border border-slate-200/80">
-                    <span class="text-[10px] font-black text-slate-400 w-5 text-center shrink-0">${i + 1}</span>
-                    <input type="text" value="${escSettingsHtml(z.name || '')}" onchange="storeSettings.deliveryZones[${i}].name=this.value.trim(); if(window.generateDynamicOrderInputs) generateDynamicOrderInputs();" class="flex-1 min-w-0 border border-slate-200 rounded-lg p-2 text-xs font-black text-slate-800 bg-white outline-none focus:border-indigo-400" placeholder="اسم المنطقة">
-                    <div class="relative w-20 shrink-0">
-                        <input type="number" value="${Number(z.price) || 0}" onchange="storeSettings.deliveryZones[${i}].price=parseInt(this.value)||0; if(window.generateDynamicOrderInputs) generateDynamicOrderInputs();" class="w-full border border-slate-200 rounded-lg py-2 pr-2 pl-5 text-xs font-black text-indigo-700 bg-white outline-none text-center" placeholder="0">
-                        <span class="absolute left-1.5 top-2 text-[10px] font-bold text-slate-400">ج</span>
-                    </div>
-                    <button type="button" onclick="storeSettings.deliveryZones.splice(${i}, 1); renderSettingsUI(); if(window.generateDynamicOrderInputs) generateDynamicOrderInputs();" class="w-8 h-8 shrink-0 bg-white border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors flex items-center justify-center"><i class="fa-solid fa-trash text-xs"></i></button>
-                </div>
-            `).join('') || `<div class="text-center py-6 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-xl">لا توجد مناطق مسجلة، اضغط (+ إضافة منطقة).</div>`;
-        }
-
-        // 2. رسم فريق المناديب (شبكة مرنة تمنع خروج الحواف على الموبايل)
-        const dCont = document.getElementById('drivers-list-container');
-        if (dCont) {
-            const drivers = storeSettings.drivers || [];
-            dCont.innerHTML = drivers.map((d, i) => `
-                <div class="bg-slate-50 p-2 rounded-xl border border-slate-200/80 space-y-1.5">
-                    <div class="flex items-center gap-1.5">
-                        <input type="text" value="${escSettingsHtml(d.name || '')}" onchange="storeSettings.drivers[${i}].name=this.value.trim()" placeholder="اسم المندوب" class="flex-1 min-w-0 border border-slate-200 rounded-lg p-2 text-xs font-black text-slate-800 bg-white outline-none">
-                        <button type="button" onclick="storeSettings.drivers.splice(${i}, 1); renderSettingsUI();" class="w-8 h-8 shrink-0 bg-white border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors flex items-center justify-center"><i class="fa-solid fa-trash text-xs"></i></button>
-                    </div>
-                    <div class="grid grid-cols-3 gap-1.5">
-                        <input type="tel" value="${escSettingsHtml(d.phone || '')}" onchange="storeSettings.drivers[${i}].phone=this.value.trim()" placeholder="رقم الواتساب" class="col-span-2 border border-slate-200 rounded-lg p-1.5 text-xs font-bold text-slate-800 bg-white outline-none text-left" dir="ltr">
-                        <input type="text" value="${escSettingsHtml(d.pin || '')}" onchange="storeSettings.drivers[${i}].pin=this.value.trim()" placeholder="PIN" title="الرقم السري للمندوب" class="col-span-1 border border-blue-200 rounded-lg p-1.5 text-xs font-black text-blue-700 bg-blue-50/40 outline-none text-center">
-                    </div>
-                </div>
-            `).join('') || `<div class="text-center py-6 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-xl">لا يوجد مناديب مسجلين، اضغط (+ إضافة مندوب).</div>`;
-        }
-
-        // 3. قوالب الرسائل
         if (document.getElementById('admin-whatsapp-template')) {
             document.getElementById('admin-whatsapp-template').value = storeSettings.whatsappTemplate || '';
             document.getElementById('admin-dispatch-template').value = storeSettings.dispatchTemplate || '';
@@ -876,7 +1073,6 @@
             document.getElementById('admin-batch-hashtag').value = storeSettings.batchHashtag || '';
         }
 
-        // 4. تعبئة إعدادات بوليصة الشحن الحرارية (Deli 750W) بشكل مباشر ومضمون
         const wbCfg = storeSettings.waybillConfig || {};
         if (document.getElementById('wb-slogan')) document.getElementById('wb-slogan').value = wbCfg.slogan || '';
         if (document.getElementById('wb-footer-msg')) document.getElementById('wb-footer-msg').value = wbCfg.footerMsg || '';
@@ -886,24 +1082,31 @@
         if (document.getElementById('wb-show-breakdown')) document.getElementById('wb-show-breakdown').checked = wbCfg.showBreakdown !== false;
         if (document.getElementById('wb-show-driver-note')) document.getElementById('wb-show-driver-note').checked = wbCfg.showDriverNote !== false;
 
+        ensureSettingsInlineSaveBar();
         if (typeof window.renderGalleryStudioUI === 'function') window.renderGalleryStudioUI();
         if (typeof window.renderPromoCodesStudioUI === 'function') window.renderPromoCodesStudioUI();
         initInteractiveTemplateVariables();
         if (typeof window.syncWaybillSettingsUI === 'function') window.syncWaybillSettingsUI();
     };
 
-
-
     window.addNewZoneUI = function () {
-        if (!storeSettings.deliveryZones) storeSettings.deliveryZones = [];
+        captureSettingsInputsIntoMemory();
+        if (!Array.isArray(storeSettings.deliveryZones)) storeSettings.deliveryZones = [];
         storeSettings.deliveryZones.push({ name: '', price: 0 });
-        window.renderSettingsUI();
+        renderZonesListOnly();
+        const zCont = document.getElementById('zones-list-container');
+        const inputs = zCont ? zCont.querySelectorAll('[data-zone-field="name"]') : [];
+        if (inputs.length > 0) inputs[inputs.length - 1].focus();
     };
 
     window.addNewDriverUI = function () {
-        if (!storeSettings.drivers) storeSettings.drivers = [];
+        captureSettingsInputsIntoMemory();
+        if (!Array.isArray(storeSettings.drivers)) storeSettings.drivers = [];
         storeSettings.drivers.push({ name: '', phone: '', pin: '' });
-        window.renderSettingsUI();
+        renderDriversListOnly();
+        const dCont = document.getElementById('drivers-list-container');
+        const inputs = dCont ? dCont.querySelectorAll('[data-driver-field="name"]') : [];
+        if (inputs.length > 0) inputs[inputs.length - 1].focus();
     };
 
     // تحويل متغيرات القوالب إلى أزرار ذكية تدرج المتغير مكان المؤشر
@@ -939,124 +1142,102 @@
     }
 
     // =========================================================================
-    // 💾 4. حفظ الإعدادات الشامل (آمن تماماً — يحفظ البوليصة ولا يكتب فوق الدفعات)
+    // 💾 4. حفظ الإعدادات الشامل (يحفظ بأمان وسرعة ويمنع فقدان أي بيانات)
     // =========================================================================
     window.saveAllSettings = async function (silent = false) {
         if (typeof auth !== 'undefined' && !auth.currentUser) {
-            if (!silent) alert('⚠️ انتهت جلسة تسجيل الدخول. يرجى تسجيل الدخول مرة أخرى ليتمكن النظام من حفظ التعديلات.');
+            if (!silent) alert('⚠️ انتهت جلسة تسجيل الدخول. يرجى تسجيل الدخول بحساب الأدمن أولاً ليتم الحفظ في Firebase.');
             return;
         }
 
         const btn = document.getElementById('global-save-btn');
+        const inlineBtn = document.getElementById('st-inline-save-btn');
         const origHtml = btn ? btn.innerHTML : '';
-        if (btn && !silent) {
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الحفظ...';
-            btn.disabled = true;
+        const origInlineHtml = inlineBtn ? inlineBtn.innerHTML : '';
+
+        if (!silent) {
+            if (btn) {
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الحفظ...';
+                btn.disabled = true;
+            }
+            if (inlineBtn) {
+                inlineBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الحفظ...';
+                inlineBtn.disabled = true;
+            }
         }
 
         try {
             const settingsViewEl = document.getElementById('view-settings');
-            const isSettingsTabOpen = Boolean(settingsViewEl && settingsViewEl.classList.contains('active'));
+            const isSettingsTabOpen = Boolean(settingsViewEl && settingsViewEl.classList.contains('active')) || window.smanCurrentActiveTab === 'settings';
+
+            let settingsPatch = {};
 
             if (isSettingsTabOpen) {
-                if (document.getElementById('st-name')) {
-                    storeSettings.storeName = document.getElementById('st-name').value.trim();
-                    storeSettings.storePhone = document.getElementById('st-phone').value.trim();
-                    storeSettings.minOrder = parseInt(document.getElementById('st-min-order').value) || 0;
-                    storeSettings.storeOpen = Boolean(document.getElementById('st-is-open').checked);
-                    storeSettings.freeDeliveryActive = Boolean(document.getElementById('st-free-del').checked);
-                    storeSettings.freeDeliveryThreshold = parseInt(document.getElementById('st-free-th').value) || 0;
-                    storeSettings.pointsPer100 = parseFloat(document.getElementById('st-pts-per-100')?.value) || 5;
-                    storeSettings.pointValueInEGP = parseFloat(document.getElementById('st-pts-value')?.value) || 0.40;
-                }
+                captureSettingsInputsIntoMemory();
 
-                if (document.getElementById('st-hero-msg')) storeSettings.heroMessage = document.getElementById('st-hero-msg').value.trim();
-                if (document.getElementById('st-closed-msg')) storeSettings.closedMessage = document.getElementById('st-closed-msg').value.trim();
-                if (document.getElementById('st-store-desc')) storeSettings.storeDesc = document.getElementById('st-store-desc').value.trim();
+                storeSettings.deliveryZones = (storeSettings.deliveryZones || []).filter(z => z && z.name && z.name.trim() !== '');
+                storeSettings.drivers = (storeSettings.drivers || []).filter(d => d && (d.name || d.phone));
 
-                if (document.getElementById('st-gsheet-url')) {
-                    storeSettings.googleSheetWebhookUrl = document.getElementById('st-gsheet-url').value.trim();
-                }
+                settingsPatch = {
+                    storeName: storeSettings.storeName || '',
+                    storePhone: storeSettings.storePhone || '',
+                    minOrder: Number(storeSettings.minOrder) || 0,
+                    storeOpen: storeSettings.storeOpen !== false,
+                    freeDeliveryActive: Boolean(storeSettings.freeDeliveryActive),
+                    freeDeliveryThreshold: Number(storeSettings.freeDeliveryThreshold) || 0,
+                    pointsPer100: Number(storeSettings.pointsPer100) || 5,
+                    pointValueInEGP: Number(storeSettings.pointValueInEGP) || 0.40,
+                    deliveryZones: storeSettings.deliveryZones,
+                    drivers: storeSettings.drivers,
+                    whatsappTemplate: storeSettings.whatsappTemplate || '',
+                    dispatchTemplate: storeSettings.dispatchTemplate || '',
+                    ticktickTemplate: storeSettings.ticktickTemplate || '',
+                    batchHashtag: storeSettings.batchHashtag || '',
+                    productsData: storeProducts
+                };
 
-                if (document.getElementById('admin-whatsapp-template')) {
-                    storeSettings.whatsappTemplate = document.getElementById('admin-whatsapp-template').value;
-                    storeSettings.dispatchTemplate = document.getElementById('admin-dispatch-template').value;
-                    storeSettings.ticktickTemplate = document.getElementById('admin-ticktick-template').value;
-                    storeSettings.batchHashtag = document.getElementById('admin-batch-hashtag').value.trim();
-                }
-
-                // قراءة المناطق مباشرة من الخانات الظاهرة لضمان حفظ أي منطقة جديدة فوراً
-                const zCont = document.getElementById('zones-list-container');
-                if (zCont) {
-                    const liveZones = [];
-                    zCont.querySelectorAll('div.flex.items-center').forEach(row => {
-                        const nameInp = row.querySelector('input[type="text"]');
-                        const priceInp = row.querySelector('input[type="number"]');
-                        if (nameInp && nameInp.value.trim() !== '') {
-                            liveZones.push({
-                                name: nameInp.value.trim(),
-                                price: parseInt(priceInp?.value) || 0
-                            });
-                        }
-                    });
-                    if (liveZones.length > 0 || zCont.querySelectorAll('input[type="text"]').length > 0) {
-                        storeSettings.deliveryZones = liveZones;
-                    }
-                }
-
-                // قراءة المناديب مباشرة من الخانات الظاهرة لضمان حفظ أي مندوب جديد فوراً
-                const dCont = document.getElementById('drivers-list-container');
-                if (dCont) {
-                    const liveDrivers = [];
-                    dCont.querySelectorAll('div.bg-slate-50').forEach(card => {
-                        const nameInp = card.querySelector('input[placeholder="اسم المندوب"]');
-                        const phoneInp = card.querySelector('input[placeholder="رقم الواتساب"]');
-                        const pinInp = card.querySelector('input[placeholder="PIN"]');
-                        const nm = (nameInp?.value || '').trim();
-                        const ph = (phoneInp?.value || '').trim();
-                        if (nm || ph) {
-                            liveDrivers.push({ name: nm, phone: ph, pin: (pinInp?.value || '').trim() });
-                        }
-                    });
-                    if (liveDrivers.length > 0 || dCont.querySelectorAll('input[placeholder="اسم المندوب"]').length > 0) {
-                        storeSettings.drivers = liveDrivers;
-                    }
-                }
-
-                // قراءة وحفظ إعدادات بوليصة الشحن (Deli 750W)
-                if (document.getElementById('wb-paper-size')) {
-                    storeSettings.waybillConfig = {
-                        ...(storeSettings.waybillConfig || {}),
-                        slogan: document.getElementById('wb-slogan')?.value.trim() || '',
-                        footerMsg: document.getElementById('wb-footer-msg')?.value.trim() || '',
-                        logoUrl: document.getElementById('wb-logo-url')?.value.trim() || '',
-                        paperSize: document.getElementById('wb-paper-size')?.value || '70x130',
-                        showBarcode: Boolean(document.getElementById('wb-show-barcode')?.checked),
-                        showBreakdown: Boolean(document.getElementById('wb-show-breakdown')?.checked),
-                        showDriverNote: Boolean(document.getElementById('wb-show-driver-note')?.checked)
-                    };
-                } else if (typeof window.getWaybillConfig === 'function') {
-                    storeSettings.waybillConfig = window.getWaybillConfig();
-                }
+                if (storeSettings.waybillConfig) settingsPatch.waybillConfig = storeSettings.waybillConfig;
+                if (storeSettings.heroMessage !== undefined) settingsPatch.heroMessage = storeSettings.heroMessage;
+                if (storeSettings.closedMessage !== undefined) settingsPatch.closedMessage = storeSettings.closedMessage;
+                if (storeSettings.storeDesc !== undefined) settingsPatch.storeDesc = storeSettings.storeDesc;
+                if (storeSettings.googleSheetWebhookUrl !== undefined) settingsPatch.googleSheetWebhookUrl = storeSettings.googleSheetWebhookUrl;
+                if (Array.isArray(storeSettings.galleryImages)) settingsPatch.galleryImages = storeSettings.galleryImages;
+                if (Array.isArray(storeSettings.promoCodes)) settingsPatch.promoCodes = storeSettings.promoCodes;
+                if (storeSettings.showPromoField !== undefined) settingsPatch.showPromoField = Boolean(storeSettings.showPromoField);
+            } else {
+                // عند الحفظ من شاشة الأصناف أو الكوبونات أو الصور: لا نلمس storeOpen أو اسم المتجر نهائياً
+                storeSettings.productsData = storeProducts;
+                settingsPatch = {
+                    productsData: storeProducts
+                };
+                if (Array.isArray(storeSettings.galleryImages)) settingsPatch.galleryImages = storeSettings.galleryImages;
+                if (Array.isArray(storeSettings.promoCodes)) settingsPatch.promoCodes = storeSettings.promoCodes;
+                if (storeSettings.showPromoField !== undefined) settingsPatch.showPromoField = Boolean(storeSettings.showPromoField);
             }
 
-            storeSettings.deliveryZones = (storeSettings.deliveryZones || []).filter(z => z && z.name && z.name.trim() !== '');
-            storeSettings.drivers = (storeSettings.drivers || []).filter(d => d && (d.name || d.phone));
-            storeSettings.productsData = storeProducts;
+            const cleanSettingsPatch = sanitizeForFirestore(settingsPatch);
+            const cleanStock = sanitizeForFirestore(storeStock);
+            const cleanPrices = sanitizeForFirestore(storePrices);
 
             await Promise.all([
-                db.collection('inventory').doc('settings').set(storeSettings, { merge: true }),
-                db.collection('inventory').doc('stock').set(storeStock, { merge: true }),
-                db.collection('inventory').doc('prices').set(storePrices, { merge: true })
+                db.collection('inventory').doc('settings').set(cleanSettingsPatch, { merge: true }),
+                db.collection('inventory').doc('stock').set(cleanStock, { merge: true }),
+                db.collection('inventory').doc('prices').set(cleanPrices, { merge: true })
             ]);
 
             if (typeof window.saveInventoryFastMirror === 'function') window.saveInventoryFastMirror();
+            if (isSettingsTabOpen) {
+                renderZonesListOnly();
+                renderDriversListOnly();
+                updateStoreOpenLiveBadge(storeSettings.storeOpen !== false);
+            }
             if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
             if (typeof window.renderReconciliationUI === 'function') window.renderReconciliationUI();
             if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
 
             if (!silent) {
                 if (typeof window.showToast === 'function') window.showToast('✅ تم حفظ الإعدادات والمناطق والمناديب بنجاح!');
+                else if (typeof window.showQuickAppToast === 'function') window.showQuickAppToast('✅ تم حفظ الإعدادات والمناطق والمناديب بنجاح!');
                 else alert('تم الحفظ بنجاح! 🚀');
             }
         } catch (e) {
@@ -1064,9 +1245,15 @@
             if (!silent) alert('حدث خطأ أثناء حفظ الإعدادات: ' + (e.message || e));
         }
 
-        if (btn && !silent) {
-            btn.innerHTML = origHtml;
-            btn.disabled = false;
+        if (!silent) {
+            if (btn) {
+                btn.innerHTML = origHtml;
+                btn.disabled = false;
+            }
+            if (inlineBtn) {
+                inlineBtn.innerHTML = origInlineHtml;
+                inlineBtn.disabled = false;
+            }
         }
     };
 
