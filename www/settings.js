@@ -951,7 +951,7 @@
 
         try {
             const settingsViewEl = document.getElementById('view-settings');
-            const canReadSettingsForm = Boolean(window._settingsUIRenderedOnce) && Boolean(settingsViewEl && settingsViewEl.classList.contains('active'));
+            const canReadSettingsForm = Boolean(settingsViewEl && settingsViewEl.classList.contains('active'));
 
             if (canReadSettingsForm) {
                 if (document.getElementById('st-name')) {
