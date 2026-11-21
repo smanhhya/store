@@ -2016,9 +2016,12 @@
                     if (typeof window.saveInventoryFastMirror === 'function') window.saveInventoryFastMirror();
                     window.refreshOfflineSyncPillUI();
                 }).catch((err) => {
-                    console.warn('Firestore background write error:', err);
+                    console.error('Firestore write error:', err);
                     window._smanPendingCloudWrites = Math.max(0, window._smanPendingCloudWrites - 1);
                     window.refreshOfflineSyncPillUI();
+                    if (err && err.code === 'permission-denied') {
+                        alert('⚠️ تعذر الحفظ في Firebase (صلاحية الأدمن غير مفعلة). تأكد من تسجيل الدخول بحساب الأدمن أولاً.');
+                    }
                 });
 
                 // إذا كان الجهاز أوفلاين، نُكمل العملية في الواجهة فوراً (خلال 60 ملي ثانية) بعد حفظها في الكاش المحلي
@@ -9873,6 +9876,27 @@ window.deleteProductUI = async (id) => {
                 }, 3500);
             });
         })();
+    </script>
+    <script>
+        window.quickToggleStoreOpen = async function (isOpenNow) {
+            const val = Boolean(isOpenNow);
+            if (typeof storeSettings !== 'undefined') {
+                storeSettings.storeOpen = val;
+            }
+            if (typeof auth !== 'undefined' && !auth.currentUser) {
+                alert('⚠️ يجب تسجيل الدخول بحساب الأدمن أولاً لتغيير حالة المتجر.');
+                return;
+            }
+            try {
+                await db.collection('inventory').doc('settings').set({ storeOpen: val }, { merge: true });
+                if (typeof window.saveInventoryFastMirror === 'function') window.saveInventoryFastMirror();
+                const msg = val ? '🟢 تم فتح المتجر الآن بنجاح!' : '🔴 تم إغلاق المتجر مؤقتاً بنجاح!';
+                if (typeof window.showQuickAppToast === 'function') window.showQuickAppToast(msg);
+                else if (typeof window.showToast === 'function') window.showToast(msg);
+            } catch (err) {
+                alert('تعذر تغيير حالة المتجر: ' + (err.message || err));
+            }
+        };
     </script>
 
 </body>
