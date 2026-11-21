@@ -327,8 +327,8 @@ jobs:
                           WebView webView = this.bridge.getWebView();
                           webView.getSettings().setJavaScriptEnabled(true);
                           webView.addJavascriptInterface(new SmanPrinterBridge(this, webView), "SmanNativePrinter");
-                          webView.reload();
                       }
+
                   } catch (Exception e) {
                       e.printStackTrace();
                   }
@@ -349,9 +349,29 @@ jobs:
                       this.webView = webView;
                   }
 
+
                   @JavascriptInterface
-                  public boolean isNativeBridgeReady() {
-                      return true;
+                  public void savePermanentPref(String key, String value) {
+                      try {
+                          if (key == null || key.isEmpty()) return;
+                          activity.getSharedPreferences("sman_crm_owner_prefs", Context.MODE_PRIVATE)
+                              .edit()
+                              .putString(key, value != null ? value : "")
+                              .apply();
+                      } catch (Exception e) {
+                          e.printStackTrace();
+                      }
+                  }
+
+                  @JavascriptInterface
+                  public String getPermanentPref(String key) {
+                      try {
+                          if (key == null || key.isEmpty()) return "";
+                          return activity.getSharedPreferences("sman_crm_owner_prefs", Context.MODE_PRIVATE)
+                              .getString(key, "");
+                      } catch (Exception e) {
+                          return "";
+                      }
                   }
 
                   @JavascriptInterface
