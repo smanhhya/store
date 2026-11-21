@@ -806,6 +806,7 @@
 
     window.renderSettingsUI = function () {
         if (!document.getElementById('st-name')) return;
+        window._settingsUIRenderedOnce = true;
 
         window.switchSettingsSubTab(window.settingsSubTabState || 'store');
 
@@ -949,47 +950,53 @@
         }
 
         try {
-            if (document.getElementById('st-name')) {
-                storeSettings.storeName = document.getElementById('st-name').value.trim();
-                storeSettings.storePhone = document.getElementById('st-phone').value.trim();
-                storeSettings.minOrder = parseInt(document.getElementById('st-min-order').value) || 0;
-                storeSettings.storeOpen = document.getElementById('st-is-open').checked;
-                storeSettings.freeDeliveryActive = document.getElementById('st-free-del').checked;
-                storeSettings.freeDeliveryThreshold = parseInt(document.getElementById('st-free-th').value) || 0;
-                storeSettings.pointsPer100 = parseFloat(document.getElementById('st-pts-per-100')?.value) || 5;
-                storeSettings.pointValueInEGP = parseFloat(document.getElementById('st-pts-value')?.value) || 0.40;
+            const settingsViewEl = document.getElementById('view-settings');
+            const canReadSettingsForm = Boolean(window._settingsUIRenderedOnce) && Boolean(settingsViewEl && settingsViewEl.classList.contains('active'));
+
+            if (canReadSettingsForm) {
+                if (document.getElementById('st-name')) {
+                    storeSettings.storeName = document.getElementById('st-name').value.trim();
+                    storeSettings.storePhone = document.getElementById('st-phone').value.trim();
+                    storeSettings.minOrder = parseInt(document.getElementById('st-min-order').value) || 0;
+                    storeSettings.storeOpen = document.getElementById('st-is-open').checked;
+                    storeSettings.freeDeliveryActive = document.getElementById('st-free-del').checked;
+                    storeSettings.freeDeliveryThreshold = parseInt(document.getElementById('st-free-th').value) || 0;
+                    storeSettings.pointsPer100 = parseFloat(document.getElementById('st-pts-per-100')?.value) || 5;
+                    storeSettings.pointValueInEGP = parseFloat(document.getElementById('st-pts-value')?.value) || 0.40;
+                }
+
+                if (document.getElementById('st-hero-msg')) storeSettings.heroMessage = document.getElementById('st-hero-msg').value.trim();
+                if (document.getElementById('st-closed-msg')) storeSettings.closedMessage = document.getElementById('st-closed-msg').value.trim();
+                if (document.getElementById('st-store-desc')) storeSettings.storeDesc = document.getElementById('st-store-desc').value.trim();
+
+                if (document.getElementById('st-gsheet-url')) {
+                    storeSettings.googleSheetWebhookUrl = document.getElementById('st-gsheet-url').value.trim();
+                }
+
+                if (document.getElementById('admin-whatsapp-template')) {
+                    storeSettings.whatsappTemplate = document.getElementById('admin-whatsapp-template').value;
+                    storeSettings.dispatchTemplate = document.getElementById('admin-dispatch-template').value;
+                    storeSettings.ticktickTemplate = document.getElementById('admin-ticktick-template').value;
+                    storeSettings.batchHashtag = document.getElementById('admin-batch-hashtag').value.trim();
+                }
+
+                // قراءة وحفظ إعدادات بوليصة الشحن (Deli 750W) بشكل مباشر ومضمون
+                if (document.getElementById('wb-paper-size')) {
+                    storeSettings.waybillConfig = {
+                        ...(storeSettings.waybillConfig || {}),
+                        slogan: document.getElementById('wb-slogan')?.value.trim() || '',
+                        footerMsg: document.getElementById('wb-footer-msg')?.value.trim() || '',
+                        logoUrl: document.getElementById('wb-logo-url')?.value.trim() || '',
+                        paperSize: document.getElementById('wb-paper-size')?.value || '70x130',
+                        showBarcode: Boolean(document.getElementById('wb-show-barcode')?.checked),
+                        showBreakdown: Boolean(document.getElementById('wb-show-breakdown')?.checked),
+                        showDriverNote: Boolean(document.getElementById('wb-show-driver-note')?.checked)
+                    };
+                } else if (typeof window.getWaybillConfig === 'function') {
+                    storeSettings.waybillConfig = window.getWaybillConfig();
+                }
             }
 
-            if (document.getElementById('st-hero-msg')) storeSettings.heroMessage = document.getElementById('st-hero-msg').value.trim();
-            if (document.getElementById('st-closed-msg')) storeSettings.closedMessage = document.getElementById('st-closed-msg').value.trim();
-            if (document.getElementById('st-store-desc')) storeSettings.storeDesc = document.getElementById('st-store-desc').value.trim();
-
-            if (document.getElementById('st-gsheet-url')) {
-                storeSettings.googleSheetWebhookUrl = document.getElementById('st-gsheet-url').value.trim();
-            }
-
-            if (document.getElementById('admin-whatsapp-template')) {
-                storeSettings.whatsappTemplate = document.getElementById('admin-whatsapp-template').value;
-                storeSettings.dispatchTemplate = document.getElementById('admin-dispatch-template').value;
-                storeSettings.ticktickTemplate = document.getElementById('admin-ticktick-template').value;
-                storeSettings.batchHashtag = document.getElementById('admin-batch-hashtag').value.trim();
-            }
-
-            // قراءة وحفظ إعدادات بوليصة الشحن (Deli 750W) بشكل مباشر ومضمون
-            if (document.getElementById('wb-paper-size')) {
-                storeSettings.waybillConfig = {
-                    ...(storeSettings.waybillConfig || {}),
-                    slogan: document.getElementById('wb-slogan')?.value.trim() || '',
-                    footerMsg: document.getElementById('wb-footer-msg')?.value.trim() || '',
-                    logoUrl: document.getElementById('wb-logo-url')?.value.trim() || '',
-                    paperSize: document.getElementById('wb-paper-size')?.value || '70x130',
-                    showBarcode: Boolean(document.getElementById('wb-show-barcode')?.checked),
-                    showBreakdown: Boolean(document.getElementById('wb-show-breakdown')?.checked),
-                    showDriverNote: Boolean(document.getElementById('wb-show-driver-note')?.checked)
-                };
-            } else if (typeof window.getWaybillConfig === 'function') {
-                storeSettings.waybillConfig = window.getWaybillConfig();
-            }
 
             storeSettings.deliveryZones = (storeSettings.deliveryZones || []).filter(z => z && z.name && z.name.trim() !== '');
             storeSettings.drivers = (storeSettings.drivers || []).filter(d => d && (d.name || d.phone));
