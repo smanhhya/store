@@ -299,29 +299,71 @@
                 </div>
             </div>
 
-            <!-- شاشة مركز الملاحظات الذكي (إضافة جديدة فقط) -->
-            <div id="view-notes" class="page-view h-full flex flex-col max-w-7xl mx-auto space-y-4">
-                <div class="bg-white p-5 rounded-[1.5rem] shadow-soft border border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between shrink-0">
-                    <div>
-                        <h2 class="text-xl font-black text-slate-800"><i class="fa-solid fa-comments text-rose-500 mr-2"></i> مركز الملاحظات الذكي</h2>
-                        <p class="text-xs text-slate-500 font-bold mt-1">تجميع وتحليل فوري لكل الملاحظات (إداري ومندوب) المكتوبة في الطلبات الحية.</p>
+            <!-- شاشة مركز الملاحظات المصنّف بالألوان + رادار التقييمات والمراجعات -->
+            <div id="view-notes" class="page-view h-full flex flex-col max-w-7xl mx-auto space-y-3.5 pb-16">
+
+                <!-- 1. التبويبان الرئيسيان: الملاحظات بالألوان | التقييمات والمراجعات -->
+                <div class="bg-gradient-to-l from-[#042f2e] via-[#064e3b] to-slate-900 text-white p-3.5 sm:p-4 rounded-[1.5rem] shadow-soft border border-amber-400/25 space-y-3 shrink-0">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div>
+                            <h2 class="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                                <i class="fa-solid fa-comments text-amber-400"></i>
+                                <span>مركز الملاحظات ورادار التقييمات</span>
+                            </h2>
+                            <div id="notes-stats-bar" class="flex flex-wrap items-center gap-1.5 mt-1.5 text-[10px] font-black"></div>
+                        </div>
+
+                        <!-- مبدّل الوضعين الرئيسيين بضغطة واحدة -->
+                        <div class="grid grid-cols-2 gap-1.5 bg-black/25 p-1 rounded-2xl border border-white/10 shrink-0">
+                            <button type="button" id="n-main-tab-notes" onclick="switchNotesHubMainMode('notes')" class="px-3.5 py-2 rounded-xl text-xs font-black bg-white text-slate-900 shadow-sm transition-all flex items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-palette text-indigo-600"></i>
+                                <span>الملاحظات</span>
+                                <span id="n-main-badge-notes" class="bg-slate-900 text-amber-300 px-1.5 py-0.5 rounded-md text-[10px]">0</span>
+                            </button>
+                            <button type="button" id="n-main-tab-rating" onclick="switchNotesHubMainMode('rating')" class="px-3.5 py-2 rounded-xl text-xs font-black text-emerald-100 hover:bg-white/10 transition-all flex items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-star text-amber-400"></i>
+                                <span>التقييمات</span>
+                                <span id="n-main-badge-rating" class="bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded-md text-[10px]">0</span>
+                            </button>
+                        </div>
                     </div>
-                    <div class="relative w-full md:w-1/2">
-                        <i class="fa-solid fa-search absolute right-4 top-3.5 text-slate-400"></i>
-                        <input type="search" id="search-notes" onkeyup="renderNotesUI()" placeholder="ابحث بكلمة (مستعجل، مشكلة)، أو اسم العميل..." class="w-full pl-4 pr-11 py-2.5 rounded-xl border-none outline-none text-sm font-bold bg-slate-50 focus:bg-white focus:ring-2 focus:ring-rose-200 transition-all">
+
+                    <!-- مربع البحث السريع + خيار إظهار المكتملة -->
+                    <div class="flex flex-wrap items-center gap-2">
+                        <div class="relative flex-1 min-w-[200px]">
+                            <i class="fa-solid fa-magnifying-glass absolute right-3.5 top-2.5 text-slate-400 text-xs pointer-events-none"></i>
+                            <input type="search" id="search-notes" oninput="renderNotesUI()" placeholder="ابحث باسم العميل، رقم الموبايل، المنطقة، أو كلمة داخل الملاحظة..." class="w-full pl-3 pr-9 py-2 rounded-xl border border-white/15 outline-none text-xs font-black text-slate-800 bg-white focus:ring-2 focus:ring-amber-300 transition-all">
+                        </div>
+                        <label id="notes-completed-toggle-wrap" class="flex items-center gap-1.5 bg-white/10 border border-white/15 px-3 py-2 rounded-xl text-[11px] font-black text-white cursor-pointer shrink-0">
+                            <input type="checkbox" id="notes-include-completed" onchange="renderNotesUI()" class="w-3.5 h-3.5 accent-amber-400 rounded" checked>
+                            <span>شامل المكتمل</span>
+                        </label>
                     </div>
-                </div>
-                
-                <div class="flex gap-2 overflow-x-auto custom-scroll pb-2 shrink-0 px-1">
-                    <button onclick="setNotesFilter('all')" id="n-filter-all" class="notes-filter-btn active whitespace-nowrap px-4 py-2 rounded-xl text-sm font-bold bg-slate-800 text-white transition-all shadow-sm">الكل</button>
-                    <button onclick="setNotesFilter('urgent')" id="n-filter-urgent" class="notes-filter-btn whitespace-nowrap px-4 py-2 rounded-xl text-sm font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"><i class="fa-solid fa-bolt text-amber-500 mr-1"></i> عاجل ومستعجل</button>
-                    <button onclick="setNotesFilter('problem')" id="n-filter-problem" class="notes-filter-btn whitespace-nowrap px-4 py-2 rounded-xl text-sm font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"><i class="fa-solid fa-triangle-exclamation text-red-500 mr-1"></i> مشاكل وشكاوى</button>
-                    <button onclick="setNotesFilter('driver')" id="n-filter-driver" class="notes-filter-btn whitespace-nowrap px-4 py-2 rounded-xl text-sm font-bold bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all"><i class="fa-solid fa-motorcycle text-blue-500 mr-1"></i> للمندوب</button>
                 </div>
 
-                <div id="notes-list-container" class="flex-1 overflow-y-auto custom-scroll space-y-3 pr-1 pb-4"></div>
+                <!-- 2. شريط فلاتر الألوان ودليل الألوان (يظهر في وضع الملاحظات فقط) -->
+                <div id="notes-color-filters-bar" class="bg-white p-2.5 rounded-2xl border border-slate-200/80 shadow-sm space-y-2 shrink-0">
+                    <div class="flex gap-1.5 overflow-x-auto pb-0.5" style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
+                        <button type="button" onclick="setNotesFilter('all')" id="n-filter-all" class="notes-filter-btn active whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-slate-900 text-white shadow-sm transition-all">الكل</button>
+                        <button type="button" onclick="setNotesFilter('client')" id="n-filter-client" class="notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-sky-50 border border-sky-200 text-sky-900 hover:bg-sky-100 transition-all">🔵 من العميل</button>
+                        <button type="button" onclick="setNotesFilter('admin')" id="n-filter-admin" class="notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-purple-50 border border-purple-200 text-purple-900 hover:bg-purple-100 transition-all">🟣 مني (إداري)</button>
+                        <button type="button" onclick="setNotesFilter('driver')" id="n-filter-driver" class="notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-orange-50 border border-orange-200 text-orange-900 hover:bg-orange-100 transition-all">🟠 للعاملين / المندوب</button>
+                        <button type="button" onclick="setNotesFilter('problem')" id="n-filter-problem" class="notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-rose-50 border border-rose-200 text-rose-800 hover:bg-rose-100 transition-all">⚠️ مشاكل وعاجل</button>
+                        <button type="button" onclick="setNotesFilter('customers')" id="n-filter-customers" class="notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black bg-amber-50 border border-amber-200 text-amber-900 hover:bg-amber-100 transition-all">📌 كشكول العملاء</button>
+                    </div>
+                    <!-- دليل الألوان المختصر (سطر واحد واضح) -->
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 pt-1 border-t border-slate-100 text-[10px] font-black text-slate-500">
+                        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-sky-500 inline-block"></span> العميل كتب</span>
+                        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block"></span> أنا كتبت (إداري)</span>
+                        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block"></span> للعاملين والمندوب</span>
+                        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-slate-300 inline-block"></span> سجل السيستم التلقائي</span>
+                    </div>
+                </div>
+
+                <!-- 3. حاوية البطاقات (الملاحظات الملوّنة أو رادار التقييمات) -->
+                <div id="notes-list-container" class="flex-1 overflow-y-auto custom-scroll grid grid-cols-1 lg:grid-cols-2 gap-3 content-start pr-0.5 pb-6"></div>
             </div>
-            
+
 
 
             <div id="view-orders" class="page-view flex flex-col max-w-7xl mx-auto relative">
