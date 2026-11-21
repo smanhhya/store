@@ -702,11 +702,18 @@
                     </div>
 
 
-                    <div class="mt-6 flex flex-wrap items-center gap-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                        <label class="flex items-center gap-2 cursor-pointer font-black text-sm text-emerald-700"><input type="checkbox" id="st-is-open" class="w-5 h-5 text-emerald-600 rounded"> المتجر مفتوح ويستقبل طلبات</label>
-                        <div class="h-6 w-px bg-slate-300 hidden md:block"></div>
-                        <label class="flex items-center gap-2 cursor-pointer font-bold text-sm text-slate-600"><input type="checkbox" id="st-free-del" class="w-4 h-4 text-blue-600 rounded" onchange="document.getElementById('st-free-th').disabled = !this.checked"> تفعيل توصيل مجاني للطلبات الأكبر من <input type="number" id="st-free-th" class="w-20 border border-slate-200 rounded-lg p-1.5 text-center bg-white text-brand-primary outline-none" placeholder="0"> ج.م</label>
+                    <div class="mt-6 flex flex-wrap items-center justify-between gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                        <div class="flex flex-wrap items-center gap-6">
+                            <label class="flex items-center gap-2 cursor-pointer font-black text-sm text-emerald-700"><input type="checkbox" id="st-is-open" onchange="if(window.quickToggleStoreOpen) window.quickToggleStoreOpen(this.checked)" class="w-5 h-5 text-emerald-600 rounded"> المتجر مفتوح ويستقبل طلبات</label>
+                            <div class="h-6 w-px bg-slate-300 hidden md:block"></div>
+                            <label class="flex items-center gap-2 cursor-pointer font-bold text-sm text-slate-600"><input type="checkbox" id="st-free-del" class="w-4 h-4 text-blue-600 rounded" onchange="document.getElementById('st-free-th').disabled = !this.checked"> تفعيل توصيل مجاني للطلبات الأكبر من <input type="number" id="st-free-th" class="w-20 border border-slate-200 rounded-lg p-1.5 text-center bg-white text-brand-primary outline-none" placeholder="0"> ج.م</label>
+                        </div>
+                        <button type="button" onclick="saveAllSettings()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl text-xs sm:text-sm font-black shadow-md flex items-center gap-2 active:scale-95 transition-all">
+                            <i class="fa-solid fa-floppy-disk text-amber-300"></i>
+                            <span>حفظ بيانات المتجر والمناطق والمناديب</span>
+                        </button>
                     </div>
+
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1802,9 +1809,12 @@
                     if (typeof window.saveInventoryFastMirror === 'function') window.saveInventoryFastMirror();
                     window.refreshOfflineSyncPillUI();
                 }).catch((err) => {
-                    console.warn('Firestore background write error:', err);
+                    console.error('Firestore write error:', err);
                     window._smanPendingCloudWrites = Math.max(0, window._smanPendingCloudWrites - 1);
                     window.refreshOfflineSyncPillUI();
+                    if (err && err.code === 'permission-denied') {
+                        alert('⚠️ تعذر الحفظ في Firebase (صلاحية الأدمن غير مفعلة). تأكد من تسجيل الدخول بحساب الأدمن أولاً.');
+                    }
                 });
 
                 // إذا كان الجهاز أوفلاين، نُكمل العملية في الواجهة فوراً (خلال 60 ملي ثانية) بعد حفظها في الكاش المحلي
@@ -9659,6 +9669,27 @@ window.deleteProductUI = async (id) => {
                 }, 3500);
             });
         })();
+    </script>
+    <script>
+        window.quickToggleStoreOpen = async function (isOpenNow) {
+            const val = Boolean(isOpenNow);
+            if (typeof storeSettings !== 'undefined') {
+                storeSettings.storeOpen = val;
+            }
+            if (typeof auth !== 'undefined' && !auth.currentUser) {
+                alert('⚠️ يجب تسجيل الدخول بحساب الأدمن أولاً لتغيير حالة المتجر.');
+                return;
+            }
+            try {
+                await db.collection('inventory').doc('settings').set({ storeOpen: val }, { merge: true });
+                if (typeof window.saveInventoryFastMirror === 'function') window.saveInventoryFastMirror();
+                const msg = val ? '🟢 تم فتح المتجر الآن بنجاح!' : '🔴 تم إغلاق المتجر مؤقتاً بنجاح!';
+                if (typeof window.showQuickAppToast === 'function') window.showQuickAppToast(msg);
+                else if (typeof window.showToast === 'function') window.showToast(msg);
+            } catch (err) {
+                alert('تعذر تغيير حالة المتجر: ' + (err.message || err));
+            }
+        };
     </script>
 
 </body>
