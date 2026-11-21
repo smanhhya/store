@@ -942,6 +942,11 @@
     // 💾 4. حفظ الإعدادات الشامل (آمن تماماً — يحفظ البوليصة ولا يكتب فوق الدفعات)
     // =========================================================================
     window.saveAllSettings = async function (silent = false) {
+        if (typeof auth !== 'undefined' && !auth.currentUser) {
+            if (!silent) alert('⚠️ انتهت جلسة تسجيل الدخول. يرجى تسجيل الدخول مرة أخرى ليتمكن النظام من حفظ التعديلات.');
+            return;
+        }
+
         const btn = document.getElementById('global-save-btn');
         const origHtml = btn ? btn.innerHTML : '';
         if (btn && !silent) {
@@ -951,15 +956,15 @@
 
         try {
             const settingsViewEl = document.getElementById('view-settings');
-            const canReadSettingsForm = Boolean(settingsViewEl && settingsViewEl.classList.contains('active'));
+            const isSettingsTabOpen = Boolean(settingsViewEl && settingsViewEl.classList.contains('active'));
 
-            if (canReadSettingsForm) {
+            if (isSettingsTabOpen) {
                 if (document.getElementById('st-name')) {
                     storeSettings.storeName = document.getElementById('st-name').value.trim();
                     storeSettings.storePhone = document.getElementById('st-phone').value.trim();
                     storeSettings.minOrder = parseInt(document.getElementById('st-min-order').value) || 0;
-                    storeSettings.storeOpen = document.getElementById('st-is-open').checked;
-                    storeSettings.freeDeliveryActive = document.getElementById('st-free-del').checked;
+                    storeSettings.storeOpen = Boolean(document.getElementById('st-is-open').checked);
+                    storeSettings.freeDeliveryActive = Boolean(document.getElementById('st-free-del').checked);
                     storeSettings.freeDeliveryThreshold = parseInt(document.getElementById('st-free-th').value) || 0;
                     storeSettings.pointsPer100 = parseFloat(document.getElementById('st-pts-per-100')?.value) || 5;
                     storeSettings.pointValueInEGP = parseFloat(document.getElementById('st-pts-value')?.value) || 0.40;
@@ -980,7 +985,45 @@
                     storeSettings.batchHashtag = document.getElementById('admin-batch-hashtag').value.trim();
                 }
 
-                // قراءة وحفظ إعدادات بوليصة الشحن (Deli 750W) بشكل مباشر ومضمون
+                // قراءة المناطق مباشرة من الخانات الظاهرة لضمان حفظ أي منطقة جديدة فوراً
+                const zCont = document.getElementById('zones-list-container');
+                if (zCont) {
+                    const liveZones = [];
+                    zCont.querySelectorAll('div.flex.items-center').forEach(row => {
+                        const nameInp = row.querySelector('input[type="text"]');
+                        const priceInp = row.querySelector('input[type="number"]');
+                        if (nameInp && nameInp.value.trim() !== '') {
+                            liveZones.push({
+                                name: nameInp.value.trim(),
+                                price: parseInt(priceInp?.value) || 0
+                            });
+                        }
+                    });
+                    if (liveZones.length > 0 || zCont.querySelectorAll('input[type="text"]').length > 0) {
+                        storeSettings.deliveryZones = liveZones;
+                    }
+                }
+
+                // قراءة المناديب مباشرة من الخانات الظاهرة لضمان حفظ أي مندوب جديد فوراً
+                const dCont = document.getElementById('drivers-list-container');
+                if (dCont) {
+                    const liveDrivers = [];
+                    dCont.querySelectorAll('div.bg-slate-50').forEach(card => {
+                        const nameInp = card.querySelector('input[placeholder="اسم المندوب"]');
+                        const phoneInp = card.querySelector('input[placeholder="رقم الواتساب"]');
+                        const pinInp = card.querySelector('input[placeholder="PIN"]');
+                        const nm = (nameInp?.value || '').trim();
+                        const ph = (phoneInp?.value || '').trim();
+                        if (nm || ph) {
+                            liveDrivers.push({ name: nm, phone: ph, pin: (pinInp?.value || '').trim() });
+                        }
+                    });
+                    if (liveDrivers.length > 0 || dCont.querySelectorAll('input[placeholder="اسم المندوب"]').length > 0) {
+                        storeSettings.drivers = liveDrivers;
+                    }
+                }
+
+                // قراءة وحفظ إعدادات بوليصة الشحن (Deli 750W)
                 if (document.getElementById('wb-paper-size')) {
                     storeSettings.waybillConfig = {
                         ...(storeSettings.waybillConfig || {}),
@@ -997,29 +1040,28 @@
                 }
             }
 
-
             storeSettings.deliveryZones = (storeSettings.deliveryZones || []).filter(z => z && z.name && z.name.trim() !== '');
             storeSettings.drivers = (storeSettings.drivers || []).filter(d => d && (d.name || d.phone));
             storeSettings.productsData = storeProducts;
 
-            // تم استبعاد الكتابة فوق مستند batches هنا لمنع مسح حجوزات العملاء المتزامنة
             await Promise.all([
                 db.collection('inventory').doc('settings').set(storeSettings, { merge: true }),
                 db.collection('inventory').doc('stock').set(storeStock, { merge: true }),
                 db.collection('inventory').doc('prices').set(storePrices, { merge: true })
             ]);
 
+            if (typeof window.saveInventoryFastMirror === 'function') window.saveInventoryFastMirror();
             if (typeof window.generateDynamicOrderInputs === 'function') window.generateDynamicOrderInputs();
             if (typeof window.renderReconciliationUI === 'function') window.renderReconciliationUI();
             if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
 
             if (!silent) {
-                if (typeof window.showToast === 'function') window.showToast('✅ تم حفظ الإعدادات والأصناف والبوليصة بنجاح!');
+                if (typeof window.showToast === 'function') window.showToast('✅ تم حفظ الإعدادات والمناطق والمناديب بنجاح!');
                 else alert('تم الحفظ بنجاح! 🚀');
             }
         } catch (e) {
             console.error('Save settings error:', e);
-            if (!silent) alert('حدث خطأ أثناء حفظ الإعدادات!');
+            if (!silent) alert('حدث خطأ أثناء حفظ الإعدادات: ' + (e.message || e));
         }
 
         if (btn && !silent) {
@@ -1027,7 +1069,6 @@
             btn.disabled = false;
         }
     };
-
 
     // =========================================================================
     // 🪙 5. تفعيل نقاط الولاء بأثر رجعي (على الطلبات المكتملة فقط وبدون التوصيل)
