@@ -287,15 +287,17 @@
             if (d && d.name) driversMap[d.name.trim()] = { name: d.name.trim(), phone: d.phone || '', openCount: 0 };
         });
 
+        // العهدة المفتوحة = الطلبات التي ما زالت (في الطريق - dispatched) فقط؛ لأن أي طلب (مكتمل) وصلت فلوسه بالفعل
         (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).forEach(o => {
             if (!o || o.status === 'trash' || o.isArchived) return;
-            if (!['dispatched', 'completed'].includes(o.status)) return;
+            if (o.status !== 'dispatched') return;
             if (o.isReconciled || o.isSupplied) return;
             const dName = (o.driverName || '').trim();
             if (!dName) return;
             if (!driversMap[dName]) driversMap[dName] = { name: dName, phone: o.driverPhone || '', openCount: 0 };
             driversMap[dName].openCount++;
         });
+
 
         const driversArr = Object.values(driversMap).sort((a, b) => b.openCount - a.openCount);
         let autoSelectedDriver = currentSelectedDriver;
@@ -591,13 +593,14 @@
         }
 
         const allDriverOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o =>
-            o && o.status !== 'trash' &&
+            o && o.status !== 'trash' && !o.isArchived &&
             isOrderForDriver(o, driverName) &&
             (o.status === 'dispatched' || o.status === 'completed')
         );
 
-        const activeCustodyOrders = allDriverOrders.filter(o => !o.isReconciled && !o.isSupplied);
-        const settledHistoryOrders = allDriverOrders.filter(o => o.isReconciled || o.isSupplied);
+        // أي طلب (مكتمل) = استُلم ووصلت فلوسه بالفعل؛ العهدة المفتوحة تضم فقط الطلبات التي ما زالت (في الطريق - dispatched)
+        const activeCustodyOrders = allDriverOrders.filter(o => o.status === 'dispatched' && !o.isReconciled && !o.isSupplied);
+        const settledHistoryOrders = allDriverOrders.filter(o => o.status === 'completed' || o.isReconciled || o.isSupplied);
         const ordersToDisplay = window.reconShowHistory ? allDriverOrders : activeCustodyOrders;
 
         if (activeCustodyOrders.length === 0 && !window.reconShowHistory) {
@@ -640,7 +643,7 @@
 
         ordersToDisplay.forEach((o, index) => {
             const br = window.getOrderPaymentBreakdown(o);
-            const isSettled = Boolean(o.isReconciled || o.isSupplied);
+            const isSettled = Boolean(o.status === 'completed' || o.isReconciled || o.isSupplied);
             const delFee = Number(o.deliveryFee) || 0;
             const isSplitEditorOpen = (window.reconOpenSplitOrderId === o.id || br.method === 'split');
 
@@ -801,10 +804,11 @@
         const actualCash = cashInput ? (Number(cashInput.value) || 0) : totalAllGross;
         const actualWallet = walletInput ? (Number(walletInput.value) || 0) : 0;
 
+        // التقفيل ينطبق فقط على طلبات المندوب التي ما زالت (في الطريق - dispatched) حتى لا نعيد لمس أو تغيير حساب أي طلب مكتمل سابقاً
         const targetOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o =>
-            o && o.status !== 'trash' &&
+            o && o.status !== 'trash' && !o.isArchived &&
             isOrderForDriver(o, driverName) &&
-            (o.status === 'dispatched' || o.status === 'completed') &&
+            o.status === 'dispatched' &&
             !o.isReconciled && !o.isSupplied
         );
 
