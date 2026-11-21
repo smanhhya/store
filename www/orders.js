@@ -268,23 +268,48 @@
 
         topToolsArea.appendChild(toolbar);
 
-        // ترقية شريط التحديد الجماعي
+        // إعادة تنظيم وتنسيق شريط التحديد الجماعي بهوية سمان ههيا (بنفس كل المميزات وبدون حذف أي زر)
         const bulkBar = document.getElementById('bulk-actions-bar');
-        if (bulkBar && !document.getElementById('bulk-extra-deferred-btn')) {
-            const btnsWrap = bulkBar.querySelector('.flex.flex-wrap');
-            if (btnsWrap) {
-                const extraBtns = document.createElement('span');
-                extraBtns.id = 'bulk-extra-deferred-btn';
-                extraBtns.className = 'inline-flex flex-wrap gap-1.5';
-                extraBtns.innerHTML = `
-                    <button onclick="bulkChangeStatus('new')" class="bg-blue-500 hover:bg-blue-600 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-colors shadow-sm">لجديد</button>
-                    <button onclick="openDispatchModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-colors shadow-sm"><i class="fa-solid fa-motorcycle"></i> للمندوب</button>
-                    <button onclick="bulkChangeStatus('deferred')" class="bg-orange-500 hover:bg-orange-600 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-colors shadow-sm">مؤجل</button>
-                    <button onclick="clearAllBulkSelections()" class="bg-slate-600 hover:bg-slate-500 text-white px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-colors shadow-sm" title="إلغاء التحديد">✕</button>
-                `;
-                btnsWrap.appendChild(extraBtns);
-            }
+        if (bulkBar && !bulkBar.hasAttribute('data-sman-v2-bulk')) {
+            bulkBar.setAttribute('data-sman-v2-bulk', '1');
+            const isHiddenNow = bulkBar.classList.contains('hidden');
+            bulkBar.className = `${isHiddenNow ? 'hidden ' : ''}bg-white border-2 border-emerald-600/35 rounded-2xl shadow-lg p-2.5 space-y-2 transition-all`;
+            bulkBar.innerHTML = `
+                <div class="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-100">
+                    <div class="flex items-center gap-1.5 text-xs font-black text-slate-800">
+                        <span id="bulk-count" class="bg-brand-primary text-amber-300 px-2 py-0.5 rounded-lg text-[11px] font-black shadow-sm">0</span>
+                        <span>طلب محدد — اختر الإجراء:</span>
+                    </div>
+                    <button type="button" onclick="clearAllBulkSelections()" class="bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 px-2.5 py-1 rounded-xl text-[10px] font-black transition-all flex items-center gap-1" title="إلغاء التحديد">
+                        <span>إلغاء</span><i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <!-- الصف 1: الإجراءات التنفيذية الـ 3 الرئيسية -->
+                <div class="grid grid-cols-3 gap-1.5">
+                    <button type="button" onclick="printSelectedOrdersWaybills()" class="bg-amber-50 hover:bg-amber-500 text-amber-950 hover:text-white border border-amber-300 py-2 px-2 rounded-xl text-[11px] font-black transition-all flex items-center justify-center gap-1 shadow-sm active:scale-95">
+                        <i class="fa-solid fa-print text-amber-600"></i> <span>بوالص</span>
+                    </button>
+                    <button type="button" onclick="sendToSelectedOrders()" class="bg-emerald-50 hover:bg-[#25D366] text-emerald-900 hover:text-white border border-emerald-300 py-2 px-2 rounded-xl text-[11px] font-black transition-all flex items-center justify-center gap-1 shadow-sm active:scale-95">
+                        <i class="fa-brands fa-whatsapp text-emerald-600 text-xs"></i> <span>واتساب</span>
+                    </button>
+                    <button type="button" data-lc-trigger="1" onclick="openBulkDriverDispatchPopover(this)" class="bg-indigo-50 hover:bg-indigo-600 text-indigo-900 hover:text-white border border-indigo-200 py-2 px-2 rounded-xl text-[11px] font-black transition-all flex items-center justify-center gap-1 shadow-sm active:scale-95">
+                        <i class="fa-solid fa-motorcycle text-indigo-600"></i> <span>للمندوب</span>
+                    </button>
+                </div>
+
+                <!-- الصف 2: تحويل الحالة الجماعي بألوان هادئة متناسقة -->
+                <div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                    <button type="button" onclick="bulkChangeStatus('new')" class="bg-slate-50 hover:bg-blue-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all active:scale-95">🆕 جديد</button>
+                    <button type="button" onclick="bulkChangeStatus('processing')" class="bg-slate-50 hover:bg-amber-500 text-slate-700 hover:text-slate-950 border border-slate-200 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all active:scale-95">⏳ تجهيز</button>
+                    <button type="button" onclick="bulkChangeStatus('deferred')" class="bg-slate-50 hover:bg-orange-500 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all active:scale-95">📅 مؤجل</button>
+                    <button type="button" onclick="bulkChangeStatus('no_answer')" class="bg-slate-50 hover:bg-purple-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all active:scale-95">📵 لم يرد</button>
+                    <button type="button" onclick="bulkChangeStatus('completed')" class="bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-600 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all shadow-sm active:scale-95">✅ مكتمل</button>
+                    <button type="button" onclick="bulkChangeStatus('trash')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all active:scale-95"><i class="fa-solid fa-trash ml-0.5"></i> سلة</button>
+                </div>
+            `;
         }
+
     };
 
     window.toggleAdvancedFiltersDrawer = function () {
@@ -1347,8 +1372,104 @@
     };
 
     // =========================================================================
-    // ⚡ 8. الإصلاح المحاسبي الشامل للتحديد الجماعي (bulkChangeStatus)
+    // ⚡ 8. الإصلاح المحاسبي الشامل للتحديد الجماعي (bulkChangeStatus + توجيه المحددين للمندوب)
     // =========================================================================
+    window.openBulkDriverDispatchPopover = function (anchorEl) {
+        const checkedIds = Array.from(document.querySelectorAll('.bulk-order-cb:checked')).map(cb => cb.value);
+        if (checkedIds.length === 0) return;
+
+        const drivers = (typeof storeSettings !== 'undefined' && Array.isArray(storeSettings.drivers)) ? storeSettings.drivers : [];
+        if (drivers.length === 0) {
+            if (typeof window.openDispatchModal === 'function') return window.openDispatchModal();
+            return alert('يرجى إضافة مندوب واحد على الأقل من إعدادات المتجر أولاً!');
+        }
+
+        const drvBtns = drivers.map(d => {
+            const safeName = (d.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const safePhone = (d.phone || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            return `
+                <button type="button" onclick="executeBulkAssignToDriver('${safeName}', '${safePhone}')" class="w-full bg-indigo-50 hover:bg-indigo-600 text-indigo-950 hover:text-white py-2 px-3 rounded-xl text-xs font-black flex items-center justify-between border border-indigo-100 transition-all shadow-sm">
+                    <span>🛵 ${d.name}</span>
+                    <span class="text-[10px] opacity-80">نقل (${checkedIds.length}) طلب ⚡</span>
+                </button>
+            `;
+        }).join('');
+
+        const html = `
+            <div class="space-y-2.5">
+                <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                    <span class="text-xs font-black text-indigo-900"><i class="fa-solid fa-motorcycle ml-1"></i> توجيه الطلبات المحددة (${checkedIds.length})</span>
+                    <button type="button" onclick="closeLivePopover()" class="text-slate-400 hover:text-red-500 text-xs"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="space-y-1.5 max-h-52 overflow-y-auto custom-scroll">${drvBtns}</div>
+                <button type="button" onclick="closeLivePopover(); if(window.openDispatchModal) openDispatchModal();" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 rounded-xl text-[10px] font-black">
+                    📋 فتح شاشة التوجيه والرسالة التفصيلية
+                </button>
+            </div>
+        `;
+
+        if (typeof window.openLivePopover === 'function') {
+            window.openLivePopover(anchorEl, html);
+        } else if (typeof window.openDispatchModal === 'function') {
+            window.openDispatchModal();
+        }
+    };
+
+    window.executeBulkAssignToDriver = async function (driverName, driverPhone) {
+        if (typeof window.closeLivePopover === 'function') window.closeLivePopover();
+        let checked = Array.from(document.querySelectorAll('.bulk-order-cb:checked')).map(cb => cb.value);
+        if (checked.length === 0) return;
+
+        let blockedNames = [];
+        checked = checked.filter(id => {
+            let o = allOrdersRaw.find(x => x.id === id);
+            if (!o) return false;
+            let bl = window.findBlacklistedCustomerMatch ? window.findBlacklistedCustomerMatch(o.customerPhone, o.customerPhone2, o.customerName, o.customerAddress) : null;
+            if (bl && bl.type === 'exact' && !o.isPrepaidConfirmed && o.paymentMethod !== 'online') {
+                blockedNames.push(o.customerName || o.customerPhone);
+                return false;
+            }
+            return true;
+        });
+        if (blockedNames.length > 0) {
+            alert('⛔ حارس البلاك ليست أوقف توجيه الطلبات التالية لأنها لم تُدفع مقدماً:\n- ' + blockedNames.join('\n- '));
+            if (checked.length === 0) return;
+        }
+
+        try {
+            const dbBatch = db.batch();
+            checked.forEach(id => {
+                const o = allOrdersRaw.find(x => x && x.id === id);
+                if (!o) return;
+                dbBatch.update(db.collection('orders').doc(id), {
+                    driverName: driverName,
+                    driverPhone: driverPhone || '',
+                    status: 'dispatched',
+                    dispatchedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                o.driverName = driverName;
+                o.driverPhone = driverPhone || '';
+                o.status = 'dispatched';
+                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) {
+                    globalOrdersMap[id].driverName = driverName;
+                    globalOrdersMap[id].driverPhone = driverPhone || '';
+                    globalOrdersMap[id].status = 'dispatched';
+                }
+            });
+            await dbBatch.commit();
+
+            window.clearAllBulkSelections();
+            window.renderOrdersList();
+            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
+            if (typeof window.renderReconciliationUI === 'function') window.renderReconciliationUI();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
+            if (typeof window.showToast === 'function') window.showToast(`🛵 تم توجيه (${checked.length}) طلب إلى المندوب: ${driverName}`);
+        } catch (e) {
+            console.error(e);
+            alert('حدث خطأ أثناء توجيه الطلبات للمندوب!');
+        }
+    };
+
     window.bulkChangeStatus = async function (newStatus) {
         let checked = Array.from(document.querySelectorAll('.bulk-order-cb:checked')).map(cb => cb.value);
         if (checked.length === 0) return;
@@ -1382,11 +1503,14 @@
             'trash': 'سلة المحذوفات'
         };
         const statusName = statusNamesAr[newStatus] || newStatus;
-        if (!(await window.execConfirm(`سيتم تحويل [ ${checked.length} ] طلبات إلى حالة (${statusName}). هل تريد التأكيد؟`, { title: 'تحديث جماعي للطلبات', tone: newStatus === 'trash' || newStatus === 'canceled' ? 'danger' : 'brand', confirmText: 'تأكيد التحويل' }))) return;
+        const confirmPrompt = `سيتم تحويل [ ${checked.length} ] طلبات إلى حالة (${statusName}). هل تريد التأكيد؟`;
+        const okBulk = (typeof window.execConfirm === 'function')
+            ? await window.execConfirm(confirmPrompt, { title: 'تحديث جماعي للطلبات', tone: newStatus === 'trash' || newStatus === 'canceled' ? 'danger' : 'brand', confirmText: 'تأكيد التحويل' })
+            : confirm(confirmPrompt);
+        if (!okBulk) return;
 
         const bar = document.getElementById('bulk-actions-bar');
-        const originalHtml = bar.innerHTML;
-        bar.innerHTML = '<div class="w-full text-center text-sm font-bold text-amber-400"><i class="fa-solid fa-spinner fa-spin"></i> جاري التحديث الجماعي وتطبيق الحسابات...</div>';
+        if (bar) bar.classList.add('opacity-60', 'pointer-events-none');
 
         try {
             let dbBatch = db.batch();
@@ -1469,6 +1593,12 @@
                 }
             });
 
+            if (fzTouched) {
+                dbBatch.set(db.collection('inventory').doc('freezer'), fzNewValues, { merge: true });
+            }
+
+            await dbBatch.commit();
+
             if (typeof window.syncWeightHoldForOrderStatus === 'function') {
                 for (const id of checked) {
                     const oObj = allOrdersRaw.find(x => x && x.id === id);
@@ -1476,16 +1606,19 @@
                 }
             }
 
-            bar.innerHTML = originalHtml;
-            bar.classList.add('hidden');
             document.querySelectorAll('.bulk-order-cb').forEach(cb => { cb.checked = false; });
+            if (bar) bar.classList.add('hidden');
             window.renderOrdersList();
             if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
+            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
+            if (typeof window.renderReconciliationUI === 'function') window.renderReconciliationUI();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
             if (typeof window.showToast === 'function') window.showToast(`✅ تم تحديث ${checked.length} طلبات إلى (${statusName})`);
         } catch (e) {
             console.error(e);
             alert('حدث خطأ أثناء التحديث الجماعي!');
-            bar.innerHTML = originalHtml;
+        } finally {
+            if (bar) bar.classList.remove('opacity-60', 'pointer-events-none');
         }
     };
 
