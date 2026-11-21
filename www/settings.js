@@ -2429,7 +2429,7 @@
 
     // =========================================================================
     // 📡 12. رادار الجودة والآراء التنفيذي (CRM Quality & Reviews Radar)
-    // محمي داخل الـ CRM فقط — يدير الشكاوى وينشر التقييمات الموثّقة الآمنة إلى public_reviews
+    // محمي داخل الـ CRM فقط — تحكم كامل فيما يظهر للجمهور بدون إظهار أسماء العملاء
     // =========================================================================
     window.qualityRadarState = {
         subFilter: 'all', // 'all' | 'complaints' | 'positive' | 'published' | 'unpublished'
@@ -2462,20 +2462,21 @@
         return { rating, text: finalText, tags: structuredTags };
     }
 
-    function formatPublicCustomerAlias(fullName) {
-        const clean = String(fullName || '').replace(/[^\u0600-\u06FFa-zA-Z\s]/g, ' ').trim();
-        const parts = clean.split(/\s+/).filter(Boolean);
-        if (parts.length === 0) return 'عميل سمان ههيا';
-        const first = parts[0];
-        if (['أ', 'أ.', 'م', 'م.', 'د', 'د.', 'أم', 'ام', 'أبو', 'ابو', 'الحاج', 'الحاجه', 'الشيخ'].includes(first) && parts.length > 1) {
-            return `${first} ${parts[1]}`;
-        }
-        return `أ. ${first}`;
+    // إخفاء اسم العميل بالكامل افتراضياً لحماية الخصوصية 100%
+    function formatPublicCustomerAlias(zone) {
+        const z = String(zone || '').trim();
+        return z ? `عميل موثّق • ${z}` : 'عميل موثّق';
     }
 
-    function buildSanitizedPublicReviewDoc(o, customPublicReply) {
+    function buildSanitizedPublicReviewDoc(o, opts) {
         const rev = extractCleanReviewPayload(o);
-        const safeItems = Array.isArray(o.items)
+        const cfg = opts || {};
+        const showZone = cfg.showZone !== false;
+        const showItems = cfg.showItems !== false;
+        const showTags = cfg.showTags !== false;
+        const showDate = cfg.showDate !== false;
+
+        const safeItems = showItems && Array.isArray(o.items)
             ? o.items
                 .filter(it => it && it.name && Number(it.quantity) > 0 && Number(it.price) !== 0)
                 .map(it => ({
@@ -2488,21 +2489,48 @@
         const ratedAtMs = Number(o.ratedAt)
             || (o.createdAt && typeof o.createdAt.toMillis === 'function' ? o.createdAt.toMillis() : Date.now());
 
+        const cleanLabel = String(cfg.displayLabel || '').trim() || 'عميل موثّق';
+        const cleanText = cfg.reviewText !== undefined ? String(cfg.reviewText).trim() : (rev.text || '');
+        const cleanReply = cfg.adminReply !== undefined ? String(cfg.adminReply).trim() : String(o.publicReply || '').trim();
+
         return {
-            displayName: formatPublicCustomerAlias(o.customerName),
-            zone: String(o.zone || 'الشرقية').trim(),
+            displayName: cleanLabel,
+            allowCustomAlias: true,
+            zone: showZone ? String(o.zone || 'الشرقية').trim() : '',
+            showZone,
+            showItems,
+            showTags,
+            showDate,
             rating: rev.rating,
-            reviewText: rev.text || '',
-            reviewTags: rev.tags || [],
+            reviewText: cleanText,
+            reviewTags: showTags ? (rev.tags || []) : [],
             items: safeItems,
-            batchName: String(o.batchName || '').trim(),
-            orderDate: String(o.orderDate || new Date(ratedAtMs).toLocaleDateString('ar-EG')),
-            adminReply: String(customPublicReply !== undefined ? customPublicReply : (o.publicReply || '')).trim(),
+            orderDate: showDate ? String(o.orderDate || new Date(ratedAtMs).toLocaleDateString('ar-EG')) : '',
+            adminReply: cleanReply,
             verified: true,
             ratedAt: ratedAtMs,
             publishedAt: Date.now()
         };
     }
+
+    window.toggleStoreReviewsWallVisibility = async function (checked) {
+        if (typeof auth !== 'undefined' && !auth.currentUser) {
+            alert('⚠️ يرجى تسجيل الدخول بحساب الأدمن أولاً.');
+            return;
+        }
+        const val = Boolean(checked);
+        if (typeof storeSettings !== 'undefined') storeSettings.showReviewsWall = val;
+        try {
+            await db.collection('inventory').doc('settings').set({ showReviewsWall: val }, { merge: true });
+            if (typeof window.saveInventoryFastMirror === 'function') window.saveInventoryFastMirror();
+            if (typeof window.showToast === 'function') {
+                window.showToast(val ? '🟢 تم إظهار صفحة «آراء عملائنا» في المتجر' : '🚫 تم إخفاء «آراء عملائنا» من المتجر مؤقتاً');
+            }
+        } catch (e) {
+            console.error('Toggle reviews wall visibility error:', e);
+            alert('تعذر تحديث حالة عرض آراء العملاء: ' + (e.message || e));
+        }
+    };
 
     window.setQualityRadarSubFilter = function (key) {
         window.qualityRadarState.subFilter = key || 'all';
@@ -2519,6 +2547,186 @@
         window.renderNotesUI();
     };
 
+    function ensurePublishReviewControlModal() {
+        let modal = document.getElementById('sman-publish-review-modal');
+        if (modal) return modal;
+
+        modal = document.createElement('div');
+        modal.id = 'sman-publish-review-modal';
+        modal.className = 'fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-[250] hidden flex items-center justify-center p-4';
+        modal.innerHTML = `
+            <div class="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 max-h-[92vh] flex flex-col">
+                <div class="bg-gradient-to-l from-[#0b261c] via-[#133b2c] to-slate-900 text-white px-5 py-4 flex items-center justify-between shrink-0">
+                    <div>
+                        <h3 class="text-sm sm:text-base font-black text-white flex items-center gap-2"><i class="fa-solid fa-sliders text-amber-400"></i> التحكم في نشر التقييم للموقع</h3>
+                        <p class="text-[10px] text-emerald-200 font-bold mt-0.5">لا يظهر اسم العميل أو رقمه أو عنوانه — أنت تتحكم في كل حرف يظهر</p>
+                    </div>
+                    <button type="button" onclick="closePublishReviewControlModal()" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-rose-500 text-white flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+
+                <div class="p-4 sm:p-5 space-y-3.5 overflow-y-auto flex-1 bg-slate-50/70">
+                    <input type="hidden" id="prm-order-id" value="">
+
+                    <div id="prm-order-preview-bar" class="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 text-xs font-black text-emerald-950 flex items-center justify-between gap-2"></div>
+
+                    <div>
+                        <label class="text-[11px] font-black text-slate-700 block mb-1">اللقب الظاهر بدلاً من اسم العميل (خصوصية 100%):</label>
+                        <input type="text" id="prm-display-label" placeholder="عميل موثّق" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black text-slate-900 bg-white outline-none focus:border-emerald-600">
+                        <div class="flex flex-wrap gap-1 mt-1.5">
+                            <button type="button" onclick="document.getElementById('prm-display-label').value='عميل موثّق'" class="text-[10px] font-black bg-white border border-slate-200 hover:border-emerald-500 px-2 py-0.5 rounded-lg text-slate-600">عميل موثّق</button>
+                            <button type="button" onclick="document.getElementById('prm-display-label').value='عميل سمان ههيا'" class="text-[10px] font-black bg-white border border-slate-200 hover:border-emerald-500 px-2 py-0.5 rounded-lg text-slate-600">عميل سمان ههيا</button>
+                            <button type="button" onclick="document.getElementById('prm-display-label').value='عميل دائم VIP'" class="text-[10px] font-black bg-white border border-slate-200 hover:border-emerald-500 px-2 py-0.5 rounded-lg text-slate-600">عميل دائم VIP</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-[11px] font-black text-slate-700 block mb-1">نص التقييم الذي سيظهر للجمهور (يمكنك التعديل أو تركه فارغاً):</label>
+                        <textarea id="prm-review-text" rows="3" placeholder="نص رأي العميل..." class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-800 bg-white outline-none focus:border-emerald-600 resize-none leading-relaxed"></textarea>
+                    </div>
+
+                    <div>
+                        <label class="text-[11px] font-black text-slate-700 block mb-1">رد إدارة سمان ههيا أسفل التقييم (اختياري):</label>
+                        <textarea id="prm-admin-reply" rows="2" placeholder="مثال: تشرّفنا بخدمتكم، بالهناء والشفاء دايماً من سمان ههيا 🌿" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-800 bg-white outline-none focus:border-emerald-600 resize-none leading-relaxed"></textarea>
+                    </div>
+
+                    <div class="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
+                        <span class="text-[11px] font-black text-slate-700 block pb-1 border-b border-slate-100">اختر العناصر التي تظهر داخل الكارت في الموقع:</span>
+                        <div class="grid grid-cols-2 gap-2 text-[11px] font-black text-slate-700">
+                            <label class="flex items-center gap-1.5 cursor-pointer bg-slate-50 px-2.5 py-2 rounded-xl border border-slate-200/80">
+                                <input type="checkbox" id="prm-show-zone" class="w-4 h-4 accent-emerald-600 rounded" checked>
+                                <span>📍 إظهار المنطقة</span>
+                            </label>
+                            <label class="flex items-center gap-1.5 cursor-pointer bg-slate-50 px-2.5 py-2 rounded-xl border border-slate-200/80">
+                                <input type="checkbox" id="prm-show-items" class="w-4 h-4 accent-emerald-600 rounded" checked>
+                                <span>📦 إظهار الأصناف</span>
+                            </label>
+                            <label class="flex items-center gap-1.5 cursor-pointer bg-slate-50 px-2.5 py-2 rounded-xl border border-slate-200/80">
+                                <input type="checkbox" id="prm-show-tags" class="w-4 h-4 accent-emerald-600 rounded" checked>
+                                <span>🏷️ إظهار الوسوم</span>
+                            </label>
+                            <label class="flex items-center gap-1.5 cursor-pointer bg-slate-50 px-2.5 py-2 rounded-xl border border-slate-200/80">
+                                <input type="checkbox" id="prm-show-date" class="w-4 h-4 accent-emerald-600 rounded">
+                                <span>📅 إظهار التاريخ</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-4 bg-white border-t border-slate-100 flex items-center gap-2 shrink-0">
+                    <button type="button" id="prm-save-btn" onclick="confirmPublishReviewFromModal()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3 rounded-xl text-xs sm:text-sm shadow-md flex items-center justify-center gap-1.5 active:scale-95">
+                        <i class="fa-solid fa-globe"></i> اعتماد ونشر على الموقع
+                    </button>
+                    <button type="button" onclick="closePublishReviewControlModal()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-black px-4 py-3 rounded-xl text-xs">إلغاء</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    window.closePublishReviewControlModal = function () {
+        document.getElementById('sman-publish-review-modal')?.classList.add('hidden');
+    };
+
+    window.openPublishReviewControlModal = function (orderId) {
+        if (typeof auth !== 'undefined' && !auth.currentUser) {
+            return alert('⚠️ يرجى تسجيل الدخول بحساب الأدمن أولاً.');
+        }
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const ord = ordersList.find(o => o && o.id === orderId);
+        if (!ord) return;
+
+        const rev = extractCleanReviewPayload(ord);
+        if (rev.rating <= 0) return alert('هذا الطلب لا يحتوي على تقييم بالنجوم بعد.');
+
+        ensurePublishReviewControlModal();
+        const savedCfg = ord.publicReviewCfg || {};
+
+        document.getElementById('prm-order-id').value = orderId;
+        document.getElementById('prm-order-preview-bar').innerHTML = `
+            <span>⭐️ التقييم: ${rev.rating}/5 • 📍 ${escNoteHtml(ord.zone || 'الشرقية')}</span>
+            <span class="bg-white text-emerald-700 px-2 py-0.5 rounded-lg border border-emerald-200 text-[10px]">الاسم مخفي تلقائياً 🔒</span>
+        `;
+        document.getElementById('prm-display-label').value = savedCfg.displayLabel || 'عميل موثّق';
+        document.getElementById('prm-review-text').value = savedCfg.reviewText !== undefined ? savedCfg.reviewText : rev.text;
+        document.getElementById('prm-admin-reply').value = ord.publicReply !== undefined ? ord.publicReply : 'تشرّفنا بخدمتكم، بالهناء والشفاء دايماً من سمان ههيا 🌿';
+
+        document.getElementById('prm-show-zone').checked = savedCfg.showZone !== false;
+        document.getElementById('prm-show-items').checked = savedCfg.showItems !== false;
+        document.getElementById('prm-show-tags').checked = savedCfg.showTags !== false;
+        document.getElementById('prm-show-date').checked = Boolean(savedCfg.showDate);
+
+        const saveBtn = document.getElementById('prm-save-btn');
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = ord.publishedToWall
+                ? '<i class="fa-solid fa-floppy-disk"></i> حفظ التعديلات على الموقع'
+                : '<i class="fa-solid fa-globe"></i> اعتماد ونشر على الموقع';
+        }
+
+        document.getElementById('sman-publish-review-modal').classList.remove('hidden');
+    };
+
+    window.confirmPublishReviewFromModal = async function () {
+        const orderId = document.getElementById('prm-order-id')?.value || '';
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const ord = ordersList.find(o => o && o.id === orderId);
+        if (!ord) return;
+
+        const btn = document.getElementById('prm-save-btn');
+        const origHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الحفظ والنشر...';
+        }
+
+        const cfg = {
+            displayLabel: (document.getElementById('prm-display-label')?.value || '').trim() || 'عميل موثّق',
+            reviewText: (document.getElementById('prm-review-text')?.value || '').trim(),
+            adminReply: (document.getElementById('prm-admin-reply')?.value || '').trim(),
+            showZone: Boolean(document.getElementById('prm-show-zone')?.checked),
+            showItems: Boolean(document.getElementById('prm-show-items')?.checked),
+            showTags: Boolean(document.getElementById('prm-show-tags')?.checked),
+            showDate: Boolean(document.getElementById('prm-show-date')?.checked)
+        };
+
+        const sanitizedDoc = buildSanitizedPublicReviewDoc(ord, cfg);
+
+        try {
+            await Promise.all([
+                db.collection('public_reviews').doc(orderId).set(sanitizedDoc),
+                db.collection('orders').doc(orderId).update({
+                    publishedToWall: true,
+                    publicReply: cfg.adminReply,
+                    publicReviewCfg: cfg
+                })
+            ]);
+
+            ord.publishedToWall = true;
+            ord.publicReply = cfg.adminReply;
+            ord.publicReviewCfg = cfg;
+            if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
+                globalOrdersMap[orderId].publishedToWall = true;
+                globalOrdersMap[orderId].publicReply = cfg.adminReply;
+                globalOrdersMap[orderId].publicReviewCfg = cfg;
+            }
+
+            window.closePublishReviewControlModal();
+            window.renderNotesUI();
+            if (typeof window.showToast === 'function') {
+                window.showToast('🌐 تم النشر والتحديث بأمان بدون اسم العميل!');
+            }
+        } catch (e) {
+            console.error('Publish review error:', e);
+            alert('تعذر النشر على public_reviews — تأكد من إضافة قاعدة الحماية في Firestore Rules: ' + (e.message || e));
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+            }
+        }
+    };
+
     window.togglePublishReviewToWall = async function (orderId) {
         if (typeof auth !== 'undefined' && !auth.currentUser) {
             return alert('⚠️ يرجى تسجيل الدخول بحساب الأدمن أولاً.');
@@ -2527,65 +2735,30 @@
         const ord = ordersList.find(o => o && o.id === orderId);
         if (!ord) return;
 
-        const isCurrentlyPublished = Boolean(ord.publishedToWall);
-
-        if (isCurrentlyPublished) {
-            const ok = (typeof window.execConfirm === 'function')
-                ? await window.execConfirm(`هل تريد إخفاء تقييم (${ord.customerName || 'العميل'}) من صفحة آراء العملاء العامة؟`, { title: 'إخفاء من حائط الثقة', tone: 'warning', confirmText: 'نعم، إخفاء' })
-                : confirm('هل تريد إخفاء هذا التقييم من صفحة آراء العملاء العامة؟');
-            if (!ok) return;
-
-            try {
-                await Promise.all([
-                    db.collection('public_reviews').doc(orderId).delete(),
-                    db.collection('orders').doc(orderId).update({ publishedToWall: false })
-                ]);
-                ord.publishedToWall = false;
-                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
-                    globalOrdersMap[orderId].publishedToWall = false;
-                }
-                window.renderNotesUI();
-                if (typeof window.showToast === 'function') window.showToast('👁️ تم إخفاء التقييم من حائط الثقة العام');
-            } catch (e) {
-                console.error('Unpublish review error:', e);
-                alert('تعذر إخفاء التقييم (تأكد من إضافة قاعدة public_reviews في Firestore Rules): ' + (e.message || e));
-            }
+        if (!ord.publishedToWall) {
+            window.openPublishReviewControlModal(orderId);
             return;
         }
 
-        const rev = extractCleanReviewPayload(ord);
-        if (rev.rating <= 0) return alert('هذا الطلب لا يحتوي على تقييم بالنجوم بعد.');
-
-        const previewAlias = formatPublicCustomerAlias(ord.customerName);
-        const promptMsg = `سيُنشر التقييم على حائط الثقة العام باسم (${previewAlias} — ${ord.zone || 'الشرقية'}) بدون أي رقم هاتف أو عنوان أو مبلغ.\n\nيمكنك كتابة رد شكر عام من إدارة سمان ههيا ليظهر أسفل التقييم (أو اتركه فارغاً):`;
-        const replyInput = (typeof window.execPrompt === 'function')
-            ? await window.execPrompt(promptMsg, ord.publicReply || 'تشرّفنا بخدمتكم يا فندم، بالهناء والشفاء دايماً من سمان ههيا 🌿', { title: 'نشر في حائط الثقة العام', tone: 'success', confirmText: 'اعتماد ونشر 🌐' })
-            : prompt(promptMsg, ord.publicReply || 'تشرّفنا بخدمتكم يا فندم، بالهناء والشفاء دايماً من سمان ههيا 🌿');
-
-        if (replyInput === null) return;
-
-        const cleanReply = String(replyInput || '').trim();
-        const sanitizedDoc = buildSanitizedPublicReviewDoc(ord, cleanReply);
+        const ok = (typeof window.execConfirm === 'function')
+            ? await window.execConfirm(`هل تريد إخفاء هذا التقييم من صفحة آراء العملاء العامة؟`, { title: 'إخفاء من حائط الثقة', tone: 'warning', confirmText: 'نعم، إخفاء' })
+            : confirm('هل تريد إخفاء هذا التقييم من صفحة آراء العملاء العامة؟');
+        if (!ok) return;
 
         try {
             await Promise.all([
-                db.collection('public_reviews').doc(orderId).set(sanitizedDoc),
-                db.collection('orders').doc(orderId).update({
-                    publishedToWall: true,
-                    publicReply: cleanReply
-                })
+                db.collection('public_reviews').doc(orderId).delete(),
+                db.collection('orders').doc(orderId).update({ publishedToWall: false })
             ]);
-            ord.publishedToWall = true;
-            ord.publicReply = cleanReply;
+            ord.publishedToWall = false;
             if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
-                globalOrdersMap[orderId].publishedToWall = true;
-                globalOrdersMap[orderId].publicReply = cleanReply;
+                globalOrdersMap[orderId].publishedToWall = false;
             }
             window.renderNotesUI();
-            if (typeof window.showToast === 'function') window.showToast('🌐 تم نشر التقييم بأمان على حائط الثقة (reviews.html)!');
+            if (typeof window.showToast === 'function') window.showToast('👁️ تم إخفاء التقييم من حائط الثقة العام');
         } catch (e) {
-            console.error('Publish review error:', e);
-            alert('تعذر النشر على public_reviews — تأكد من إضافة قاعدة الحماية في Firestore Rules: ' + (e.message || e));
+            console.error('Unpublish review error:', e);
+            alert('تعذر إخفاء التقييم: ' + (e.message || e));
         }
     };
 
@@ -2660,6 +2833,7 @@
         const satPct = totalRated > 0 ? Math.round((positiveCount / totalRated) * 100) : 0;
         const openComplaintsCount = ratedEntries.filter(x => x.isComplaint && !x.isResolved).length;
         const publishedCount = ratedEntries.filter(x => x.isPublished).length;
+        const isWallVisible = (typeof storeSettings !== 'undefined') ? (storeSettings.showReviewsWall !== false) : true;
 
         const st = window.qualityRadarState;
         const filtered = ratedEntries.filter(x => {
@@ -2703,12 +2877,18 @@
                             </span>
                             <div>
                                 <h3 class="text-sm sm:text-base font-black text-white leading-tight">رادار الجودة وآراء العملاء (محمي للأدمن)</h3>
-                                <p class="text-[10px] font-bold text-emerald-200/85">تابع الرضا والشكاوى لحظياً واعتمد التقييمات الموثّقة للعرض في حائط الثقة العام</p>
+                                <p class="text-[10px] font-bold text-emerald-200/85">تحكم كامل فيما يُنشر على الموقع — بدون إظهار أسماء أو أرقام العملاء</p>
                             </div>
                         </div>
-                        <a href="https://smanhhya.github.io/reviews.html" target="_blank" class="bg-white/10 hover:bg-amber-400 text-amber-300 hover:text-slate-950 border border-amber-400/35 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1.5">
-                            <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i> معاينة حائط الثقة
-                        </a>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <label class="flex items-center gap-1.5 bg-white/10 border border-white/20 px-2.5 py-1.5 rounded-xl text-[10px] font-black text-white cursor-pointer">
+                                <input type="checkbox" ${isWallVisible ? 'checked' : ''} onchange="toggleStoreReviewsWallVisibility(this.checked)" class="w-3.5 h-3.5 accent-amber-400 rounded">
+                                <span>إظهار بالموقع</span>
+                            </label>
+                            <a href="https://smanhhya.github.io/reviews.html" target="_blank" class="bg-white/10 hover:bg-amber-400 text-amber-300 hover:text-slate-950 border border-amber-400/35 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1.5">
+                                <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i> معاينة
+                            </a>
+                        </div>
                     </div>
 
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
@@ -2730,7 +2910,7 @@
                         <div class="bg-white/10 rounded-2xl p-2.5 border border-white/10">
                             <span class="text-[10px] font-bold text-emerald-200 block">منشور بحائط الثقة</span>
                             <span class="text-xl font-black text-sky-300">${publishedCount}</span>
-                            <span class="block text-[9px] text-white/70">ظاهر للجمهور بأمان</span>
+                            <span class="block text-[9px] text-white/70">مجهول الاسم 100%</span>
                         </div>
                     </div>
 
@@ -2825,10 +3005,21 @@
                 </div>
 
                 <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
-                    <button type="button" onclick="togglePublishReviewToWall('${safeOrderId}')" class="${item.isPublished ? 'bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200' : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'} py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1 sm:flex-1">
-                        <i class="fa-solid ${item.isPublished ? 'fa-eye-slash' : 'fa-globe'}"></i>
-                        <span>${item.isPublished ? 'إخفاء من الموقع' : 'نشر بحائط الثقة'}</span>
+                    ${item.isPublished ? `
+                    <button type="button" onclick="openPublishReviewControlModal('${safeOrderId}')" class="bg-indigo-50 hover:bg-indigo-600 text-indigo-800 hover:text-white border border-indigo-200 py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-sliders"></i>
+                        <span>تعديل المنشور</span>
                     </button>
+                    <button type="button" onclick="togglePublishReviewToWall('${safeOrderId}')" class="bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-eye-slash"></i>
+                        <span>إخفاء</span>
+                    </button>
+                    ` : `
+                    <button type="button" onclick="openPublishReviewControlModal('${safeOrderId}')" class="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1 sm:flex-1">
+                        <i class="fa-solid fa-globe"></i>
+                        <span>تخصيص ونشر بالموقع</span>
+                    </button>
+                    `}
                     <button type="button" onclick="sendSmartReviewWhatsApp('${safeOrderId}')" class="bg-[#25D366] hover:bg-green-600 text-white py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1">
                         <i class="fa-brands fa-whatsapp text-xs"></i>
                         <span>${item.isComplaint ? 'اعتذار ومتابعة' : 'رسالة شكر'}</span>
@@ -2862,6 +3053,7 @@
             _origRenderNotesForRadar();
         }
     };
+
 
 
     function initSettingsIfActive() {
