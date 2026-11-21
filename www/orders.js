@@ -649,8 +649,111 @@
     };
 
     // =========================================================================
-    // 💬 استوديو الملاحظات الموحد بلمسة واحدة (يفتح من أيقونة واحدة شيك)
+    // 💬 استوديو الملاحظات الموحّد بالألوان بلمسة واحدة (متطابق 100% مع مركز الملاحظات)
+    // 🔵 أزرق: العميل كتب | 🟣 بنفسجي: أنا كتبت (إداري) | 🟠 برتقالي: للعاملين والمندوب | ⚪ رمادي: السيستم
     // =========================================================================
+    function escapeOrdNoteHtml(str) {
+        return String(str === null || str === undefined ? '' : str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function classifyOrderNoteSafe(rawChunk, sourceField) {
+        if (typeof window.classifySmanNoteChunk === 'function') {
+            return window.classifySmanNoteChunk(rawChunk, sourceField);
+        }
+        const str = String(rawChunk || '').trim();
+        const m = str.match(/^\[([^\]]+)\]\s*(.*)$/s);
+        const timeLabel = m ? m[1].trim() : '';
+        const body = m ? m[2].trim() : str;
+
+        if (sourceField === 'driverNote') {
+            return {
+                role: 'worker',
+                badge: '👷 للعاملين / المندوب',
+                wrapCls: 'bg-orange-50/90 border border-orange-200 border-r-4 border-r-orange-500 text-orange-950',
+                badgeCls: 'bg-orange-500 text-white',
+                timeLabel,
+                body: body.replace(/^👷\s*(?:للعاملين\/المندوب|للمندوب|توجيه)?\s*:?\s*/i, '').trim() || body
+            };
+        }
+        if (body.includes('📌 ملاحظة العميل') || body.includes('🚨 تعديل العميل') || body.startsWith('👤 العميل')) {
+            return {
+                role: 'client',
+                badge: '👤 العميل كتب',
+                wrapCls: 'bg-sky-50/95 border border-sky-200 border-r-4 border-r-sky-500 text-sky-950',
+                badgeCls: 'bg-sky-600 text-white',
+                timeLabel,
+                body: body.replace(/^📌\s*ملاحظة العميل\s*:?\s*/i, '').replace(/^👤\s*العميل\s*:?\s*/i, '').trim() || body
+            };
+        }
+        if (body.includes('⭐️ تقييم') || body.includes('تقييم الخدمة')) {
+            return {
+                role: 'rating',
+                badge: '⭐️ تقييم العميل',
+                wrapCls: 'bg-amber-50/80 border border-amber-200 border-r-4 border-r-amber-500 text-amber-950',
+                badgeCls: 'bg-amber-500 text-slate-950',
+                timeLabel,
+                body
+            };
+        }
+        if (
+            body.includes('🎁 العميل فعّل') || body.includes('🎁 العميل استبدل') ||
+            body.includes('🎟 كود الخصم') || body.includes('⏳ مطلوب للدفعة القادمة') ||
+            body.includes('✅ العميل أكد استلام') || body.includes('✅ تمت المراجعة') ||
+            body.includes('[تنبيه مالي]')
+        ) {
+            return {
+                role: 'system',
+                badge: '⚙️ سجل السيستم',
+                wrapCls: 'bg-slate-50 border border-slate-200 border-r-4 border-r-slate-300 text-slate-600',
+                badgeCls: 'bg-slate-200 text-slate-700',
+                timeLabel,
+                body
+            };
+        }
+        return {
+            role: 'admin',
+            badge: '🛡️ أنا كتبت (إداري)',
+            wrapCls: 'bg-purple-50/90 border border-purple-200 border-r-4 border-r-purple-600 text-purple-950',
+            badgeCls: 'bg-purple-600 text-white',
+            timeLabel,
+            body: body.replace(/^🛡️\s*(?:إداري|أنا)?\s*:?\s*/i, '').trim() || body
+        };
+    }
+
+    function summarizeOrderColorNotes(o) {
+        const client = [];
+        const admin = [];
+        const worker = [];
+        const system = [];
+
+        if (o && o.adminNote) {
+            String(o.adminNote).split('\n---\n').filter(c => c.trim()).forEach(ch => {
+                const info = classifyOrderNoteSafe(ch, 'adminNote');
+                if (info.role === 'client') client.push(info);
+                else if (info.role === 'admin') admin.push(info);
+                else if (info.role !== 'rating') system.push(info);
+            });
+        }
+        if (o && o.driverNote) {
+            String(o.driverNote).split('\n---\n').filter(c => c.trim()).forEach(ch => {
+                worker.push(classifyOrderNoteSafe(ch, 'driverNote'));
+            });
+        }
+
+        return {
+            client,
+            admin,
+            worker,
+            system,
+            humanCount: client.length + admin.length + worker.length
+        };
+    }
+
     window.toggleInlineNotes = function (e, orderId, field, forceReopen = false) {
         if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
         const container = document.getElementById(`inline-notes-container-${orderId}`);
@@ -658,7 +761,14 @@
 
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === orderId);
         if (!field) {
-            field = (order && !order.driverNote && order.adminNote) ? 'adminNote' : 'driverNote';
+            const sum = summarizeOrderColorNotes(order);
+            if (sum.worker.length > 0 && sum.client.length === 0 && sum.admin.length === 0) {
+                field = 'driverNote';
+            } else if (sum.client.length > 0 || sum.admin.length > 0) {
+                field = 'adminNote';
+            } else {
+                field = 'driverNote';
+            }
         }
 
         if (!forceReopen && openInlineNoteId === orderId && !container.classList.contains('hidden')) {
@@ -685,68 +795,71 @@
         if (!order || !container) return;
 
         const isDriver = (field === 'driverNote');
-        const drvCount = order.driverNote ? order.driverNote.split('\n---\n').filter(Boolean).length : 0;
-        const admCount = order.adminNote ? order.adminNote.split('\n---\n').filter(Boolean).length : 0;
+        const drvChunks = (order.driverNote || '').split('\n---\n').filter(c => c.trim() !== '');
+        const admChunks = (order.adminNote || '').split('\n---\n').filter(c => c.trim() !== '');
+        const sum = summarizeOrderColorNotes(order);
 
         const quickTags = isDriver
-            ? ['📞 اتصل قبل الوصول', '🏠 العميل هينزل يستلم', '💵 الدفع كاش', '💳 هيحول فودافون كاش', '⏰ التوصيل بعد العصر', '📍 بجوار المسجد']
+            ? ['📞 اتصل قبل الوصول', '🏠 العميل هينزل يستلم', '💵 الدفع كاش', '💳 هيحول فودافون كاش', '⏰ التوصيل بعد العصر', '📦 تغليف خاص']
             : ['⚡ مستعجل اليوم', '💳 تم استلام التحويل', '🎁 خصم واجب خاص', '📞 تم التأكيد تليفونياً', '❄️ مجهز في الفريزر', '📕 باقي حساب آجل'];
 
-        const chunks = (order[field] || '').split('\n---\n').filter(c => c.trim() !== '');
+        const chunks = isDriver ? drvChunks : admChunks;
 
         const notesListHtml = chunks.length > 0
             ? chunks.map((chunk, idx) => {
-                const match = chunk.match(/^(\[.*?\])\s*(.*)/s);
-                const dateStr = match ? match[1] : '';
-                const textStr = match ? match[2] : chunk;
-                const formattedTxt = typeof window.formatTags === 'function' ? window.formatTags(textStr) : textStr;
+                const info = classifyOrderNoteSafe(chunk, field);
+                const safeBody = escapeOrdNoteHtml(info.body);
+                const formattedTxt = typeof window.formatTags === 'function' ? window.formatTags(safeBody) : safeBody;
 
                 return `
-                <div class="bg-white border ${isDriver ? 'border-blue-200' : 'border-amber-200'} px-2.5 py-1.5 rounded-xl flex items-center justify-between gap-2 shadow-sm">
-                    <div class="text-[11px] font-black text-slate-800 leading-snug flex-1">
-                        ${dateStr ? `<span class="text-[9px] font-bold ${isDriver ? 'text-blue-600' : 'text-amber-600'} ml-1">${dateStr}</span>` : ''}
-                        <span>${formattedTxt}</span>
+                <div class="${info.wrapCls} px-2.5 py-2 rounded-xl flex items-start justify-between gap-2 shadow-sm">
+                    <div class="space-y-1 flex-1 min-w-0">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <span class="${info.badgeCls} px-2 py-0.5 rounded-md text-[9px] font-black">${info.badge}</span>
+                            ${info.timeLabel ? `<span class="text-[9px] font-black opacity-70">${escapeOrdNoteHtml(info.timeLabel)}</span>` : ''}
+                        </div>
+                        <div class="text-[11px] font-black leading-snug whitespace-pre-wrap">${formattedTxt}</div>
                     </div>
                     <div class="flex items-center gap-1 shrink-0">
-                        <button type="button" onclick="event.stopPropagation(); editInlineNoteChunk('${orderId}', '${field}', ${idx})" class="bg-slate-100 hover:bg-blue-600 text-slate-600 hover:text-white px-2 py-0.5 rounded-lg text-[10px] font-black transition-colors">تعديل</button>
-                        <button type="button" onclick="event.stopPropagation(); deleteInlineNoteChunk('${orderId}', '${field}', ${idx})" class="bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white px-2 py-0.5 rounded-lg text-[10px] font-black transition-colors"><i class="fa-solid fa-trash"></i></button>
+                        <button type="button" onclick="event.stopPropagation(); editInlineNoteChunk('${orderId}', '${field}', ${idx})" class="bg-white/90 hover:bg-blue-600 text-slate-600 hover:text-white border border-slate-200 px-2 py-0.5 rounded-lg text-[10px] font-black transition-colors">تعديل</button>
+                        <button type="button" onclick="event.stopPropagation(); deleteInlineNoteChunk('${orderId}', '${field}', ${idx})" class="bg-white/90 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 px-2 py-0.5 rounded-lg text-[10px] font-black transition-colors"><i class="fa-solid fa-trash"></i></button>
                     </div>
                 </div>`;
             }).join('')
-            : `<div class="text-center py-2 text-[10px] text-slate-400 font-bold bg-white/70 rounded-xl border border-dashed border-slate-200">المس أي جملة جاهزة بالأسفل لحفظها فوراً بضغطة واحدة!</div>`;
+            : `<div class="text-center py-2.5 text-[10px] text-slate-400 font-bold bg-white/80 rounded-xl border border-dashed border-slate-200">${isDriver ? 'لا توجد توجيهات للعاملين/المندوب بعد — اختر جملة سريعة أو اكتب بالأسفل.' : 'لا توجد ملاحظات إدارية أو من العميل بعد — اختر جملة سريعة أو اكتب بالأسفل.'}</div>`;
 
         const quickChipsHtml = quickTags.map(tag => {
             const safeTag = tag.replace(/'/g, "\\'");
             return `
-                <button type="button" onclick="event.stopPropagation(); instantSaveQuickNote('${orderId}', '${field}', '${safeTag}')" class="${isDriver ? 'bg-white hover:bg-blue-600 text-blue-900 hover:text-white border-blue-200' : 'bg-white hover:bg-amber-500 text-amber-950 hover:text-white border-amber-200'} border px-2 py-1 rounded-lg text-[10px] font-black transition-all shadow-sm active:scale-95">
+                <button type="button" onclick="event.stopPropagation(); instantSaveQuickNote('${orderId}', '${field}', '${safeTag}')" class="${isDriver ? 'bg-white hover:bg-orange-500 text-orange-950 hover:text-white border-orange-200' : 'bg-white hover:bg-purple-600 text-purple-950 hover:text-white border-purple-200'} border px-2 py-1 rounded-lg text-[10px] font-black transition-all shadow-sm active:scale-95">
                     + ${tag}
                 </button>
             `;
         }).join('');
 
         container.innerHTML = `
-            <div onclick="event.stopPropagation()" class="p-2.5 ${isDriver ? 'bg-blue-50/90 border-blue-300' : 'bg-amber-50/90 border-amber-300'} border rounded-2xl space-y-2 shadow-inner mt-1">
-                <div class="flex items-center justify-between gap-2 pb-1.5 border-b ${isDriver ? 'border-blue-200/80' : 'border-amber-200/80'}">
-                    <div class="flex items-center gap-1">
-                        <button type="button" onclick="openInlineNoteField='driverNote'; renderInlineNotesContent('${orderId}', 'driverNote')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${isDriver ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}">
-                            🛵 للمندوب ${drvCount > 0 ? `(${drvCount})` : ''}
+            <div onclick="event.stopPropagation()" class="p-2.5 ${isDriver ? 'bg-orange-50/85 border-orange-300' : 'bg-purple-50/80 border-purple-300'} border rounded-2xl space-y-2 shadow-inner mt-1">
+                <div class="flex items-center justify-between gap-2 pb-1.5 border-b ${isDriver ? 'border-orange-200/80' : 'border-purple-200/80'}">
+                    <div class="flex flex-wrap items-center gap-1">
+                        <button type="button" onclick="openInlineNoteField='driverNote'; renderInlineNotesContent('${orderId}', 'driverNote')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${isDriver ? 'bg-orange-500 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-orange-50'}">
+                            🟠 للعاملين / المندوب ${drvChunks.length > 0 ? `(${drvChunks.length})` : ''}
                         </button>
-                        <button type="button" onclick="openInlineNoteField='adminNote'; renderInlineNotesContent('${orderId}', 'adminNote')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${!isDriver ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}">
-                            🔒 إداري ${admCount > 0 ? `(${admCount})` : ''}
+                        <button type="button" onclick="openInlineNoteField='adminNote'; renderInlineNotesContent('${orderId}', 'adminNote')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${!isDriver ? 'bg-purple-600 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-purple-50'}">
+                            🟣 لي (إداري)${sum.client.length > 0 ? ` + 🔵 عميل (${sum.client.length})` : (admChunks.length > 0 ? ` (${admChunks.length})` : '')}
                         </button>
                     </div>
-                    <button type="button" onclick="document.getElementById('inline-notes-container-${orderId}').classList.add('hidden'); openInlineNoteId = null;" class="w-6 h-6 rounded-lg bg-white text-slate-500 hover:bg-red-500 hover:text-white flex items-center justify-center shadow-sm">
+                    <button type="button" onclick="document.getElementById('inline-notes-container-${orderId}').classList.add('hidden'); openInlineNoteId = null;" class="w-6 h-6 rounded-lg bg-white text-slate-500 hover:bg-red-500 hover:text-white flex items-center justify-center shadow-sm shrink-0">
                         <i class="fa-solid fa-xmark text-xs"></i>
                     </button>
                 </div>
 
-                <div class="space-y-1 max-h-36 overflow-y-auto custom-scroll">${notesListHtml}</div>
+                <div class="space-y-1.5 max-h-44 overflow-y-auto custom-scroll">${notesListHtml}</div>
 
                 <div class="flex flex-wrap gap-1">${quickChipsHtml}</div>
 
                 <div class="flex gap-1.5">
-                    <input type="text" id="inline-input-${orderId}" onkeydown="if(event.key==='Enter'){event.preventDefault(); saveInlineNote('${orderId}', '${field}');}" class="flex-1 border ${isDriver ? 'border-blue-300' : 'border-amber-300'} rounded-xl px-2.5 py-1.5 text-xs font-black bg-white text-slate-800 outline-none" placeholder="${isDriver ? 'اكتب للمندوب واضغط حفظ...' : 'اكتب للإدارة واضغط حفظ...'}">
-                    <button type="button" onclick="saveInlineNote('${orderId}', '${field}')" class="${isDriver ? 'bg-blue-600 text-white' : 'bg-amber-500 text-slate-950'} px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm shrink-0">
+                    <input type="text" id="inline-input-${orderId}" onkeydown="if(event.key==='Enter'){event.preventDefault(); saveInlineNote('${orderId}', '${field}');}" class="flex-1 border ${isDriver ? 'border-orange-300 focus:border-orange-500' : 'border-purple-300 focus:border-purple-600'} rounded-xl px-2.5 py-1.5 text-xs font-black bg-white text-slate-800 outline-none" placeholder="${isDriver ? '🟠 اكتب توجيهاً للعاملين / المندوب...' : '🟣 اكتب ملاحظتك الإدارية الخاصة...'}">
+                    <button type="button" onclick="saveInlineNote('${orderId}', '${field}')" class="${isDriver ? 'bg-orange-500 hover:bg-orange-600 text-white' : 'bg-purple-600 hover:bg-purple-700 text-white'} px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm shrink-0 transition-colors">
                         حفظ
                     </button>
                 </div>
@@ -759,7 +872,8 @@
         if (!order || !noteText) return;
 
         const dateStr = new Date().toLocaleString('ar-EG', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-        const formattedNote = `[${dateStr}] ${noteText.trim()}`;
+        const roleIcon = field === 'driverNote' ? '👷' : '🛡️';
+        const formattedNote = `[${dateStr}] ${roleIcon} ${noteText.trim()}`;
         const currentText = order[field] || '';
         const updatedText = currentText ? `${currentText}\n---\n${formattedNote}` : formattedNote;
 
@@ -770,7 +884,7 @@
 
         window.renderOrdersList();
         if (typeof window.showToast === 'function') {
-            window.showToast(field === 'driverNote' ? `🛵 أُضيفت للمندوب: ${noteText}` : `🔒 أُضيفت للإدارة: ${noteText}`);
+            window.showToast(field === 'driverNote' ? `🟠 أُضيفت للعاملين/المندوب: ${noteText}` : `🟣 أُضيفت لملاحظاتك الإدارية: ${noteText}`);
         }
 
         try {
@@ -790,7 +904,7 @@
     window.clearSingleNoteFieldQuick = async function (orderId, field) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === orderId);
         if (!order || !order[field]) return;
-        const titleAr = field === 'driverNote' ? 'ملاحظة المندوب' : 'الملاحظة الإدارية';
+        const titleAr = field === 'driverNote' ? 'توجيهات العاملين والمندوب' : 'الملاحظات الإدارية';
         if (!confirm(`مسح ${titleAr} من هذا الطلب؟`)) return;
 
         order[field] = '';
@@ -1128,24 +1242,31 @@
                 ? (o.completedTimeDisplay || o.completedAtStr)
                 : (ageStr ? `${ageStr} • ${d}` : d);
 
-            // فحص الملاحظات المكتوبة فعلياً (لا نعرض أي صناديق رمادية فارغة إذا لم تكن هناك ملاحظة!)
-            const cleanDriverLatest = o.driverNote ? o.driverNote.split('\n---\n').filter(Boolean).pop().replace(/^\[.*?\]\s*/, '') : '';
-            const cleanAdminLatest = o.adminNote ? o.adminNote.split('\n---\n').filter(Boolean).pop().replace(/^\[.*?\]\s*/, '') : '';
-            const totalNotesCount = (o.driverNote ? o.driverNote.split('\n---\n').filter(Boolean).length : 0) + (o.adminNote ? o.adminNote.split('\n---\n').filter(Boolean).length : 0);
+              // فحص الملاحظات المصنّفة بالألوان (🔵 من العميل | 🟣 مني إداري | 🟠 للعاملين والمندوب — بدون إظهار زحمة السيستم)
+            const notesSum = summarizeOrderColorNotes(o);
+            const latestClientNote = notesSum.client.length > 0 ? notesSum.client[notesSum.client.length - 1] : null;
+            const latestAdminNote = notesSum.admin.length > 0 ? notesSum.admin[notesSum.admin.length - 1] : null;
+            const latestWorkerNote = notesSum.worker.length > 0 ? notesSum.worker[notesSum.worker.length - 1] : null;
+            const totalNotesCount = notesSum.humanCount;
 
             let activeNotesPreviewHtml = '';
-            if (cleanDriverLatest || cleanAdminLatest) {
+            if (latestClientNote || latestAdminNote || latestWorkerNote) {
                 activeNotesPreviewHtml = `
-                    <div class="flex flex-wrap gap-1.5">
-                        ${cleanDriverLatest ? `
-                        <div onclick="toggleInlineNotes(event, '${o.id}', 'driverNote')" class="flex-1 min-w-[140px] cursor-pointer bg-blue-50 border border-blue-200 text-blue-950 px-2.5 py-1 rounded-xl flex items-center justify-between gap-1 text-[10px] font-black">
-                            <span class="truncate"><i class="fa-solid fa-motorcycle text-blue-600 ml-1"></i> ${cleanDriverLatest}</span>
-                            <button type="button" onclick="event.stopPropagation(); clearSingleNoteFieldQuick('${o.id}', 'driverNote')" class="text-blue-400 hover:text-red-600 px-1">×</button>
+                    <div class="flex flex-col gap-1">
+                        ${latestClientNote ? `
+                        <div onclick="toggleInlineNotes(event, '${o.id}', 'adminNote')" class="cursor-pointer bg-sky-50/95 border border-sky-200 border-r-4 border-r-sky-500 text-sky-950 px-2.5 py-1.5 rounded-xl flex items-center justify-between gap-2 text-[10px] font-black shadow-sm">
+                            <span class="truncate"><span class="bg-sky-600 text-white px-1.5 py-0.5 rounded text-[8px] ml-1">👤 العميل</span> ${escapeOrdNoteHtml(latestClientNote.body)}</span>
+                            ${latestClientNote.timeLabel ? `<span class="text-[8px] text-sky-700/80 shrink-0">${escapeOrdNoteHtml(latestClientNote.timeLabel)}</span>` : ''}
                         </div>` : ''}
-                        ${cleanAdminLatest ? `
-                        <div onclick="toggleInlineNotes(event, '${o.id}', 'adminNote')" class="flex-1 min-w-[140px] cursor-pointer bg-amber-50 border border-amber-200 text-amber-950 px-2.5 py-1 rounded-xl flex items-center justify-between gap-1 text-[10px] font-black">
-                            <span class="truncate"><i class="fa-solid fa-lock text-amber-600 ml-1"></i> ${cleanAdminLatest}</span>
-                            <button type="button" onclick="event.stopPropagation(); clearSingleNoteFieldQuick('${o.id}', 'adminNote')" class="text-amber-400 hover:text-red-600 px-1">×</button>
+                        ${latestAdminNote ? `
+                        <div onclick="toggleInlineNotes(event, '${o.id}', 'adminNote')" class="cursor-pointer bg-purple-50/90 border border-purple-200 border-r-4 border-r-purple-600 text-purple-950 px-2.5 py-1.5 rounded-xl flex items-center justify-between gap-2 text-[10px] font-black shadow-sm">
+                            <span class="truncate"><span class="bg-purple-600 text-white px-1.5 py-0.5 rounded text-[8px] ml-1">🛡️ أنا (إداري)</span> ${escapeOrdNoteHtml(latestAdminNote.body)}</span>
+                            ${latestAdminNote.timeLabel ? `<span class="text-[8px] text-purple-700/80 shrink-0">${escapeOrdNoteHtml(latestAdminNote.timeLabel)}</span>` : ''}
+                        </div>` : ''}
+                        ${latestWorkerNote ? `
+                        <div onclick="toggleInlineNotes(event, '${o.id}', 'driverNote')" class="cursor-pointer bg-orange-50/90 border border-orange-200 border-r-4 border-r-orange-500 text-orange-950 px-2.5 py-1.5 rounded-xl flex items-center justify-between gap-2 text-[10px] font-black shadow-sm">
+                            <span class="truncate"><span class="bg-orange-500 text-white px-1.5 py-0.5 rounded text-[8px] ml-1">👷 للعاملين</span> ${escapeOrdNoteHtml(latestWorkerNote.body)}</span>
+                            <button type="button" onclick="event.stopPropagation(); clearSingleNoteFieldQuick('${o.id}', 'driverNote')" class="text-orange-400 hover:text-red-600 px-1 shrink-0" title="مسح توجيه العاملين">×</button>
                         </div>` : ''}
                     </div>
                 `;
@@ -1269,8 +1390,8 @@
                             </div>
                             <button type="button" onclick="event.stopPropagation(); printSingleOrderWaybill('${o.id}')" class="bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-white border border-amber-200 h-7 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-print text-[9px]"></i> بوليصة</button>
                         `}
-                        <button type="button" onclick="toggleInlineNotes(event, '${o.id}')" class="${totalNotesCount > 0 ? 'bg-blue-50 text-blue-800 border-blue-200' : 'bg-slate-100 text-slate-700 border-slate-200'} hover:bg-slate-800 hover:text-white border h-7 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 active:scale-95" title="فتح نافذة ملاحظات المندوب والإدارة">
-                            <i class="fa-regular fa-comment-dots text-[9px]"></i> ملاحظة ${totalNotesCount > 0 ? `<span class="bg-blue-600 text-white px-1 rounded text-[8px]">${totalNotesCount}</span>` : '+'}
+                        <button type="button" onclick="toggleInlineNotes(event, '${o.id}')" class="${latestClientNote ? 'bg-sky-50 text-sky-900 border-sky-300' : (latestWorkerNote ? 'bg-orange-50 text-orange-900 border-orange-300' : (latestAdminNote ? 'bg-purple-50 text-purple-900 border-purple-300' : 'bg-slate-100 text-slate-700 border-slate-200'))} hover:bg-slate-800 hover:text-white border h-7 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 active:scale-95" title="فتح نافذة الملاحظات الملوّنة (العميل / إداري / للعاملين)">
+                            <i class="fa-regular fa-comment-dots text-[9px]"></i> ملاحظة ${totalNotesCount > 0 ? `<span class="${latestClientNote ? 'bg-sky-600' : (latestWorkerNote ? 'bg-orange-500' : 'bg-purple-600')} text-white px-1 rounded text-[8px]">${totalNotesCount}</span>` : '+'}
                         </button>
                         <button type="button" onclick="openEditOrderModal('${o.id}')" class="bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white border border-slate-200 h-7 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-pen text-[9px]"></i> تعديل</button>
                     </div>
