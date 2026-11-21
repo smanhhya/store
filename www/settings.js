@@ -2428,8 +2428,7 @@
     };
 
     // =========================================================================
-    // 📡 12. رادار الجودة والآراء التنفيذي (CRM Quality & Reviews Radar)
-    // محمي داخل الـ CRM فقط — تحكم كامل فيما يظهر للجمهور بدون إظهار أسماء العملاء
+    // 📡 12. مركز الملاحظات المصنّف بالألوان + رادار التقييمات الحي (CRM Quality & Notes Hub)
     // =========================================================================
     window.qualityRadarState = {
         subFilter: 'all', // 'all' | 'complaints' | 'positive' | 'published' | 'unpublished'
@@ -2437,35 +2436,220 @@
         batch: 'all'
     };
 
+    let cloudRatedOrdersCache = [];
+    let cloudRatedFetchedOnce = false;
+    let isFetchingCloudRated = false;
+
+    // 1. تصنيف ذكي وبسيط لكل سطر ملاحظة (يفرّق فوراً بين: العميل / أنا إداري / للعاملين والمندوب / السيستم)
+    function parseNoteChunkTimestamp(rawChunk) {
+        const str = String(rawChunk || '').trim();
+        const m = str.match(/^\[([^\]]+)\]\s*(.*)$/s);
+        if (m) {
+            return { timeLabel: m[1].trim(), body: m[2].trim() };
+        }
+        return { timeLabel: '', body: str };
+    }
+
+    window.classifySmanNoteChunk = function (rawChunk, sourceField) {
+        const parsed = parseNoteChunkTimestamp(rawChunk);
+        const body = parsed.body;
+        const timeLabel = parsed.timeLabel;
+
+        // أي ملاحظة في driverNote فهي توجيه مباشر للعاملين / المندوب (برتقالي)
+        if (sourceField === 'driverNote') {
+            const cleanBody = body.replace(/^👷\s*(?:للعاملين\/المندوب|للمندوب|توجيه)?\s*:?\s*/i, '').trim();
+            return {
+                role: 'worker',
+                badge: '👷 للعاملين / المندوب',
+                wrapCls: 'bg-orange-50/90 border border-orange-200 border-r-4 border-r-orange-500 text-orange-950',
+                badgeCls: 'bg-orange-500 text-white',
+                timeLabel,
+                body: cleanBody || body
+            };
+        }
+
+        // ملاحظة كتبها العميل نفسه (أزرق)
+        if (
+            body.includes('📌 ملاحظة العميل') ||
+            body.includes('🚨 تعديل العميل') ||
+            body.startsWith('👤 العميل')
+        ) {
+            const cleanBody = body
+                .replace(/^📌\s*ملاحظة العميل\s*:?\s*/i, '')
+                .replace(/^👤\s*العميل\s*:?\s*/i, '')
+                .trim();
+            return {
+                role: 'client',
+                badge: '👤 العميل كتب',
+                wrapCls: 'bg-sky-50/95 border border-sky-200 border-r-4 border-r-sky-500 text-sky-950',
+                badgeCls: 'bg-sky-600 text-white',
+                timeLabel,
+                body: cleanBody || body
+            };
+        }
+
+        // تقييم العميل (يُعرض في تبويب التقييمات المستقل)
+        if (body.includes('⭐️ تقييم') || body.includes('تقييم الخدمة')) {
+            return {
+                role: 'rating',
+                badge: '⭐️ تقييم العميل',
+                wrapCls: 'bg-amber-50/80 border border-amber-200 border-r-4 border-r-amber-500 text-amber-950',
+                badgeCls: 'bg-amber-500 text-slate-950',
+                timeLabel,
+                body
+            };
+        }
+
+        // سجل السيستم التلقائي (رمادي هادئ حتى لا يزحم عينك)
+        if (
+            body.includes('🎁 العميل فعّل') ||
+            body.includes('🎁 العميل استبدل') ||
+            body.includes('🎟 كود الخصم') ||
+            body.includes('⏳ مطلوب للدفعة القادمة') ||
+            body.includes('✅ العميل أكد استلام') ||
+            body.includes('✅ تمت المراجعة') ||
+            body.includes('[تنبيه مالي]')
+        ) {
+            return {
+                role: 'system',
+                badge: '⚙️ سجل السيستم',
+                wrapCls: 'bg-slate-50 border border-slate-200 border-r-4 border-r-slate-300 text-slate-600',
+                badgeCls: 'bg-slate-200 text-slate-700',
+                timeLabel,
+                body
+            };
+        }
+
+        // ملاحظتك أنت الإدارية (بنفسجي)
+        const cleanAdmin = body.replace(/^🛡️\s*(?:إداري|أنا)?\s*:?\s*/i, '').trim();
+        return {
+            role: 'admin',
+            badge: '🛡️ أنا كتبت (إداري)',
+            wrapCls: 'bg-purple-50/90 border border-purple-200 border-r-4 border-r-purple-600 text-purple-950',
+            badgeCls: 'bg-purple-600 text-white',
+            timeLabel,
+            body: cleanAdmin || body
+        };
+    };
+
+    function parseOrderCategorizedNotes(o) {
+        const client = [];
+        const admin = [];
+        const worker = [];
+        const system = [];
+        const rating = [];
+
+        if (o && o.adminNote) {
+            String(o.adminNote).split('\n---\n').filter(c => c.trim()).forEach(ch => {
+                const item = window.classifySmanNoteChunk(ch, 'adminNote');
+                if (item.role === 'client') client.push(item);
+                else if (item.role === 'admin') admin.push(item);
+                else if (item.role === 'rating') rating.push(item);
+                else system.push(item);
+            });
+        }
+        if (o && o.driverNote) {
+            String(o.driverNote).split('\n---\n').filter(c => c.trim()).forEach(ch => {
+                worker.push(window.classifySmanNoteChunk(ch, 'driverNote'));
+            });
+        }
+
+        return { client, admin, worker, system, rating };
+    }
+
+    // 2. استخراج بيانات التقييم + التاريخ والوقت الفعلي للتقييم بدقة
     function extractCleanReviewPayload(o) {
         const rating = Math.max(0, Math.min(5, Number(o?.rating) || 0));
         const structuredText = String(o?.reviewText || '').trim();
         const structuredTags = Array.isArray(o?.reviewTags) ? o.reviewTags.filter(Boolean).map(String) : [];
 
         let fallbackText = '';
-        if (!structuredText && o?.adminNote) {
+        let noteStampTime = '';
+        if (o?.adminNote) {
             const chunks = String(o.adminNote).split('\n---\n');
             const ratedChunks = chunks.filter(ch => ch.includes('⭐️ تقييم') || ch.includes('تقييم الخدمة'));
             if (ratedChunks.length > 0) {
                 const latest = ratedChunks[ratedChunks.length - 1];
-                fallbackText = latest
-                    .replace(/\[[^\]]*\]\s*/g, '')
-                    .replace(/⭐️\s*تقييم(?:\s+الخدمة|\s+العميل\s+للمنصة)?\s*(?:\(\s*\d+\s*\/\s*5\s*\))?\s*:?\s*/g, '')
-                    .trim();
-                if (fallbackText === 'بدون تعليق' || fallbackText === 'تقييم بالنجوم بدون تعليق') {
-                    fallbackText = '';
+                const tsMatch = latest.match(/^\[([^\]]+)\]/);
+                if (tsMatch) noteStampTime = tsMatch[1].trim();
+                if (!structuredText) {
+                    fallbackText = latest
+                        .replace(/\[[^\]]*\]\s*/g, '')
+                        .replace(/⭐️\s*تقييم(?:\s+الخدمة|\s+العميل\s+للمنصة)?\s*(?:\(\s*\d+\s*\/\s*5\s*\))?\s*:?\s*/g, '')
+                        .trim();
+                    if (fallbackText === 'بدون تعليق' || fallbackText === 'تقييم بالنجوم بدون تعليق') {
+                        fallbackText = '';
+                    }
                 }
             }
         }
 
+        let ratedDisplayTime = '';
+        if (Number(o?.ratedAt) > 0) {
+            const dt = new Date(Number(o.ratedAt));
+            if (!isNaN(dt.getTime())) {
+                ratedDisplayTime = dt.toLocaleString('ar-EG', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            }
+        } else if (noteStampTime) {
+            ratedDisplayTime = noteStampTime;
+        } else if (o?.orderDate) {
+            ratedDisplayTime = `${o.orderDate}${o.orderTime ? ' • ' + o.orderTime : ''}`;
+        }
+
         const finalText = structuredText || fallbackText;
-        return { rating, text: finalText, tags: structuredTags };
+        return { rating, text: finalText, tags: structuredTags, ratedDisplayTime };
     }
 
-    // إخفاء اسم العميل بالكامل افتراضياً لحماية الخصوصية 100%
-    function formatPublicCustomerAlias(zone) {
-        const z = String(zone || '').trim();
-        return z ? `عميل موثّق • ${z}` : 'عميل موثّق';
+    // جلب كل الطلبات المقيّمة من قاعدة البيانات مباشرة (بما فيها المؤرشفة والقديمة)
+    window.fetchAllCloudRatedOrders = async function (force = false) {
+        if (isFetchingCloudRated || (!force && cloudRatedFetchedOnce)) return;
+        if (typeof db === 'undefined') return;
+        isFetchingCloudRated = true;
+        try {
+            const snap = await db.collection('orders').where('rating', '>', 0).get();
+            const list = [];
+            snap.forEach(doc => {
+                const d = doc.data() || {};
+                if (d.status !== 'trash' && Number(d.rating) > 0) {
+                    list.push({ id: doc.id, ...d });
+                }
+            });
+            cloudRatedOrdersCache = list;
+            cloudRatedFetchedOnce = true;
+        } catch (err) {
+            console.warn('Cloud rated orders fetch skipped:', err);
+        } finally {
+            isFetchingCloudRated = false;
+            const notesView = document.getElementById('view-notes');
+            if (notesView && notesView.classList.contains('active')) {
+                window.renderNotesUI();
+            }
+        }
+    };
+
+    function getMergedAllRatedOrders() {
+        const map = {};
+        (Array.isArray(cloudRatedOrdersCache) ? cloudRatedOrdersCache : []).forEach(o => {
+            if (o && o.id && o.status !== 'trash' && Number(o.rating) > 0) map[o.id] = o;
+        });
+        (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw) ? allOrdersRaw : []).forEach(o => {
+            if (o && o.id && o.status !== 'trash' && Number(o.rating) > 0) map[o.id] = o;
+        });
+        return Object.values(map);
+    }
+
+    function findAnyOrderById(orderId) {
+        const live = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw))
+            ? allOrdersRaw.find(o => o && o.id === orderId)
+            : null;
+        if (live) return live;
+        return cloudRatedOrdersCache.find(o => o && o.id === orderId) || null;
     }
 
     function buildSanitizedPublicReviewDoc(o, opts) {
@@ -2532,6 +2716,26 @@
         }
     };
 
+    window.switchNotesHubMainMode = function (mode) {
+        if (mode === 'rating') {
+            window.notesHubState.filter = 'rating';
+            if (!cloudRatedFetchedOnce) window.fetchAllCloudRatedOrders(false);
+        } else {
+            if (window.notesHubState.filter === 'rating') {
+                window.notesHubState.filter = 'all';
+            }
+        }
+        window.renderNotesUI();
+    };
+
+    window.setNotesFilter = function (filterKey) {
+        window.notesHubState.filter = filterKey || 'all';
+        if (filterKey === 'rating' && !cloudRatedFetchedOnce) {
+            window.fetchAllCloudRatedOrders(false);
+        }
+        window.renderNotesUI();
+    };
+
     window.setQualityRadarSubFilter = function (key) {
         window.qualityRadarState.subFilter = key || 'all';
         window.renderNotesUI();
@@ -2547,6 +2751,130 @@
         window.renderNotesUI();
     };
 
+    // إضافة ملاحظة بضغطة واحدة بوسم واضح (🛡️ إداري لي  أو  👷 للعاملين والمندوب)
+    window.quickReplyNoteFromHub = async function (orderId, field) {
+        const ord = findAnyOrderById(orderId);
+        if (!ord) return;
+
+        const isWorker = field === 'driverNote';
+        const titleTxt = isWorker ? '🟠 توجيه للعاملين / المندوب' : '🟣 ملاحظة إدارية (خاصة بك)';
+        const promptTxt = isWorker
+            ? `اكتب التوجيه الذي يظهر للعاملين والمندوب على طلب (${ord.customerName || 'العميل'}):`
+            : `اكتب ملاحظتك الإدارية الخاصة على طلب (${ord.customerName || 'العميل'}):`;
+
+        const newText = (typeof window.execPrompt === 'function')
+            ? await window.execPrompt(promptTxt, '', { title: titleTxt, tone: isWorker ? 'warning' : 'brand', confirmText: 'حفظ الملاحظة' })
+            : prompt(promptTxt);
+
+        if (!newText || !newText.trim()) return;
+
+        const dateStr = new Date().toLocaleString('ar-EG', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const prefixTag = isWorker ? '👷' : '🛡️';
+        const line = `[${dateStr}] ${prefixTag} ${newText.trim()}`;
+        const prev = ord[field] || '';
+        const updated = prev ? `${prev}\n---\n${line}` : line;
+
+        try {
+            ord[field] = updated;
+            if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
+                globalOrdersMap[orderId][field] = updated;
+            }
+            await db.collection('orders').doc(orderId).update({ [field]: updated });
+            window.renderNotesUI();
+            if (typeof window.showToast === 'function') {
+                window.showToast(isWorker ? '🟠 تم حفظ توجيه العاملين/المندوب بنجاح' : '🟣 تم حفظ ملاحظتك الإدارية بنجاح');
+            }
+        } catch (e) {
+            alert('حدث خطأ أثناء حفظ الملاحظة!');
+        }
+    };
+
+    // نفس التلوين الواضح داخل الشات المنزلق بكروت الطلبات الحية (بدون أي تعقيد)
+    window.renderInlineNotesContent = function (orderId, field) {
+        const order = findAnyOrderById(orderId);
+        const container = document.getElementById(`inline-notes-content-${orderId}`);
+        if (!order || !container) return;
+
+        const isDriver = field === 'driverNote';
+        const title = isDriver ? '🟠 توجيهات للعاملين والمندوب' : '🟣 ملاحظاتي الإدارية + ملاحظات العميل';
+        const boxCls = isDriver ? 'bg-orange-50/70 border-orange-200' : 'bg-purple-50/60 border-purple-200';
+        const titleCls = isDriver ? 'text-orange-800' : 'text-purple-900';
+        const btnCls = isDriver ? 'bg-orange-500 hover:bg-orange-600' : 'bg-purple-600 hover:bg-purple-700';
+
+        const quickTags = isDriver
+            ? ['موعد غداً', 'العميل هينزل', 'الدفع كاش', 'رن قبل الوصول', 'تغليف خاص']
+            : ['مستعجل', 'تم التواصل', 'تأجيل', 'مراجعة حساب', 'مشكلة'];
+
+        const tagsHtml = quickTags.map(t =>
+            `<button type="button" onclick="document.getElementById('inline-input-${escNoteJs(orderId)}').value += '${t} '" class="bg-white border border-slate-200 text-slate-700 px-2 py-1 rounded-lg text-[10px] font-black hover:bg-slate-800 hover:text-white transition-colors shadow-sm whitespace-nowrap">${t}</button>`
+        ).join('');
+
+        const chunks = String(order[field] || '').split('\n---\n').filter(c => c.trim() !== '');
+        const notesHtml = chunks.map((chunk, idx) => {
+            const info = window.classifySmanNoteChunk(chunk, field);
+            return `
+                <div class="relative group ${info.wrapCls} p-2.5 rounded-xl mb-2 shadow-sm text-xs font-bold">
+                    <div class="flex items-center justify-between gap-2 mb-1">
+                        <span class="${info.badgeCls} px-2 py-0.5 rounded-md text-[9px] font-black">${info.badge}</span>
+                        ${info.timeLabel ? `<span class="text-[9px] opacity-70 font-black">${escNoteHtml(info.timeLabel)}</span>` : ''}
+                    </div>
+                    <div class="whitespace-pre-wrap leading-relaxed">${typeof window.formatTags === 'function' ? window.formatTags(escNoteHtml(info.body)) : escNoteHtml(info.body)}</div>
+                    <div class="absolute top-1.5 left-1.5 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-white/95 p-1 rounded-lg shadow-sm border border-slate-100">
+                        <button type="button" onclick="editInlineNoteChunk('${escNoteJs(orderId)}', '${field}', ${idx})" class="text-blue-500 hover:text-blue-700" title="تعديل"><i class="fa-solid fa-pen text-[10px]"></i></button>
+                        <button type="button" onclick="deleteInlineNoteChunk('${escNoteJs(orderId)}', '${field}', ${idx})" class="text-red-500 hover:text-red-700" title="حذف"><i class="fa-solid fa-trash text-[10px]"></i></button>
+                    </div>
+                </div>`;
+        }).join('') || `<div class="text-center py-4 text-[10px] text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-xl mb-2 bg-white">لا توجد ملاحظات بعد.. اكتب بالأسفل واضغط إرسال.</div>`;
+
+        container.innerHTML = `
+            <div class="p-3 ${boxCls} border rounded-2xl relative shadow-inner">
+                <div class="flex justify-between items-center mb-2.5">
+                    <span class="text-[11px] font-black ${titleCls}">${title}</span>
+                    <button type="button" onclick="document.getElementById('inline-notes-container-${escNoteJs(orderId)}').classList.add('hidden'); if(typeof openInlineNoteId!=='undefined') openInlineNoteId = null;" class="w-6 h-6 flex items-center justify-center bg-white rounded-full text-slate-400 hover:text-red-500 shadow-sm"><i class="fa-solid fa-xmark text-xs"></i></button>
+                </div>
+                <div class="max-h-48 overflow-y-auto custom-scroll mb-2 pr-1">${notesHtml}</div>
+                <div class="flex gap-1.5 mb-2 overflow-x-auto custom-scroll pb-1">${tagsHtml}</div>
+                <div class="flex gap-2">
+                    <textarea id="inline-input-${escNoteHtml(orderId)}" rows="1" class="flex-1 border border-slate-200 rounded-xl p-2 text-xs font-bold bg-white outline-none resize-none" placeholder="${isDriver ? 'اكتب توجيهاً للعاملين أو المندوب...' : 'اكتب ملاحظتك الإدارية هنا...'}"></textarea>
+                    <button type="button" onclick="saveInlineNote('${escNoteJs(orderId)}', '${field}')" class="${btnCls} text-white w-9 h-9 rounded-xl flex items-center justify-center shadow-md shrink-0 transition-colors"><i class="fa-solid fa-paper-plane text-xs"></i></button>
+                </div>
+            </div>`;
+        setTimeout(() => { document.getElementById(`inline-input-${orderId}`)?.focus(); }, 80);
+    };
+
+    window.saveInlineNote = async function (orderId, field) {
+        const input = document.getElementById(`inline-input-${orderId}`);
+        const text = (input?.value || '').trim();
+        if (!text) return;
+        const order = findAnyOrderById(orderId);
+        if (!order) return;
+
+        input.disabled = true;
+        const btn = input.nextElementSibling;
+        const origBtn = btn ? btn.innerHTML : '';
+        if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i>';
+
+        const dateStr = new Date().toLocaleString('ar-EG', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const prefixTag = field === 'driverNote' ? '👷' : '🛡️';
+        const formattedNote = `[${dateStr}] ${prefixTag} ${text}`;
+        const currentText = order[field] || '';
+        const updatedText = currentText ? `${currentText}\n---\n${formattedNote}` : formattedNote;
+
+        try {
+            order[field] = updatedText;
+            if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
+                globalOrdersMap[orderId][field] = updatedText;
+            }
+            await db.collection('orders').doc(orderId).update({ [field]: updatedText });
+            window.renderInlineNotesContent(orderId, field);
+        } catch (e) {
+            alert('خطأ في حفظ الملاحظة!');
+            input.disabled = false;
+            if (btn) btn.innerHTML = origBtn;
+        }
+    };
+
+    // 3. نافذة التحكم الكامل في نشر التقييم إلى حائط الثقة العام (بدون اسم العميل)
     function ensurePublishReviewControlModal() {
         let modal = document.getElementById('sman-publish-review-modal');
         if (modal) return modal;
@@ -2632,8 +2960,7 @@
         if (typeof auth !== 'undefined' && !auth.currentUser) {
             return alert('⚠️ يرجى تسجيل الدخول بحساب الأدمن أولاً.');
         }
-        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
-        const ord = ordersList.find(o => o && o.id === orderId);
+        const ord = findAnyOrderById(orderId);
         if (!ord) return;
 
         const rev = extractCleanReviewPayload(ord);
@@ -2669,8 +2996,7 @@
 
     window.confirmPublishReviewFromModal = async function () {
         const orderId = document.getElementById('prm-order-id')?.value || '';
-        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
-        const ord = ordersList.find(o => o && o.id === orderId);
+        const ord = findAnyOrderById(orderId);
         if (!ord) return;
 
         const btn = document.getElementById('prm-save-btn');
@@ -2731,8 +3057,7 @@
         if (typeof auth !== 'undefined' && !auth.currentUser) {
             return alert('⚠️ يرجى تسجيل الدخول بحساب الأدمن أولاً.');
         }
-        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
-        const ord = ordersList.find(o => o && o.id === orderId);
+        const ord = findAnyOrderById(orderId);
         if (!ord) return;
 
         if (!ord.publishedToWall) {
@@ -2741,7 +3066,7 @@
         }
 
         const ok = (typeof window.execConfirm === 'function')
-            ? await window.execConfirm(`هل تريد إخفاء هذا التقييم من صفحة آراء العملاء العامة؟`, { title: 'إخفاء من حائط الثقة', tone: 'warning', confirmText: 'نعم، إخفاء' })
+            ? await window.execConfirm('هل تريد إخفاء هذا التقييم من صفحة آراء العملاء العامة؟', { title: 'إخفاء من حائط الثقة', tone: 'warning', confirmText: 'نعم، إخفاء' })
             : confirm('هل تريد إخفاء هذا التقييم من صفحة آراء العملاء العامة؟');
         if (!ok) return;
 
@@ -2763,8 +3088,7 @@
     };
 
     window.sendSmartReviewWhatsApp = function (orderId) {
-        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
-        const ord = ordersList.find(o => o && o.id === orderId);
+        const ord = findAnyOrderById(orderId);
         if (!ord || !ord.customerPhone) return alert('لا يوجد رقم هاتف مسجل لهذا الطلب.');
 
         const rawDigits = String(ord.customerPhone).replace(/[\u0660-\u0669]/g, c => String(c.charCodeAt(0) - 0x0660)).replace(/\D/g, '');
@@ -2782,8 +3106,13 @@
         window.open(`https://api.whatsapp.com/send?phone=${waPhone}&text=${encodeURIComponent(msg)}`, '_blank');
     };
 
+    // 4. رسم رادار التقييمات والمراجعات بالتاريخ والوقت الفعلي وبطاقة الطلب المرتبط به
     function renderExecutiveQualityRadar(container) {
-        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        if (!cloudRatedFetchedOnce && !isFetchingCloudRated) {
+            window.fetchAllCloudRatedOrders(false);
+        }
+
+        const mergedRated = getMergedAllRatedOrders();
         const rawQ = String(document.getElementById('search-notes')?.value || '')
             .replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660)
             .replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0)
@@ -2794,8 +3123,7 @@
         const batchesSet = new Set();
         const batchStatsMap = {};
 
-        ordersList.forEach(o => {
-            if (!o || o.status === 'trash') return;
+        mergedRated.forEach(o => {
             const rev = extractCleanReviewPayload(o);
             if (rev.rating <= 0) return;
 
@@ -2817,13 +3145,14 @@
                 rating: rev.rating,
                 text: rev.text,
                 tags: rev.tags,
+                ratedDisplayTime: rev.ratedDisplayTime,
                 isComplaint: rev.rating <= 3,
                 isResolved,
                 isPublished,
                 zone: z,
                 batch: b,
                 sortMs,
-                hay: `${o.customerName || ''} ${o.customerPhone || ''} ${z} ${b} ${rev.text} ${rev.tags.join(' ')}`.toLowerCase()
+                hay: `${o.customerName || ''} ${o.customerPhone || ''} ${z} ${b} ${rev.text} ${rev.tags.join(' ')} ${o.orderDate || ''}`.toLowerCase()
             });
         });
 
@@ -2858,7 +3187,7 @@
             ? 'bg-slate-900 text-amber-300 border-slate-900 shadow-sm'
             : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50';
 
-        const batchPulseHtml = Object.keys(batchStatsMap).slice(0, 5).map(bName => {
+        const batchPulseHtml = Object.keys(batchStatsMap).slice(0, 6).map(bName => {
             const bs = batchStatsMap[bName];
             const bAvg = (bs.sum / bs.count).toFixed(1);
             const warn = bs.bad > 0;
@@ -2876,17 +3205,20 @@
                                 <i class="fa-solid fa-satellite-dish"></i>
                             </span>
                             <div>
-                                <h3 class="text-sm sm:text-base font-black text-white leading-tight">رادار الجودة وآراء العملاء (محمي للأدمن)</h3>
-                                <p class="text-[10px] font-bold text-emerald-200/85">تحكم كامل فيما يُنشر على الموقع — بدون إظهار أسماء أو أرقام العملاء</p>
+                                <h3 class="text-sm sm:text-base font-black text-white leading-tight">رادار التقييمات والمراجعات (شامل الأرشيف)</h3>
+                                <p class="text-[10px] font-bold text-emerald-200/85">كل تقييم معروض بوقت التقييم الفعلي وتفاصيل الطلب المرتبط به</p>
                             </div>
                         </div>
-                        <div class="flex flex-wrap items-center gap-2">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <button type="button" onclick="fetchAllCloudRatedOrders(true)" class="bg-white/10 hover:bg-white/20 text-white border border-white/15 px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all flex items-center gap-1">
+                                <i class="fa-solid fa-rotate ${isFetchingCloudRated ? 'fa-spin' : ''}"></i> تحديث
+                            </button>
                             <label class="flex items-center gap-1.5 bg-white/10 border border-white/20 px-2.5 py-1.5 rounded-xl text-[10px] font-black text-white cursor-pointer">
                                 <input type="checkbox" ${isWallVisible ? 'checked' : ''} onchange="toggleStoreReviewsWallVisibility(this.checked)" class="w-3.5 h-3.5 accent-amber-400 rounded">
                                 <span>إظهار بالموقع</span>
                             </label>
-                            <a href="https://smanhhya.github.io/reviews.html" target="_blank" class="bg-white/10 hover:bg-amber-400 text-amber-300 hover:text-slate-950 border border-amber-400/35 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1.5">
-                                <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i> معاينة
+                            <a href="https://smanhhya.github.io/reviews.html" target="_blank" class="bg-white/10 hover:bg-amber-400 text-amber-300 hover:text-slate-950 border border-amber-400/35 px-3 py-1.5 rounded-xl text-[10px] font-black transition-all flex items-center gap-1">
+                                <i class="fa-solid fa-arrow-up-right-from-square"></i> معاينة
                             </a>
                         </div>
                     </div>
@@ -2944,7 +3276,10 @@
         `;
 
         if (filtered.length === 0) {
-            container.innerHTML = headerHtml + `<div class="col-span-full text-center py-10 text-slate-400 font-bold bg-white rounded-2xl border-2 border-dashed border-slate-200">لا توجد تقييمات مطابقة لهذا الفلتر حالياً.</div>`;
+            const emptyMsg = isFetchingCloudRated
+                ? '<i class="fa-solid fa-spinner fa-spin ml-1"></i> جاري تحميل التقييمات من السيرفر...'
+                : 'لا توجد تقييمات مطابقة لهذا الفلتر حالياً.';
+            container.innerHTML = headerHtml + `<div class="col-span-full text-center py-10 text-slate-400 font-bold bg-white rounded-2xl border-2 border-dashed border-slate-200">${emptyMsg}</div>`;
             return;
         }
 
@@ -2957,7 +3292,7 @@
             ).join('');
 
             const itemsBadges = Array.isArray(o.items)
-                ? o.items.slice(0, 5).map(it => `<span class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-0.5 rounded-lg text-[10px] font-black">${escNoteHtml(it.quantity)}× ${escNoteHtml(it.name)}</span>`).join(' ')
+                ? o.items.slice(0, 6).map(it => `<span class="bg-white text-slate-800 border border-slate-200 px-2 py-0.5 rounded-lg text-[10px] font-black">${escNoteHtml(it.quantity)}× ${escNoteHtml(it.name)}</span>`).join(' ')
                 : '';
 
             const tagsHtml = item.tags.length > 0
@@ -2970,29 +3305,42 @@
 
             return `
             <div class="bg-white rounded-2xl p-3.5 border ${borderCls} shadow-sm space-y-2.5 flex flex-col justify-between">
-                <div class="space-y-2">
+                <div class="space-y-2.5">
                     <div class="flex items-start justify-between gap-2 pb-2 border-b border-slate-100">
                         <div class="min-w-0">
                             <div class="flex flex-wrap items-center gap-1.5">
                                 <h4 onclick="openCustomerCard('${safePhone}')" class="font-black text-slate-900 text-sm cursor-pointer hover:text-brand-primary">${escNoteHtml(o.customerName || 'عميل')}</h4>
-                                ${item.isPublished ? '<span class="bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.5 rounded-md">🌐 منشور بالموقع</span>' : ''}
+                                ${item.isPublished ? '<span class="bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.5 rounded-md">🌐 منشور</span>' : ''}
+                                ${o.isArchived ? '<span class="bg-slate-100 text-slate-600 text-[9px] font-black px-1.5 py-0.5 rounded-md">🗄️ مؤرشف</span>' : ''}
                                 ${item.isComplaint && !item.isResolved ? '<span class="bg-rose-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md">⚠️ شكوى عاجلة</span>' : ''}
                                 ${item.isResolved ? '<span class="bg-teal-100 text-teal-800 text-[9px] font-black px-1.5 py-0.5 rounded-md">✅ تمت المعالجة</span>' : ''}
                             </div>
-                            <p class="text-[10px] font-bold text-slate-400 mt-0.5">
-                                <span dir="ltr">${escNoteHtml(o.customerPhone || '')}</span> • 📍 ${escNoteHtml(item.zone)} • 📦 ${escNoteHtml(item.batch)} • ${escNoteHtml(o.orderDate || '')}
+                            <p class="text-[10px] font-bold text-slate-500 mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                <span dir="ltr">${escNoteHtml(o.customerPhone || '')}</span>
+                                <span>• 📍 ${escNoteHtml(item.zone)}</span>
+                                ${item.ratedDisplayTime ? `<span class="text-amber-700 font-black">• 🕒 وقت التقييم: ${escNoteHtml(item.ratedDisplayTime)}</span>` : ''}
                             </p>
                         </div>
-                        <div class="text-left shrink-0">
+                        <div class="text-left shrink-0 bg-amber-50/70 border border-amber-200/80 px-2 py-1 rounded-xl">
                             <div class="flex items-center gap-0.5" dir="ltr">${starsHtml}</div>
-                            <span class="block text-[10px] font-black text-brand-primary mt-0.5">${Number(o.total) || 0} ج.م</span>
+                            <span class="block text-[10px] font-black text-amber-800 text-center mt-0.5">${item.rating} / 5</span>
                         </div>
                     </div>
 
                     ${tagsHtml}
 
-                    <div class="${item.isComplaint ? 'bg-rose-50/70 border-rose-200 text-rose-950' : 'bg-emerald-50/50 border-emerald-200/80 text-slate-800'} border rounded-xl p-2.5 text-xs font-bold leading-relaxed">
+                    <div class="${item.isComplaint ? 'bg-rose-50/70 border-rose-200 text-rose-950' : 'bg-sky-50/70 border-sky-200 text-sky-950'} border border-r-4 ${item.isComplaint ? 'border-r-rose-500' : 'border-r-sky-500'} rounded-xl p-2.5 text-xs font-bold leading-relaxed">
+                        <span class="text-[9px] font-black ${item.isComplaint ? 'text-rose-700' : 'text-sky-700'} block mb-0.5">👤 رأي العميل:</span>
                         ${item.text ? escNoteHtml(item.text) : '<span class="text-slate-400">اكتفى العميل بالتقييم بالنجوم بدون تعليق نصي.</span>'}
+                    </div>
+
+                    <!-- بطاقة الطلب المرتبط بالتقييم بوضوح كامل -->
+                    <div class="bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 space-y-1.5">
+                        <div class="flex flex-wrap items-center justify-between gap-1.5 text-[10px] font-black text-slate-600">
+                            <span><i class="fa-solid fa-box text-emerald-600 ml-1"></i> الطلب المقيّم: <strong class="text-slate-900">${escNoteHtml(item.batch)}</strong></span>
+                            <span>📅 ${escNoteHtml(o.orderDate || '')}${o.orderTime ? ' • ' + escNoteHtml(o.orderTime) : ''} • <strong class="text-brand-primary">${Number(o.total) || 0} ج.م</strong></span>
+                        </div>
+                        ${itemsBadges ? `<div class="flex flex-wrap gap-1">${itemsBadges}</div>` : ''}
                     </div>
 
                     ${o.publicReply ? `
@@ -3000,34 +3348,27 @@
                         <span class="text-[9px] font-black text-amber-700 block mb-0.5">🌿 رد الإدارة الظاهر بالموقع:</span>
                         ${escNoteHtml(o.publicReply)}
                     </div>` : ''}
-
-                    ${itemsBadges ? `<div class="flex flex-wrap gap-1 pt-0.5">${itemsBadges}</div>` : ''}
                 </div>
 
                 <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
                     ${item.isPublished ? `
                     <button type="button" onclick="openPublishReviewControlModal('${safeOrderId}')" class="bg-indigo-50 hover:bg-indigo-600 text-indigo-800 hover:text-white border border-indigo-200 py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1">
-                        <i class="fa-solid fa-sliders"></i>
-                        <span>تعديل المنشور</span>
+                        <i class="fa-solid fa-sliders"></i> <span>تعديل المنشور</span>
                     </button>
                     <button type="button" onclick="togglePublishReviewToWall('${safeOrderId}')" class="bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1">
-                        <i class="fa-solid fa-eye-slash"></i>
-                        <span>إخفاء</span>
+                        <i class="fa-solid fa-eye-slash"></i> <span>إخفاء</span>
                     </button>
                     ` : `
                     <button type="button" onclick="openPublishReviewControlModal('${safeOrderId}')" class="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1 sm:flex-1">
-                        <i class="fa-solid fa-globe"></i>
-                        <span>تخصيص ونشر بالموقع</span>
+                        <i class="fa-solid fa-globe"></i> <span>تخصيص ونشر بالموقع</span>
                     </button>
                     `}
                     <button type="button" onclick="sendSmartReviewWhatsApp('${safeOrderId}')" class="bg-[#25D366] hover:bg-green-600 text-white py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1">
-                        <i class="fa-brands fa-whatsapp text-xs"></i>
-                        <span>${item.isComplaint ? 'اعتذار ومتابعة' : 'رسالة شكر'}</span>
+                        <i class="fa-brands fa-whatsapp text-xs"></i> <span>${item.isComplaint ? 'اعتذار ومتابعة' : 'رسالة شكر'}</span>
                     </button>
                     ${!item.isResolved ? `
                     <button type="button" onclick="markOrderNoteReviewedInHub('${safeOrderId}', 'adminNote')" class="bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-white border border-amber-200 py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1">
-                        <i class="fa-solid fa-check"></i>
-                        <span>${item.isComplaint ? 'تم حل الشكوى' : 'تمت المراجعة'}</span>
+                        <i class="fa-solid fa-check"></i> <span>${item.isComplaint ? 'تم حل الشكوى' : 'تمت المراجعة'}</span>
                     </button>` : ''}
                     <button type="button" onclick="openEditOrderModal('${safeOrderId}')" class="bg-slate-900 hover:bg-slate-800 text-white py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1">
                         <i class="fa-solid fa-pen text-amber-300"></i> الطلب
@@ -3039,20 +3380,268 @@
         container.innerHTML = headerHtml + cardsHtml;
     }
 
-    const _origRenderNotesForRadar = window.renderNotesUI;
+    // 5. المحرك الرئيسي لمركز الملاحظات الملوّن + مزامنة التبويبين الرئيسيين
     window.renderNotesUI = function () {
         const container = document.getElementById('notes-list-container');
-        if (window.notesHubState && window.notesHubState.filter === 'rating' && container) {
-            if (typeof _origRenderNotesForRadar === 'function') {
-                _origRenderNotesForRadar();
+        if (!container) return;
+
+        if (!cloudRatedFetchedOnce && !isFetchingCloudRated) {
+            window.fetchAllCloudRatedOrders(false);
+        }
+
+        const activeFilter = window.notesHubState.filter || 'all';
+        const isRatingMode = activeFilter === 'rating';
+
+        // تحديث شكل التبويبين الرئيسيين وإظهار/إخفاء شريط فلاتر الألوان
+        const btnNotesMain = document.getElementById('n-main-tab-notes');
+        const btnRatingMain = document.getElementById('n-main-tab-rating');
+        const colorFiltersBar = document.getElementById('notes-color-filters-bar');
+        const compToggleWrap = document.getElementById('notes-completed-toggle-wrap');
+
+        if (btnNotesMain && btnRatingMain) {
+            if (isRatingMode) {
+                btnNotesMain.className = 'px-3.5 py-2 rounded-xl text-xs font-black text-emerald-100 hover:bg-white/10 transition-all flex items-center justify-center gap-1.5';
+                btnRatingMain.className = 'px-3.5 py-2 rounded-xl text-xs font-black bg-white text-slate-900 shadow-sm transition-all flex items-center justify-center gap-1.5';
+            } else {
+                btnNotesMain.className = 'px-3.5 py-2 rounded-xl text-xs font-black bg-white text-slate-900 shadow-sm transition-all flex items-center justify-center gap-1.5';
+                btnRatingMain.className = 'px-3.5 py-2 rounded-xl text-xs font-black text-emerald-100 hover:bg-white/10 transition-all flex items-center justify-center gap-1.5';
             }
+        }
+        if (colorFiltersBar) colorFiltersBar.classList.toggle('hidden', isRatingMode);
+        if (compToggleWrap) compToggleWrap.classList.toggle('hidden', isRatingMode);
+
+        // تحديث ألوان أزرار الفلاتر الفرعية
+        const subFilterStyles = {
+            all: { active: 'bg-slate-900 text-white border-slate-900', idle: 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100' },
+            client: { active: 'bg-sky-600 text-white border-sky-600', idle: 'bg-sky-50 text-sky-900 border-sky-200 hover:bg-sky-100' },
+            admin: { active: 'bg-purple-600 text-white border-purple-600', idle: 'bg-purple-50 text-purple-900 border-purple-200 hover:bg-purple-100' },
+            driver: { active: 'bg-orange-500 text-white border-orange-500', idle: 'bg-orange-50 text-orange-900 border-orange-200 hover:bg-orange-100' },
+            problem: { active: 'bg-rose-600 text-white border-rose-600', idle: 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100' },
+            customers: { active: 'bg-amber-500 text-slate-950 border-amber-500', idle: 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100' }
+        };
+        Object.keys(subFilterStyles).forEach(k => {
+            const btn = document.getElementById(`n-filter-${k}`);
+            if (!btn) return;
+            const stCls = (k === activeFilter) ? subFilterStyles[k].active : subFilterStyles[k].idle;
+            btn.className = `notes-filter-btn whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black border shadow-sm transition-all ${stCls}`;
+        });
+
+        // جمع البيانات والإحصائيات
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const custList = (typeof customersData !== 'undefined' && Array.isArray(customersData)) ? customersData : [];
+        const includeComp = document.getElementById('notes-include-completed')?.checked !== false;
+        const rawQ = String(document.getElementById('search-notes')?.value || '')
+            .replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660)
+            .replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0)
+            .toLowerCase().trim();
+
+        const orderCards = [];
+        ordersList.forEach(o => {
+            if (!o || o.status === 'trash' || o.isArchived) return;
+            if (!includeComp && (o.status === 'completed' || o.status === 'canceled')) return;
+
+            const cats = parseOrderCategorizedNotes(o);
+            const hasHumanNotes = (cats.client.length + cats.admin.length + cats.worker.length) > 0;
+            const hasSystemNotes = cats.system.length > 0;
+            if (!hasHumanNotes && !hasSystemNotes) return;
+
+            const combinedText = `${o.adminNote || ''} ${o.driverNote || ''}`;
+            const isReviewed = combinedText.includes('✅ تمت المراجعة');
+            const isUrgent = !isReviewed && hasAnyKeyword(combinedText, URGENT_KEYWORDS);
+            const isProblem = !isReviewed && (hasAnyKeyword(combinedText, PROBLEM_KEYWORDS) || (Number(o.rating) > 0 && Number(o.rating) <= 3));
+            const sortMs = (o.createdAt && typeof o.createdAt.toMillis === 'function') ? o.createdAt.toMillis() : 0;
+
+            orderCards.push({
+                kind: 'order',
+                order: o,
+                cats,
+                hasClient: cats.client.length > 0,
+                hasAdmin: cats.admin.length > 0,
+                hasWorker: cats.worker.length > 0,
+                isUrgent,
+                isProblem,
+                isReviewed,
+                sortMs,
+                hay: `${o.customerName || ''} ${o.customerPhone || ''} ${o.zone || ''} ${o.batchName || ''} ${combinedText}`.toLowerCase()
+            });
+        });
+
+        const custCards = [];
+        custList.forEach(c => {
+            if (!c) return;
+            const sticky = String(c.stickyNote || '').trim();
+            const notebook = String(c.notebook || '').trim();
+            if (!sticky && !notebook) return;
+            custCards.push({
+                kind: 'customer',
+                customer: c,
+                sticky,
+                notebook,
+                isProblem: Boolean(c.isBlacklisted),
+                sortMs: (c.lastOrder && typeof c.lastOrder.toMillis === 'function') ? c.lastOrder.toMillis() : 0,
+                hay: `${c.name || ''} ${c.phone || ''} ${c.zone || ''} ${sticky} ${notebook}`.toLowerCase()
+            });
+        });
+
+        // تحديث شارات الأرقام العلوية
+        const allRatedCount = getMergedAllRatedOrders().length;
+        const notesBadgeEl = document.getElementById('n-main-badge-notes');
+        const ratingBadgeEl = document.getElementById('n-main-badge-rating');
+        if (notesBadgeEl) notesBadgeEl.textContent = orderCards.length;
+        if (ratingBadgeEl) ratingBadgeEl.textContent = allRatedCount;
+
+        const cClient = orderCards.filter(x => x.hasClient).length;
+        const cAdmin = orderCards.filter(x => x.hasAdmin).length;
+        const cWorker = orderCards.filter(x => x.hasWorker).length;
+        const cProblem = orderCards.filter(x => x.isProblem || x.isUrgent).length;
+
+        const statsBar = document.getElementById('notes-stats-bar');
+        if (statsBar) {
+            statsBar.innerHTML = `
+                <span class="bg-sky-500/25 text-sky-200 border border-sky-400/30 px-2 py-0.5 rounded-lg">🔵 عميل: ${cClient}</span>
+                <span class="bg-purple-500/25 text-purple-200 border border-purple-400/30 px-2 py-0.5 rounded-lg">🟣 إداري: ${cAdmin}</span>
+                <span class="bg-orange-500/25 text-orange-200 border border-orange-400/30 px-2 py-0.5 rounded-lg">🟠 عاملين: ${cWorker}</span>
+                ${cProblem > 0 ? `<span class="bg-rose-500 text-white px-2 py-0.5 rounded-lg">⚠️ عاجل/مشكلة: ${cProblem}</span>` : ''}
+                <span class="bg-amber-400/20 text-amber-300 border border-amber-400/30 px-2 py-0.5 rounded-lg">⭐️ تقييمات: ${allRatedCount}</span>
+            `;
+        }
+
+        // إذا كان الوضع النشط هو "التقييمات والمراجعات" نعرض رادار التقييمات مباشرة
+        if (isRatingMode) {
             renderExecutiveQualityRadar(container);
             return;
         }
-        if (typeof _origRenderNotesForRadar === 'function') {
-            _origRenderNotesForRadar();
+
+        // فلترة وترتيب الملاحظات المصنّفة بالألوان
+        const pool = activeFilter === 'customers' ? custCards : orderCards;
+        const filtered = pool.filter(item => {
+            if (activeFilter === 'client' && !item.hasClient) return false;
+            if (activeFilter === 'admin' && !item.hasAdmin) return false;
+            if (activeFilter === 'driver' && !item.hasWorker) return false;
+            if (activeFilter === 'problem' && !item.isProblem && !item.isUrgent) return false;
+            if (rawQ && !item.hay.includes(rawQ)) return false;
+            return true;
+        });
+
+        filtered.sort((a, b) => {
+            const pA = (a.isProblem ? 2 : 0) + (a.isUrgent ? 1 : 0);
+            const pB = (b.isProblem ? 2 : 0) + (b.isUrgent ? 1 : 0);
+            if (pB !== pA) return pB - pA;
+            return b.sortMs - a.sortMs;
+        });
+
+        if (filtered.length === 0) {
+            container.innerHTML = `<div class="col-span-full text-center py-12 text-slate-400 font-bold bg-white rounded-2xl border-2 border-dashed border-slate-200">لا توجد ملاحظات في هذا القسم حالياً.</div>`;
+            return;
         }
+
+        const statusLabels = {
+            new: { t: '🆕 جديد', c: 'bg-blue-50 text-blue-700 border-blue-200' },
+            processing: { t: '⏳ تجهيز', c: 'bg-amber-50 text-amber-800 border-amber-200' },
+            dispatched: { t: '🛵 بالطريق', c: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+            deferred: { t: '📅 مؤجل', c: 'bg-orange-50 text-orange-700 border-orange-200' },
+            no_answer: { t: '📵 لم يرد', c: 'bg-purple-50 text-purple-700 border-purple-200' },
+            completed: { t: '✅ مكتمل', c: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+            canceled: { t: '❌ ملغي', c: 'bg-slate-100 text-slate-500 border-slate-200' }
+        };
+
+        const renderBubbleList = (arr) => arr.map(ch => `
+            <div class="${ch.wrapCls} rounded-xl p-2.5 text-xs font-bold space-y-1">
+                <div class="flex items-center justify-between gap-2">
+                    <span class="${ch.badgeCls} px-2 py-0.5 rounded-md text-[9px] font-black">${ch.badge}</span>
+                    ${ch.timeLabel ? `<span class="text-[9px] opacity-70 font-black">${escNoteHtml(ch.timeLabel)}</span>` : ''}
+                </div>
+                <p class="whitespace-pre-wrap leading-relaxed">${escNoteHtml(ch.body)}</p>
+            </div>
+        `).join('');
+
+        container.innerHTML = filtered.slice(0, 80).map(item => {
+            if (item.kind === 'customer') {
+                const c = item.customer;
+                const safePhone = escNoteJs(c.phone || '');
+                const waNum = (c.phone || '').startsWith('0') ? '2' + c.phone : (c.phone || '');
+                return `
+                <div class="bg-white rounded-2xl p-3.5 border border-slate-200 border-r-4 ${c.isBlacklisted ? 'border-r-red-600' : 'border-r-amber-400'} shadow-sm space-y-2.5 flex flex-col justify-between">
+                    <div class="space-y-2">
+                        <div class="flex items-start justify-between gap-2 pb-2 border-b border-slate-100">
+                            <div class="min-w-0">
+                                <h4 onclick="openCustomerCard('${safePhone}')" class="font-black text-slate-900 text-sm truncate cursor-pointer hover:text-brand-primary">${escNoteHtml(c.name || 'عميل')}</h4>
+                                <p class="text-[10px] font-bold text-slate-400" dir="ltr">${escNoteHtml(c.phone || '')} ${c.zone ? '• ' + escNoteHtml(c.zone) : ''}</p>
+                            </div>
+                            <span class="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-lg text-[10px] font-black shrink-0">📌 كشكول عميل</span>
+                        </div>
+                        ${item.sticky ? `<div class="bg-yellow-50 border border-yellow-300 rounded-xl p-2.5 text-xs font-black text-yellow-950 leading-relaxed"><i class="fa-solid fa-thumbtack text-yellow-600 ml-1"></i> ${escNoteHtml(item.sticky)}</div>` : ''}
+                        ${item.notebook ? `<div class="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 whitespace-pre-wrap leading-relaxed"><i class="fa-solid fa-book-open text-amber-500 ml-1"></i> ${escNoteHtml(item.notebook)}</div>` : ''}
+                    </div>
+                    <div class="flex gap-1.5 pt-2 border-t border-slate-100">
+                        <button type="button" onclick="openCustomerCard('${safePhone}')" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white py-1.5 px-3 rounded-xl text-[11px] font-black transition-all">فتح وتعديل الملف</button>
+                        ${waNum ? `<a href="https://wa.me/${escNoteHtml(waNum)}" target="_blank" class="bg-[#25D366] hover:bg-green-600 text-white px-3 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1"><i class="fa-brands fa-whatsapp"></i> واتساب</a>` : ''}
+                    </div>
+                </div>`;
+            }
+
+            const o = item.order;
+            const stInfo = statusLabels[o.status] || statusLabels.new;
+            const safeOrderId = escNoteJs(o.id);
+            const safePhone = escNoteJs(o.customerPhone || '');
+            const c = item.cats;
+
+            const systemDrawerHtml = c.system.length > 0
+                ? `<details class="bg-slate-50 border border-slate-200/80 rounded-xl p-2">
+                       <summary class="cursor-pointer text-[10px] font-black text-slate-500 select-none">⚙️ سجل السيستم التلقائي (${c.system.length}) — اضغط للعرض</summary>
+                       <div class="space-y-1.5 mt-2">${renderBubbleList(c.system)}</div>
+                   </details>`
+                : '';
+
+            return `
+            <div class="bg-white rounded-2xl p-3.5 border ${item.isProblem ? 'border-rose-300' : 'border-slate-200'} shadow-sm space-y-2.5 flex flex-col justify-between">
+                <div class="space-y-2">
+                    <div class="flex items-start justify-between gap-2 pb-2 border-b border-slate-100">
+                        <div class="min-w-0">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <h4 onclick="openCustomerCard('${safePhone}')" class="font-black text-slate-900 text-sm cursor-pointer hover:text-brand-primary">${escNoteHtml(o.customerName || 'عميل')}</h4>
+                                ${item.isProblem ? '<span class="bg-rose-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md">⚠️ مشكلة</span>' : ''}
+                                ${item.isUrgent ? '<span class="bg-amber-400 text-slate-950 text-[9px] font-black px-1.5 py-0.5 rounded-md">⚡ عاجل</span>' : ''}
+                                ${item.isReviewed ? '<span class="bg-emerald-100 text-emerald-700 text-[9px] font-black px-1.5 py-0.5 rounded-md">✅ تمت المراجعة</span>' : ''}
+                            </div>
+                            <p class="text-[10px] font-bold text-slate-400 mt-0.5">
+                                <span dir="ltr">${escNoteHtml(o.customerPhone || '')}</span> • 📍 ${escNoteHtml(o.zone || '')} ${o.batchName ? '• 📦 ' + escNoteHtml(o.batchName) : ''} • 📅 ${escNoteHtml(o.orderDate || '')} • <strong class="text-brand-primary">${Number(o.total) || 0} ج</strong>
+                            </p>
+                        </div>
+                        <span class="px-2 py-0.5 rounded-lg text-[10px] font-black border shrink-0 ${stInfo.c}">${stInfo.t}</span>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        ${renderBubbleList(c.client)}
+                        ${renderBubbleList(c.admin)}
+                        ${renderBubbleList(c.worker)}
+                        ${systemDrawerHtml}
+                    </div>
+                </div>
+
+                <!-- زراير الكتابة المباشرة بلونها (بضغطة واحدة بدون تعقيد) -->
+                <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
+                    <button type="button" onclick="quickReplyNoteFromHub('${safeOrderId}', 'adminNote')" class="bg-purple-50 hover:bg-purple-600 text-purple-900 hover:text-white border border-purple-200 py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1">
+                        <span>🟣 + ملاحظة لي</span>
+                    </button>
+                    <button type="button" onclick="quickReplyNoteFromHub('${safeOrderId}', 'driverNote')" class="bg-orange-50 hover:bg-orange-500 text-orange-900 hover:text-white border border-orange-200 py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1">
+                        <span>🟠 + للعاملين</span>
+                    </button>
+                    ${!item.isReviewed && (item.isProblem || item.isUrgent) ? `
+                    <button type="button" onclick="markOrderNoteReviewedInHub('${safeOrderId}', 'adminNote')" class="bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-200 py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-check"></i> تم الحل
+                    </button>` : ''}
+                    <button type="button" onclick="openEditOrderModal('${safeOrderId}')" class="bg-slate-900 hover:bg-slate-800 text-white py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-pen text-amber-300"></i> الطلب
+                    </button>
+                    <button type="button" onclick="sendMessageToCustomer('${safePhone}', '${safeOrderId}')" class="bg-[#25D366] hover:bg-green-600 text-white py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1" title="واتساب">
+                        <i class="fa-brands fa-whatsapp text-xs"></i>
+                    </button>
+                </div>
+            </div>`;
+        }).join('');
     };
+
 
 
 
