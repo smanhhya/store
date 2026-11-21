@@ -2427,6 +2427,442 @@
         }
     };
 
+    // =========================================================================
+    // 📡 12. رادار الجودة والآراء التنفيذي (CRM Quality & Reviews Radar)
+    // محمي داخل الـ CRM فقط — يدير الشكاوى وينشر التقييمات الموثّقة الآمنة إلى public_reviews
+    // =========================================================================
+    window.qualityRadarState = {
+        subFilter: 'all', // 'all' | 'complaints' | 'positive' | 'published' | 'unpublished'
+        zone: 'all',
+        batch: 'all'
+    };
+
+    function extractCleanReviewPayload(o) {
+        const rating = Math.max(0, Math.min(5, Number(o?.rating) || 0));
+        const structuredText = String(o?.reviewText || '').trim();
+        const structuredTags = Array.isArray(o?.reviewTags) ? o.reviewTags.filter(Boolean).map(String) : [];
+
+        let fallbackText = '';
+        if (!structuredText && o?.adminNote) {
+            const chunks = String(o.adminNote).split('\n---\n');
+            const ratedChunks = chunks.filter(ch => ch.includes('⭐️ تقييم') || ch.includes('تقييم الخدمة'));
+            if (ratedChunks.length > 0) {
+                const latest = ratedChunks[ratedChunks.length - 1];
+                fallbackText = latest
+                    .replace(/\[[^\]]*\]\s*/g, '')
+                    .replace(/⭐️\s*تقييم(?:\s+الخدمة|\s+العميل\s+للمنصة)?\s*(?:\(\s*\d+\s*\/\s*5\s*\))?\s*:?\s*/g, '')
+                    .trim();
+                if (fallbackText === 'بدون تعليق' || fallbackText === 'تقييم بالنجوم بدون تعليق') {
+                    fallbackText = '';
+                }
+            }
+        }
+
+        const finalText = structuredText || fallbackText;
+        return { rating, text: finalText, tags: structuredTags };
+    }
+
+    function formatPublicCustomerAlias(fullName) {
+        const clean = String(fullName || '').replace(/[^\u0600-\u06FFa-zA-Z\s]/g, ' ').trim();
+        const parts = clean.split(/\s+/).filter(Boolean);
+        if (parts.length === 0) return 'عميل سمان ههيا';
+        const first = parts[0];
+        if (['أ', 'أ.', 'م', 'م.', 'د', 'د.', 'أم', 'ام', 'أبو', 'ابو', 'الحاج', 'الحاجه', 'الشيخ'].includes(first) && parts.length > 1) {
+            return `${first} ${parts[1]}`;
+        }
+        return `أ. ${first}`;
+    }
+
+    function buildSanitizedPublicReviewDoc(o, customPublicReply) {
+        const rev = extractCleanReviewPayload(o);
+        const safeItems = Array.isArray(o.items)
+            ? o.items
+                .filter(it => it && it.name && Number(it.quantity) > 0 && Number(it.price) !== 0)
+                .map(it => ({
+                    id: String(it.id || ''),
+                    name: String(it.name || '').trim(),
+                    quantity: Number(it.quantity) || 1
+                }))
+            : [];
+
+        const ratedAtMs = Number(o.ratedAt)
+            || (o.createdAt && typeof o.createdAt.toMillis === 'function' ? o.createdAt.toMillis() : Date.now());
+
+        return {
+            displayName: formatPublicCustomerAlias(o.customerName),
+            zone: String(o.zone || 'الشرقية').trim(),
+            rating: rev.rating,
+            reviewText: rev.text || '',
+            reviewTags: rev.tags || [],
+            items: safeItems,
+            batchName: String(o.batchName || '').trim(),
+            orderDate: String(o.orderDate || new Date(ratedAtMs).toLocaleDateString('ar-EG')),
+            adminReply: String(customPublicReply !== undefined ? customPublicReply : (o.publicReply || '')).trim(),
+            verified: true,
+            ratedAt: ratedAtMs,
+            publishedAt: Date.now()
+        };
+    }
+
+    window.setQualityRadarSubFilter = function (key) {
+        window.qualityRadarState.subFilter = key || 'all';
+        window.renderNotesUI();
+    };
+
+    window.setQualityRadarZoneFilter = function (val) {
+        window.qualityRadarState.zone = val || 'all';
+        window.renderNotesUI();
+    };
+
+    window.setQualityRadarBatchFilter = function (val) {
+        window.qualityRadarState.batch = val || 'all';
+        window.renderNotesUI();
+    };
+
+    window.togglePublishReviewToWall = async function (orderId) {
+        if (typeof auth !== 'undefined' && !auth.currentUser) {
+            return alert('⚠️ يرجى تسجيل الدخول بحساب الأدمن أولاً.');
+        }
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const ord = ordersList.find(o => o && o.id === orderId);
+        if (!ord) return;
+
+        const isCurrentlyPublished = Boolean(ord.publishedToWall);
+
+        if (isCurrentlyPublished) {
+            const ok = (typeof window.execConfirm === 'function')
+                ? await window.execConfirm(`هل تريد إخفاء تقييم (${ord.customerName || 'العميل'}) من صفحة آراء العملاء العامة؟`, { title: 'إخفاء من حائط الثقة', tone: 'warning', confirmText: 'نعم، إخفاء' })
+                : confirm('هل تريد إخفاء هذا التقييم من صفحة آراء العملاء العامة؟');
+            if (!ok) return;
+
+            try {
+                await Promise.all([
+                    db.collection('public_reviews').doc(orderId).delete(),
+                    db.collection('orders').doc(orderId).update({ publishedToWall: false })
+                ]);
+                ord.publishedToWall = false;
+                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
+                    globalOrdersMap[orderId].publishedToWall = false;
+                }
+                window.renderNotesUI();
+                if (typeof window.showToast === 'function') window.showToast('👁️ تم إخفاء التقييم من حائط الثقة العام');
+            } catch (e) {
+                console.error('Unpublish review error:', e);
+                alert('تعذر إخفاء التقييم (تأكد من إضافة قاعدة public_reviews في Firestore Rules): ' + (e.message || e));
+            }
+            return;
+        }
+
+        const rev = extractCleanReviewPayload(ord);
+        if (rev.rating <= 0) return alert('هذا الطلب لا يحتوي على تقييم بالنجوم بعد.');
+
+        const previewAlias = formatPublicCustomerAlias(ord.customerName);
+        const promptMsg = `سيُنشر التقييم على حائط الثقة العام باسم (${previewAlias} — ${ord.zone || 'الشرقية'}) بدون أي رقم هاتف أو عنوان أو مبلغ.\n\nيمكنك كتابة رد شكر عام من إدارة سمان ههيا ليظهر أسفل التقييم (أو اتركه فارغاً):`;
+        const replyInput = (typeof window.execPrompt === 'function')
+            ? await window.execPrompt(promptMsg, ord.publicReply || 'تشرّفنا بخدمتكم يا فندم، بالهناء والشفاء دايماً من سمان ههيا 🌿', { title: 'نشر في حائط الثقة العام', tone: 'success', confirmText: 'اعتماد ونشر 🌐' })
+            : prompt(promptMsg, ord.publicReply || 'تشرّفنا بخدمتكم يا فندم، بالهناء والشفاء دايماً من سمان ههيا 🌿');
+
+        if (replyInput === null) return;
+
+        const cleanReply = String(replyInput || '').trim();
+        const sanitizedDoc = buildSanitizedPublicReviewDoc(ord, cleanReply);
+
+        try {
+            await Promise.all([
+                db.collection('public_reviews').doc(orderId).set(sanitizedDoc),
+                db.collection('orders').doc(orderId).update({
+                    publishedToWall: true,
+                    publicReply: cleanReply
+                })
+            ]);
+            ord.publishedToWall = true;
+            ord.publicReply = cleanReply;
+            if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
+                globalOrdersMap[orderId].publishedToWall = true;
+                globalOrdersMap[orderId].publicReply = cleanReply;
+            }
+            window.renderNotesUI();
+            if (typeof window.showToast === 'function') window.showToast('🌐 تم نشر التقييم بأمان على حائط الثقة (reviews.html)!');
+        } catch (e) {
+            console.error('Publish review error:', e);
+            alert('تعذر النشر على public_reviews — تأكد من إضافة قاعدة الحماية في Firestore Rules: ' + (e.message || e));
+        }
+    };
+
+    window.sendSmartReviewWhatsApp = function (orderId) {
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const ord = ordersList.find(o => o && o.id === orderId);
+        if (!ord || !ord.customerPhone) return alert('لا يوجد رقم هاتف مسجل لهذا الطلب.');
+
+        const rawDigits = String(ord.customerPhone).replace(/[\u0660-\u0669]/g, c => String(c.charCodeAt(0) - 0x0660)).replace(/\D/g, '');
+        const waPhone = rawDigits.startsWith('01') ? ('2' + rawDigits) : (rawDigits.startsWith('20') ? rawDigits : ('20' + rawDigits));
+        const firstName = String(ord.customerName || 'فندم').trim().split(/\s+/)[0];
+        const rating = Number(ord.rating) || 0;
+
+        let msg = '';
+        if (rating >= 4) {
+            msg = `أهلاً بحضرتك يا أ. ${firstName} 🌿\nشفنا تقييمك الجميل لطلبك الأخير من *سمان ههيا* (${rating}/5 ⭐️) وفرحنا جداً برضاك عن الجودة!\nبالهناء والشفاء دايماً، وتشرّفنا بخدمتك في الدفعات الجاية 🤍`;
+        } else {
+            msg = `أهلاً بحضرتك يا أ. ${firstName}، معاك إدارة *سمان ههيا* 🌿\nشفنا ملاحظتك وتقييمك الأخير وبنعتذر لك جداً لو حصل أي تقصير غير مقصود.\nرضاك وجودة الأوردر أهم حاجة عندنا — حابين نسمع منك التفاصيل عشان نرضيك ونعوّضك فوراً.`;
+        }
+
+        window.open(`https://api.whatsapp.com/send?phone=${waPhone}&text=${encodeURIComponent(msg)}`, '_blank');
+    };
+
+    function renderExecutiveQualityRadar(container) {
+        const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const rawQ = String(document.getElementById('search-notes')?.value || '')
+            .replace(/[\u0660-\u0669]/g, c => c.charCodeAt(0) - 0x0660)
+            .replace(/[\u06F0-\u06F9]/g, c => c.charCodeAt(0) - 0x06F0)
+            .toLowerCase().trim();
+
+        const ratedEntries = [];
+        const zonesSet = new Set();
+        const batchesSet = new Set();
+        const batchStatsMap = {};
+
+        ordersList.forEach(o => {
+            if (!o || o.status === 'trash') return;
+            const rev = extractCleanReviewPayload(o);
+            if (rev.rating <= 0) return;
+
+            const isResolved = String(o.adminNote || '').includes('✅ تمت المراجعة');
+            const isPublished = Boolean(o.publishedToWall);
+            const sortMs = Number(o.ratedAt) || (o.createdAt && typeof o.createdAt.toMillis === 'function' ? o.createdAt.toMillis() : 0);
+            const z = String(o.zone || 'غير محدد').trim();
+            const b = String(o.batchName || 'طلب فوري').trim();
+            zonesSet.add(z);
+            batchesSet.add(b);
+
+            if (!batchStatsMap[b]) batchStatsMap[b] = { sum: 0, count: 0, bad: 0 };
+            batchStatsMap[b].sum += rev.rating;
+            batchStatsMap[b].count += 1;
+            if (rev.rating <= 3) batchStatsMap[b].bad += 1;
+
+            ratedEntries.push({
+                order: o,
+                rating: rev.rating,
+                text: rev.text,
+                tags: rev.tags,
+                isComplaint: rev.rating <= 3,
+                isResolved,
+                isPublished,
+                zone: z,
+                batch: b,
+                sortMs,
+                hay: `${o.customerName || ''} ${o.customerPhone || ''} ${z} ${b} ${rev.text} ${rev.tags.join(' ')}`.toLowerCase()
+            });
+        });
+
+        const totalRated = ratedEntries.length;
+        const avgStars = totalRated > 0 ? (ratedEntries.reduce((s, x) => s + x.rating, 0) / totalRated).toFixed(1) : '0.0';
+        const positiveCount = ratedEntries.filter(x => x.rating >= 4).length;
+        const satPct = totalRated > 0 ? Math.round((positiveCount / totalRated) * 100) : 0;
+        const openComplaintsCount = ratedEntries.filter(x => x.isComplaint && !x.isResolved).length;
+        const publishedCount = ratedEntries.filter(x => x.isPublished).length;
+
+        const st = window.qualityRadarState;
+        const filtered = ratedEntries.filter(x => {
+            if (st.subFilter === 'complaints' && !x.isComplaint) return false;
+            if (st.subFilter === 'positive' && x.rating < 4) return false;
+            if (st.subFilter === 'published' && !x.isPublished) return false;
+            if (st.subFilter === 'unpublished' && (x.isPublished || x.rating < 4)) return false;
+            if (st.zone !== 'all' && x.zone !== st.zone) return false;
+            if (st.batch !== 'all' && x.batch !== st.batch) return false;
+            if (rawQ && !x.hay.includes(rawQ)) return false;
+            return true;
+        });
+
+        filtered.sort((a, b) => {
+            const pA = (a.isComplaint && !a.isResolved) ? 2 : 0;
+            const pB = (b.isComplaint && !b.isResolved) ? 2 : 0;
+            if (pB !== pA) return pB - pA;
+            return b.sortMs - a.sortMs;
+        });
+
+        const subBtnCls = (k) => st.subFilter === k
+            ? 'bg-slate-900 text-amber-300 border-slate-900 shadow-sm'
+            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50';
+
+        const batchPulseHtml = Object.keys(batchStatsMap).slice(0, 5).map(bName => {
+            const bs = batchStatsMap[bName];
+            const bAvg = (bs.sum / bs.count).toFixed(1);
+            const warn = bs.bad > 0;
+            return `<button type="button" onclick="setQualityRadarBatchFilter('${escNoteJs(st.batch === bName ? 'all' : bName)}')" class="whitespace-nowrap px-2.5 py-1 rounded-xl text-[10px] font-black border transition-all ${st.batch === bName ? 'bg-emerald-700 text-white border-emerald-700' : (warn ? 'bg-rose-50 text-rose-800 border-rose-200' : 'bg-emerald-50/70 text-emerald-900 border-emerald-200')}">
+                ${escNoteHtml(bName)}: ${bAvg}⭐️ (${bs.count})
+            </button>`;
+        }).join('');
+
+        const headerHtml = `
+            <div class="col-span-full space-y-3">
+                <div class="bg-gradient-to-l from-[#0b261c] via-[#133b2c] to-slate-900 text-white rounded-3xl p-4 shadow-lg border border-amber-400/30 space-y-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-white/10">
+                        <div class="flex items-center gap-2.5">
+                            <span class="w-9 h-9 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center text-base shadow shrink-0">
+                                <i class="fa-solid fa-satellite-dish"></i>
+                            </span>
+                            <div>
+                                <h3 class="text-sm sm:text-base font-black text-white leading-tight">رادار الجودة وآراء العملاء (محمي للأدمن)</h3>
+                                <p class="text-[10px] font-bold text-emerald-200/85">تابع الرضا والشكاوى لحظياً واعتمد التقييمات الموثّقة للعرض في حائط الثقة العام</p>
+                            </div>
+                        </div>
+                        <a href="https://smanhhya.github.io/reviews.html" target="_blank" class="bg-white/10 hover:bg-amber-400 text-amber-300 hover:text-slate-950 border border-amber-400/35 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1.5">
+                            <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i> معاينة حائط الثقة
+                        </a>
+                    </div>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                        <div class="bg-white/10 rounded-2xl p-2.5 border border-white/10">
+                            <span class="text-[10px] font-bold text-emerald-200 block">متوسط التقييم</span>
+                            <span class="text-xl font-black text-amber-300">${avgStars} <i class="fa-solid fa-star text-xs"></i></span>
+                            <span class="block text-[9px] text-white/70">من ${totalRated} تقييم</span>
+                        </div>
+                        <div class="bg-white/10 rounded-2xl p-2.5 border border-white/10">
+                            <span class="text-[10px] font-bold text-emerald-200 block">نسبة الرضا (4–5⭐️)</span>
+                            <span class="text-xl font-black text-emerald-300">${satPct}%</span>
+                            <span class="block text-[9px] text-white/70">${positiveCount} عميل راضٍ</span>
+                        </div>
+                        <div class="rounded-2xl p-2.5 border ${openComplaintsCount > 0 ? 'bg-rose-500/25 border-rose-400/60 animate-pulse' : 'bg-white/10 border-white/10'}">
+                            <span class="text-[10px] font-bold ${openComplaintsCount > 0 ? 'text-rose-200' : 'text-emerald-200'} block">شكاوى مفتوحة</span>
+                            <span class="text-xl font-black ${openComplaintsCount > 0 ? 'text-rose-200' : 'text-white'}">${openComplaintsCount}</span>
+                            <span class="block text-[9px] text-white/70">تقييمات 1–3 نجوم</span>
+                        </div>
+                        <div class="bg-white/10 rounded-2xl p-2.5 border border-white/10">
+                            <span class="text-[10px] font-bold text-emerald-200 block">منشور بحائط الثقة</span>
+                            <span class="text-xl font-black text-sky-300">${publishedCount}</span>
+                            <span class="block text-[9px] text-white/70">ظاهر للجمهور بأمان</span>
+                        </div>
+                    </div>
+
+                    ${batchPulseHtml ? `
+                    <div class="flex items-center gap-1.5 overflow-x-auto pt-1" style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
+                        <span class="text-[10px] font-black text-amber-200 shrink-0">📊 جودة الدفعات:</span>
+                        ${batchPulseHtml}
+                    </div>` : ''}
+                </div>
+
+                <div class="bg-white rounded-2xl p-2.5 border border-slate-200 shadow-sm space-y-2">
+                    <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5" style="-webkit-overflow-scrolling: touch; scrollbar-width: none;">
+                        <button type="button" onclick="setQualityRadarSubFilter('all')" class="whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black border transition-all ${subBtnCls('all')}">الكل (${totalRated})</button>
+                        <button type="button" onclick="setQualityRadarSubFilter('complaints')" class="whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black border transition-all ${subBtnCls('complaints')}">⚠️ شكاوى (${ratedEntries.filter(x => x.isComplaint).length})</button>
+                        <button type="button" onclick="setQualityRadarSubFilter('positive')" class="whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black border transition-all ${subBtnCls('positive')}">🌟 ممتازة (${positiveCount})</button>
+                        <button type="button" onclick="setQualityRadarSubFilter('published')" class="whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black border transition-all ${subBtnCls('published')}">🌐 منشورة بالموقع (${publishedCount})</button>
+                        <button type="button" onclick="setQualityRadarSubFilter('unpublished')" class="whitespace-nowrap px-3 py-1.5 rounded-xl text-[11px] font-black border transition-all ${subBtnCls('unpublished')}">⏳ جاهزة للنشر (${ratedEntries.filter(x => !x.isPublished && x.rating >= 4).length})</button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <select onchange="setQualityRadarZoneFilter(this.value)" class="border border-slate-200 bg-slate-50 rounded-xl px-2.5 py-1.5 text-[11px] font-black text-slate-700 outline-none">
+                            <option value="all" ${st.zone === 'all' ? 'selected' : ''}>📍 كل المناطق</option>
+                            ${Array.from(zonesSet).map(z => `<option value="${escNoteHtml(z)}" ${st.zone === z ? 'selected' : ''}>📍 ${escNoteHtml(z)}</option>`).join('')}
+                        </select>
+                        <select onchange="setQualityRadarBatchFilter(this.value)" class="border border-slate-200 bg-slate-50 rounded-xl px-2.5 py-1.5 text-[11px] font-black text-slate-700 outline-none">
+                            <option value="all" ${st.batch === 'all' ? 'selected' : ''}>📦 كل الدفعات</option>
+                            ${Array.from(batchesSet).map(b => `<option value="${escNoteHtml(b)}" ${st.batch === b ? 'selected' : ''}>📦 ${escNoteHtml(b)}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        if (filtered.length === 0) {
+            container.innerHTML = headerHtml + `<div class="col-span-full text-center py-10 text-slate-400 font-bold bg-white rounded-2xl border-2 border-dashed border-slate-200">لا توجد تقييمات مطابقة لهذا الفلتر حالياً.</div>`;
+            return;
+        }
+
+        const cardsHtml = filtered.slice(0, 80).map(item => {
+            const o = item.order;
+            const safeOrderId = escNoteJs(o.id);
+            const safePhone = escNoteJs(o.customerPhone || '');
+            const starsHtml = Array.from({ length: 5 }, (_, i) =>
+                `<i class="fa-${i < item.rating ? 'solid text-amber-400' : 'regular text-slate-300'} fa-star text-xs"></i>`
+            ).join('');
+
+            const itemsBadges = Array.isArray(o.items)
+                ? o.items.slice(0, 5).map(it => `<span class="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-0.5 rounded-lg text-[10px] font-black">${escNoteHtml(it.quantity)}× ${escNoteHtml(it.name)}</span>`).join(' ')
+                : '';
+
+            const tagsHtml = item.tags.length > 0
+                ? `<div class="flex flex-wrap gap-1">${item.tags.map(t => `<span class="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-lg text-[10px] font-black">${escNoteHtml(t)}</span>`).join('')}</div>`
+                : '';
+
+            const borderCls = item.isComplaint
+                ? (item.isResolved ? 'border-r-4 border-r-amber-400 border-amber-200' : 'border-r-4 border-r-rose-600 border-rose-300 bg-rose-50/15')
+                : (item.isPublished ? 'border-r-4 border-r-emerald-600 border-emerald-200' : 'border-r-4 border-r-slate-400 border-slate-200');
+
+            return `
+            <div class="bg-white rounded-2xl p-3.5 border ${borderCls} shadow-sm space-y-2.5 flex flex-col justify-between">
+                <div class="space-y-2">
+                    <div class="flex items-start justify-between gap-2 pb-2 border-b border-slate-100">
+                        <div class="min-w-0">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <h4 onclick="openCustomerCard('${safePhone}')" class="font-black text-slate-900 text-sm cursor-pointer hover:text-brand-primary">${escNoteHtml(o.customerName || 'عميل')}</h4>
+                                ${item.isPublished ? '<span class="bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.5 rounded-md">🌐 منشور بالموقع</span>' : ''}
+                                ${item.isComplaint && !item.isResolved ? '<span class="bg-rose-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md">⚠️ شكوى عاجلة</span>' : ''}
+                                ${item.isResolved ? '<span class="bg-teal-100 text-teal-800 text-[9px] font-black px-1.5 py-0.5 rounded-md">✅ تمت المعالجة</span>' : ''}
+                            </div>
+                            <p class="text-[10px] font-bold text-slate-400 mt-0.5">
+                                <span dir="ltr">${escNoteHtml(o.customerPhone || '')}</span> • 📍 ${escNoteHtml(item.zone)} • 📦 ${escNoteHtml(item.batch)} • ${escNoteHtml(o.orderDate || '')}
+                            </p>
+                        </div>
+                        <div class="text-left shrink-0">
+                            <div class="flex items-center gap-0.5" dir="ltr">${starsHtml}</div>
+                            <span class="block text-[10px] font-black text-brand-primary mt-0.5">${Number(o.total) || 0} ج.م</span>
+                        </div>
+                    </div>
+
+                    ${tagsHtml}
+
+                    <div class="${item.isComplaint ? 'bg-rose-50/70 border-rose-200 text-rose-950' : 'bg-emerald-50/50 border-emerald-200/80 text-slate-800'} border rounded-xl p-2.5 text-xs font-bold leading-relaxed">
+                        ${item.text ? escNoteHtml(item.text) : '<span class="text-slate-400">اكتفى العميل بالتقييم بالنجوم بدون تعليق نصي.</span>'}
+                    </div>
+
+                    ${o.publicReply ? `
+                    <div class="bg-amber-50/70 border border-amber-200 rounded-xl p-2 text-[11px] font-bold text-amber-950">
+                        <span class="text-[9px] font-black text-amber-700 block mb-0.5">🌿 رد الإدارة الظاهر بالموقع:</span>
+                        ${escNoteHtml(o.publicReply)}
+                    </div>` : ''}
+
+                    ${itemsBadges ? `<div class="flex flex-wrap gap-1 pt-0.5">${itemsBadges}</div>` : ''}
+                </div>
+
+                <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
+                    <button type="button" onclick="togglePublishReviewToWall('${safeOrderId}')" class="${item.isPublished ? 'bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200' : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'} py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1 sm:flex-1">
+                        <i class="fa-solid ${item.isPublished ? 'fa-eye-slash' : 'fa-globe'}"></i>
+                        <span>${item.isPublished ? 'إخفاء من الموقع' : 'نشر بحائط الثقة'}</span>
+                    </button>
+                    <button type="button" onclick="sendSmartReviewWhatsApp('${safeOrderId}')" class="bg-[#25D366] hover:bg-green-600 text-white py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1">
+                        <i class="fa-brands fa-whatsapp text-xs"></i>
+                        <span>${item.isComplaint ? 'اعتذار ومتابعة' : 'رسالة شكر'}</span>
+                    </button>
+                    ${!item.isResolved ? `
+                    <button type="button" onclick="markOrderNoteReviewedInHub('${safeOrderId}', 'adminNote')" class="bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-white border border-amber-200 py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-check"></i>
+                        <span>${item.isComplaint ? 'تم حل الشكوى' : 'تمت المراجعة'}</span>
+                    </button>` : ''}
+                    <button type="button" onclick="openEditOrderModal('${safeOrderId}')" class="bg-slate-900 hover:bg-slate-800 text-white py-1.5 px-2.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-pen text-amber-300"></i> الطلب
+                    </button>
+                </div>
+            </div>`;
+        }).join('');
+
+        container.innerHTML = headerHtml + cardsHtml;
+    }
+
+    const _origRenderNotesForRadar = window.renderNotesUI;
+    window.renderNotesUI = function () {
+        const container = document.getElementById('notes-list-container');
+        if (window.notesHubState && window.notesHubState.filter === 'rating' && container) {
+            if (typeof _origRenderNotesForRadar === 'function') {
+                _origRenderNotesForRadar();
+            }
+            renderExecutiveQualityRadar(container);
+            return;
+        }
+        if (typeof _origRenderNotesForRadar === 'function') {
+            _origRenderNotesForRadar();
+        }
+    };
+
 
     function initSettingsIfActive() {
         const activeTab = window.smanCurrentActiveTab || 'dashboard';
