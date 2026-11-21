@@ -1208,9 +1208,11 @@
 
             const saveBtn = document.getElementById('global-save-btn');
             if (saveBtn) {
-                saveBtn.className = 'bg-slate-900 hover:bg-slate-800 text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black shadow-sm transition-all flex items-center gap-1 shrink-0 hidden';
+                const showSaveNow = ['inventory', 'settings', 'marketing', 'batches'].includes(window.smanCurrentActiveTab || '');
+                saveBtn.className = `bg-slate-900 hover:bg-slate-800 text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black shadow-sm transition-all flex items-center gap-1 shrink-0${showSaveNow ? '' : ' hidden'}`;
                 saveBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up text-amber-400"></i> <span>حفظ</span>';
             }
+
 
             if (!document.getElementById('lc-header-pulse-bar')) {
                 const inlineBar = document.createElement('div');
