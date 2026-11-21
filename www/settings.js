@@ -2324,6 +2324,109 @@
         if (typeof window.showToast === 'function') window.showToast(`📋 تم نسخ الكود: ${code}`);
     };
 
+    // =========================================================================
+    // 🛍️ 11. ربط أدوات تسويق موقع العملاء (الاقتراح الذكي + الإشعارات الحية + الكوبون التلقائي)
+    // =========================================================================
+    function renderStorefrontMarketingControlsUI() {
+        const csProdSel = document.getElementById('st-cs-product');
+        if (csProdSel) {
+            const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
+            const opts = ['<option value="">-- اختر صنفاً مقترحاً --</option>'];
+            Object.keys(prodsObj).forEach(id => {
+                const p = prodsObj[id];
+                if (!p || p.isWeightBased) return;
+                opts.push(`<option value="${escSettingsHtml(id)}">${escSettingsHtml(p.name || id)}</option>`);
+            });
+            csProdSel.innerHTML = opts.join('');
+            csProdSel.value = storeSettings.crossSellProductId || '';
+        }
+
+        if (document.getElementById('st-cs-active')) document.getElementById('st-cs-active').checked = Boolean(storeSettings.crossSellActive);
+        if (document.getElementById('st-cs-title')) document.getElementById('st-cs-title').value = storeSettings.crossSellTitle || '';
+        if (document.getElementById('st-cs-desc')) document.getElementById('st-cs-desc').value = storeSettings.crossSellDesc || '';
+
+        if (document.getElementById('st-ln-active')) document.getElementById('st-ln-active').checked = Boolean(storeSettings.liveNotiActive);
+        if (document.getElementById('st-ln-names')) {
+            document.getElementById('st-ln-names').value = Array.isArray(storeSettings.liveNotiNames)
+                ? storeSettings.liveNotiNames.join('، ')
+                : '';
+        }
+        if (document.getElementById('st-ln-places')) {
+            document.getElementById('st-ln-places').value = Array.isArray(storeSettings.liveNotiPlaces)
+                ? storeSettings.liveNotiPlaces.join('، ')
+                : '';
+        }
+
+        if (document.getElementById('st-rw-active')) document.getElementById('st-rw-active').checked = Boolean(storeSettings.rewardActive);
+        if (document.getElementById('st-rw-prefix')) document.getElementById('st-rw-prefix').value = storeSettings.autoPromoPrefix || 'VIP-';
+        if (document.getElementById('st-rw-type')) document.getElementById('st-rw-type').value = storeSettings.rewardType || 'fixed';
+        if (document.getElementById('st-rw-value')) document.getElementById('st-rw-value').value = Number(storeSettings.rewardValue) || 0;
+        if (document.getElementById('st-rw-max-disc')) document.getElementById('st-rw-max-disc').value = Number(storeSettings.rewardMaxDiscount) || 0;
+        if (document.getElementById('st-rw-max-gen')) document.getElementById('st-rw-max-gen').value = Number(storeSettings.rewardMaxGenerations) || 0;
+    }
+
+    function collectStorefrontMarketingPatch() {
+        const splitCommaList = (raw) => String(raw || '')
+            .split(/[,،\n]+/)
+            .map(s => s.trim())
+            .filter(Boolean);
+
+        const patch = {};
+        if (document.getElementById('st-cs-active')) {
+            patch.crossSellActive = Boolean(document.getElementById('st-cs-active').checked);
+            patch.crossSellProductId = document.getElementById('st-cs-product')?.value || '';
+            patch.crossSellTitle = (document.getElementById('st-cs-title')?.value || '').trim();
+            patch.crossSellDesc = (document.getElementById('st-cs-desc')?.value || '').trim();
+        }
+        if (document.getElementById('st-ln-active')) {
+            patch.liveNotiActive = Boolean(document.getElementById('st-ln-active').checked);
+            patch.liveNotiNames = splitCommaList(document.getElementById('st-ln-names')?.value);
+            patch.liveNotiPlaces = splitCommaList(document.getElementById('st-ln-places')?.value);
+        }
+        if (document.getElementById('st-rw-active')) {
+            patch.rewardActive = Boolean(document.getElementById('st-rw-active').checked);
+            patch.autoPromoPrefix = ((document.getElementById('st-rw-prefix')?.value || 'VIP-').trim().toUpperCase()) || 'VIP-';
+            patch.rewardType = document.getElementById('st-rw-type')?.value || 'fixed';
+            patch.rewardValue = parseFloat(document.getElementById('st-rw-value')?.value) || 0;
+            patch.rewardMaxDiscount = parseFloat(document.getElementById('st-rw-max-disc')?.value) || 0;
+            patch.rewardMaxGenerations = parseInt(document.getElementById('st-rw-max-gen')?.value, 10) || 0;
+        }
+        return patch;
+    }
+
+    const _origRenderSettingsForMarketing = window.renderSettingsUI;
+    window.renderSettingsUI = function () {
+        if (typeof _origRenderSettingsForMarketing === 'function') {
+            _origRenderSettingsForMarketing.apply(this, arguments);
+        }
+        renderStorefrontMarketingControlsUI();
+    };
+
+    const _origSaveSettingsForMarketing = window.saveAllSettings;
+    window.saveAllSettings = async function (silent = false) {
+        const settingsViewEl = document.getElementById('view-settings');
+        const isSettingsOpen = Boolean(settingsViewEl && settingsViewEl.classList.contains('active')) || window.smanCurrentActiveTab === 'settings';
+        let marketingPatch = null;
+
+        if (isSettingsOpen) {
+            marketingPatch = collectStorefrontMarketingPatch();
+            Object.assign(storeSettings, marketingPatch);
+        }
+
+        if (typeof _origSaveSettingsForMarketing === 'function') {
+            await _origSaveSettingsForMarketing.apply(this, arguments);
+        }
+
+        if (isSettingsOpen && marketingPatch && Object.keys(marketingPatch).length > 0 && typeof auth !== 'undefined' && auth.currentUser) {
+            try {
+                await db.collection('inventory').doc('settings').set(marketingPatch, { merge: true });
+                if (typeof window.saveInventoryFastMirror === 'function') window.saveInventoryFastMirror();
+            } catch (err) {
+                console.warn('Marketing settings save info:', err);
+            }
+        }
+    };
+
 
     function initSettingsIfActive() {
         const activeTab = window.smanCurrentActiveTab || 'dashboard';
