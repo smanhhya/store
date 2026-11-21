@@ -297,13 +297,23 @@
             driversMap[dName].openCount++;
         });
 
+        const driversArr = Object.values(driversMap).sort((a, b) => b.openCount - a.openCount);
+        let autoSelectedDriver = currentSelectedDriver;
+        const firstOpenDriver = driversArr.find(d => d.openCount > 0);
+        if (!autoSelectedDriver && firstOpenDriver) {
+            autoSelectedDriver = firstOpenDriver.name;
+        } else if (autoSelectedDriver && driversMap[autoSelectedDriver] && driversMap[autoSelectedDriver].openCount === 0 && firstOpenDriver && !window.reconShowHistory) {
+            autoSelectedDriver = firstOpenDriver.name;
+        }
+
         selectEl.innerHTML = '<option value="">-- اختر المندوب لحساب عهدته وتصفية الوردية --</option>';
-        Object.values(driversMap).forEach(d => {
+        driversArr.forEach(d => {
             const countBadge = d.openCount > 0 ? ` — [عهدة مفتوحة: ${d.openCount} طلب]` : ' — [خالصة ✅]';
-            selectEl.innerHTML += `<option value="${d.name}" ${currentSelectedDriver === d.name ? 'selected' : ''}>🛵 ${d.name} (${d.phone || 'بدون رقم'})${countBadge}</option>`;
+            selectEl.innerHTML += `<option value="${d.name}" ${autoSelectedDriver === d.name ? 'selected' : ''}>🛵 ${d.name} (${d.phone || 'بدون رقم'})${countBadge}</option>`;
         });
 
-        if (currentSelectedDriver) {
+        if (autoSelectedDriver) {
+            selectEl.value = autoSelectedDriver;
             window.calculateDriverReconciliation();
         }
     };
@@ -605,31 +615,28 @@
             return;
         }
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-                    <div class="bg-slate-800/90 p-3 rounded-xl border border-slate-700">
-                        <label class="text-[10px] font-black text-emerald-400 block mb-1.5">💵 إجمالي المستلم كاش في الإيد (ج.م)</label>
-                        <input type="number" id="actual-collected-cash" value="${initialCashGross}" min="0" oninput="onReconSettlementInput('cash', ${totalAllGross}, ${totalAllNetProducts})" class="w-full bg-slate-900 border-2 border-emerald-500/40 rounded-xl p-2.5 text-center font-black text-white text-base outline-none focus:border-emerald-400 transition-all">
-                    </div>
+        let totalAllGross = 0;
+        let totalAllNetProducts = 0;
+        let totalDeliveryFees = 0;
+        let initialCashNet = 0;
+        let initialOnlineNet = 0;
+        let totalCashCount = 0;
+        let totalOnlineCount = 0;
+        let totalSplitCount = 0;
+        let ordersHtml = '';
 
-                    <div class="bg-slate-800/90 p-3 rounded-xl border border-slate-700">
-                        <label class="text-[10px] font-black text-indigo-300 block mb-1.5">💳 إجمالي المستلم فيزا / محفظة (ج.م)</label>
-                        <input type="number" id="actual-collected-wallet" value="${initialOnlineGross}" min="0" oninput="onReconSettlementInput('wallet', ${totalAllGross}, ${totalAllNetProducts})" class="w-full bg-slate-900 border-2 border-indigo-500/40 rounded-xl p-2.5 text-center font-black text-white text-base outline-none focus:border-indigo-400 transition-all">
-                    </div>
+        activeCustodyOrders.forEach(o => {
+            const br = window.getOrderPaymentBreakdown(o);
+            totalAllGross += br.total;
+            totalAllNetProducts += br.netTotal;
+            totalDeliveryFees += (Number(o.deliveryFee) || 0);
+            initialCashNet += br.netCash;
+            initialOnlineNet += br.netOnline;
 
-                    <div class="bg-slate-800/60 p-3 rounded-xl border border-slate-700/80 flex flex-col justify-between gap-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-[10px] font-black text-slate-300">حساب التقسيمة على أساس:</span>
-                            <select id="recon-target-base" onchange="onReconSettlementInput('cash', ${totalAllGross}, ${totalAllNetProducts})" class="bg-slate-900 text-amber-300 border border-slate-600 rounded-lg px-2 py-1 text-[10px] font-black outline-none">
-                                <option value="${totalAllGross}" ${initialCashGross + initialOnlineGross === totalAllGross ? 'selected' : ''}>الإجمالي بالشحن (${totalAllGross} ج)</option>
-                                <option value="${totalAllNetProducts}" ${initialCashGross + initialOnlineGross === totalAllNetProducts ? 'selected' : ''}>الصافي بدون شحن (${totalAllNetProducts} ج)</option>
-                            </select>
-                        </div>
-                        <label class="flex items-center gap-2 text-[11px] font-black text-amber-300 cursor-pointer select-none">
-                            <input type="checkbox" id="recon-auto-split-cb" checked class="w-4 h-4 accent-amber-400 rounded">
-                            حساب الباقي تلقائياً (نص ونص)
-                        </label>
-                    </div>
-                </div>
+            if (br.method === 'online') totalOnlineCount++;
+            else if (br.method === 'split') totalSplitCount++;
+            else totalCashCount++;
+        });
 
         ordersToDisplay.forEach((o, index) => {
             const br = window.getOrderPaymentBreakdown(o);
@@ -830,7 +837,10 @@
             `• 💵 صافي كاش الدرج: ${targetNetCash.toLocaleString()} ج.م\n` +
             `• 💳 محفظة الأونلاين / الفيزا: ${targetNetOnline.toLocaleString()} ج.م`;
 
-        if (!(await window.execConfirm(confirmMsg, { title: 'تأكيد تصفية وتقفيل العهدة', tone: 'success', confirmText: 'تأكيد الاستلام والتقفيل' }))) return;
+        const okSettle = (typeof window.execConfirm === 'function')
+            ? await window.execConfirm(confirmMsg, { title: 'تأكيد تصفية وتقفيل العهدة', tone: 'success', confirmText: 'تأكيد الاستلام والتقفيل' })
+            : confirm(confirmMsg);
+        if (!okSettle) return;
 
 
         const btn = document.getElementById('btn-settle-recon');
