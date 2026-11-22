@@ -1848,7 +1848,7 @@
     };
 
     // =========================================================================
-    // 📷 9. استوديو الصور الذكي (ضغط وتظبيط تلقائي + رفع مباشر على ImgBB)
+    // 📷 9. استوديو الصور الذكي HD (قص وتكبير باليد + حفظ جودة عالية + ترتيب الكتالوج)
     // =========================================================================
     let pendingUploadProductId = null;
 
@@ -1869,56 +1869,89 @@
         try { return (localStorage.getItem('sman_imgbb_api_key') || '').trim(); } catch (e) { return ''; }
     }
 
-    // معالجة وضغط الصورة تلقائياً في المتصفح قبل الرفع (سرعة فائقة + أبعاد متوازنة)
-    function compressAndFormatImage(file, mode) {
+    // قراءة ملف الصورة كعنصر Image بدقة كاملة
+    function loadImageElementFromFile(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onerror = () => reject(new Error('تعذر قراءة ملف الصورة'));
             reader.onload = (ev) => {
                 const img = new Image();
                 img.onerror = () => reject(new Error('الملف المختار ليس صورة صالحة'));
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-
-                    if (mode === 'product') {
-                        const size = 800;
-                        canvas.width = size;
-                        canvas.height = size;
-                        // خلفية كريمي ناعمة مطابقة لخلفية متجر سمان ههيا
-                        ctx.fillStyle = '#faf8f3';
-                        ctx.fillRect(0, 0, size, size);
-
-                        const fitMode = localStorage.getItem('sman_img_fit_mode') || 'contain';
-                        if (fitMode === 'cover') {
-                            const scale = Math.max(size / img.width, size / img.height);
-                            const w = img.width * scale;
-                            const h = img.height * scale;
-                            ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
-                        } else {
-                            const pad = 24;
-                            const maxSide = size - pad * 2;
-                            const scale = Math.min(maxSide / img.width, maxSide / img.height);
-                            const w = img.width * scale;
-                            const h = img.height * scale;
-                            ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
-                        }
-                    } else {
-                        // صور الكتالوج: نحافظ على التناسب الأصلي مع حد أقصى 1080px
-                        const maxDim = 1080;
-                        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-                        canvas.width = Math.round(img.width * scale);
-                        canvas.height = Math.round(img.height * scale);
-                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                    }
-
-                    const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-                    const base64Only = dataUrl.split(',')[1];
-                    resolve(base64Only);
-                };
+                img.onload = () => resolve(img);
                 img.src = ev.target.result;
             };
             reader.readAsDataURL(file);
+        });
+    }
+
+    // دالة رسم الصورة على Canvas بجودة فائقة (HD 1200px للمنتجات / 1600px للكتالوج بدون تكسير)
+    function renderHighQualityCanvasBase64(img, opts) {
+        const cfg = opts || {};
+        const mode = cfg.mode || 'product';
+        const enhance = cfg.enhance !== false;
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        if (mode === 'product') {
+            const outSize = 1200; // دقة عالية تحافظ على حدة تفاصيل السمان والاستيكر
+            canvas.width = outSize;
+            canvas.height = outSize;
+            ctx.fillStyle = '#faf8f3';
+            ctx.fillRect(0, 0, outSize, outSize);
+
+            const fitMode = cfg.fitMode || (localStorage.getItem('sman_img_fit_mode') || 'cover');
+            const zoom = Math.max(0.85, Math.min(3.2, Number(cfg.zoom) || 1));
+            const offsetXRatio = Number(cfg.offsetXRatio) || 0; // نسبة الإزاحة بالنسبة لحجم الإطار
+            const offsetYRatio = Number(cfg.offsetYRatio) || 0;
+            const rotDeg = ((Number(cfg.rotation) || 0) % 360 + 360) % 360;
+            const swapDims = (rotDeg === 90 || rotDeg === 270);
+            const effW = swapDims ? img.height : img.width;
+            const effH = swapDims ? img.width : img.height;
+
+            const baseScale = (fitMode === 'contain')
+                ? Math.min((outSize - 24) / effW, (outSize - 24) / effH)
+                : Math.max(outSize / effW, outSize / effH);
+
+            const finalScale = baseScale * zoom;
+
+            ctx.save();
+            if (enhance && 'filter' in ctx) {
+                ctx.filter = 'contrast(1.04) saturate(1.06) brightness(1.02)';
+            }
+            ctx.translate((outSize / 2) + (offsetXRatio * outSize), (outSize / 2) + (offsetYRatio * outSize));
+            if (rotDeg !== 0) ctx.rotate((rotDeg * Math.PI) / 180);
+            ctx.scale(finalScale, finalScale);
+            ctx.drawImage(img, -img.width / 2, -img.height / 2);
+            ctx.restore();
+
+            return canvas.toDataURL('image/jpeg', 0.94).split(',')[1];
+        }
+
+        // صور الكتالوج: نحافظ على الأبعاد الطبيعية بدقة عالية تصل إلى 1600px
+        const maxDim = 1600;
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        if (enhance && 'filter' in ctx) {
+            ctx.filter = 'contrast(1.03) saturate(1.05) brightness(1.01)';
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/jpeg', 0.93).split(',')[1];
+    }
+
+    async function compressAndFormatImage(file, mode) {
+        const img = await loadImageElementFromFile(file);
+        return renderHighQualityCanvasBase64(img, {
+            mode,
+            fitMode: localStorage.getItem('sman_img_fit_mode') || 'cover',
+            zoom: 1,
+            offsetXRatio: 0,
+            offsetYRatio: 0,
+            rotation: 0,
+            enhance: true
         });
     }
 
@@ -1941,7 +1974,308 @@
         return json.data.display_url || json.data.url;
     }
 
-    // 1. رفع صورة لصنف معين من شاشة الأصناف والأسعار
+    // -------------------------------------------------------------------------
+    // استوديو القص والتكبير التفاعلي السريع قبل الرفع (Smart Crop & Zoom Studio)
+    // -------------------------------------------------------------------------
+    const cropStudioState = {
+        img: null,
+        prodId: null,
+        fitMode: 'cover',
+        zoom: 1,
+        offsetXRatio: 0,
+        offsetYRatio: 0,
+        rotation: 0,
+        enhance: true
+    };
+
+    function ensureSmartCropModal() {
+        let modal = document.getElementById('sman-crop-studio-modal');
+        if (modal) return modal;
+
+        modal = document.createElement('div');
+        modal.id = 'sman-crop-studio-modal';
+        modal.className = 'fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-[260] hidden flex items-center justify-center p-3';
+        modal.innerHTML = `
+            <div class="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 max-h-[94vh] flex flex-col">
+                <div class="bg-gradient-to-l from-[#042f2e] via-[#064e3b] to-slate-900 text-white px-4 py-3.5 flex items-center justify-between shrink-0">
+                    <div>
+                        <h3 class="text-sm font-black text-white flex items-center gap-2">
+                            <i class="fa-solid fa-crop-simple text-amber-400"></i>
+                            <span>تظبيط وقص صورة الصنف (HD)</span>
+                        </h3>
+                        <p id="sc-prod-subtitle" class="text-[10px] font-bold text-emerald-200 mt-0.5">اسحب الصورة بإصبعك وكبّر حتى يملأ الطبق الكادر بوضوح</p>
+                    </div>
+                    <button type="button" onclick="closeSmartCropModal()" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-rose-500 text-white flex items-center justify-center">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <div class="p-4 space-y-3 overflow-y-auto flex-1 bg-slate-50/80">
+                    <!-- مربع المعاينة التفاعلي (سحب باليد + تكبير بإصبعين) -->
+                    <div class="relative w-full max-w-[310px] aspect-square mx-auto rounded-2xl overflow-hidden border-2 border-emerald-700/40 shadow-md bg-[#faf8f3] select-none" style="touch-action: none;">
+                        <canvas id="sc-preview-canvas" width="620" height="620" class="w-full h-full block cursor-grab active:cursor-grabbing"></canvas>
+                        <!-- شبكة إرشاد خفيفة للتوسيط -->
+                        <div class="pointer-events-none absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-25">
+                            <div class="border-l border-b border-white/80"></div>
+                            <div class="border-l border-b border-white/80"></div>
+                            <div class="border-b border-white/80"></div>
+                            <div class="border-l border-b border-white/80"></div>
+                            <div class="border-l border-b border-white/80"></div>
+                            <div class="border-b border-white/80"></div>
+                            <div class="border-l border-white/80"></div>
+                            <div class="border-l border-white/80"></div>
+                            <div></div>
+                        </div>
+                        <span class="pointer-events-none absolute bottom-2 right-2 bg-black/60 text-white text-[9px] font-black px-2 py-0.5 rounded-lg">✋ اسحب للتحريك</span>
+                    </div>
+
+                    <!-- شريط التكبير (Zoom Slider) -->
+                    <div class="bg-white border border-slate-200 rounded-2xl p-3 space-y-2.5">
+                        <div class="flex items-center justify-between text-[11px] font-black text-slate-700">
+                            <span><i class="fa-solid fa-magnifying-glass-plus text-emerald-600 ml-1"></i> التكبير والتقريب:</span>
+                            <span id="sc-zoom-badge" class="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-lg" dir="ltr">100%</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button type="button" onclick="stepSmartCropZoom(-0.15)" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-sm shrink-0">−</button>
+                            <input type="range" id="sc-zoom-range" min="1" max="3" step="0.02" value="1" oninput="setSmartCropZoom(this.value)" class="flex-1 accent-emerald-600 cursor-pointer">
+                            <button type="button" onclick="stepSmartCropZoom(0.15)" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-sm shrink-0">+</button>
+                        </div>
+
+                        <!-- أزرار التحكم السريعة -->
+                        <div class="grid grid-cols-3 gap-1.5 pt-1">
+                            <button type="button" id="sc-mode-cover-btn" onclick="setSmartCropFitMode('cover')" class="py-1.5 px-2 rounded-xl text-[10px] font-black border transition-all bg-emerald-600 text-white border-emerald-600 shadow-sm">
+                                🎯 ملء الكادر
+                            </button>
+                            <button type="button" id="sc-mode-contain-btn" onclick="setSmartCropFitMode('contain')" class="py-1.5 px-2 rounded-xl text-[10px] font-black border transition-all bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100">
+                                🖼️ كامل الصورة
+                            </button>
+                            <button type="button" onclick="rotateSmartCrop90()" class="py-1.5 px-2 rounded-xl text-[10px] font-black border bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 transition-all">
+                                🔄 تدوير 90°
+                            </button>
+                        </div>
+
+                        <label class="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 cursor-pointer text-[11px] font-black text-slate-700">
+                            <span>✨ تحسين الوضوح والإضاءة تلقائياً (جودة HD)</span>
+                            <input type="checkbox" id="sc-enhance-cb" checked onchange="toggleSmartCropEnhance(this.checked)" class="w-4 h-4 accent-emerald-600 rounded">
+                        </label>
+                    </div>
+                </div>
+
+                <div class="p-3.5 bg-white border-t border-slate-100 flex items-center gap-2 shrink-0">
+                    <button type="button" id="sc-confirm-upload-btn" onclick="confirmSmartCropAndUpload()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3 rounded-xl text-xs sm:text-sm shadow-md flex items-center justify-center gap-1.5 active:scale-95">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                        <span>اعتماد ورفع بجودة عالية</span>
+                    </button>
+                    <button type="button" onclick="closeSmartCropModal()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-black px-4 py-3 rounded-xl text-xs">إلغاء</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // ربط السحب باليد والماوس والتكبير بإصبعين على كانفاس المعاينة
+        const canvas = modal.querySelector('#sc-preview-canvas');
+        if (canvas) {
+            const activePtrs = new Map();
+            let lastCenter = null;
+            let lastPinchDist = 0;
+
+            canvas.addEventListener('pointerdown', (e) => {
+                canvas.setPointerCapture(e.pointerId);
+                activePtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                if (activePtrs.size === 1) {
+                    lastCenter = { x: e.clientX, y: e.clientY };
+                    lastPinchDist = 0;
+                } else if (activePtrs.size === 2) {
+                    const pts = Array.from(activePtrs.values());
+                    lastPinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+                    lastCenter = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+                }
+            });
+
+            canvas.addEventListener('pointermove', (e) => {
+                if (!activePtrs.has(e.pointerId) || !cropStudioState.img) return;
+                activePtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                const rect = canvas.getBoundingClientRect();
+                const cw = rect.width || 300;
+                const ch = rect.height || 300;
+
+                if (activePtrs.size === 1 && lastCenter) {
+                    const dx = (e.clientX - lastCenter.x) / cw;
+                    const dy = (e.clientY - lastCenter.y) / ch;
+                    cropStudioState.offsetXRatio = Math.max(-0.85, Math.min(0.85, cropStudioState.offsetXRatio + dx));
+                    cropStudioState.offsetYRatio = Math.max(-0.85, Math.min(0.85, cropStudioState.offsetYRatio + dy));
+                    lastCenter = { x: e.clientX, y: e.clientY };
+                    drawSmartCropPreview();
+                } else if (activePtrs.size === 2) {
+                    const pts = Array.from(activePtrs.values());
+                    const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+                    const center = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+                    if (lastPinchDist > 0) {
+                        const scaleFactor = dist / lastPinchDist;
+                        cropStudioState.zoom = Math.max(1, Math.min(3, cropStudioState.zoom * scaleFactor));
+                        const rng = document.getElementById('sc-zoom-range');
+                        if (rng) rng.value = cropStudioState.zoom.toFixed(2);
+                    }
+                    if (lastCenter) {
+                        cropStudioState.offsetXRatio = Math.max(-0.85, Math.min(0.85, cropStudioState.offsetXRatio + (center.x - lastCenter.x) / cw));
+                        cropStudioState.offsetYRatio = Math.max(-0.85, Math.min(0.85, cropStudioState.offsetYRatio + (center.y - lastCenter.y) / ch));
+                    }
+                    lastPinchDist = dist;
+                    lastCenter = center;
+                    drawSmartCropPreview();
+                }
+            });
+
+            const releasePtr = (e) => {
+                activePtrs.delete(e.pointerId);
+                if (activePtrs.size === 1) {
+                    const p = Array.from(activePtrs.values())[0];
+                    lastCenter = { x: p.x, y: p.y };
+                    lastPinchDist = 0;
+                } else if (activePtrs.size === 0) {
+                    lastCenter = null;
+                    lastPinchDist = 0;
+                }
+            };
+            canvas.addEventListener('pointerup', releasePtr);
+            canvas.addEventListener('pointercancel', releasePtr);
+        }
+
+        return modal;
+    }
+
+    function drawSmartCropPreview() {
+        const canvas = document.getElementById('sc-preview-canvas');
+        const img = cropStudioState.img;
+        if (!canvas || !img) return;
+        const ctx = canvas.getContext('2d');
+        const size = canvas.width;
+
+        ctx.clearRect(0, 0, size, size);
+        ctx.fillStyle = '#faf8f3';
+        ctx.fillRect(0, 0, size, size);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        const rotDeg = ((cropStudioState.rotation || 0) % 360 + 360) % 360;
+        const swapDims = (rotDeg === 90 || rotDeg === 270);
+        const effW = swapDims ? img.height : img.width;
+        const effH = swapDims ? img.width : img.height;
+
+        const baseScale = (cropStudioState.fitMode === 'contain')
+            ? Math.min((size - 16) / effW, (size - 16) / effH)
+            : Math.max(size / effW, size / effH);
+        const finalScale = baseScale * cropStudioState.zoom;
+
+        ctx.save();
+        if (cropStudioState.enhance && 'filter' in ctx) {
+            ctx.filter = 'contrast(1.04) saturate(1.06) brightness(1.02)';
+        }
+        ctx.translate((size / 2) + (cropStudioState.offsetXRatio * size), (size / 2) + (cropStudioState.offsetYRatio * size));
+        if (rotDeg !== 0) ctx.rotate((rotDeg * Math.PI) / 180);
+        ctx.scale(finalScale, finalScale);
+        ctx.drawImage(img, -img.width / 2, -img.height / 2);
+        ctx.restore();
+
+        const zBadge = document.getElementById('sc-zoom-badge');
+        if (zBadge) zBadge.textContent = `${Math.round(cropStudioState.zoom * 100)}%`;
+
+        const btnCover = document.getElementById('sc-mode-cover-btn');
+        const btnContain = document.getElementById('sc-mode-contain-btn');
+        if (btnCover && btnContain) {
+            const isCover = cropStudioState.fitMode === 'cover';
+            btnCover.className = `py-1.5 px-2 rounded-xl text-[10px] font-black border transition-all ${isCover ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'}`;
+            btnContain.className = `py-1.5 px-2 rounded-xl text-[10px] font-black border transition-all ${!isCover ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'}`;
+        }
+    }
+
+    window.setSmartCropZoom = function (val) {
+        cropStudioState.zoom = Math.max(1, Math.min(3, parseFloat(val) || 1));
+        drawSmartCropPreview();
+    };
+
+    window.stepSmartCropZoom = function (delta) {
+        const next = Math.max(1, Math.min(3, Number((cropStudioState.zoom + delta).toFixed(2))));
+        cropStudioState.zoom = next;
+        const rng = document.getElementById('sc-zoom-range');
+        if (rng) rng.value = String(next);
+        drawSmartCropPreview();
+    };
+
+    window.setSmartCropFitMode = function (mode) {
+        cropStudioState.fitMode = (mode === 'contain') ? 'contain' : 'cover';
+        cropStudioState.zoom = 1;
+        cropStudioState.offsetXRatio = 0;
+        cropStudioState.offsetYRatio = 0;
+        const rng = document.getElementById('sc-zoom-range');
+        if (rng) rng.value = '1';
+        drawSmartCropPreview();
+    };
+
+    window.rotateSmartCrop90 = function () {
+        cropStudioState.rotation = (cropStudioState.rotation + 90) % 360;
+        cropStudioState.offsetXRatio = 0;
+        cropStudioState.offsetYRatio = 0;
+        drawSmartCropPreview();
+    };
+
+    window.toggleSmartCropEnhance = function (checked) {
+        cropStudioState.enhance = Boolean(checked);
+        drawSmartCropPreview();
+    };
+
+    window.closeSmartCropModal = function () {
+        const modal = document.getElementById('sman-crop-studio-modal');
+        if (modal) modal.classList.add('hidden');
+        cropStudioState.img = null;
+        cropStudioState.prodId = null;
+        pendingUploadProductId = null;
+    };
+
+    window.confirmSmartCropAndUpload = async function () {
+        const prodId = cropStudioState.prodId;
+        const img = cropStudioState.img;
+        if (!prodId || !img || !storeProducts[prodId]) return;
+
+        const saveBtn = document.getElementById('sc-confirm-upload-btn');
+        const origHtml = saveBtn ? saveBtn.innerHTML : '';
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الرفع بجودة عالية...';
+        }
+
+        try {
+            const base64 = renderHighQualityCanvasBase64(img, {
+                mode: 'product',
+                fitMode: cropStudioState.fitMode,
+                zoom: cropStudioState.zoom,
+                offsetXRatio: cropStudioState.offsetXRatio,
+                offsetYRatio: cropStudioState.offsetYRatio,
+                rotation: cropStudioState.rotation,
+                enhance: cropStudioState.enhance
+            });
+
+            const directUrl = await uploadBase64ToImgBB(base64);
+            storeProducts[prodId].images = [directUrl];
+            const urlInp = document.getElementById(`prod-img-inp-${prodId}`);
+            if (urlInp) urlInp.value = directUrl;
+
+            await window.saveAllSettings(true);
+            window.closeSmartCropModal();
+            if (typeof window.showToast === 'function') {
+                window.showToast(`✅ تم قص ورفع صورة (${storeProducts[prodId].name}) بجودة HD بنجاح!`);
+            }
+        } catch (err) {
+            alert(err.message === 'NO_KEY' ? 'يرجى وضع مفتاح ImgBB أولاً في إعدادات المتجر.' : ('خطأ في رفع الصورة: ' + err.message));
+        } finally {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = origHtml;
+            }
+        }
+    };
+
+    // 1. رفع صورة لصنف معين من شاشة الأصناف والأسعار (يفتح استوديو القص والتكبير تلقائياً)
     window.triggerProductImageUpload = function (prodId) {
         if (!getSavedImgBBKey()) {
             alert('🔑 ضع مفتاح ImgBB API أولاً في شاشة (إعدادات المتجر -> استوديو الصور) ثم أعد المحاولة.');
@@ -1960,37 +2294,60 @@
         const prodId = pendingUploadProductId;
         if (!file || !prodId || !storeProducts[prodId]) return;
 
-        const btn = document.getElementById(`btn-up-prod-${prodId}`);
-        const origHtml = btn ? btn.innerHTML : '';
-        if (btn) {
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-            btn.disabled = true;
-        }
-
         try {
-            const base64 = await compressAndFormatImage(file, 'product');
-            const directUrl = await uploadBase64ToImgBB(base64);
+            const img = await loadImageElementFromFile(file);
+            ensureSmartCropModal();
 
-            storeProducts[prodId].images = [directUrl];
-            const urlInp = document.getElementById(`prod-img-inp-${prodId}`);
-            if (urlInp) urlInp.value = directUrl;
+            const savedMode = localStorage.getItem('sman_img_fit_mode') || 'cover';
+            cropStudioState.img = img;
+            cropStudioState.prodId = prodId;
+            cropStudioState.fitMode = (savedMode === 'contain') ? 'contain' : 'cover';
+            cropStudioState.zoom = 1;
+            cropStudioState.offsetXRatio = 0;
+            cropStudioState.offsetYRatio = 0;
+            cropStudioState.rotation = 0;
+            cropStudioState.enhance = true;
 
-            await window.saveAllSettings(true);
-            if (typeof window.showToast === 'function') {
-                window.showToast(`✅ تم تظبيط ورفع صورة (${storeProducts[prodId].name}) بنجاح!`);
-            }
+            const sub = document.getElementById('sc-prod-subtitle');
+            if (sub) sub.textContent = `الصنف: ${storeProducts[prodId].name || ''} — اسحب وكبّر حتى يملأ الطبق الكادر`;
+            const rng = document.getElementById('sc-zoom-range');
+            if (rng) rng.value = '1';
+            const cb = document.getElementById('sc-enhance-cb');
+            if (cb) cb.checked = true;
+
+            document.getElementById('sman-crop-studio-modal').classList.remove('hidden');
+            drawSmartCropPreview();
         } catch (err) {
-            alert(err.message === 'NO_KEY' ? 'يرجى وضع مفتاح ImgBB أولاً في إعدادات المتجر.' : ('خطأ في رفع الصورة: ' + err.message));
-        } finally {
-            if (btn) {
-                btn.innerHTML = origHtml;
-                btn.disabled = false;
-            }
+            alert('خطأ في قراءة الصورة: ' + (err.message || err));
             pendingUploadProductId = null;
         }
     };
 
-    // 2. إدارة ورفع صور الكتالوج ("من مزرعتنا على الطبيعة")
+    // 2. إدارة وترتيب ورفع صور الكتالوج ("من مزرعتنا على الطبيعة") بدون حذف القديم
+    window.moveGalleryImage = async function (idx, direction) {
+        if (!Array.isArray(storeSettings.galleryImages)) return;
+        const imgs = storeSettings.galleryImages;
+        if (idx < 0 || idx >= imgs.length) return;
+
+        if (direction === 'first') {
+            if (idx === 0) return;
+            const [picked] = imgs.splice(idx, 1);
+            imgs.unshift(picked);
+        } else {
+            const targetIdx = idx + Number(direction);
+            if (targetIdx < 0 || targetIdx >= imgs.length) return;
+            const temp = imgs[idx];
+            imgs[idx] = imgs[targetIdx];
+            imgs[targetIdx] = temp;
+        }
+
+        window.renderGalleryStudioUI();
+        await window.saveAllSettings(true);
+        if (typeof window.showToast === 'function') {
+            window.showToast(direction === 'first' ? '⭐ تم تعيين الصورة لتكون الأولى في الكتالوج!' : '✅ تم تحديث ترتيب صور الكتالوج بنجاح');
+        }
+    };
+
     window.renderGalleryStudioUI = function () {
         const keyInp = document.getElementById('st-imgbb-key');
         if (keyInp && !keyInp.value) {
@@ -1998,7 +2355,7 @@
         }
         const fitSel = document.getElementById('st-img-fit-mode');
         if (fitSel) {
-            try { fitSel.value = localStorage.getItem('sman_img_fit_mode') || 'contain'; } catch (e) {}
+            try { fitSel.value = localStorage.getItem('sman_img_fit_mode') || 'cover'; } catch (e) {}
         }
 
         const grid = document.getElementById('st-gallery-images-grid');
@@ -2011,12 +2368,26 @@
         }
 
         grid.innerHTML = imgs.map((url, idx) => `
-            <div class="relative aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-100 group shadow-sm">
+            <div class="relative aspect-square rounded-xl overflow-hidden border-2 ${idx === 0 ? 'border-amber-400 shadow-md' : 'border-slate-200 shadow-sm'} bg-slate-100 group">
                 <img src="${escSettingsHtml(url)}" alt="كتالوج ${idx + 1}" class="w-full h-full object-cover">
+                <span class="absolute top-1 right-1 ${idx === 0 ? 'bg-amber-400 text-slate-950' : 'bg-black/65 text-white'} text-[9px] font-black px-1.5 py-0.5 rounded-md shadow">
+                    ${idx === 0 ? '⭐ 1 (الأولى)' : (idx + 1)}
+                </span>
                 <button type="button" onclick="removeGalleryImage(${idx})" title="حذف الصورة" class="absolute top-1 left-1 w-6 h-6 rounded-lg bg-red-600/90 hover:bg-red-700 text-white flex items-center justify-center text-[10px] shadow">
                     <i class="fa-solid fa-trash"></i>
                 </button>
-                <span class="absolute bottom-1 right-1 bg-black/60 text-white text-[9px] font-black px-1.5 py-0.5 rounded">${idx + 1}</span>
+                <div class="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent p-1 flex items-center justify-between gap-1">
+                    <button type="button" onclick="moveGalleryImage(${idx}, -1)" ${idx === 0 ? 'disabled' : ''} title="تقديم خطوة للأول" class="w-6 h-6 rounded-md bg-white/90 hover:bg-amber-400 text-slate-900 disabled:opacity-30 flex items-center justify-center text-[10px] font-black transition-colors">
+                        <i class="fa-solid fa-chevron-right"></i>
+                    </button>
+                    ${idx > 0 ? `
+                    <button type="button" onclick="moveGalleryImage(${idx}, 'first')" title="اجعلها أول صورة في الكتالوج" class="flex-1 h-6 rounded-md bg-amber-400 hover:bg-amber-300 text-slate-950 text-[9px] font-black px-1 truncate shadow-sm transition-colors">
+                        ⭐ الأولى
+                    </button>` : `<span class="flex-1 text-center text-[9px] font-black text-amber-300">الغلاف</span>`}
+                    <button type="button" onclick="moveGalleryImage(${idx}, 1)" ${idx === imgs.length - 1 ? 'disabled' : ''} title="تأخير خطوة" class="w-6 h-6 rounded-md bg-white/90 hover:bg-amber-400 text-slate-900 disabled:opacity-30 flex items-center justify-center text-[10px] font-black transition-colors">
+                        <i class="fa-solid fa-chevron-left"></i>
+                    </button>
+                </div>
             </div>
         `).join('');
     };
@@ -2040,7 +2411,7 @@
         const btn = document.getElementById('btn-upload-gallery-img');
         const origHtml = btn ? btn.innerHTML : '';
         if (btn) {
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الضغط والرفع...';
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الرفع بجودة عالية...';
             btn.disabled = true;
         }
 
@@ -2054,7 +2425,7 @@
             window.renderGalleryStudioUI();
             await window.saveAllSettings(true);
             if (typeof window.showToast === 'function') {
-                window.showToast('✅ تمت إضافة الصورة لمعرض المتجر بنجاح!');
+                window.showToast('✅ تمت إضافة الصورة للكتالوج بجودة عالية!');
             }
         } catch (err) {
             alert('خطأ في رفع صورة الكتالوج: ' + err.message);
