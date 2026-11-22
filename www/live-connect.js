@@ -126,26 +126,11 @@
                 }
             }
 
-            /* درج مربع البحث داخل الشريط المثبت: ينطوي عند النزول، وينزل فوراً أول ما تطلع سنة لفوق */
+            /* ثبات تام للشريط المثبت بدون أي تغيير ارتفاع يسبب رعشة أثناء السكرول */
             #lc-collapsible-search-row {
-                max-height: 60px;
-                opacity: 1;
-                overflow: hidden;
-                margin-bottom: 0.45rem;
-                transition: max-height 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s ease, margin-bottom 0.22s ease !important;
+                margin-bottom: 0;
             }
-            body.lc-bars-hidden-on-scroll #lc-collapsible-search-row {
-                max-height: 0px !important;
-                opacity: 0 !important;
-                margin-bottom: 0px !important;
-                pointer-events: none !important;
-            }
-
-            /* زر العدسة السريع يظهر بجانب تبويب (الكل) عندما يكون مربع البحث مطوياً */
             #lc-quick-unfold-search-btn {
-                display: none;
-            }
-            body.lc-bars-hidden-on-scroll #lc-quick-unfold-search-btn {
                 display: inline-flex !important;
             }
 
@@ -304,59 +289,56 @@
         stickyShell.id = 'lc-orders-sticky-shell';
         stickyShell.className = 'mb-3';
 
-        // أ) صف البحث المنزلق (يطوى عند النزول، وينزل فوراً أول ما تطلع سنة لفوق)
+        // أ) وضع الأدوات والملخص ومربع البحث في الجزء العلوي المتحرك طبيعياً (صفر تغيير ارتفاع = صفر هزة)
         const searchRowDrawer = document.createElement('div');
         searchRowDrawer.id = 'lc-collapsible-search-row';
 
-        const searchFlexRow = searchInput.parentElement?.parentElement;
         const toolsFourGrid = origStickyWrapper.querySelector('.grid.grid-cols-4') || document.querySelector('#orders-top-tools-area .grid.grid-cols-4');
-
         if (toolsFourGrid) {
             nonStickyTop.appendChild(toolsFourGrid);
         }
 
-        // وضع حقل البحث وزر الترتيب في درج البحث المنزلق
+        const smartToolbar = document.getElementById('smart-orders-toolbar');
+        if (smartToolbar) {
+            nonStickyTop.appendChild(smartToolbar);
+        }
+
         const searchBarWrap = document.createElement('div');
-        searchBarWrap.className = 'flex gap-1.5 items-center';
+        searchBarWrap.className = 'flex gap-1.5 items-center pt-1';
         const searchInputBox = searchInput.parentElement;
         const sortBtn = document.getElementById('btn-sort-orders');
         if (searchInputBox) searchBarWrap.appendChild(searchInputBox);
         if (sortBtn) searchBarWrap.appendChild(sortBtn);
         searchRowDrawer.appendChild(searchBarWrap);
+        nonStickyTop.appendChild(searchRowDrawer);
 
-        // ب) صف تبويبات (الكل، جديد، تجهيز، في الطريق، مؤجل، لم يرد، مكتمل، ملغي) المثبت دائماً
+        // ب) الشريط المثبت يحتوي فقط على تبويبات المراحل بارتفاع ثابت 100% + زر عدسة يطلعك للبحث بلمسة
         const tabsRow = tabAllBtn.parentElement;
         if (tabsRow) {
             tabsRow.className = 'flex items-center gap-1.5 lc-no-scrollbar pb-0.5 shrink-0';
 
-            // إضافة زر عدسة صغير في أول سطر التبويبات يظهر فقط عندما يكون البحث مطوياً لفتحه بلمسة واحدة
             if (!document.getElementById('lc-quick-unfold-search-btn')) {
                 const unfoldBtn = document.createElement('button');
                 unfoldBtn.type = 'button';
                 unfoldBtn.id = 'lc-quick-unfold-search-btn';
                 unfoldBtn.onclick = () => {
-                    document.body.classList.remove('lc-bars-hidden-on-scroll');
-                    setTimeout(() => document.getElementById('search-order')?.focus(), 80);
+                    const mainScroll = document.querySelector('main > div.flex-1.overflow-y-auto.custom-scroll');
+                    if (mainScroll) mainScroll.scrollTo({ top: 0, behavior: 'smooth' });
+                    setTimeout(() => document.getElementById('search-order')?.focus(), 220);
                 };
                 unfoldBtn.className = 'bg-brand-primary text-white w-8 h-8 rounded-xl text-xs font-black items-center justify-center shrink-0 shadow-sm active:scale-90 transition-transform';
-                unfoldBtn.title = 'إظهار مربع البحث والشريط العلوي فوراً';
+                unfoldBtn.title = 'الانتقال السريع لمربع البحث';
                 unfoldBtn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i>';
                 tabsRow.insertBefore(unfoldBtn, tabsRow.firstChild);
             }
         }
 
-        stickyShell.appendChild(searchRowDrawer);
         if (tabsRow) stickyShell.appendChild(tabsRow);
         if (bulkBar) {
             bulkBar.classList.add('mt-2');
             stickyShell.appendChild(bulkBar);
         }
 
-        // نقل شريط الملخص الأسود والفلاتر إلى الحاوية العلوية غير المثبتة
-        const smartToolbar = document.getElementById('smart-orders-toolbar');
-        if (smartToolbar) {
-            nonStickyTop.appendChild(smartToolbar);
-        }
 
         // إدراج الحاويتين قبل قائمة كروت الطلبات وإزالة الحاوية القديمة الفارغة
         ordersView.insertBefore(nonStickyTop, ordersListContainer);
@@ -1590,98 +1572,14 @@
     // =========================================================================
     // 🌪️ 8. نظام التمرير المستقر المضاد للاهتزاز (Zero-Jitter Hysteresis Scroll)
     // =========================================================================
-    window.initZeroClutterOrdersScroll = function () {
+        window.initZeroClutterOrdersScroll = function () {
+        document.body.classList.remove('lc-bars-hidden-on-scroll');
         const mainScroll = document.querySelector('main > div.flex-1.overflow-y-auto.custom-scroll');
         if (mainScroll && !mainScroll.hasAttribute('data-lc-scroll-bound')) {
             mainScroll.setAttribute('data-lc-scroll-bound', '1');
-
-            let lastScrollY = mainScroll.scrollTop || 0;
-            let accDelta = 0;
-            let lockUntilMs = 0;
-            let rafPending = false;
-
-            const processScrollFrame = () => {
-                rafPending = false;
-                const nowMs = Date.now();
-                const st = Math.max(0, mainScroll.scrollTop);
-                const maxScroll = Math.max(0, mainScroll.scrollHeight - mainScroll.clientHeight);
-                const delta = st - lastScrollY;
-                lastScrollY = st;
-
-                // أثناء قفل الحركة (400ms) نتجاهل ارتدادات تغيير الارتفاع تماماً لمنع أي رعشة
-                if (nowMs < lockUntilMs) {
-                    accDelta = 0;
-                    return;
-                }
-
-                // إذا كانت القائمة قصيرة ولا يوجد محتوى كافٍ للتمرير، نُبقي كل شيء ظاهراً وثابتاً
-                if (maxScroll < 180) {
-                    if (document.body.classList.contains('lc-bars-hidden-on-scroll')) {
-                        document.body.classList.remove('lc-bars-hidden-on-scroll');
-                        lockUntilMs = nowMs + 400;
-                    }
-                    accDelta = 0;
-                    return;
-                }
-
-                const activeEl = document.activeElement;
-                const activeTag = activeEl ? activeEl.tagName : '';
-                const isSearchFocused = activeEl && activeEl.id === 'search-order';
-
-                if (!isSearchFocused && activeTag !== 'SELECT' && activeTag !== 'TEXTAREA') {
-                    // تجميع مسافة السحب في نفس الاتجاه وتصفيرها عند عكس الاتجاه
-                    if ((delta > 0 && accDelta < 0) || (delta < 0 && accDelta > 0)) {
-                        accDelta = delta;
-                    } else {
-                        accDelta += delta;
-                    }
-
-                    const isHidden = document.body.classList.contains('lc-bars-hidden-on-scroll');
-                    const isNearBottom = st >= (maxScroll - 75);
-
-                    // إظهار فوري عند الوصول لأعلى الصفحة
-                    if (st <= 24) {
-                        if (isHidden) {
-                            document.body.classList.remove('lc-bars-hidden-on-scroll');
-                            lockUntilMs = nowMs + 600;
-                        }
-                        accDelta = 0;
-                    }
-                    // عند النزول المتعمد بمقدار 75px: نطوي مربع البحث فقط بهدوء وتبقى التبويبات والهيدر ثابتين
-                    else if (!isHidden && st > 120 && !isNearBottom && accDelta >= 75) {
-                        document.body.classList.add('lc-bars-hidden-on-scroll');
-                        lockUntilMs = nowMs + 600;
-                        accDelta = 0;
-                    }
-                    // عند الصعود المتعمد بمقدار 55px: يعود مربع البحث بنعومة تامة
-                    else if (isHidden && !isNearBottom && accDelta <= -55) {
-                        document.body.classList.remove('lc-bars-hidden-on-scroll');
-                        lockUntilMs = nowMs + 600;
-                        accDelta = 0;
-                    }
-                }
-
-                const ordersView = document.getElementById('view-orders');
-                if (ordersView && ordersView.classList.contains('active')) {
-                    const drawer = document.getElementById('so-advanced-filters-drawer');
-                    if (activeTag !== 'SELECT' && drawer && !drawer.classList.contains('hidden') && accDelta > 80) {
-                        drawer.classList.add('hidden');
-                        if (window.ordersFilterState) {
-                            window.ordersFilterState.filtersExpanded = false;
-                            window.ordersFilterState.filtersOpen = false;
-                        }
-                    }
-                }
-
-                if (window.liveConnectState) {
-                    window.liveConnectState.lastScrollTop = st;
-                }
-            };
-
             mainScroll.addEventListener('scroll', () => {
-                if (!rafPending) {
-                    rafPending = true;
-                    requestAnimationFrame(processScrollFrame);
+                if (window.liveConnectState) {
+                    window.liveConnectState.lastScrollTop = Math.max(0, mainScroll.scrollTop);
                 }
             }, { passive: true });
         }
