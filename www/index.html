@@ -4216,10 +4216,24 @@
                         </label>`;
                     }).join('');
 
+                    let prebookAvail = Math.max(0, parseInt(storeStock[id + '_prebook']) || 0);
                     let dropdownContentHtml = `
                     <div class="space-y-2.5 mt-2">
+                        <!-- حجز بالعدد قبل الذبح (السعر يتحدد بالميزان يوم الذبح) -->
+                        <div class="flex flex-wrap items-center justify-between gap-2 bg-amber-50/90 p-2.5 rounded-xl border border-amber-300 shadow-sm">
+                            <div>
+                                <span class="text-[11px] font-black text-amber-950 block">⏳ حجز بالعدد قبل الذبح (يتحدد بالميزان يوم الذبح)</span>
+                                <span class="text-[9px] font-bold text-amber-800">اختر العدد هنا لو لسه ما ذبحتش${prebookAvail > 0 ? ` • متاح بالحجز: ${prebookAvail}` : ''}</span>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <button type="button" onclick="let el=document.getElementById('no-prebook-count-${id}'); el.value=Math.max(0,(parseInt(el.value)||0)-1); document.querySelectorAll('.weight-cb-${id}').forEach(c=>c.checked=false); calcTotal('no');" class="w-7 h-7 rounded-lg bg-white hover:bg-rose-500 text-rose-600 hover:text-white border border-amber-200 font-black text-sm transition-colors">-</button>
+                                <input type="number" id="no-prebook-count-${id}" min="0" value="0" oninput="if((parseInt(this.value)||0)>0){document.querySelectorAll('.weight-cb-${id}').forEach(c=>c.checked=false);} calcTotal('no');" class="w-16 border-2 border-amber-300 rounded-lg p-1 text-center font-black text-xs text-amber-950 outline-none bg-white">
+                                <button type="button" onclick="let el=document.getElementById('no-prebook-count-${id}'); el.value=(parseInt(el.value)||0)+1; document.querySelectorAll('.weight-cb-${id}').forEach(c=>c.checked=false); calcTotal('no');" class="w-7 h-7 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-sm transition-colors">+</button>
+                            </div>
+                        </div>
+
                         <div class="flex flex-wrap items-center justify-between gap-2 bg-white p-2.5 rounded-xl border border-indigo-100 shadow-sm">
-                            <span class="text-[11px] font-black text-slate-700"><i class="fa-solid fa-wand-magic-sparkles text-indigo-500 ml-1"></i> الزبون عايز كام واحدة؟</span>
+                            <span class="text-[11px] font-black text-slate-700"><i class="fa-solid fa-wand-magic-sparkles text-indigo-500 ml-1"></i> أو اختيار من الأوزان الجاهزة بالمصفوفة:</span>
                             <div class="flex items-center gap-1.5">
                                 <button type="button" onclick="stepWeightQuickCount('${id}', -1)" class="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-500 text-rose-600 hover:text-white font-black text-sm transition-colors">-</button>
                                 <input type="number" id="weight-quick-count-${id}" min="0" max="${totalStockCount}" placeholder="العدد" oninput="autoPickCountOfWeights('${id}', this.value, 'first')" class="w-16 border border-indigo-200 rounded-lg p-1 text-center font-black text-xs text-indigo-700 outline-none bg-indigo-50/30">
@@ -4385,7 +4399,12 @@
                         quickInput.value = selectedCount > 0 ? selectedCount : '';
                     }
 
+                    const prebookInp = document.getElementById(`no-prebook-count-${id}`);
+                    if (selectedCount > 0 && prebookInp) prebookInp.value = 0;
+                    const prebookCnt = (selectedCount === 0 && prebookInp) ? Math.max(0, parseInt(prebookInp.value) || 0) : 0;
+
                     if (selectedCount > 0) {
+                        if (qInput) qInput.removeAttribute('data-prebook-count');
                         if (summaryLbl) {
                             summaryLbl.innerHTML = `✅ تم اختيار <span class="text-indigo-600">(${selectedCount})</span> فرخة/وحدة — إجمالي: <span class="text-emerald-700">${q} كجم</span>`;
                         }
@@ -4397,7 +4416,17 @@
                                 <span>💰 الإجمالي: <strong class="text-emerald-300 text-xs">${lineMoney} ج.م</strong></span>
                             `;
                         }
+                    } else if (prebookCnt > 0) {
+                        if (qInput) qInput.setAttribute('data-prebook-count', String(prebookCnt));
+                        if (liveBar) {
+                            liveBar.classList.remove('hidden');
+                            liveBar.innerHTML = `
+                                <span>⏳ حجز قبل الذبح: <strong class="text-amber-300">${prebookCnt} عدد</strong></span>
+                                <span>⚖️ السعر يتحدد بالميزان يوم الذبح (الكيلو: ${price} ج)</span>
+                            `;
+                        }
                     } else {
+                        if (qInput) qInput.removeAttribute('data-prebook-count');
                         let totalAvailable = window.parseWeightsArray(p.weightsList).length;
                         if (summaryLbl) {
                             summaryLbl.innerHTML = `اضغط لفتح قائمة الأوزان المنسدلة (${totalAvailable} متاح)`;
@@ -4511,7 +4540,8 @@
             }
             // ----------------------------------------------------
             
-            if(!phone || !name || total === 0) return alert('برجاء استكمال بيانات العميل وقيمة الطلب الأساسية!');
+            let hasAnyPendingPrebook = Object.keys(storeProducts).some(id => (parseInt(document.getElementById(`no-prebook-count-${id}`)?.value) || 0) > 0);
+            if(!phone || !name || (total === 0 && !hasAnyPendingPrebook)) return alert('برجاء استكمال بيانات العميل وقيمة الطلب الأساسية!');
             if(!zone) return alert('يجب تحديد منطقة التوصيل!');
             
             let items = []; let subtotal = 0; let batchUpdates = {}; 
@@ -4527,8 +4557,19 @@
             Object.keys(storeProducts).forEach(id => {
                 let qInput = document.getElementById(`no-q-${id}`);
                 let q = Number(qInput?.value) || 0;
-                
-                if (q > 0) {
+                let prebookCnt = storeProducts[id].isWeightBased ? (parseInt(document.getElementById(`no-prebook-count-${id}`)?.value) || 0) : 0;
+
+                if (q <= 0 && prebookCnt > 0) {
+                    let price = storePrices[id] || storeProducts[id].basePrice || 0;
+                    let pName = storeProducts[id].name;
+                    let finalName = `${pName} [حجز ${prebookCnt} عدد — يتحدد بالميزان يوم الذبح]`;
+                    items.push({ id: id, name: finalName, quantity: 0, price: price, birdsCount: prebookCnt, isWeightBased: true, pendingWeight: true });
+                    if (batchId) batchUpdates[id] = prebookCnt;
+                    ticktickItemsStr += `[ حجز ${prebookCnt} عدد ] ${finalName} (الكيلو ${price} ج)
+`;
+                    ticktickItemsTitleArr.push(`${prebookCnt} ${pName} (بالميزان)`);
+                    autoHashtags.push('#' + pName.replace(/\s+/g, '_'));
+                } else if (q > 0) {
                     let price = storePrices[id] || storeProducts[id].basePrice;
                     if (useOldPrice && storeProducts[id].oldBatchPrice > 0) {
                         price = storeProducts[id].oldBatchPrice;
@@ -4654,10 +4695,21 @@
                     atomicBatch.set(db.collection("inventory").doc("batches"), { [batchId]: { booked: bookedUpdates } }, { merge: true });
                 }
 
-                                // 5. خصم المخزون
+                                // 5. خصم المخزون (الأصناف العادية + رصيد الحجز بالعدد قبل الذبح)
                 let stockUpdatesDB = {};
-                items.forEach(i => { stockUpdatesDB[i.id] = firebase.firestore.FieldValue.increment(-i.quantity); });
-                atomicBatch.set(db.collection("inventory").doc("stock"), stockUpdatesDB, { merge: true });
+                items.forEach(i => {
+                    if (i.pendingWeight) {
+                        let curPre = Math.max(0, parseInt(storeStock[i.id + '_prebook']) || 0);
+                        let nextPre = Math.max(0, curPre - (Number(i.birdsCount) || 1));
+                        storeStock[i.id + '_prebook'] = nextPre;
+                        stockUpdatesDB[i.id + '_prebook'] = nextPre;
+                    } else if (Number(i.quantity) > 0 && !i.isWeightBased) {
+                        stockUpdatesDB[i.id] = firebase.firestore.FieldValue.increment(-i.quantity);
+                    }
+                });
+                if (Object.keys(stockUpdatesDB).length > 0) {
+                    atomicBatch.set(db.collection("inventory").doc("stock"), stockUpdatesDB, { merge: true });
+                }
 
                 // 6. حفظ قائمة الأوزان الجديدة (بعد خصم المباع منها) في قاعدة البيانات
                 if (inventoryNeedsUpdate) {
