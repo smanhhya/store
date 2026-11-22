@@ -1475,12 +1475,14 @@
             if (!o || o.status === 'trash' || o.isArchived) return;
             if (o.status === 'new') { newCount++; newMoney += (Number(o.total) || 0); }
             else if (o.status === 'processing') procCount++;
-            else if (o.status === 'dispatched') dispCount++;
-            else if (o.status === 'no_answer' || o.status === 'deferred') noAnsCount++;
-            else if (o.status === 'dispatched' && o.driverName) {
-                const c = getOrderCashForDriver(o);
-                if (c > 0) { unsettledCash += c; unsettledOrdersCount++; }
+            else if (o.status === 'dispatched') {
+                dispCount++;
+                if (o.driverName) {
+                    const c = getOrderCashForDriver(o);
+                    if (c > 0) { unsettledCash += c; unsettledOrdersCount++; }
+                }
             }
+            else if (o.status === 'no_answer' || o.status === 'deferred') noAnsCount++;
         });
 
         let itemsHtml = '';
