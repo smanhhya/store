@@ -896,6 +896,8 @@
                         finalPaidCash = Math.max(0, orderGross - finalPaidOnline);
                     }
 
+                    const settledCompMs = o.completedAtMs || Date.now();
+                    const alreadyAwardedPts = Boolean(o.loyaltyPointsAwarded);
                     batchProcess.update(ref, {
                         status: 'completed',
                         paymentMethod: finalOrderMethod,
@@ -903,16 +905,20 @@
                         paidOnline: finalPaidOnline,
                         settledCash: orderSettledCash,
                         settledOnline: orderSettledOnline,
+                        completedAtMs: settledCompMs,
                         completedAtStr: o.completedAtStr || nowStr,
                         completedTimeDisplay: o.completedTimeDisplay || timeStr,
                         completedAt: o.completedAt || firebase.firestore.FieldValue.serverTimestamp(),
+                        loyaltyPointsAwarded: true,
                         isReconciled: true,
                         isSupplied: true,
                         reconciledAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
+                    o.completedAtMs = settledCompMs;
+                    o.loyaltyPointsAwarded = true;
 
                     // إضافة نقاط الولاء للعميل إن لم يكن الطلب مكتملاً من قبل
-                    if (!wasCompleted && o.customerPhone) {
+                    if (!wasCompleted && !alreadyAwardedPts && o.customerPhone) {
                         const sub = Number(o.subtotal) || Number(o.total) || 0;
                         if (sub >= 100) {
                             const earnedPts = Math.floor(sub / 100) * ptsPer100;
