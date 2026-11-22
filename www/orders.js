@@ -1039,12 +1039,45 @@
             return isNaN(parsed) ? 0 : parsed;
         };
 
+        const getSafeCompletedMs = (ord) => {
+            if (!ord) return 0;
+            if (typeof ord.completedAtMs === 'number' && ord.completedAtMs > 0) return ord.completedAtMs;
+            if (ord.completedAt) {
+                if (typeof ord.completedAt.toMillis === 'function') return ord.completedAt.toMillis();
+                if (typeof ord.completedAt.seconds === 'number') return ord.completedAt.seconds * 1000;
+                const pComp = new Date(ord.completedAt).getTime();
+                if (!isNaN(pComp)) return pComp;
+            }
+            if (ord.completedAtStr) {
+                const pStr = new Date(ord.completedAtStr).getTime();
+                if (!isNaN(pStr)) return pStr;
+            }
+            return getSafeOrderMs(ord);
+        };
+
+        const getCompletedDayBucket = (ord) => {
+            const ms = getSafeCompletedMs(ord);
+            if (!ms) return { key: 'unknown', label: 'تاريخ غير محدد', badge: 'تم التسليم' };
+            const dt = new Date(ms);
+            const today = new Date();
+            const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+            const startOfDay = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
+            const diffDays = Math.round((startOfToday - startOfDay) / 86400000);
+            const timePart = dt.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true });
+            const datePart = dt.toLocaleDateString('ar-EG', { weekday: 'short', day: 'numeric', month: 'short' });
+            const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+            if (diffDays === 0) return { key, label: `✅ مكتمل اليوم (${datePart})`, badge: `اكتمل اليوم • ${timePart}` };
+            if (diffDays === 1) return { key, label: `📅 مكتمل أمس (${datePart})`, badge: `اكتمل أمس • ${timePart}` };
+            return { key, label: `🗓️ مكتمل يوم ${datePart}`, badge: `اكتمل ${datePart}` };
+        };
+
         let sortDir = (typeof ordersSortDirection !== 'undefined') ? ordersSortDirection : 'desc';
         filtered.sort((a, b) => {
-            let timeA = getSafeOrderMs(a);
-            let timeB = getSafeOrderMs(b);
+            let timeA = (activeTab === 'completed') ? getSafeCompletedMs(a) : getSafeOrderMs(a);
+            let timeB = (activeTab === 'completed') ? getSafeCompletedMs(b) : getSafeOrderMs(b);
             return sortDir === 'desc' ? (timeB - timeA) : (timeA - timeB);
         });
+
 
         let sumMeat = 0, sumEggs = 0, sumChicks = 0, sumMoney = 0;
         filtered.forEach(o => {
@@ -1134,7 +1167,19 @@
             canceled: 'border-r-4 border-r-rose-400 opacity-85'
         };
 
+        let lastCompletedDayKey = '';
         let cardsHtml = visibleOrders.map(o => {
+            let completedDayHeaderHtml = '';
+            if (activeTab === 'completed' && o.status === 'completed') {
+                const cB = getCompletedDayBucket(o);
+                if (cB.key !== lastCompletedDayKey) {
+                    lastCompletedDayKey = cB.key;
+                    completedDayHeaderHtml = `
+                    <div class="sticky top-0 z-10 flex items-center gap-2 py-1.5 px-3 rounded-xl bg-emerald-900 text-amber-300 text-xs font-black shadow-sm">
+                        <span>${cB.label}</span>
+                    </div>`;
+                }
+            }
             const safeMs = getSafeOrderMs(o);
             let d = o.orderDate || (safeMs ? new Date(safeMs).toLocaleDateString('en-US') : 'غير محدد');
             let ageStr = getOrderAgeLabel(o);
@@ -1181,8 +1226,8 @@
                         ? `<span class="bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[9px] font-black">⚖️ نص (${payBr.cash}ج كاش)</span>`
                         : '<span class="bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded text-[9px] font-black">كاش</span>');
 
-                return `
-                <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-2.5 rounded-2xl shadow-sm border hover:border-brand-primary transition-all space-y-1.5">
+                return `${completedDayHeaderHtml}
+                <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-2.5
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div class="flex flex-wrap items-center gap-1.5 min-w-0">
                             <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer shrink-0">
@@ -1261,8 +1306,9 @@
                 ? `<span class="text-[10px] bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 cursor-pointer hover:bg-blue-600 hover:text-white transition-colors"><i class="fa-solid fa-motorcycle text-blue-600 text-[8px]"></i> مع: ${o.driverName}</span>`
                 : '';
 
-            const timeDisplayStr = (o.status === 'completed' && (o.completedTimeDisplay || o.completedAtStr))
-                ? (o.completedTimeDisplay || o.completedAtStr)
+            const compBucket = (o.status === 'completed') ? getCompletedDayBucket(o) : null;
+            const timeDisplayStr = (o.status === 'completed' && compBucket)
+                ? compBucket.badge
                 : (ageStr ? `${ageStr} • ${d}` : d);
 
               // فحص الملاحظات المصنّفة بالألوان (🔵 من العميل | 🟣 مني إداري | 🟠 للعاملين والمندوب — بدون إظهار زحمة السيستم)
@@ -1336,8 +1382,8 @@
                     </div>`;
             }
 
-            return `
-            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-3 rounded-2xl shadow-sm border border-slate-200/90 hover:shadow-md transition-all relative group cursor-pointer space-y-2">
+            return `${completedDayHeaderHtml}
+            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-3 rounded-2xl
 
                 ${trustInfo.bannerHtml}
                 ${trustInfo.stickyHtml}
@@ -1620,6 +1666,18 @@
         let checked = Array.from(document.querySelectorAll('.bulk-order-cb:checked')).map(cb => cb.value);
         if (checked.length === 0) return;
 
+        if (['dispatched', 'completed'].includes(newStatus) && typeof window.orderHasPendingWeight === 'function') {
+            const firstPendingId = checked.find(id => {
+                const ordObj = allOrdersRaw.find(x => x && x.id === id);
+                return ordObj && window.orderHasPendingWeight(ordObj);
+            });
+            if (firstPendingId) {
+                if (typeof window.showToast === 'function') window.showToast('⚖️ يوجد طلب محدد بانتظار الميزان — سكّن أوزانه أولاً!');
+                window.openAssignPendingWeightsModal(firstPendingId);
+                return;
+            }
+        }
+
         if (['processing', 'dispatched', 'completed'].includes(newStatus)) {
             let blockedNames = [];
             checked = checked.filter(id => {
@@ -1679,14 +1737,19 @@
                 if (newStatus === 'canceled') updateData.canceledAt = firebase.firestore.FieldValue.serverTimestamp();
 
                 if (newStatus === 'completed') {
+                    const compNowMs = Date.now();
+                    updateData.completedAtMs = compNowMs;
                     updateData.completedAtStr = nowStr;
                     updateData.completedTimeDisplay = nowDisplay;
                     updateData.completedAt = firebase.firestore.FieldValue.serverTimestamp();
 
+                    o.completedAtMs = compNowMs;
                     o.completedAtStr = nowStr;
                     o.completedTimeDisplay = nowDisplay;
 
-                    if (oldStatus !== 'completed' && o.customerPhone) {
+                    if (oldStatus !== 'completed' && !o.loyaltyPointsAwarded && o.customerPhone) {
+                        updateData.loyaltyPointsAwarded = true;
+                        o.loyaltyPointsAwarded = true;
                         const orderSub = Number(o.subtotal) || Number(o.total) || 0;
                         if (orderSub >= 100) {
                             const earnedPts = Math.floor(orderSub / 100) * ptsPer100;
