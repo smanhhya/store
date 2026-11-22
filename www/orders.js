@@ -1382,14 +1382,15 @@
                     </div>`;
             }
 
-            return `${completedDayHeaderHtml}
-            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-3 rounded-2xl
+            const safeDayDividerHtml = (typeof completedDayHeaderHtml !== 'undefined') ? completedDayHeaderHtml : '';
+            return `${safeDayDividerHtml}
+            <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} border-r-[5px] p-3 mb-3.5 rounded-2xl shadow-[0_4px_14px_-4px_rgba(15,23,42,0.14)] ring-1 ring-slate-900/10 border border-slate-200 hover:shadow-md transition-shadow relative group cursor-pointer space-y-2.5">
 
                 ${trustInfo.bannerHtml}
                 ${trustInfo.stickyHtml}
 
                 <!-- 1. الهيدر الرشيق: العميل والدائرة الإرشادية يميناً + الحالة وزر الاتصال السهل يساراً -->
-                <div class="flex items-start justify-between gap-2">
+                <div class="flex items-start justify-between gap-2 pb-2 border-b border-slate-100">
                     <div class="space-y-1 min-w-0 flex-1">
                         <div class="flex flex-wrap items-center gap-1.5">
                             <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer rounded shrink-0">
@@ -1422,16 +1423,13 @@
                     </div>
                 </div>
 
-
                 ${pendingWeightBannerHtml}
 
-                <!-- 2. صندوق الطلب والفاتورة البارز (الأصناف واخدة راحتها بالكامل بدون تكسير + الحساب واضح) -->
+                <!-- 2. صندوق الطلب والفاتورة داخل نفس الكارت -->
                 <div class="bg-slate-50/95 p-2.5 rounded-xl border border-slate-200/90 space-y-2">
-                    <!-- الأصناف هي البطل في السطر الأول من الصندوق -->
                     <div class="flex flex-wrap items-center gap-1.5 w-full">
                         ${itemsStr}
                     </div>
-                    <!-- شريط الحساب والدفع تحت الأصناف مباشرة بوضوح تام -->
                     <div class="flex items-center justify-between pt-1.5 border-t border-slate-200/70">
                         <div class="flex items-center gap-1.5">
                             ${paymentBadge}
@@ -1443,13 +1441,13 @@
 
                 ${activeNotesPreviewHtml}
 
-                <!-- حاوية درج الملاحظات الموحد (تفتح من أيقونة الملاحظة الواحدة) -->
+                <!-- حاوية درج الملاحظات الموحد -->
                 <div id="inline-notes-container-${o.id}" class="hidden w-full transition-all duration-200 origin-top">
                     <div id="inline-notes-content-${o.id}"></div>
                 </div>
 
-                <!-- 3. شريط الأدوات المدمج (4 أزرار رشيقة h-7: واتساب بالـ 5 مميزات | بوليصة | ملاحظة | تعديل) -->
-                <div class="space-y-1 pt-0.5">
+                <!-- 3. شريط الأدوات وقرارات المرحلة داخل نفس الكارت -->
+                <div class="space-y-1.5 pt-2 border-t border-slate-100">
                     <div class="grid grid-cols-4 gap-1">
                         ${o.status === 'completed' ? `
                             <button type="button" onclick="sendFollowUpWhatsApp('${o.customerPhone}', '${o.customerName}')" class="bg-[#25D366] hover:bg-[#1ebd57] text-white h-7 rounded-lg text-[10px] font-black shadow-sm flex items-center justify-center gap-1 active:scale-95"><i class="fa-brands fa-whatsapp"></i> متابعة</button>
@@ -1461,7 +1459,7 @@
                             </div>
                             <button type="button" onclick="event.stopPropagation(); printSingleOrderWaybill('${o.id}')" class="bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-white border border-amber-200 h-7 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-print text-[9px]"></i> بوليصة</button>
                         `}
-                        <button type="button" onclick="toggleInlineNotes(event, '${o.id}')" class="${latestClientNote ? 'bg-sky-50 text-sky-900 border-sky-300' : (latestWorkerNote ? 'bg-orange-50 text-orange-900 border-orange-300' : (latestAdminNote ? 'bg-purple-50 text-purple-900 border-purple-300' : 'bg-slate-100 text-slate-700 border-slate-200'))} hover:bg-slate-800 hover:text-white border h-7 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 active:scale-95" title="فتح نافذة الملاحظات الملوّنة (العميل / إداري / للعاملين)">
+                        <button type="button" onclick="toggleInlineNotes(event, '${o.id}')" class="${latestClientNote ? 'bg-sky-50 text-sky-900 border-sky-300' : (latestWorkerNote ? 'bg-orange-50 text-orange-900 border-orange-300' : (latestAdminNote ? 'bg-purple-50 text-purple-900 border-purple-300' : 'bg-slate-100 text-slate-700 border-slate-200'))} hover:bg-slate-800 hover:text-white border h-7 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 active:scale-95" title="فتح نافذة الملاحظات الملوّنة">
                             <i class="fa-regular fa-comment-dots text-[9px]"></i> ملاحظة ${totalNotesCount > 0 ? `<span class="${latestClientNote ? 'bg-sky-600' : (latestWorkerNote ? 'bg-orange-500' : 'bg-purple-600')} text-white px-1 rounded text-[8px]">${totalNotesCount}</span>` : '+'}
                         </button>
                         <button type="button" onclick="openEditOrderModal('${o.id}')" class="bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white border border-slate-200 h-7 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 active:scale-95"><i class="fa-solid fa-pen text-[9px]"></i> تعديل</button>
@@ -1471,6 +1469,7 @@
                 </div>
             </div>`;
         }).join('');
+
 
         if (remainingCount > 0) {
             cardsHtml += `
