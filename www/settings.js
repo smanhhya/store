@@ -437,10 +437,11 @@
                         </div>
 
                         ${p.isWeightBased ? `
-                        <button type="button" onclick="toggleSingleProductExpand('${id}')" class="flex items-center justify-between gap-1.5 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1.5 rounded-xl text-indigo-900 transition-colors min-w-0">
-                            <span class="text-[10px] font-black truncate">⚖️ مصفوفة الجرام</span>
-                            <span class="bg-indigo-600 text-white text-[10px] font-black px-2 py-0.5 rounded-lg shrink-0">${weightArr.length} عدد</span>
-                        </button>
+                        <div class="flex items-center justify-between gap-1 bg-indigo-50/80 border border-indigo-200 px-2 py-1 rounded-xl text-indigo-900 min-w-0">
+                            <span class="text-[9px] font-black truncate" title="عدد الفرخات المتاحة للحجز قبل الذبح">⏳ حجز عدد:</span>
+                            <input type="number" min="0" value="${Math.max(0, parseInt(storeStock[id + '_prebook']) || 0)}" onchange="storeStock['${id}_prebook'] = Math.max(0, parseInt(this.value) || 0); saveAllSettings(true);" class="w-12 bg-white border border-indigo-200 rounded-lg py-0.5 px-1 text-xs font-black text-indigo-900 text-center outline-none focus:ring-2 focus:ring-indigo-300">
+                            <button type="button" onclick="toggleSingleProductExpand('${id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white text-[9px] font-black px-1.5 py-1 rounded-lg shrink-0" title="مصفوفة الأوزان الجاهزة">⚖️ ${weightArr.length}</button>
+                        </div>
                         ` : `
 
                         <div class="flex items-center justify-between gap-1.5 bg-emerald-50/70 border border-emerald-200/80 px-2.5 py-1.5 rounded-xl min-w-0">
