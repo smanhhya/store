@@ -442,6 +442,7 @@
                             <span class="bg-indigo-600 text-white text-[10px] font-black px-2 py-0.5 rounded-lg shrink-0">${weightArr.length} عدد</span>
                         </button>
                         ` : `
+
                         <div class="flex items-center justify-between gap-1.5 bg-emerald-50/70 border border-emerald-200/80 px-2.5 py-1.5 rounded-xl min-w-0">
                             <span class="text-[10px] font-black text-emerald-800 shrink-0">المتاح:</span>
                             <input type="number" value="${stock}" onchange="storeStock['${id}'] = parseInt(this.value) || 0; saveAllSettings(true);" class="w-16 max-w-full bg-white border border-emerald-200 rounded-lg py-0.5 px-1 text-xs font-black text-emerald-900 text-center outline-none focus:ring-2 focus:ring-emerald-300">
@@ -458,15 +459,25 @@
                     ? window.parseWeightsArray(p.weightsList)
                     : String(p.weightsList || '').split(/[\s,،;\n\r\-]+/).map(w => parseFloat(w.trim())).filter(w => !isNaN(w) && w > 0);
                 const totalKg = (wArr.reduce((s, v) => s + v, 0) / 1000).toFixed(2);
+                const prebookCnt = Math.max(0, parseInt(storeStock[id + '_prebook']) || 0);
                 weightStatsHtml = `
-                    <div class="mt-3 bg-indigo-50/70 p-3 rounded-xl border border-indigo-200/80 space-y-2">
+                    <div class="mt-3 bg-indigo-50/70 p-3 rounded-xl border border-indigo-200/80 space-y-2.5">
+                        <!-- وضع 1: الحجز بالعدد قبل الذبح (السعر يتحدد بالميزان يوم الذبح) -->
+                        <div class="bg-amber-50/90 border border-amber-200 rounded-xl p-2.5 flex flex-wrap items-center justify-between gap-2">
+                            <div class="min-w-0 flex-1">
+                                <label class="text-[11px] font-black text-amber-950 block">⏳ متاح للحجز بالعدد (قبل الذبح — السعر يتحدد بالميزان):</label>
+                                <span class="text-[9px] font-bold text-amber-800">اكتب العدد المتاح ليتمكن العميل وأنت من حجز فرخات بالعدد بدون وزن مسبق (ضع 0 للإغلاق).</span>
+                            </div>
+                            <input type="number" min="0" value="${prebookCnt}" onchange="storeStock['${id}_prebook'] = Math.max(0, parseInt(this.value) || 0); saveAllSettings(true);" class="w-20 border-2 border-amber-300 rounded-xl p-1.5 text-center text-sm font-black text-amber-950 bg-white outline-none focus:border-amber-500">
+                        </div>
+                        <!-- وضع 2: مصفوفة الأوزان الجاهزة (بعد الذبح والوزن) -->
                         <div class="flex flex-wrap justify-between items-center gap-1.5">
                             <label class="text-[11px] font-black text-indigo-900">
-                                <i class="fa-solid fa-scale-balanced ml-1 text-indigo-600"></i> مصفوفة الأوزان بالجرام (بمسافة أو تحت بعض):
+                                <i class="fa-solid fa-scale-balanced ml-1 text-indigo-600"></i> مصفوفة الأوزان الجاهزة بالجرام (بمسافة أو تحت بعض):
                             </label>
-                            <span id="weights-badge-${id}" class="bg-white text-indigo-700 px-2 py-0.5 rounded-lg border border-indigo-200 text-[10px] font-black">المتاح: ${wArr.length} قطعة (${totalKg} كجم)</span>
+                            <span id="weights-badge-${id}" class="bg-white text-indigo-700 px-2 py-0.5 rounded-lg border border-indigo-200 text-[10px] font-black">الجاهز: ${wArr.length} قطعة (${totalKg} كجم)</span>
                         </div>
-                        <textarea oninput="let arr = window.parseWeightsArray ? window.parseWeightsArray(this.value) : []; storeProducts['${id}'].weightsList = arr.join(' '); storeStock['${id}'] = arr.length; let b = document.getElementById('weights-badge-${id}'); if(b) b.innerText = 'المتاح: ' + arr.length + ' قطعة (' + (arr.reduce((s,v)=>s+v,0)/1000).toFixed(2) + ' كجم)'; if(window.generateDynamicOrderInputs) generateDynamicOrderInputs();" onchange="updateProductWeightList('${id}', this.value)" dir="ltr" class="w-full border border-indigo-200 rounded-xl p-2.5 text-xs font-black text-slate-800 bg-white outline-none focus:ring-2 focus:ring-indigo-300 custom-scroll" rows="3" placeholder="مثال: 1400 1550 1200">${p.weightsList || ''}</textarea>
+                        <textarea oninput="let arr = window.parseWeightsArray ? window.parseWeightsArray(this.value) : []; storeProducts['${id}'].weightsList = arr.join(' '); storeStock['${id}'] = arr.length; let b = document.getElementById('weights-badge-${id}'); if(b) b.innerText = 'الجاهز: ' + arr.length + ' قطعة (' + (arr.reduce((s,v)=>s+v,0)/1000).toFixed(2) + ' كجم)'; if(window.generateDynamicOrderInputs) generateDynamicOrderInputs();" onchange="updateProductWeightList('${id}', this.value)" dir="ltr" class="w-full border border-indigo-200 rounded-xl p-2.5 text-xs font-black text-slate-800 bg-white outline-none focus:ring-2 focus:ring-indigo-300 custom-scroll" rows="3" placeholder="مثال: 1400 1550 1200">${p.weightsList || ''}</textarea>
                     </div>
                 `;
             }
