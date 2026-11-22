@@ -463,10 +463,15 @@
 
     // =========================================================================
     // 🛵 4. نافذة وتوجيه الطلب للمندوب بخطوة واحدة (بدون إجبارك على فتح واتساب)
-    // =========================================================================
     window.triggerOrderDriverStep = function (btnEl, orderId) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
         if (!order) return;
+        if (typeof window.orderHasPendingWeight === 'function' && window.orderHasPendingWeight(order)) {
+            if (typeof window.showToast === 'function') window.showToast('⚖️ يجب تسكين أوزان هذا الطلب أولاً قبل خروجه مع المندوب!');
+            window.openAssignPendingWeightsModal(orderId);
+            return;
+        }
+
 
         const drivers = (typeof storeSettings !== 'undefined' && Array.isArray(storeSettings.drivers)) ? storeSettings.drivers : [];
         if (drivers.length === 0) {
@@ -1211,7 +1216,25 @@
             }
 
             // 🖥️ 2. الكارت البريميوم المتوازن: (الطلب والأصناف هما البطل الواضح + أزرار رشيقة + أيقونة ملاحظة واحدة)
+            const orderPendingWeightItems = (o.items && Array.isArray(o.items)) ? o.items.filter(i => i && i.pendingWeight) : [];
+            const pendingWeightBannerHtml = orderPendingWeightItems.length > 0 ? `
+                <div onclick="event.stopPropagation()" class="bg-amber-50 border-2 border-amber-300 rounded-xl px-2.5 py-2 flex flex-wrap items-center justify-between gap-2 shadow-sm">
+                    <div class="text-[11px] font-black text-amber-950 flex items-center gap-1.5">
+                        <i class="fa-solid fa-scale-balanced text-amber-600"></i>
+                        <span>بانتظار الميزان يوم الذبح (${orderPendingWeightItems.reduce((s, x) => s + (Number(x.birdsCount) || 1), 0)} عدد)</span>
+                    </div>
+                    <button type="button" onclick="openAssignPendingWeightsModal('${o.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-lg text-[10px] font-black shadow-sm flex items-center gap-1 active:scale-95 transition-all">
+                        <i class="fa-solid fa-weight-scale"></i> تسكين الأوزان الآن
+                    </button>
+                </div>` : '';
+
             let itemsStr = (o.items && Array.isArray(o.items)) ? o.items.map((i, idx) =>
+                i.pendingWeight ? `
+                <div data-item-idx="${idx}" onclick="event.stopPropagation(); openAssignPendingWeightsModal('${o.id}')" class="bg-amber-50 border-2 border-amber-300 hover:border-indigo-500 px-2.5 py-1 rounded-xl shadow-sm inline-flex items-center gap-1.5 transition-all cursor-pointer" title="اضغط لتسكين الأوزان">
+                    <span class="bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded-md font-black text-[11px] leading-none">⏳ ${i.birdsCount || 1} عدد</span>
+                    <span class="font-black text-amber-950 text-xs sm:text-sm whitespace-nowrap">${i.name}</span>
+                    <span class="text-[10px] text-indigo-800 font-black bg-white px-1.5 py-0.5 rounded border border-indigo-200">الكيلو ${i.price}ج</span>
+                </div>` :
                 `<div data-item-idx="${idx}" class="bg-white border-2 border-emerald-600/20 hover:border-brand-primary px-2.5 py-1 rounded-xl shadow-sm inline-flex items-center gap-1.5 transition-all">
                     <span class="bg-brand-primary text-white px-1.5 py-0.5 rounded-md font-black text-[11px] leading-none">${i.quantity}x</span>
                     <span class="font-black text-slate-900 text-xs sm:text-sm whitespace-nowrap">${i.name}</span>
@@ -1353,6 +1376,8 @@
                     </div>
                 </div>
 
+
+                ${pendingWeightBannerHtml}
 
                 <!-- 2. صندوق الطلب والفاتورة البارز (الأصناف واخدة راحتها بالكامل بدون تكسير + الحساب واضح) -->
                 <div class="bg-slate-50/95 p-2.5 rounded-xl border border-slate-200/90 space-y-2">
@@ -1791,9 +1816,16 @@
         targetOrders.forEach(o => {
             if (Array.isArray(o.items)) {
                 o.items.forEach(item => {
-                    const k = item.name || 'صنف';
-                    if (!itemTotals[k]) itemTotals[k] = { id: item.id || '', name: k, qty: 0 };
-                    itemTotals[k].qty += Number(item.quantity) || 0;
+                    if (item && item.pendingWeight) {
+                        const baseN = (typeof storeProducts !== 'undefined' && storeProducts[item.id]?.name) ? storeProducts[item.id].name : (item.name || 'صنف بالميزان');
+                        const k = `⏳ [بانتظار الذبح/الميزان] ${baseN}`;
+                        if (!itemTotals[k]) itemTotals[k] = { id: item.id || '', name: k, qty: 0 };
+                        itemTotals[k].qty += Number(item.birdsCount) || 1;
+                    } else {
+                        const k = item.name || 'صنف';
+                        if (!itemTotals[k]) itemTotals[k] = { id: item.id || '', name: k, qty: 0 };
+                        itemTotals[k].qty += Number(item.quantity) || 0;
+                    }
                 });
             }
         });
@@ -2465,6 +2497,11 @@
                     return;
                 }
                 const ord = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === id);
+                if (ord && ['dispatched', 'completed'].includes(newStatus) && typeof window.orderHasPendingWeight === 'function' && window.orderHasPendingWeight(ord)) {
+                    if (typeof window.showToast === 'function') window.showToast('⚖️ سكّن أوزان الطلب أولاً لحساب الفاتورة النهائية قبل التسليم!');
+                    window.openAssignPendingWeightsModal(id);
+                    return;
+                }
                 if (ord && ord.status === 'deferred' && newStatus !== 'deferred') {
                     ord.deferredAlertDismissed = true;
                     db.collection('orders').doc(id).update({ deferredAlertDismissed: true }).catch(() => {});
@@ -2680,6 +2717,343 @@
         }, 30000);
 
     }
+
+    // =========================================================================
+    // ⚖️ 12. نافذة تسكين أوزان طلبات الحجز بالعدد (يوم الذبح بضغطة واحدة)
+    // =========================================================================
+    let assigningWeightOrderId = null;
+
+    window.orderHasPendingWeight = function (ord) {
+        return Boolean(ord && Array.isArray(ord.items) && ord.items.some(i => i && i.pendingWeight));
+    };
+
+    function parseGramListSafe(rawStr) {
+        if (typeof window.parseWeightsArray === 'function') return window.parseWeightsArray(rawStr);
+        return String(rawStr || '')
+            .replace(/[\u0660-\u0669]/g, c => String(c.charCodeAt(0) - 0x0660))
+            .replace(/[\u06F0-\u06F9]/g, c => String(c.charCodeAt(0) - 0x06F0))
+            .split(/[\s,،;+\n\r\-]+/)
+            .map(v => parseFloat(v.trim()))
+            .filter(v => !isNaN(v) && v > 0);
+    }
+
+    function ensureAssignWeightsModal() {
+        let modal = document.getElementById('sman-assign-weights-modal');
+        if (modal) return modal;
+
+        modal = document.createElement('div');
+        modal.id = 'sman-assign-weights-modal';
+        modal.className = 'fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[250] hidden flex items-center justify-center p-3';
+        modal.innerHTML = `
+            <div class="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-lg overflow-hidden border-2 border-indigo-300 max-h-[92vh] flex flex-col">
+                <div class="bg-gradient-to-l from-slate-900 via-indigo-950 to-slate-900 text-white p-4 flex items-center justify-between shrink-0">
+                    <div>
+                        <h3 class="text-sm sm:text-base font-black text-white flex items-center gap-2">
+                            <i class="fa-solid fa-scale-balanced text-amber-400"></i>
+                            <span>تسكين أوزان الطلب (يوم الذبح)</span>
+                        </h3>
+                        <p id="aw-order-subtitle" class="text-[11px] font-bold text-indigo-200 mt-0.5"></p>
+                    </div>
+                    <button type="button" onclick="closeAssignPendingWeightsModal()" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-rose-500 text-white flex items-center justify-center">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <div id="aw-items-body" class="p-4 space-y-3 overflow-y-auto flex-1 bg-slate-50/70"></div>
+
+                <div class="p-4 bg-white border-t border-slate-100 space-y-2.5 shrink-0">
+                    <div id="aw-live-summary" class="bg-indigo-950 text-white px-3.5 py-2.5 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs font-black"></div>
+                    <div class="flex gap-2">
+                        <button type="button" id="aw-save-btn" onclick="saveAssignedPendingWeights()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3 rounded-xl text-xs sm:text-sm shadow-md flex items-center justify-center gap-2 active:scale-95">
+                            <i class="fa-solid fa-check-double"></i>
+                            <span>اعتماد الأوزان وتحديث الفاتورة</span>
+                        </button>
+                        <button type="button" onclick="closeAssignPendingWeightsModal()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-black px-4 py-3 rounded-xl text-xs">إلغاء</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        return modal;
+    }
+
+    window.closeAssignPendingWeightsModal = function () {
+        document.getElementById('sman-assign-weights-modal')?.classList.add('hidden');
+        assigningWeightOrderId = null;
+    };
+
+    window.openAssignPendingWeightsModal = function (orderId) {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === orderId);
+        if (!order || !Array.isArray(order.items)) return;
+
+        const pendingEntries = order.items
+            .map((item, idx) => ({ item, idx }))
+            .filter(x => x.item && x.item.pendingWeight);
+        if (pendingEntries.length === 0) return;
+
+        assigningWeightOrderId = orderId;
+        ensureAssignWeightsModal();
+
+        const sub = document.getElementById('aw-order-subtitle');
+        if (sub) sub.textContent = `العميل: ${order.customerName || ''} (${order.zone || ''})`;
+
+        const body = document.getElementById('aw-items-body');
+        body.innerHTML = pendingEntries.map(({ item, idx }) => {
+            const p = (typeof storeProducts !== 'undefined' && storeProducts[item.id]) ? storeProducts[item.id] : null;
+            const pName = p?.name || item.name || 'صنف بالميزان';
+            const kiloPrice = Number(item.price) || Number(storePrices?.[item.id]) || Number(p?.basePrice) || 0;
+            const reqCount = Number(item.birdsCount) || 1;
+            const stockGrams = p ? parseGramListSafe(p.weightsList) : [];
+
+            const stockCbsHtml = stockGrams.length > 0
+                ? `<div class="space-y-1">
+                       <span class="text-[10px] font-black text-indigo-800 block">📦 اختر من المصفوفة الجاهزة بالمخزن (${stockGrams.length} متاح):</span>
+                       <div class="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto custom-scroll">
+                           ${stockGrams.map((g, sIdx) => `
+                               <label class="flex items-center justify-between gap-1 bg-slate-50 hover:bg-indigo-50 border border-slate-200 px-2.5 py-1.5 rounded-xl cursor-pointer text-[11px] font-black">
+                                   <span class="flex items-center gap-1.5">
+                                       <input type="checkbox" data-item-idx="${idx}" data-prod-id="${item.id}" data-stock-idx="${sIdx}" value="${g}" onchange="recalcAssignWeightsPreview()" class="aw-stock-cb-${idx} w-4 h-4 accent-indigo-600 rounded">
+                                       <span class="text-indigo-900">${g} جم</span>
+                                   </span>
+                                   <span class="text-[10px] text-emerald-700">${Math.round((g / 1000) * kiloPrice)}ج</span>
+                               </label>
+                           `).join('')}
+                       </div>
+                   </div>`
+                : `<div class="text-[10px] font-bold text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-xl p-2 text-center">مصفوفة المخزن فارغة حالياً — اكتب الأوزان بالجرام مباشرة بالأسفل</div>`;
+
+            return `
+            <div class="bg-white border-2 border-indigo-200 rounded-2xl p-3.5 space-y-2.5 shadow-sm" data-aw-entry="${idx}">
+                <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                    <div>
+                        <h4 class="text-sm font-black text-indigo-950">${pName}</h4>
+                        <span class="text-[10px] font-black text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md inline-block mt-0.5">مطلوب حجز: ${reqCount} عدد</span>
+                    </div>
+                    <div class="flex items-center gap-1 bg-blue-50 border border-blue-200 px-2 py-1 rounded-xl">
+                        <span class="text-[10px] font-black text-blue-800">الكيلو:</span>
+                        <input type="number" id="aw-price-${idx}" value="${kiloPrice}" oninput="recalcAssignWeightsPreview()" class="w-16 bg-white border border-blue-200 rounded-lg py-0.5 text-center text-xs font-black text-blue-950 outline-none">
+                        <span class="text-[10px] font-black text-blue-700">ج</span>
+                    </div>
+                </div>
+
+                ${stockCbsHtml}
+
+                <div class="space-y-1">
+                    <label class="text-[10px] font-black text-slate-700 block">✍️ أو اكتب أوزان الفرخات بالجرام (افصل بينهم بمسافة):</label>
+                    <input type="text" id="aw-manual-${idx}" dir="ltr" oninput="recalcAssignWeightsPreview()" placeholder="مثال: 1650 1800 1720" class="w-full border-2 border-indigo-200 focus:border-indigo-500 rounded-xl p-2 text-xs font-black text-slate-900 bg-indigo-50/30 outline-none">
+                </div>
+
+                <div id="aw-line-preview-${idx}" class="bg-slate-100 text-slate-600 px-2.5 py-1.5 rounded-xl text-[11px] font-black text-center">لم يتم تحديد الأوزان بعد</div>
+            </div>`;
+        }).join('');
+
+        document.getElementById('sman-assign-weights-modal').classList.remove('hidden');
+        window.recalcAssignWeightsPreview();
+    };
+
+    window.recalcAssignWeightsPreview = function () {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === assigningWeightOrderId);
+        if (!order || !Array.isArray(order.items)) return;
+
+        let newSubtotal = 0;
+        let readyCount = 0;
+        let totalPendingEntries = 0;
+
+        order.items.forEach((item, idx) => {
+            if (!item) return;
+            if (!item.pendingWeight) {
+                newSubtotal += Math.round((Number(item.quantity) || 0) * (Number(item.price) || 0));
+                return;
+            }
+            totalPendingEntries++;
+            const kiloPrice = Number(document.getElementById(`aw-price-${idx}`)?.value) || Number(item.price) || 0;
+            const checkedGrams = Array.from(document.querySelectorAll(`.aw-stock-cb-${idx}:checked`))
+                .map(cb => parseFloat(cb.value))
+                .filter(v => !isNaN(v) && v > 0);
+            const manualGrams = parseGramListSafe(document.getElementById(`aw-manual-${idx}`)?.value || '');
+            const allGrams = [...checkedGrams, ...manualGrams];
+            const prevEl = document.getElementById(`aw-line-preview-${idx}`);
+
+            if (allGrams.length > 0) {
+                readyCount++;
+                const totalGrams = allGrams.reduce((s, v) => s + v, 0);
+                const kg = Number((totalGrams / 1000).toFixed(3));
+                const lineMoney = Math.round(kg * kiloPrice);
+                newSubtotal += lineMoney;
+                if (prevEl) {
+                    prevEl.className = 'bg-emerald-50 border border-emerald-200 text-emerald-900 px-2.5 py-1.5 rounded-xl text-[11px] font-black text-center';
+                    prevEl.textContent = `✅ ${allGrams.length} عدد • ${kg} كجم (${allGrams.join(' + ')} جم) = ${lineMoney} ج.م`;
+                }
+            } else if (prevEl) {
+                prevEl.className = 'bg-slate-100 text-slate-500 px-2.5 py-1.5 rounded-xl text-[11px] font-black text-center';
+                prevEl.textContent = 'اختر من المصفوفة أو اكتب الأوزان بالجرام بالأعلى';
+            }
+        });
+
+        const deliv = Number(order.deliveryFee) || 0;
+        const disc = Number(order.discount) || 0;
+        const newTotal = Math.max(0, newSubtotal + deliv - disc);
+        const sumEl = document.getElementById('aw-live-summary');
+        if (sumEl) {
+            sumEl.innerHTML = `
+                <span>المنتجات: <strong class="text-amber-300">${newSubtotal} ج</strong> + شحن ${deliv}ج${disc > 0 ? ` - خصم ${disc}ج` : ''}</span>
+                <span>الإجمالي الجديد: <strong class="text-emerald-300 text-sm">${newTotal} ج.م</strong></span>
+            `;
+        }
+        const saveBtn = document.getElementById('aw-save-btn');
+        if (saveBtn) saveBtn.disabled = (readyCount < totalPendingEntries);
+    };
+
+    window.saveAssignedPendingWeights = async function () {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === assigningWeightOrderId);
+        if (!order || !Array.isArray(order.items)) return;
+
+        const saveBtn = document.getElementById('aw-save-btn');
+        const origHtml = saveBtn ? saveBtn.innerHTML : '';
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الحفظ وتحديث الفاتورة...';
+        }
+
+        try {
+            const newItems = [];
+            let newSubtotal = 0;
+            const stockRemovalsByProd = {};
+            const noteSummaries = [];
+
+            for (let idx = 0; idx < order.items.length; idx++) {
+                const item = order.items[idx];
+                if (!item) continue;
+                if (!item.pendingWeight) {
+                    newItems.push(item);
+                    newSubtotal += Math.round((Number(item.quantity) || 0) * (Number(item.price) || 0));
+                    continue;
+                }
+
+                const kiloPrice = Number(document.getElementById(`aw-price-${idx}`)?.value) || Number(item.price) || 0;
+                const checkedCbs = Array.from(document.querySelectorAll(`.aw-stock-cb-${idx}:checked`));
+                const checkedGrams = [];
+                checkedCbs.forEach(cb => {
+                    const g = parseFloat(cb.value);
+                    const sIdx = parseInt(cb.getAttribute('data-stock-idx'));
+                    if (!isNaN(g) && g > 0) checkedGrams.push(g);
+                    if (!isNaN(sIdx)) {
+                        if (!stockRemovalsByProd[item.id]) stockRemovalsByProd[item.id] = [];
+                        stockRemovalsByProd[item.id].push(sIdx);
+                    }
+                });
+                const manualGrams = parseGramListSafe(document.getElementById(`aw-manual-${idx}`)?.value || '');
+                const allGrams = [...checkedGrams, ...manualGrams];
+
+                if (allGrams.length === 0) {
+                    alert('يرجى إدخال أو اختيار أوزان لكل الأصناف المعلّقة أولاً!');
+                    if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = origHtml; }
+                    return;
+                }
+
+                const totalGrams = allGrams.reduce((s, v) => s + v, 0);
+                const kg = Number((totalGrams / 1000).toFixed(3));
+                const baseName = (typeof storeProducts !== 'undefined' && storeProducts[item.id]?.name) ? storeProducts[item.id].name : 'صنف بالميزان';
+                const detailsStr = allGrams.join(' + ');
+                const finalName = `${baseName} [${allGrams.length} فرخة = ${kg} كجم] (${detailsStr} جم)`;
+
+                newItems.push({
+                    id: item.id,
+                    name: finalName,
+                    quantity: kg,
+                    price: kiloPrice,
+                    birdsCount: allGrams.length,
+                    selectedWeightsGrams: allGrams,
+                    isWeightBased: true,
+                    pendingWeight: false
+                });
+                newSubtotal += Math.round(kg * kiloPrice);
+                noteSummaries.push(`${baseName}: ${kg} كجم (${detailsStr} جم)`);
+            }
+
+            const oldTotal = Number(order.total) || 0;
+            const deliv = Number(order.deliveryFee) || 0;
+            const disc = Number(order.discount) || 0;
+            const newTotal = Math.max(0, newSubtotal + deliv - disc);
+            const totalDiff = newTotal - oldTotal;
+
+            const dateStr = new Date().toLocaleString('ar-EG', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const weightLogNote = `[${dateStr}] 🛡️ تم تسكين الأوزان: ${noteSummaries.join(' | ')} — الإجمالي النهائي: ${newTotal} ج`;
+            const updatedAdminNote = order.adminNote ? `${order.adminNote}\n---\n${weightLogNote}` : weightLogNote;
+
+            const orderPatch = {
+                items: newItems,
+                subtotal: newSubtotal,
+                total: newTotal,
+                adminNote: updatedAdminNote
+            };
+            if ((order.paymentMethod || 'cash') === 'cash') {
+                orderPatch.paidCash = newTotal;
+                orderPatch.paidOnline = 0;
+            } else if (order.paymentMethod === 'online') {
+                orderPatch.paidCash = 0;
+                orderPatch.paidOnline = newTotal;
+            }
+
+            const dbBatch = db.batch();
+            dbBatch.update(db.collection('orders').doc(order.id), orderPatch);
+
+            if (totalDiff !== 0) {
+                dbBatch.set(db.collection('inventory').doc('stats'), {
+                    sales: firebase.firestore.FieldValue.increment(totalDiff)
+                }, { merge: true });
+                if (order.customerPhone) {
+                    const normP = window.normalizePhone ? window.normalizePhone(order.customerPhone) : String(order.customerPhone).trim();
+                    const cleanP = normP.startsWith('0') ? normP : '0' + normP;
+                    if (cleanP.length >= 10) {
+                        dbBatch.set(db.collection('customers').doc(cleanP), {
+                            totalSpent: firebase.firestore.FieldValue.increment(totalDiff)
+                        }, { merge: true });
+                    }
+                }
+            }
+
+            let invTouched = false;
+            Object.keys(stockRemovalsByProd).forEach(prodId => {
+                if (!storeProducts || !storeProducts[prodId]) return;
+                const curArr = parseGramListSafe(storeProducts[prodId].weightsList);
+                const idxs = [...new Set(stockRemovalsByProd[prodId])].sort((a, b) => b - a);
+                idxs.forEach(rmIdx => {
+                    if (rmIdx >= 0 && rmIdx < curArr.length) curArr.splice(rmIdx, 1);
+                });
+                storeProducts[prodId].weightsList = curArr.join(' ');
+                if (typeof storeStock !== 'undefined') storeStock[prodId] = curArr.length;
+                invTouched = true;
+            });
+
+            if (invTouched) {
+                dbBatch.set(db.collection('inventory').doc('settings'), { productsData: storeProducts }, { merge: true });
+                dbBatch.set(db.collection('inventory').doc('stock'), storeStock, { merge: true });
+            }
+
+            await dbBatch.commit();
+
+            Object.assign(order, orderPatch);
+            if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[order.id]) {
+                Object.assign(globalOrdersMap[order.id], orderPatch);
+            }
+
+            window.closeAssignPendingWeightsModal();
+            window.renderOrdersList();
+            if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
+            if (typeof window.showToast === 'function') {
+                window.showToast(`⚖️ تم تسكين الأوزان وتحديث الفاتورة إلى (${newTotal} ج.م) بنجاح!`);
+            }
+        } catch (err) {
+            console.error('Assign pending weights error:', err);
+            alert('حدث خطأ أثناء حفظ الأوزان، حاول مرة أخرى!');
+        } finally {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = origHtml;
+            }
+        }
+    };
 
     if (document.readyState === 'loading') {
         window.addEventListener('DOMContentLoaded', bootOrdersAndDeferredEngine);
