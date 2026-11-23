@@ -1309,16 +1309,18 @@
         }
     };
 
-    // بدء الاستماع الخلفي لشارة التقييمات بمجرد تسجيل دخول الإدارة في الـ CRM
+    // تشغيل كسول وذكي للمطبخ: لا يضغط على بداية فتح التطبيق — يبدأ فقط عند فتح تبويب المطبخ أو بعد هدوء الشبكة
     function bootKitchenCrmWatcher() {
         const kAuth = getKAuth();
         if (!kAuth) return;
         kAuth.onAuthStateChanged((user) => {
-            if (user) {
-                startKitchenListeners();
-                if (window.smanCurrentActiveTab === 'kitchen') {
-                    window.renderKitchenCRMUI();
-                }
+            if (!user) return;
+            if (window.smanCurrentActiveTab === 'kitchen') {
+                window.renderKitchenCRMUI();
+            } else if (navigator.onLine) {
+                setTimeout(() => {
+                    if (navigator.onLine && !kitchenListenersStarted) startKitchenListeners();
+                }, 9000);
             }
         });
     }
