@@ -7,14 +7,14 @@
     <title>سمان ههيا | الإدارة المركزية (CRM)</title>
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#166534">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="kitchen-crm.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
+    <script src="kitchen-crm.js?v=20261129" defer></script>
 
     <script>
         tailwind.config = {
@@ -2103,19 +2103,33 @@
                     return wrapFirestoreWritePromise(_origDelete.apply(this, arguments));
                 };
 
-                // 4. تسريع القراءة (.get) وقت انقطاع أو ضعف الإنترنت بالتحويل التلقائي للكاش المحلي
+                // 4. تسريع القراءة (.get) وقت انقطاع أو ضعف الإنترنت بأمان بدون إجهاض طلب السيرفر عند فراغ الكاش
                 const _origDocGet = DocRefProto.get;
                 DocRefProto.get = function (options) {
                     if (options && options.source) return _origDocGet.call(this, options);
                     if (!navigator.onLine) {
                         return _origDocGet.call(this, { source: 'cache' }).catch(() => _origDocGet.call(this));
                     }
-                    return Promise.race([
-                        _origDocGet.call(this),
-                        new Promise((resolve, reject) => setTimeout(() => {
-                            _origDocGet.call(this, { source: 'cache' }).then(resolve).catch(reject);
-                        }, 1400))
-                    ]);
+                    const serverP = _origDocGet.call(this);
+                    return new Promise((resolve, reject) => {
+                        let settled = false;
+                        const timer = setTimeout(() => {
+                            _origDocGet.call(this, { source: 'cache' }).then((cSnap) => {
+                                if (!settled && cSnap && cSnap.exists) { settled = true; resolve(cSnap); }
+                            }).catch(() => {});
+                        }, 1600);
+                        serverP.then((sSnap) => {
+                            clearTimeout(timer);
+                            if (!settled) { settled = true; resolve(sSnap); }
+                        }).catch((err) => {
+                            clearTimeout(timer);
+                            if (!settled) {
+                                _origDocGet.call(this, { source: 'cache' }).then((cSnap) => {
+                                    if (!settled) { settled = true; resolve(cSnap); }
+                                }).catch(() => { if (!settled) { settled = true; reject(err); } });
+                            }
+                        });
+                    });
                 };
 
                 const QueryProto = firebase.firestore.Query.prototype;
@@ -2125,13 +2139,28 @@
                     if (!navigator.onLine) {
                         return _origQueryGet.call(this, { source: 'cache' }).catch(() => _origQueryGet.call(this));
                     }
-                    return Promise.race([
-                        _origQueryGet.call(this),
-                        new Promise((resolve, reject) => setTimeout(() => {
-                            _origQueryGet.call(this, { source: 'cache' }).then(resolve).catch(reject);
-                        }, 1400))
-                    ]);
+                    const serverP = _origQueryGet.call(this);
+                    return new Promise((resolve, reject) => {
+                        let settled = false;
+                        const timer = setTimeout(() => {
+                            _origQueryGet.call(this, { source: 'cache' }).then((cSnap) => {
+                                if (!settled && cSnap && !cSnap.empty) { settled = true; resolve(cSnap); }
+                            }).catch(() => {});
+                        }, 1600);
+                        serverP.then((sSnap) => {
+                            clearTimeout(timer);
+                            if (!settled) { settled = true; resolve(sSnap); }
+                        }).catch((err) => {
+                            clearTimeout(timer);
+                            if (!settled) {
+                                _origQueryGet.call(this, { source: 'cache' }).then((cSnap) => {
+                                    if (!settled) { settled = true; resolve(cSnap); }
+                                }).catch(() => { if (!settled) { settled = true; reject(err); } });
+                            }
+                        });
+                    });
                 };
+
             } catch (e) {
                 console.log('Firestore offline wrapper info:', e);
             }
@@ -2680,17 +2709,17 @@
             auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
         } catch (e) {}
 
-        // إخفاء شاشة الدخول بصرياً فوراً للموبايل الموثوق، مع انتظار جاهزية Firebase الفعلية قبل سحب الداتا لمنع الشاشة البيضاء
+        // إخفاء شاشة الدخول والإقلاع الفوري في 0 ثانية للموبايل الموثوق (سواء أونلاين أو أوفلاين بالكامل)
         (function instantTrustedDeviceCheck() {
             const isTrusted = getPermanentOwnerData('sman_trusted_owner_device') === '1';
             const savedEmail = getPermanentOwnerData('sman_owner_email');
             const savedPass = getPermanentOwnerData('sman_owner_pass');
             if (isTrusted && savedEmail && savedPass) {
                 hideLoginScreenImmediately();
-                // صمام أمان في حال انقطاع الإنترنت الكامل عن الجهاز
+                const fastDelay = !navigator.onLine ? 30 : 250;
                 setTimeout(() => {
                     if (!window._crmBootedOnce) bootCrmOnceSafely();
-                }, 1800);
+                }, fastDelay);
             }
         })();
 
@@ -2834,14 +2863,62 @@
             } catch (e) {}
         })();
 
+        // ⚡ مرآة محلية فورية للطلبات (تفتح الطلبات ولوحة القيادة في 0.1 ثانية حتى في وضع الطيران)
+        let _ordersMirrorSaveTimer = null;
+        window.saveOrdersFastMirror = function () {
+            clearTimeout(_ordersMirrorSaveTimer);
+            _ordersMirrorSaveTimer = setTimeout(() => {
+                try {
+                    const slimList = (Array.isArray(allOrdersRaw) ? allOrdersRaw : [])
+                        .filter(o => o && o.status !== 'trash' && !o.isArchived)
+                        .slice(0, 260)
+                        .map(o => {
+                            const copy = { ...o };
+                            if (o.createdAt && typeof o.createdAt.toMillis === 'function') copy._createdAtMs = o.createdAt.toMillis();
+                            if (o.completedAt && typeof o.completedAt.toMillis === 'function') copy.completedAtMs = o.completedAtMs || o.completedAt.toMillis();
+                            return copy;
+                        });
+                    localStorage.setItem('sman_orders_fast_mirror', JSON.stringify(slimList));
+                } catch (e) {}
+            }, 600);
+        };
+
+        (function hydrateOrdersMirrorImmediately() {
+            try {
+                const raw = localStorage.getItem('sman_orders_fast_mirror');
+                if (!raw) return;
+                const list = JSON.parse(raw);
+                if (!Array.isArray(list) || list.length === 0) return;
+                globalOrdersMap = {};
+                allOrdersRaw = [];
+                dispatchOrdersRaw = [];
+                list.forEach(o => {
+                    if (!o || !o.id) return;
+                    if (o._createdAtMs && (!o.createdAt || typeof o.createdAt.toMillis !== 'function')) {
+                        const ms = o._createdAtMs;
+                        o.createdAt = { toMillis: () => ms, seconds: Math.floor(ms / 1000) };
+                    }
+                    globalOrdersMap[o.id] = o;
+                    allOrdersRaw.push(o);
+                    if (!o.isArchived && o.status === 'processing') dispatchOrdersRaw.push(o);
+                });
+                window._hasHydratedOrdersMirror = true;
+            } catch (e) {}
+        })();
+
         function startCRM() {
-            // إذا كانت المرآة المحلية موجودة، نجهز المدخلات في 0 ثانية بأحدث أسعارك الفعلية بدون إظهار defaultProducts القديمة
             if (window._hasHydratedInvMirror) {
                 generateDynamicOrderInputs();
             }
 
             let invLoadedOnce = Boolean(window._hasHydratedInvMirror);
             let ordersLoadedOnce = false;
+            if (window._hasHydratedOrdersMirror && allOrdersRaw.length > 0) {
+                window._crmDataReady = true;
+                setTimeout(() => {
+                    if (typeof scheduleSystemRender === 'function') scheduleSystemRender();
+                }, 20);
+            }
 
             function triggerUnifiedBootRender() {
                 if (!invLoadedOnce || !ordersLoadedOnce) return;
@@ -2955,6 +3032,7 @@
                 });
 
                 ordersLoadedOnce = true;
+                if (typeof window.saveOrdersFastMirror === 'function') window.saveOrdersFastMirror();
                 triggerUnifiedBootRender();
             }, err => console.log("خطأ في مزامنة الطلبات:", err));
 
@@ -9867,15 +9945,22 @@ window.deleteProductUI = async (id) => {
         };
 
     </script>
-    <script src="dialogs.js?v=20261126"></script>
-    <script src="settings.js?v=20261126"></script>
-    <script src="dashboard.js?v=20261126"></script>
-    <script src="orders.js?v=20261126"></script>
-    <script src="batches.js?v=20261126"></script>
-    <script src="drivers.js?v=20261126"></script>
-    <script src="customers.js?v=20261126"></script>
-    <script src="waybill.js?v=20261126"></script>
-    <script src="live-connect.js?v=20261126"></script>
+    <script src="dialogs.js?v=20261129"></script>
+    <script src="settings.js?v=20261129"></script>
+    <script src="dashboard.js?v=20261129"></script>
+    <script src="orders.js?v=20261129"></script>
+    <script src="batches.js?v=20261129"></script>
+    <script src="drivers.js?v=20261129"></script>
+    <script src="customers.js?v=20261129"></script>
+    <script src="waybill.js?v=20261129"></script>
+    <script src="live-connect.js?v=20261129"></script>
+    <script>
+        if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(() => {});
+            });
+        }
+    </script>
     <script>
         // محرك فحص وتحميل تحديثات تطبيق الأندرويد (Sman CRM APK Auto-Updater)
         (function initSmanApkAutoUpdater() {
