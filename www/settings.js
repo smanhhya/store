@@ -3759,12 +3759,586 @@
 
 
 
+    // =========================================================================
+    // 🎨 13. محرك التحكم في القالب والأقسام (Storefront Builder Studio)
+    // يتحكم في: الثيمات الجاهزة + شكل كروت المنتجات + إظهار/إخفاء وترتيب الأقسام + البلوكات الحرة
+    // =========================================================================
+    const SB_DEFAULT_SECTIONS_ORDER = ['quail', 'extras', 'weight', 'custom', 'gallery'];
+
+    const SB_SECTION_META = {
+        quail:   { label: '🥩 قسم السمان المذبوح (بالجوز)', desc: 'أطباق السمان واختيار دفعة الذبح' },
+        extras:  { label: '🥚 قسم بيض السمان والكتاكيت', desc: 'البيض اليومي والكتاكيت عمر يوم' },
+        weight:  { label: '⚖️ قسم فراخ التسمين والطيور بالوزن', desc: 'الأوزان الجاهزة وحجز العدد قبل الذبح' },
+        custom:  { label: '✨ الأقسام الخاصة والمستقلة', desc: 'الأصناف الإضافية المنشأة من الكتالوج' },
+        gallery: { label: '📸 معرض «من مزرعتنا على الطبيعة»', desc: 'سلايدر صور الأطباق والأوزان الحقيقية' }
+    };
+
+    const SB_EXTRA_VIS_META = [
+        { key: 'stories',     label: '⭕ شريط القصص التفاعلي (دليل الأحجام، نقاط وهدايا...)' },
+        { key: 'feastBanner', label: '🧮 بانر «حاسبة العزومة الذكية» أعلى المنيو' },
+        { key: 'filterPills', label: '🏷️ شريط أزرار الفلترة السريعة (الكل / للشوي / للحشو...)' },
+        { key: 'sizeCompare', label: '📊 جدول مقارنة الأحجام السريعة القابل للطي' },
+        { key: 'faq',         label: '❓ قسم «أسئلة بتهمك قبل ما تطلب» أسفل الموقع' }
+    ];
+
+    const SB_THEMES_META = [
+        { id: 'royal_emerald', name: '👑 الزمرد الملكي (الرسمي)', desc: 'الأخضر الزمردي والذهبي الرسمي لسمان ههيا', previewBg: 'linear-gradient(135deg,#0b261c,#1b4332)', accent: '#f59e0b' },
+        { id: 'ramadan_gold',  name: '🌙 ليالي رمضان والعيد', desc: 'كحلي ليلي فاخر مع إضاءات ذهبية موسمية', previewBg: 'linear-gradient(135deg,#0f172a,#1e1b4b)', accent: '#fbbf24' },
+        { id: 'clean_modern',  name: '🌿 مودرن ناصع وبسيط', desc: 'خلفية بيضاء هادئة مع أخضر مزرعة نقي', previewBg: 'linear-gradient(135deg,#065f46,#10b981)', accent: '#059669' },
+        { id: 'warm_heritage', name: '🔥 التراثي الدافئ (عزومات)', desc: 'عنّابي دافئ مع ذهبي كريمي فخم للعزومات', previewBg: 'linear-gradient(135deg,#450a0a,#7f1d1d)', accent: '#f59e0b' }
+    ];
+
+    const SB_CARD_STYLES_META = [
+        { id: 'grid_2',      name: '⊞ شبكة عمودين (القياسي)', desc: 'مربع متوازن مثالي للتصفح السريع' },
+        { id: 'wide_list',   name: '☰ كروت أفقية عريضة', desc: 'صورة يميناً والتفاصيل يساراً بوضوح أكبر' },
+        { id: 'luxury_tall', name: '✨ كروت فخمة بإطار ذهبي', desc: 'بروز أعلى للسعر والوزن وظلال ناعمة' }
+    ];
+
+    function sbEscHtml(str) {
+        return String(str === null || str === undefined ? '' : str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function sbEscAttr(str) {
+        return String(str === null || str === undefined ? '' : str)
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/"/g, '&quot;');
+    }
+
+    function getDefaultStorefrontBuilder() {
+        return {
+            themePreset: 'royal_emerald',
+            cardStyle: 'grid_2',
+            heroBadgeText: '',
+            sectionsOrder: [...SB_DEFAULT_SECTIONS_ORDER],
+            visibility: {
+                stories: true,
+                feastBanner: true,
+                filterPills: true,
+                sizeCompare: true,
+                quail: true,
+                extras: true,
+                weight: true,
+                custom: true,
+                gallery: true,
+                faq: true
+            },
+            customBlocks: []
+        };
+    }
+
+    function getNormalizedStorefrontBuilder() {
+        const def = getDefaultStorefrontBuilder();
+        const raw = (storeSettings && storeSettings.storefrontBuilder && typeof storeSettings.storefrontBuilder === 'object')
+            ? storeSettings.storefrontBuilder
+            : {};
+
+        const orderSet = [];
+        const rawOrder = Array.isArray(raw.sectionsOrder) ? raw.sectionsOrder : def.sectionsOrder;
+        rawOrder.forEach(k => {
+            if (SB_DEFAULT_SECTIONS_ORDER.includes(k) && !orderSet.includes(k)) orderSet.push(k);
+        });
+        SB_DEFAULT_SECTIONS_ORDER.forEach(k => {
+            if (!orderSet.includes(k)) orderSet.push(k);
+        });
+
+        const vis = { ...def.visibility, ...(raw.visibility || {}) };
+        const blocks = Array.isArray(raw.customBlocks)
+            ? raw.customBlocks.filter(b => b && typeof b === 'object').map(b => ({
+                id: String(b.id || ('blk_' + Date.now())),
+                enabled: b.enabled !== false,
+                position: ['top', 'after_quail', 'bottom'].includes(b.position) ? b.position : 'top',
+                style: ['emerald', 'gold', 'promo', 'clean'].includes(b.style) ? b.style : 'emerald',
+                badge: String(b.badge || ''),
+                title: String(b.title || ''),
+                body: String(b.body || ''),
+                imageUrl: String(b.imageUrl || ''),
+                btnText: String(b.btnText || ''),
+                btnAction: String(b.btnAction || 'none'),
+                btnUrl: String(b.btnUrl || '')
+            }))
+            : [];
+
+        return {
+            themePreset: SB_THEMES_META.some(t => t.id === raw.themePreset) ? raw.themePreset : 'royal_emerald',
+            cardStyle: SB_CARD_STYLES_META.some(c => c.id === raw.cardStyle) ? raw.cardStyle : 'grid_2',
+            heroBadgeText: String(raw.heroBadgeText || ''),
+            sectionsOrder: orderSet,
+            visibility: vis,
+            customBlocks: blocks
+        };
+    }
+
+    function ensureStorefrontBuilderTabAndPanel() {
+        const settingsView = document.getElementById('view-settings');
+        const storeBtn = document.getElementById('st-tab-btn-store');
+        const backupPanel = document.getElementById('st-panel-backup');
+        if (!settingsView || !storeBtn || !backupPanel) return false;
+
+        const tabBar = storeBtn.parentElement;
+        if (tabBar && !document.getElementById('st-tab-btn-builder')) {
+            tabBar.classList.remove('sm:grid-cols-4');
+            tabBar.classList.add('sm:grid-cols-5');
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.id = 'st-tab-btn-builder';
+            btn.setAttribute('onclick', "switchSettingsSubTab('builder')");
+            btn.className = 'st-subtab-btn py-2 px-2.5 rounded-xl text-xs font-black bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5 col-span-2 sm:col-span-1';
+            btn.innerHTML = '<i class="fa-solid fa-palette text-amber-500"></i> <span>القالب والأقسام</span>';
+            tabBar.insertBefore(btn, storeBtn.nextSibling);
+        }
+
+        if (!document.getElementById('st-panel-builder')) {
+            const panel = document.createElement('div');
+            panel.id = 'st-panel-builder';
+            panel.className = 'hidden space-y-5';
+            backupPanel.parentElement.appendChild(panel);
+        }
+        return true;
+    }
+
+    async function persistStorefrontBuilderNow(toastMsg) {
+        const cfg = getNormalizedStorefrontBuilder();
+        storeSettings.storefrontBuilder = cfg;
+        if (typeof window.saveInventoryFastMirror === 'function') window.saveInventoryFastMirror();
+        if (typeof auth !== 'undefined' && auth.currentUser && typeof db !== 'undefined') {
+            try {
+                await db.collection('inventory').doc('settings').set({ storefrontBuilder: cfg }, { merge: true });
+                if (toastMsg && typeof window.showToast === 'function') window.showToast(toastMsg);
+            } catch (e) {
+                alert('تعذر حفظ إعدادات القالب: ' + (e.message || e));
+            }
+        } else if (toastMsg && typeof window.showToast === 'function') {
+            window.showToast(toastMsg);
+        }
+    }
+
+    window.sbSelectThemePreset = async function (themeId) {
+        const cfg = getNormalizedStorefrontBuilder();
+        cfg.themePreset = themeId;
+        storeSettings.storefrontBuilder = cfg;
+        window.renderStorefrontBuilderUI();
+        await persistStorefrontBuilderNow('🎨 تم تطبيق الثيم الجديد على موقع العملاء فوراً!');
+    };
+
+    window.sbSelectCardStyle = async function (styleId) {
+        const cfg = getNormalizedStorefrontBuilder();
+        cfg.cardStyle = styleId;
+        storeSettings.storefrontBuilder = cfg;
+        window.renderStorefrontBuilderUI();
+        await persistStorefrontBuilderNow('📐 تم تحديث نظام عرض كروت المنتجات!');
+    };
+
+    window.sbSaveHeroBadge = async function () {
+        const cfg = getNormalizedStorefrontBuilder();
+        cfg.heroBadgeText = String(document.getElementById('sb-hero-badge-input')?.value || '').trim();
+        storeSettings.storefrontBuilder = cfg;
+        await persistStorefrontBuilderNow('✨ تم تحديث الشارة العلوية للهيدر!');
+    };
+
+    window.sbToggleSectionVisibility = async function (secKey, isVisible) {
+        const cfg = getNormalizedStorefrontBuilder();
+        cfg.visibility[secKey] = Boolean(isVisible);
+        storeSettings.storefrontBuilder = cfg;
+        window.renderStorefrontBuilderUI();
+        await persistStorefrontBuilderNow(isVisible ? '👁️ تم إظهار القسم في الموقع' : '🙈 تم إخفاء القسم مؤقتاً من الموقع');
+    };
+
+    window.sbMoveSectionOrder = async function (secKey, delta) {
+        const cfg = getNormalizedStorefrontBuilder();
+        const idx = cfg.sectionsOrder.indexOf(secKey);
+        const nextIdx = idx + Number(delta);
+        if (idx === -1 || nextIdx < 0 || nextIdx >= cfg.sectionsOrder.length) return;
+        const arr = [...cfg.sectionsOrder];
+        const tmp = arr[idx];
+        arr[idx] = arr[nextIdx];
+        arr[nextIdx] = tmp;
+        cfg.sectionsOrder = arr;
+        storeSettings.storefrontBuilder = cfg;
+        window.renderStorefrontBuilderUI();
+        await persistStorefrontBuilderNow('↕️ تم تحديث ترتيب أقسام المتجر!');
+    };
+
+    window.sbAddOrSaveCustomBlock = async function () {
+        const editId = String(document.getElementById('sb-blk-edit-id')?.value || '').trim();
+        const title = String(document.getElementById('sb-blk-title')?.value || '').trim();
+        const body = String(document.getElementById('sb-blk-body')?.value || '').trim();
+        const badge = String(document.getElementById('sb-blk-badge')?.value || '').trim();
+        const position = document.getElementById('sb-blk-pos')?.value || 'top';
+        const style = document.getElementById('sb-blk-style')?.value || 'emerald';
+        const imageUrl = String(document.getElementById('sb-blk-img')?.value || '').trim();
+        const btnText = String(document.getElementById('sb-blk-btn-text')?.value || '').trim();
+        const btnAction = document.getElementById('sb-blk-btn-action')?.value || 'none';
+        const btnUrl = String(document.getElementById('sb-blk-btn-url')?.value || '').trim();
+
+        if (!title && !body) {
+            return alert('يرجى كتابة عنوان أو نص للبلوك قبل الحفظ.');
+        }
+
+        const cfg = getNormalizedStorefrontBuilder();
+        const blockObj = {
+            id: editId || ('blk_' + Date.now()),
+            enabled: true,
+            position,
+            style,
+            badge,
+            title,
+            body,
+            imageUrl,
+            btnText,
+            btnAction,
+            btnUrl
+        };
+
+        if (editId) {
+            const idx = cfg.customBlocks.findIndex(b => b.id === editId);
+            if (idx > -1) {
+                blockObj.enabled = cfg.customBlocks[idx].enabled !== false;
+                cfg.customBlocks[idx] = blockObj;
+            } else {
+                cfg.customBlocks.unshift(blockObj);
+            }
+        } else {
+            cfg.customBlocks.unshift(blockObj);
+        }
+
+        storeSettings.storefrontBuilder = cfg;
+        window.renderStorefrontBuilderUI();
+        await persistStorefrontBuilderNow(editId ? '✅ تم تحديث البلوك ونشره على الموقع!' : '🚀 تم إضافة البلوك الجديد على موقع العملاء!');
+    };
+
+    window.sbEditCustomBlock = function (blkId) {
+        const cfg = getNormalizedStorefrontBuilder();
+        const b = cfg.customBlocks.find(x => x.id === blkId);
+        if (!b) return;
+        const formWrap = document.getElementById('sb-new-block-form');
+        if (formWrap) formWrap.classList.remove('hidden');
+        const setV = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+        setV('sb-blk-edit-id', b.id);
+        setV('sb-blk-title', b.title);
+        setV('sb-blk-body', b.body);
+        setV('sb-blk-badge', b.badge);
+        setV('sb-blk-pos', b.position);
+        setV('sb-blk-style', b.style);
+        setV('sb-blk-img', b.imageUrl);
+        setV('sb-blk-btn-text', b.btnText);
+        setV('sb-blk-btn-action', b.btnAction);
+        setV('sb-blk-btn-url', b.btnUrl);
+        window.sbOnBlockActionChange();
+        formWrap?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+
+    window.sbResetBlockForm = function () {
+        ['sb-blk-edit-id', 'sb-blk-title', 'sb-blk-body', 'sb-blk-badge', 'sb-blk-img', 'sb-blk-btn-text', 'sb-blk-btn-url'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        if (document.getElementById('sb-blk-pos')) document.getElementById('sb-blk-pos').value = 'top';
+        if (document.getElementById('sb-blk-style')) document.getElementById('sb-blk-style').value = 'emerald';
+        if (document.getElementById('sb-blk-btn-action')) document.getElementById('sb-blk-btn-action').value = 'none';
+        window.sbOnBlockActionChange();
+    };
+
+    window.sbOnBlockActionChange = function () {
+        const act = document.getElementById('sb-blk-btn-action')?.value || 'none';
+        const urlWrap = document.getElementById('sb-blk-url-wrap');
+        if (urlWrap) urlWrap.classList.toggle('hidden', act !== 'url');
+    };
+
+    window.sbToggleCustomBlock = async function (blkId) {
+        const cfg = getNormalizedStorefrontBuilder();
+        const b = cfg.customBlocks.find(x => x.id === blkId);
+        if (!b) return;
+        b.enabled = !b.enabled;
+        storeSettings.storefrontBuilder = cfg;
+        window.renderStorefrontBuilderUI();
+        await persistStorefrontBuilderNow(b.enabled ? '🟢 تم تفعيل البلوك في الموقع' : '⏸️ تم إخفاء البلوك مؤقتاً');
+    };
+
+    window.sbDeleteCustomBlock = async function (blkId) {
+        const ok = (typeof window.execConfirm === 'function')
+            ? await window.execConfirm('هل تريد حذف هذا البلوك من الموقع نهائياً؟', { title: 'حذف بلوك مخصص', tone: 'danger', confirmText: 'نعم، احذف' })
+            : confirm('هل تريد حذف هذا البلوك نهائياً؟');
+        if (!ok) return;
+        const cfg = getNormalizedStorefrontBuilder();
+        cfg.customBlocks = cfg.customBlocks.filter(x => x.id !== blkId);
+        storeSettings.storefrontBuilder = cfg;
+        window.renderStorefrontBuilderUI();
+        await persistStorefrontBuilderNow('🗑️ تم حذف البلوك من الموقع');
+    };
+
+    window.sbResetToOfficialDefault = async function () {
+        const ok = (typeof window.execConfirm === 'function')
+            ? await window.execConfirm('هل تريد استعادة القالب الرسمي الأصلي لسمان ههيا (الزمرد الملكي + ترتيب الأقسام الافتراضي)؟\nلن تُحذف المنتجات أو الطلبات.', { title: 'استعادة القالب الرسمي', tone: 'warning', confirmText: 'نعم، استعادة' })
+            : confirm('هل تريد استعادة القالب الرسمي الأصلي لسمان ههيا؟');
+        if (!ok) return;
+        const keepBlocks = getNormalizedStorefrontBuilder().customBlocks;
+        const resetCfg = getDefaultStorefrontBuilder();
+        resetCfg.customBlocks = keepBlocks;
+        storeSettings.storefrontBuilder = resetCfg;
+        window.renderStorefrontBuilderUI();
+        await persistStorefrontBuilderNow('↺ تمت استعادة القالب الرسمي الأصلي بنجاح!');
+    };
+
+    window.renderStorefrontBuilderUI = function () {
+        if (!ensureStorefrontBuilderTabAndPanel()) return;
+        const panel = document.getElementById('st-panel-builder');
+        if (!panel) return;
+        const cfg = getNormalizedStorefrontBuilder();
+
+        const posLabels = { top: '🔝 أعلى المتجر', after_quail: '🥩 بعد قسم السمان', bottom: '⬇️ أسفل المتجر' };
+
+        const themesHtml = SB_THEMES_META.map(t => {
+            const active = cfg.themePreset === t.id;
+            return `
+            <button type="button" onclick="sbSelectThemePreset('${t.id}')" class="text-right p-3 rounded-2xl border-2 transition-all flex flex-col justify-between gap-2 ${active ? 'border-amber-500 ring-2 ring-amber-200 bg-amber-50/40 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}">
+                <div class="w-full h-10 rounded-xl flex items-center justify-between px-3 shadow-inner" style="background:${t.previewBg};">
+                    <span class="w-3 h-3 rounded-full" style="background:${t.accent};"></span>
+                    ${active ? '<span class="bg-amber-400 text-slate-950 text-[9px] font-black px-2 py-0.5 rounded-full">نشط الآن ✓</span>' : ''}
+                </div>
+                <div>
+                    <span class="block text-xs font-black text-slate-800">${t.name}</span>
+                    <span class="block text-[10px] font-bold text-slate-500 mt-0.5">${t.desc}</span>
+                </div>
+            </button>`;
+        }).join('');
+
+        const cardStylesHtml = SB_CARD_STYLES_META.map(c => {
+            const active = cfg.cardStyle === c.id;
+            return `
+            <button type="button" onclick="sbSelectCardStyle('${c.id}')" class="text-right p-3 rounded-2xl border-2 transition-all ${active ? 'border-brand-primary bg-emerald-50/70 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}">
+                <div class="flex items-center justify-between gap-1">
+                    <span class="text-xs font-black text-slate-800">${c.name}</span>
+                    ${active ? '<i class="fa-solid fa-circle-check text-emerald-600 text-sm"></i>' : ''}
+                </div>
+                <span class="block text-[10px] font-bold text-slate-500 mt-1">${c.desc}</span>
+            </button>`;
+        }).join('');
+
+        const orderRowsHtml = cfg.sectionsOrder.map((secKey, idx) => {
+            const meta = SB_SECTION_META[secKey] || { label: secKey, desc: '' };
+            const isVis = cfg.visibility[secKey] !== false;
+            return `
+            <div class="flex items-center justify-between gap-2 p-2.5 rounded-xl border ${isVis ? 'bg-white border-slate-200' : 'bg-slate-100/80 border-slate-200 opacity-70'}">
+                <div class="flex items-center gap-2.5 min-w-0">
+                    <span class="w-6 h-6 rounded-lg bg-slate-900 text-amber-300 text-[10px] font-black flex items-center justify-center shrink-0">${idx + 1}</span>
+                    <div class="min-w-0">
+                        <span class="block text-xs font-black text-slate-800 truncate">${meta.label}</span>
+                        <span class="block text-[10px] font-bold text-slate-400 truncate">${meta.desc}</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                    <button type="button" onclick="sbMoveSectionOrder('${secKey}', -1)" ${idx === 0 ? 'disabled' : ''} class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-800 hover:text-white disabled:opacity-30 text-slate-700 text-xs flex items-center justify-center" title="تحريك لأعلى"><i class="fa-solid fa-arrow-up"></i></button>
+                    <button type="button" onclick="sbMoveSectionOrder('${secKey}', 1)" ${idx === cfg.sectionsOrder.length - 1 ? 'disabled' : ''} class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-800 hover:text-white disabled:opacity-30 text-slate-700 text-xs flex items-center justify-center" title="تحريك لأسفل"><i class="fa-solid fa-arrow-down"></i></button>
+                    <button type="button" onclick="sbToggleSectionVisibility('${secKey}', ${!isVis})" class="px-2.5 h-7 rounded-lg text-[10px] font-black border transition-all ${isVis ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-rose-50 hover:text-rose-700' : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-emerald-50 hover:text-emerald-800'}">
+                        ${isVis ? '👁️ ظاهر' : '🙈 مخفي'}
+                    </button>
+                </div>
+            </div>`;
+        }).join('');
+
+        const extraTogglesHtml = SB_EXTRA_VIS_META.map(item => {
+            const checked = cfg.visibility[item.key] !== false;
+            return `
+            <label class="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 cursor-pointer hover:bg-emerald-50/40 transition-colors">
+                <span class="text-xs font-black text-slate-700">${item.label}</span>
+                <input type="checkbox" ${checked ? 'checked' : ''} onchange="sbToggleSectionVisibility('${item.key}', this.checked)" class="w-4 h-4 accent-brand-primary rounded shrink-0">
+            </label>`;
+        }).join('');
+
+        const blocksListHtml = cfg.customBlocks.length > 0
+            ? cfg.customBlocks.map(b => `
+                <div class="p-3 rounded-2xl border ${b.enabled ? 'bg-white border-emerald-200' : 'bg-slate-100 border-slate-200 opacity-75'} flex flex-wrap items-center justify-between gap-2.5">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <span class="text-[9px] font-black px-2 py-0.5 rounded-md ${b.enabled ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}">${b.enabled ? '🟢 منشور' : '⏸️ مخفي'}</span>
+                            <span class="text-[9px] font-black bg-indigo-50 text-indigo-800 border border-indigo-200 px-2 py-0.5 rounded-md">${posLabels[b.position] || 'أعلى المتجر'}</span>
+                            ${b.badge ? `<span class="text-[9px] font-black bg-amber-100 text-amber-900 px-2 py-0.5 rounded-md">${sbEscHtml(b.badge)}</span>` : ''}
+                        </div>
+                        <h5 class="text-xs sm:text-sm font-black text-slate-900 mt-1 truncate">${sbEscHtml(b.title || 'بلوك مخصص')}</h5>
+                        ${b.body ? `<p class="text-[11px] font-bold text-slate-500 truncate">${sbEscHtml(b.body)}</p>` : ''}
+                    </div>
+                    <div class="flex items-center gap-1 shrink-0">
+                        <button type="button" onclick="sbToggleCustomBlock('${sbEscAttr(b.id)}')" class="px-2.5 py-1.5 rounded-xl text-[10px] font-black border ${b.enabled ? 'bg-amber-50 text-amber-900 border-amber-200' : 'bg-emerald-600 text-white border-emerald-600'}">${b.enabled ? 'إخفاء' : 'تفعيل'}</button>
+                        <button type="button" onclick="sbEditCustomBlock('${sbEscAttr(b.id)}')" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-900 text-slate-700 hover:text-white text-xs flex items-center justify-center"><i class="fa-solid fa-pen"></i></button>
+                        <button type="button" onclick="sbDeleteCustomBlock('${sbEscAttr(b.id)}')" class="w-8 h-8 rounded-xl bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white text-xs flex items-center justify-center"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </div>`).join('')
+            : '<div class="text-center py-6 text-xs font-bold text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">لا توجد بلوكات مخصصة بعد — اضغط «➕ إضافة بلوك جديد» لإنشاء بانر موسمي أو عرض خاص.</div>';
+
+        panel.innerHTML = `
+            <div class="bg-gradient-to-l from-[#042f2e] via-[#064e3b] to-slate-900 text-white rounded-[1.5rem] p-4 sm:p-5 shadow-soft border border-amber-400/30 flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                    <span class="w-11 h-11 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center text-xl shadow shrink-0"><i class="fa-solid fa-wand-magic-sparkles"></i></span>
+                    <div class="min-w-0">
+                        <h3 class="text-sm sm:text-lg font-black text-white leading-tight">محرك التحكم في القالب والأقسام (Storefront Builder)</h3>
+                        <p class="text-[11px] font-bold text-emerald-200/85 mt-0.5">غيّر ثيم الموقع، شكّل الكروت، شيل وحط ورتّب الأقسام، وأضف عروض وبانرات بضغطة زر بدون كود!</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                    <a href="https://smanhhya.github.io/" target="_blank" class="bg-amber-400 hover:bg-amber-300 text-slate-950 px-3.5 py-2 rounded-xl text-xs font-black shadow flex items-center gap-1.5">
+                        <i class="fa-solid fa-eye"></i> معاينة الموقع
+                    </a>
+                    <button type="button" onclick="sbResetToOfficialDefault()" class="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-3 py-2 rounded-xl text-xs font-black">
+                        ↺ القالب الرسمي
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-[1.5rem] p-4 sm:p-5 border border-slate-200/80 shadow-soft space-y-4">
+                <h4 class="text-sm font-black text-slate-800 flex items-center gap-2 pb-2 border-b border-slate-100">
+                    <i class="fa-solid fa-palette text-amber-500"></i> 1. قالب ألوان وثيم الموقع (تبديل فوري للمواسم)
+                </h4>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">${themesHtml}</div>
+
+                <div class="pt-3 border-t border-slate-100">
+                    <label class="block text-xs font-black text-slate-600 mb-1.5">✨ نص الشارة الذهبية أعلى الهيدر (اتركه فارغاً للنص الرسمي «أصل الطعم يبدأ من التربية • صفر تجميد»):</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="sb-hero-badge-input" value="${sbEscHtml(cfg.heroBadgeText)}" placeholder="مثال: 🌙 كل عام وأنتم بخير • حجز دفعة رمضان مفتوح الآن!" class="flex-1 border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50 focus:bg-white outline-none">
+                        <button type="button" onclick="sbSaveHeroBadge()" class="bg-slate-900 hover:bg-brand-primary text-white px-4 py-2 rounded-xl text-xs font-black shrink-0">حفظ</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-[1.5rem] p-4 sm:p-5 border border-slate-200/80 shadow-soft space-y-3">
+                <h4 class="text-sm font-black text-slate-800 flex items-center gap-2 pb-2 border-b border-slate-100">
+                    <i class="fa-solid fa-table-cells-large text-indigo-500"></i> 2. شكل عرض كروت المنتجات في المتجر
+                </h4>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">${cardStylesHtml}</div>
+            </div>
+
+            <div class="bg-white rounded-[1.5rem] p-4 sm:p-5 border border-slate-200/80 shadow-soft space-y-4">
+                <h4 class="text-sm font-black text-slate-800 flex items-center gap-2 pb-2 border-b border-slate-100">
+                    <i class="fa-solid fa-layer-group text-emerald-600"></i> 3. ترتيب الأقسام والتحكم في ظهورها (شيل وحط ورتّب)
+                </h4>
+                <div class="space-y-2">${orderRowsHtml}</div>
+                <div class="pt-3 border-t border-slate-100 space-y-2">
+                    <span class="block text-xs font-black text-slate-500">عناصر الصفحة الإضافية (إظهار / إخفاء):</span>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${extraTogglesHtml}</div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-[1.5rem] p-4 sm:p-5 border-2 border-emerald-200/80 shadow-soft space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                    <div>
+                        <h4 class="text-sm font-black text-slate-800 flex items-center gap-2"><i class="fa-solid fa-cubes text-brand-primary"></i> 4. البلوكات الحرة والبانرات الإعلانية المخصصة</h4>
+                        <p class="text-[11px] font-bold text-slate-400">أضف عروضاً موسمية، تنبيهات، أو بانرات بصورة وزر تفاعلي في أي مكان داخل صفحة المتجر.</p>
+                    </div>
+                    <button type="button" onclick="sbResetBlockForm(); document.getElementById('sb-new-block-form').classList.toggle('hidden');" class="bg-brand-primary hover:bg-emerald-800 text-white px-3.5 py-2 rounded-xl text-xs font-black shadow-sm flex items-center gap-1.5">
+                        <i class="fa-solid fa-plus text-amber-300"></i> إضافة بلوك جديد
+                    </button>
+                </div>
+
+                <div id="sb-new-block-form" class="hidden bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                    <input type="hidden" id="sb-blk-edit-id" value="">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                            <label class="text-[10px] font-black text-slate-600 block mb-1">عنوان البلوك *</label>
+                            <input type="text" id="sb-blk-title" placeholder="مثال: 🔥 عرض العزومة العائلي لنهاية الأسبوع" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-white outline-none">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-black text-slate-600 block mb-1">شارة صغيرة فوق العنوان (اختياري)</label>
+                            <input type="text" id="sb-blk-badge" placeholder="مثال: عرض محدود • خصم خاص" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-white outline-none">
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label class="text-[10px] font-black text-slate-600 block mb-1">النص / التفاصيل</label>
+                            <textarea id="sb-blk-body" rows="2" placeholder="اكتب تفاصيل العرض أو الرسالة التي تريد إظهارها للعملاء..." class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-white outline-none resize-none"></textarea>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-black text-slate-600 block mb-1">مكان الظهور في الموقع</label>
+                            <select id="sb-blk-pos" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-white outline-none">
+                                <option value="top">🔝 أعلى المتجر (فوق المنتجات)</option>
+                                <option value="after_quail">🥩 بعد قسم السمان المذبوح</option>
+                                <option value="bottom">⬇️ أسفل المتجر (قبل الأسئلة الشائعة)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-black text-slate-600 block mb-1">شكل ولون البلوك</label>
+                            <select id="sb-blk-style" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-white outline-none">
+                                <option value="emerald">👑 زمردي ملكي (خلفية غامقة فخمة)</option>
+                                <option value="gold">✨ ذهبي دافئ (بارز وجذاب)</option>
+                                <option value="promo">🔥 أحمر عروض سريعة</option>
+                                <option value="clean">🤍 أبيض نظيف وبسيط</option>
+                            </select>
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label class="text-[10px] font-black text-slate-600 block mb-1">رابط صورة اختيارية داخل البلوك (اتركه فارغاً بدون صورة)</label>
+                            <input type="text" id="sb-blk-img" dir="ltr" placeholder="https://... أو all-sizes.jpg" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-white outline-none text-left">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-black text-slate-600 block mb-1">وظيفة الزر داخل البلوك (اختياري)</label>
+                            <select id="sb-blk-btn-action" onchange="sbOnBlockActionChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-white outline-none">
+                                <option value="none">بدون زر</option>
+                                <option value="feast">🧮 فتح حاسبة العزومة</option>
+                                <option value="products">🛒 الانتقال لقائمة المنتجات</option>
+                                <option value="whatsapp">💬 مراسلة واتساب المتجر</option>
+                                <option value="kitchen">🍳 فتح مطبخ سمان ههيا</option>
+                                <option value="track">🛵 فتح صفحة تتبع الطلب</option>
+                                <option value="url">🔗 رابط مخصص</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-black text-slate-600 block mb-1">نص الزر (مثال: اطلب العرض الآن)</label>
+                            <input type="text" id="sb-blk-btn-text" placeholder="اطلب الآن" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-white outline-none">
+                        </div>
+                        <div id="sb-blk-url-wrap" class="hidden sm:col-span-2">
+                            <label class="text-[10px] font-black text-slate-600 block mb-1">الرابط المخصص (https://...)</label>
+                            <input type="url" id="sb-blk-btn-url" dir="ltr" placeholder="https://..." class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-white outline-none text-left">
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-end gap-2 pt-1">
+                        <button type="button" onclick="document.getElementById('sb-new-block-form').classList.add('hidden')" class="bg-white border border-slate-200 text-slate-600 px-3.5 py-2 rounded-xl text-xs font-black">إلغاء</button>
+                        <button type="button" onclick="sbAddOrSaveCustomBlock()" class="bg-slate-900 hover:bg-brand-primary text-white px-5 py-2 rounded-xl text-xs font-black shadow-sm flex items-center gap-1.5">
+                            <i class="fa-solid fa-cloud-arrow-up text-amber-400"></i> حفظ ونشر البلوك الآن
+                        </button>
+                    </div>
+                </div>
+
+                <div class="space-y-2">${blocksListHtml}</div>
+            </div>
+        `;
+    };
+
+    const _origSwitchSettingsSubTabForBuilder = window.switchSettingsSubTab;
+    window.switchSettingsSubTab = function (tabKey) {
+        ensureStorefrontBuilderTabAndPanel();
+        const valid = ['store', 'builder', 'logistics', 'waybill', 'backup'];
+        const target = valid.includes(tabKey) ? tabKey : 'store';
+        window.settingsSubTabState = target;
+
+        valid.forEach(k => {
+            const panel = document.getElementById(`st-panel-${k}`);
+            const btn = document.getElementById(`st-tab-btn-${k}`);
+            if (panel) panel.classList.toggle('hidden', k !== target);
+            if (btn) {
+                btn.className = (k === target)
+                    ? `st-subtab-btn py-2 px-2.5 rounded-xl text-xs font-black bg-slate-900 text-white shadow-sm transition-all flex items-center justify-center gap-1.5${k === 'builder' ? ' col-span-2 sm:col-span-1' : ''}`
+                    : `st-subtab-btn py-2 px-2.5 rounded-xl text-xs font-black bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5${k === 'builder' ? ' col-span-2 sm:col-span-1' : ''}`;
+            }
+        });
+        if (target === 'builder') window.renderStorefrontBuilderUI();
+    };
+
+    const _origRenderSettingsForBuilder = window.renderSettingsUI;
+    window.renderSettingsUI = function () {
+        if (typeof _origRenderSettingsForBuilder === 'function') {
+            _origRenderSettingsForBuilder.apply(this, arguments);
+        }
+        window.renderStorefrontBuilderUI();
+    };
+
     function initSettingsIfActive() {
         const activeTab = window.smanCurrentActiveTab || 'dashboard';
         if (activeTab === 'inventory') window.renderInventoryUI();
         if (activeTab === 'settings') window.renderSettingsUI();
         if (activeTab === 'notes') window.renderNotesUI();
     }
+
 
     if (document.readyState === 'loading') {
         window.addEventListener('DOMContentLoaded', () => setTimeout(initSettingsIfActive, 200));
