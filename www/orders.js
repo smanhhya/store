@@ -505,6 +505,10 @@
                     </div>
                     <p class="text-[11px] font-bold text-slate-600">العميل: <strong class="text-slate-800">${order.customerName || ''}</strong> (${order.zone || ''})</p>
                     <div class="space-y-1.5 max-h-52 overflow-y-auto custom-scroll">${drvButtons}</div>
+                    <button type="button" onclick="closeLivePopover(); markOrderDirectPickup('${orderId}');" class="w-full bg-emerald-50 hover:bg-emerald-600 text-emerald-900 hover:text-white border border-emerald-200 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-between shadow-sm">
+                        <span>🏠 استلام من المزرعة / باليد</span>
+                        <span class="text-[10px] opacity-80">بدون دليفري ✓</span>
+                    </button>
                     <button type="button" onclick="closeLivePopover(); openDispatchModal();" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 rounded-xl text-[10px] font-black mt-1">
                         📋 فتح شاشة التوجيه الجماعي للمناديب
                     </button>
@@ -566,7 +570,41 @@
             alert('حدث خطأ أثناء توجيه الطلب للمندوب!');
         }
     };
-    // =========================================================================
+      window.markOrderDirectPickup = async function (orderId) {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === orderId);
+        if (!order) return;
+        try {
+            const patch = {
+                deliveryType: 'pickup',
+                driverName: firebase.firestore.FieldValue.delete(),
+                driverPhone: firebase.firestore.FieldValue.delete()
+            };
+            if (!order.zone || order.zone === 'غير مسجل') {
+                patch.zone = 'استلام من المزرعة / باليد';
+                order.zone = 'استلام من المزرعة / باليد';
+            }
+            delete order.driverName;
+            delete order.driverPhone;
+            order.deliveryType = 'pickup';
+            if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
+                delete globalOrdersMap[orderId].driverName;
+                delete globalOrdersMap[orderId].driverPhone;
+                globalOrdersMap[orderId].deliveryType = 'pickup';
+                globalOrdersMap[orderId].zone = order.zone;
+            }
+            await db.collection('orders').doc(orderId).update(patch);
+            if (typeof window.updateOrderStatus === 'function') {
+                await window.updateOrderStatus(orderId, 'completed');
+            }
+            if (typeof window.showToast === 'function') {
+                window.showToast('🏠 تم تسجيل الطلب كاستلام من المزرعة / باليد (بدون دليفري)!');
+            }
+        } catch (e) {
+            alert('حدث خطأ أثناء تسجيل الاستلام باليد!');
+        }
+    };
+
+  // =========================================================================
     // 💬 5. منظومة رسائل واتساب الـ 5 الذكية للعميل (تعمل بكبسولة شيك بدون مطّ الأزرار)
     // =========================================================================
     window.openWhatsAppTemplatesPopover = function (anchorEl, orderId) {
@@ -1302,9 +1340,15 @@
                 ? `<span onclick="setOrdersQuickFilter('batch', '${safeBatchAttr}')" class="text-[10px] bg-teal-50 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 cursor-pointer hover:bg-teal-600 hover:text-white transition-colors"><i class="fa-solid fa-layer-group text-teal-600 text-[8px]"></i> ${realBatchTitle}</span>`
                 : '';
 
-            let driverBadgeHtml = o.driverName
+            const isPickupOrder = (o.deliveryType === 'pickup') ||
+                (String(o.zone || '').includes('استلام')) ||
+                (o.status === 'completed' && !o.driverName);
+
+            let driverBadgeHtml = (o.driverName && o.status !== 'processing' && o.status !== 'new')
                 ? `<span class="text-[10px] bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1 cursor-pointer hover:bg-blue-600 hover:text-white transition-colors"><i class="fa-solid fa-motorcycle text-blue-600 text-[8px]"></i> مع: ${o.driverName}</span>`
-                : '';
+                : (isPickupOrder
+                    ? `<span class="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1"><i class="fa-solid fa-house-chimney text-emerald-600 text-[8px]"></i> استلام باليد / المزرعة</span>`
+                    : '');
 
             const compBucket = (o.status === 'completed') ? getCompletedDayBucket(o) : null;
             const timeDisplayStr = (o.status === 'completed' && compBucket)
@@ -1731,6 +1775,25 @@
                 let ref = db.collection('orders').doc(id);
 
                 let updateData = { status: newStatus };
+                if (newStatus === 'processing' || newStatus === 'new') {
+                    if (o.driverName || o.driverPhone) {
+                        updateData.driverName = firebase.firestore.FieldValue.delete();
+                        updateData.driverPhone = firebase.firestore.FieldValue.delete();
+                        delete o.driverName;
+                        delete o.driverPhone;
+                        if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) {
+                            delete globalOrdersMap[id].driverName;
+                            delete globalOrdersMap[id].driverPhone;
+                        }
+                    }
+                }
+                if (newStatus === 'completed' && !o.driverName) {
+                    updateData.deliveryType = 'pickup';
+                    o.deliveryType = 'pickup';
+                    if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) {
+                        globalOrdersMap[id].deliveryType = 'pickup';
+                    }
+                }
                 if (newStatus === 'trash') updateData.deletedAt = firebase.firestore.FieldValue.serverTimestamp();
                 if (newStatus === 'dispatched') updateData.dispatchedAt = firebase.firestore.FieldValue.serverTimestamp();
                 if (newStatus === 'canceled') updateData.canceledAt = firebase.firestore.FieldValue.serverTimestamp();
@@ -1765,28 +1828,52 @@
                     }
                 }
 
-                dbBatch.update(ref, updateData);
-
                 if (o.items && Array.isArray(o.items)) {
                     let wasIn = ['processing', 'dispatched', 'completed', 'deferred'].includes(oldStatus);
                     let isNowIn = ['processing', 'dispatched', 'completed', 'deferred'].includes(newStatus);
 
                     if (!wasIn && isNowIn) {
+                        const deductedMap = {};
                         o.items.forEach(i => {
+                            if (!i || !i.id || i.pendingWeight) return;
+                            const needQty = Math.max(0, Number(i.quantity) || 0);
+                            if (needQty <= 0) return;
                             const cur = Math.max(0, Number(fzNewValues[i.id]) || 0);
-                            fzNewValues[i.id] = Math.max(0, cur - (Number(i.quantity) || 0));
-                            storeFreezer[i.id] = fzNewValues[i.id];
-                            fzTouched = true;
+                            const actualDed = Math.min(cur, needQty);
+                            deductedMap[i.id] = Number(((deductedMap[i.id] || 0) + actualDed).toFixed(3));
+                            if (actualDed > 0) {
+                                fzNewValues[i.id] = Number((cur - actualDed).toFixed(3));
+                                storeFreezer[i.id] = fzNewValues[i.id];
+                                fzTouched = true;
+                            }
                         });
+                        updateData.freezerDeductedMap = deductedMap;
+                        o.freezerDeductedMap = deductedMap;
+                        if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) {
+                            globalOrdersMap[id].freezerDeductedMap = deductedMap;
+                        }
                     } else if (wasIn && !isNowIn) {
-                        o.items.forEach(i => {
-                            const cur = Math.max(0, Number(fzNewValues[i.id]) || 0);
-                            fzNewValues[i.id] = cur + (Number(i.quantity) || 0);
-                            storeFreezer[i.id] = fzNewValues[i.id];
-                            fzTouched = true;
-                        });
+                        if (o.freezerDeductedMap && typeof o.freezerDeductedMap === 'object') {
+                            Object.keys(o.freezerDeductedMap).forEach(pId => {
+                                const restoreQty = Math.max(0, Number(o.freezerDeductedMap[pId]) || 0);
+                                if (restoreQty > 0) {
+                                    const cur = Math.max(0, Number(fzNewValues[pId]) || 0);
+                                    fzNewValues[pId] = Number((cur + restoreQty).toFixed(3));
+                                    storeFreezer[pId] = fzNewValues[pId];
+                                    fzTouched = true;
+                                }
+                            });
+                        }
+                        updateData.freezerDeductedMap = {};
+                        o.freezerDeductedMap = {};
+                        if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) {
+                            globalOrdersMap[id].freezerDeductedMap = {};
+                        }
                     }
                 }
+
+                dbBatch.update(ref, updateData);
+
 
                 o.status = newStatus;
                 if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) {
