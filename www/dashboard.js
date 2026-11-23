@@ -2332,7 +2332,9 @@
 
     function getOrderEffectiveTimestampMs(o) {
         if (!o) return 0;
+        if (typeof o.completedAtMs === 'number' && o.completedAtMs > 0) return o.completedAtMs;
         if (o.completedAt && typeof o.completedAt.toMillis === 'function') return o.completedAt.toMillis();
+        if (typeof o._createdAtMs === 'number' && o._createdAtMs > 0) return o._createdAtMs;
         if (o.createdAt && typeof o.createdAt.toMillis === 'function') return o.createdAt.toMillis();
         if (o.completedAtStr) {
             const t = new Date(o.completedAtStr).getTime();
@@ -2345,15 +2347,62 @@
         return 0;
     }
 
+    const DASH_KPI_SNAPSHOT_KEY = 'sman_dash_kpi_exact_snapshot_v1';
+    const DASH_KPI_IDS = [
+        'sm-safe-total-liquidity', 'sm-safe-net-cash', 'sm-safe-net-online',
+        'sm-safe-owner-debt', 'sm-safe-street-cash', 'sm-safe-market-debt',
+        'sm-dash-total-revenue', 'sm-dash-true-net-profit',
+        'sm-dash-completed-count', 'sm-dash-discounts-total'
+    ];
+
+    function saveExactDashboardKpiSnapshot() {
+        try {
+            if (!window._crmCloudOrdersLoaded) return;
+            const snap = {};
+            DASH_KPI_IDS.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) snap[id] = el.innerHTML;
+            });
+            localStorage.setItem(DASH_KPI_SNAPSHOT_KEY, JSON.stringify({ ts: Date.now(), snap }));
+        } catch (e) {}
+    }
+
+    function applyExactDashboardKpiSnapshot() {
+        try {
+            const raw = localStorage.getItem(DASH_KPI_SNAPSHOT_KEY);
+            if (!raw) return false;
+            const parsed = JSON.parse(raw);
+            if (!parsed || !parsed.snap) return false;
+            let applied = false;
+            DASH_KPI_IDS.forEach(id => {
+                const el = document.getElementById(id);
+                if (el && parsed.snap[id]) {
+                    el.innerHTML = parsed.snap[id];
+                    applied = true;
+                }
+            });
+            return applied;
+        } catch (e) {
+            return false;
+        }
+    }
+
     window.renderSmartDashboard = function () {
         window.initSmartDashboardLayout();
         if (!document.getElementById('smart-dashboard-root')) return;
 
         const ordersList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
 
-        // بوابة منع لخبطة الأرقام: لا نعرض أرقاماً صفرية أو سالبة قبل وصول أول قراءة للطلبات من الكاش/السيرفر
+        // بوابة منع قفز الأرقام القديمة: عرض آخر أرقام حقيقية محفوظة (أو وميض تحميل) حتى تكتمل قراءة Firestore الكاملة
+        const waitingForFullOrders = (!window._crmCloudOrdersLoaded && !window._dashBootTimeoutFallback);
+        if (waitingForFullOrders) {
+            const hadExactSnap = applyExactDashboardKpiSnapshot();
+            if (hadExactSnap) return;
+        }
+
         const isWaitingForFirstOrders = (!window._crmDataReady && ordersList.length === 0 && !window._dashBootTimeoutFallback);
-        if (isWaitingForFirstOrders) {
+        if (isWaitingForFirstOrders || waitingForFullOrders) {
+
             const smBar = '<span class="inline-block h-5 w-16 rounded-lg bg-slate-200/80 animate-pulse skeleton-shimmer align-middle"></span>';
             const lgBar = '<span class="inline-block h-7 w-24 rounded-lg bg-slate-200/80 animate-pulse skeleton-shimmer align-middle"></span>';
             ['sm-safe-total-liquidity', 'sm-safe-net-cash', 'sm-safe-net-online', 'sm-safe-owner-debt', 'sm-safe-street-cash', 'sm-safe-market-debt'].forEach(id => {
@@ -3565,6 +3614,7 @@
             }
             zonesCont.innerHTML = zh;
         }
+        saveExactDashboardKpiSnapshot();
     };
 
     // طباعة التقرير المالي الشامل للفترة (بدون عمود التوصيل)
