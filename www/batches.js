@@ -1660,22 +1660,32 @@
             let fzTouched = false;
 
             newOrders.forEach(o => {
-                batchWrite.update(db.collection('orders').doc(o.id), { status: 'processing' });
-                o.status = 'processing';
-                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[o.id]) {
-                    globalOrdersMap[o.id].status = 'processing';
-                }
+                const deductedMap = {};
                 if (Array.isArray(o.items)) {
                     o.items.forEach(i => {
-                        if (i.id) {
+                        if (i && i.id && !i.pendingWeight) {
+                            const needQty = Math.max(0, Number(i.quantity) || 0);
+                            if (needQty <= 0) return;
                             const cur = Math.max(0, Number(fzNew[i.id]) || 0);
-                            fzNew[i.id] = Math.max(0, cur - (Number(i.quantity) || 0));
-                            if (typeof storeFreezer !== 'undefined') storeFreezer[i.id] = fzNew[i.id];
-                            fzTouched = true;
+                            const actualDed = Math.min(cur, needQty);
+                            deductedMap[i.id] = Number(((deductedMap[i.id] || 0) + actualDed).toFixed(3));
+                            if (actualDed > 0) {
+                                fzNew[i.id] = Number((cur - actualDed).toFixed(3));
+                                if (typeof storeFreezer !== 'undefined') storeFreezer[i.id] = fzNew[i.id];
+                                fzTouched = true;
+                            }
                         }
                     });
                 }
+                batchWrite.update(db.collection('orders').doc(o.id), { status: 'processing', freezerDeductedMap: deductedMap });
+                o.status = 'processing';
+                o.freezerDeductedMap = deductedMap;
+                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[o.id]) {
+                    globalOrdersMap[o.id].status = 'processing';
+                    globalOrdersMap[o.id].freezerDeductedMap = deductedMap;
+                }
             });
+
 
             if (fzTouched) {
                 batchWrite.set(db.collection('inventory').doc('freezer'), fzNew, { merge: true });
