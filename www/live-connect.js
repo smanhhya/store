@@ -1591,12 +1591,16 @@
     function hookIntoSystemFunctions() {
         if (typeof window.renderOrdersList === 'function' && !window.renderOrdersList._lcHooked) {
             const _origRenderOrders = window.renderOrdersList;
+            let _lcHdrSyncTimer = null;
             const wrappedRenderOrders = function () {
                 const res = _origRenderOrders.apply(this, arguments);
                 window.restructureOrdersStickyLayout();
                 window.initZeroClutterOrdersScroll();
                 window.enhanceOrderCardsLive();
-                window.updateLiveHeaderAndSidebar();
+                clearTimeout(_lcHdrSyncTimer);
+                _lcHdrSyncTimer = setTimeout(() => {
+                    window.updateLiveHeaderAndSidebar();
+                }, 180);
                 return res;
             };
             wrappedRenderOrders._lcHooked = true;
