@@ -4394,10 +4394,13 @@
             const zSel = document.getElementById('no-zone');
             if (zSel) {
                 let zVal = zSel.value;
-                zSel.innerHTML = '<option value="">-- اختر المنطقة --</option>';
-                (storeSettings.deliveryZones || []).forEach(z => { zSel.innerHTML += `<option value="${z.name}" data-price="${z.price}">${z.name}</option>`; });
+                zSel.innerHTML = '<option value="استلام من المزرعة / باليد" data-price="0">🏠 استلام من المزرعة / باليد (بدون توصيل - 0 ج)</option>';
+                (storeSettings.deliveryZones || []).forEach(z => {
+                    zSel.innerHTML += `<option value="${z.name}" data-price="${z.price}">🛵 توصيل: ${z.name} (${z.price} ج)</option>`;
+                });
                 if (zVal) zSel.value = zVal;
             }
+
             const bSel = document.getElementById('no-batch');
             if (bSel) {
                 let bVal = bSel.value;
@@ -4582,12 +4585,14 @@
 
 
 
-        window.autoSetDeliveryPrice = () => { 
-            const sel = document.getElementById('no-zone'); 
-            if(sel.selectedIndex > 0) { 
-                const price = sel.options[sel.selectedIndex].getAttribute('data-price'); 
-                if(price) { document.getElementById('no-delivery').value = price; calcTotal('no'); } 
-            } 
+        window.autoSetDeliveryPrice = () => {
+            const sel = document.getElementById('no-zone');
+            if (!sel || sel.selectedIndex < 0) return;
+            const price = sel.options[sel.selectedIndex].getAttribute('data-price');
+            if (price !== null && price !== '') {
+                document.getElementById('no-delivery').value = price;
+                calcTotal('no');
+            }
         };
         
         window.submitNewOrder = async () => {
@@ -4618,9 +4623,12 @@
             }
             // ----------------------------------------------------
             
+            if (!zone) {
+                zone = 'استلام من المزرعة / باليد';
+                delivery = 0;
+            }
             let hasAnyPendingPrebook = Object.keys(storeProducts).some(id => (parseInt(document.getElementById(`no-prebook-count-${id}`)?.value) || 0) > 0);
             if(!phone || !name || (total === 0 && !hasAnyPendingPrebook)) return alert('برجاء استكمال بيانات العميل وقيمة الطلب الأساسية!');
-            if(!zone) return alert('يجب تحديد منطقة التوصيل!');
             
             let items = []; let subtotal = 0; let batchUpdates = {}; 
             let ticktickItemsStr = ''; 
@@ -5971,13 +5979,27 @@ window.deleteProductUI = async (id) => {
 
             const zEditSel = document.getElementById('edit-cust-zone-input');
             if (zEditSel) {
-                let zOpts = `<option value="${editingOrderData.zone || ''}">${editingOrderData.zone || '-- اختر المنطقة --'}</option>`;
+                const pickupLabel = 'استلام من المزرعة / باليد';
+                const curZone = editingOrderData.zone || pickupLabel;
+                let zOpts = `<option value="${curZone}" data-price="${curZone === pickupLabel ? 0 : ''}">${curZone === pickupLabel ? '🏠 استلام من المزرعة / باليد (بدون توصيل - 0 ج)' : curZone}</option>`;
+                if (curZone !== pickupLabel) {
+                    zOpts += `<option value="${pickupLabel}" data-price="0">🏠 استلام من المزرعة / باليد (بدون توصيل - 0 ج)</option>`;
+                }
                 (storeSettings?.deliveryZones || []).forEach(z => {
-                    if (z.name !== editingOrderData.zone) {
-                        zOpts += `<option value="${z.name}">${z.name} (${z.price}ج)</option>`;
+                    if (z.name !== curZone) {
+                        zOpts += `<option value="${z.name}" data-price="${z.price}">🛵 توصيل: ${z.name} (${z.price} ج)</option>`;
                     }
                 });
                 zEditSel.innerHTML = zOpts;
+                zEditSel.onchange = () => {
+                    const opt = zEditSel.options[zEditSel.selectedIndex];
+                    const pr = opt ? opt.getAttribute('data-price') : null;
+                    if (pr !== null && pr !== '') {
+                        const delEl = document.getElementById('edit-delivery');
+                        if (delEl) delEl.value = pr;
+                        if (typeof calcEditTotal === 'function') calcEditTotal();
+                    }
+                };
             }
 
             const isPinnedFn = (pId) => (typeof window.isProductPinnedForAdmin === 'function')
@@ -7880,6 +7902,27 @@ window.deleteProductUI = async (id) => {
                 let orderRef = db.collection('orders').doc(id);
                 let updateData = { status: s };
 
+                // في التجهيز أو الجديد: لا يُربط الطلب بأي دليفري تلقائياً ما دمت لم تختر مندوباً بنفسك
+                if (s === 'processing' || s === 'new') {
+                    if (o.driverName || o.driverPhone) {
+                        updateData.driverName = firebase.firestore.FieldValue.delete();
+                        updateData.driverPhone = firebase.firestore.FieldValue.delete();
+                        delete o.driverName;
+                        delete o.driverPhone;
+                        if (globalOrdersMap[id]) {
+                            delete globalOrdersMap[id].driverName;
+                            delete globalOrdersMap[id].driverPhone;
+                        }
+                    }
+                }
+
+                // إذا اكتمل الطلب مباشرةً بدون اختيار دليفري معين، يُسجّل كاستلام باليد / من المزرعة (بدون عهدة مندوب)
+                if (s === 'completed' && !o.driverName) {
+                    updateData.deliveryType = 'pickup';
+                    o.deliveryType = 'pickup';
+                    if (globalOrdersMap[id]) globalOrdersMap[id].deliveryType = 'pickup';
+                }
+
                 if (s === 'trash') updateData.deletedAt = firebase.firestore.FieldValue.serverTimestamp();
                 if (s === 'dispatched') updateData.dispatchedAt = firebase.firestore.FieldValue.serverTimestamp();
                 if (s === 'canceled') updateData.canceledAt = firebase.firestore.FieldValue.serverTimestamp();
@@ -7909,29 +7952,69 @@ window.deleteProductUI = async (id) => {
                 }
 
 
-
-                atomicBatch.update(orderRef, updateData); 
-                
-                // 🧊 سحر الفريزر
+                // 🧊 محرك الفريزر الذكي الدقيق (يخصم المتاح فقط بدون سالب، ويعيد فقط ما تم خصمه فعلياً لمنع المخزون الوهمي)
                 if (!wasInFreezer && isNowInFreezer) {
-                    let fzUpdates = {};
-                    if(o.items) {
+                    let fzExactValues = {};
+                    let deductedMap = {};
+                    if (o.items && Array.isArray(o.items)) {
                         o.items.forEach(i => {
-                            fzUpdates[i.id] = firebase.firestore.FieldValue.increment(-i.quantity);
-                            storeFreezer[i.id] = (storeFreezer[i.id] || 0) - i.quantity; 
+                            if (!i || !i.id || i.pendingWeight) return;
+                            const needQty = Math.max(0, Number(i.quantity) || 0);
+                            if (needQty <= 0) return;
+                            const curFz = Math.max(0, Number(storeFreezer[i.id]) || 0);
+                            const actualDeducted = Math.min(curFz, needQty);
+                            const nextFz = Number((curFz - actualDeducted).toFixed(3));
+                            deductedMap[i.id] = Number(((deductedMap[i.id] || 0) + actualDeducted).toFixed(3));
+                            if (actualDeducted > 0) {
+                                storeFreezer[i.id] = nextFz;
+                                fzExactValues[i.id] = nextFz;
+                            }
                         });
                     }
-                    if(Object.keys(fzUpdates).length > 0) atomicBatch.set(db.collection('inventory').doc('freezer'), fzUpdates, { merge: true });
+                    updateData.freezerDeductedMap = deductedMap;
+                    o.freezerDeductedMap = deductedMap;
+                    if (globalOrdersMap[id]) globalOrdersMap[id].freezerDeductedMap = deductedMap;
+                    if (Object.keys(fzExactValues).length > 0) {
+                        atomicBatch.set(db.collection('inventory').doc('freezer'), fzExactValues, { merge: true });
+                    }
                 } else if (wasInFreezer && !isNowInFreezer) {
-                    let fzUpdates = {};
-                    if(o.items) {
-                        o.items.forEach(i => {
-                            fzUpdates[i.id] = firebase.firestore.FieldValue.increment(i.quantity);
-                            storeFreezer[i.id] = (storeFreezer[i.id] || 0) + i.quantity; 
+                    let fzExactValues = {};
+                    const hasRecordedMap = o.freezerDeductedMap && typeof o.freezerDeductedMap === 'object';
+                    if (hasRecordedMap) {
+                        Object.keys(o.freezerDeductedMap).forEach(pId => {
+                            const restoreQty = Math.max(0, Number(o.freezerDeductedMap[pId]) || 0);
+                            if (restoreQty > 0) {
+                                const curFz = Math.max(0, Number(storeFreezer[pId]) || 0);
+                                const nextFz = Number((curFz + restoreQty).toFixed(3));
+                                storeFreezer[pId] = nextFz;
+                                fzExactValues[pId] = nextFz;
+                            }
                         });
+                    } else if (o.items && Array.isArray(o.items) && o.items.length > 0) {
+                        const askRestoreOld = confirm('🧊 هذا طلب قديم قبل نظام تتبع الفريزر الدقيق.\nهل كنت سحبت أصناف هذا الطلب فعلياً من الفريزر وتريد إرجاعها للرصيد الآن؟\n(اضغط «إلغاء» لو الفريزر كان فارغاً حتى لا ينضاف رصيد وهمي)');
+                        if (askRestoreOld) {
+                            o.items.forEach(i => {
+                                if (!i || !i.id || i.pendingWeight) return;
+                                const q = Math.max(0, Number(i.quantity) || 0);
+                                if (q > 0) {
+                                    const curFz = Math.max(0, Number(storeFreezer[i.id]) || 0);
+                                    const nextFz = Number((curFz + q).toFixed(3));
+                                    storeFreezer[i.id] = nextFz;
+                                    fzExactValues[i.id] = nextFz;
+                                }
+                            });
+                        }
                     }
-                    if(Object.keys(fzUpdates).length > 0) atomicBatch.set(db.collection('inventory').doc('freezer'), fzUpdates, { merge: true });
+                    updateData.freezerDeductedMap = {};
+                    o.freezerDeductedMap = {};
+                    if (globalOrdersMap[id]) globalOrdersMap[id].freezerDeductedMap = {};
+                    if (Object.keys(fzExactValues).length > 0) {
+                        atomicBatch.set(db.collection('inventory').doc('freezer'), fzExactValues, { merge: true });
+                    }
                 }
+
+                atomicBatch.update(orderRef, updateData);
+
 
                 if(s === 'canceled' && oldStatus !== 'canceled') {
                     let stockUpdates = {};
@@ -8222,24 +8305,59 @@ window.deleteProductUI = async (id) => {
                     Object.keys(stockUpdates).forEach(id => { if(stockUpdates[id] !== 0) finalStockUpdates[id] = firebase.firestore.FieldValue.increment(stockUpdates[id]); });
                     if(Object.keys(finalStockUpdates).length > 0) { atomicBatch.set(db.collection("inventory").doc("stock"), finalStockUpdates, { merge: true }); }
 
-                    // 🧊 الفريزر
-                    if (['processing', 'completed', 'deferred'].includes(editingOrderData.status)) {
-                        let freezerEditUpdates = {};
-                        oldItems.forEach(i => { 
-                            freezerEditUpdates[i.id] = (freezerEditUpdates[i.id] || 0) + i.quantity; 
-                            storeFreezer[i.id] = (storeFreezer[i.id] || 0) + i.quantity; 
-                        }); 
-                        newItems.forEach(i => { 
-                            freezerEditUpdates[i.id] = (freezerEditUpdates[i.id] || 0) - i.quantity; 
-                            storeFreezer[i.id] = (storeFreezer[i.id] || 0) - i.quantity; 
-                        }); 
-                        
-                        let finalFzUpdates = {};
-                        Object.keys(freezerEditUpdates).forEach(id => { 
-                            if(freezerEditUpdates[id] !== 0) finalFzUpdates[id] = firebase.firestore.FieldValue.increment(freezerEditUpdates[id]); 
+                    // 🧊 الفريزر الدقيق عند تعديل طلب داخل مراحل التجهيز (لا يضيف رصيداً وهمياً ولا ينزل تحت الصفر)
+                    if (['processing', 'dispatched', 'completed', 'deferred'].includes(editingOrderData.status)) {
+                        const prevMap = (editingOrderData.freezerDeductedMap && typeof editingOrderData.freezerDeductedMap === 'object')
+                            ? { ...editingOrderData.freezerDeductedMap }
+                            : null;
+                        const newQtyByProd = {};
+                        newItems.forEach(i => {
+                            if (i && i.id && !i.pendingWeight) {
+                                newQtyByProd[i.id] = (newQtyByProd[i.id] || 0) + Math.max(0, Number(i.quantity) || 0);
+                            }
                         });
-                        if(Object.keys(finalFzUpdates).length > 0) {
-                            atomicBatch.set(db.collection("inventory").doc("freezer"), finalFzUpdates, { merge: true });
+                        const oldQtyByProd = {};
+                        oldItems.forEach(i => {
+                            if (i && i.id && !i.pendingWeight) {
+                                oldQtyByProd[i.id] = (oldQtyByProd[i.id] || 0) + Math.max(0, Number(i.quantity) || 0);
+                            }
+                        });
+
+                        const finalFzExact = {};
+                        const nextDeductedMap = prevMap ? { ...prevMap } : {};
+                        const allPIds = new Set([...Object.keys(oldQtyByProd), ...Object.keys(newQtyByProd), ...Object.keys(nextDeductedMap)]);
+
+                        allPIds.forEach(pId => {
+                            const oldQ = oldQtyByProd[pId] || 0;
+                            const newQ = newQtyByProd[pId] || 0;
+                            const diff = newQ - oldQ;
+                            const curFz = Math.max(0, Number(storeFreezer[pId]) || 0);
+                            const prevDed = prevMap ? Math.max(0, Number(prevMap[pId]) || 0) : 0;
+
+                            if (diff > 0) {
+                                const addDed = Math.min(curFz, diff);
+                                if (addDed > 0) {
+                                    const nextFz = Number((curFz - addDed).toFixed(3));
+                                    storeFreezer[pId] = nextFz;
+                                    finalFzExact[pId] = nextFz;
+                                }
+                                nextDeductedMap[pId] = Number((prevDed + addDed).toFixed(3));
+                            } else if (diff < 0) {
+                                const wantReturn = Math.abs(diff);
+                                const actualReturn = prevMap ? Math.min(prevDed, wantReturn) : 0;
+                                if (actualReturn > 0) {
+                                    const nextFz = Number((curFz + actualReturn).toFixed(3));
+                                    storeFreezer[pId] = nextFz;
+                                    finalFzExact[pId] = nextFz;
+                                }
+                                nextDeductedMap[pId] = Number(Math.max(0, prevDed - actualReturn).toFixed(3));
+                            }
+                        });
+
+                        editingOrderData.freezerDeductedMap = nextDeductedMap;
+                        atomicBatch.update(orderRef, { freezerDeductedMap: nextDeductedMap });
+                        if (Object.keys(finalFzExact).length > 0) {
+                            atomicBatch.set(db.collection("inventory").doc("freezer"), finalFzExact, { merge: true });
                         }
                     }
 
