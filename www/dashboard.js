@@ -3912,16 +3912,22 @@
         installEnhancedArchiveReportModal();
         installStrictAntiAutoArchiveGuard();
         window.renderSmartDashboard();
-        window.loadAllArchivedBatchesSafe();
-        window.loadLedgerRecordsSafe();
 
-        // صمام أمان: في حال عدم وجود طلبات أو انقطاع كامل للشبكة لأول مرة يتم عرض الأرقام بعد 2.5 ثانية كحد أقصى
+        // تأجيل بسيط لقراءات الأرشيف والخزنة السحابية (البيانات المحلية تظهر فوراً في 0ms) لإعطاء الأولوية القصوى للطلبات والمخزون
+        setTimeout(() => {
+            if (navigator.onLine) {
+                window.loadAllArchivedBatchesSafe();
+                window.loadLedgerRecordsSafe();
+            }
+        }, 900);
+
+        // صمام أمان: عرض فوري للأرقام حتى لو الشبكة مقطوعة بالكامل
         setTimeout(() => {
             if (!window._crmDataReady) {
                 window._dashBootTimeoutFallback = true;
                 window.renderSmartDashboard();
             }
-        }, 2500);
+        }, 1200);
     }
 
     if (document.readyState === 'loading') {
@@ -3947,7 +3953,10 @@
     if (typeof _origRenderBatchesUI === 'function') {
         window.renderBatchesUI = function () {
             _origRenderBatchesUI();
-            window.renderSmartDashboard();
+            const dashView = document.getElementById('view-dashboard');
+            if (dashView && dashView.classList.contains('active')) {
+                window.renderSmartDashboard();
+            }
         };
     }
 
