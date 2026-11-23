@@ -877,11 +877,30 @@
 
                 if (['processing', 'dispatched', 'deferred'].includes(order.status) && typeof storeFreezer !== 'undefined') {
                     const curFz = Math.max(0, Number(storeFreezer[targetItem.id]) || 0);
-                    const nextFz = Math.max(0, curFz - diffQty);
-                    storeFreezer[targetItem.id] = nextFz;
-                    batch.set(db.collection('inventory').doc('freezer'), {
-                        [targetItem.id]: nextFz
-                    }, { merge: true });
+                    const prevMap = (order.freezerDeductedMap && typeof order.freezerDeductedMap === 'object') ? { ...order.freezerDeductedMap } : {};
+                    const prevDed = Math.max(0, Number(prevMap[targetItem.id]) || 0);
+                    let nextFz = curFz;
+                    let nextDed = prevDed;
+
+                    if (diffQty > 0) {
+                        const actualDed = Math.min(curFz, diffQty);
+                        nextFz = Number((curFz - actualDed).toFixed(3));
+                        nextDed = Number((prevDed + actualDed).toFixed(3));
+                    } else if (diffQty < 0) {
+                        const actualReturn = Math.min(prevDed, Math.abs(diffQty));
+                        nextFz = Number((curFz + actualReturn).toFixed(3));
+                        nextDed = Number(Math.max(0, prevDed - actualReturn).toFixed(3));
+                    }
+
+                    prevMap[targetItem.id] = nextDed;
+                    order.freezerDeductedMap = prevMap;
+                    batch.update(db.collection('orders').doc(orderId), { freezerDeductedMap: prevMap });
+                    if (nextFz !== curFz) {
+                        storeFreezer[targetItem.id] = nextFz;
+                        batch.set(db.collection('inventory').doc('freezer'), {
+                            [targetItem.id]: nextFz
+                        }, { merge: true });
+                    }
                 }
             }
 
