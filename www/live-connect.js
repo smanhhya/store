@@ -156,56 +156,110 @@
                 filter: blur(0);
             }
 
-            /* 👑 الترقية البريميوم رويال (Royal Emerald & Gold) للقائمة الجانبية والصفحات القديمة 👑 */
+            /* 👑 القائمة الجانبية البريميوم بنظام شبكة التطبيقات الملكية (Royal Bento Grid) 👑 */
             #sidebar {
-                background: radial-gradient(circle at top right, rgba(245, 158, 11, 0.14), transparent 36%),
-                            linear-gradient(180deg, #031d19 0%, #05352a 48%, #021a15 100%) !important;
-                border-left: 1px solid rgba(245, 158, 11, 0.22) !important;
-                box-shadow: -12px 0 38px rgba(2, 20, 16, 0.45) !important;
+                background: linear-gradient(180deg, #031d18 0%, #052e25 58%, #021612 100%) !important;
+                border-left: 1px solid rgba(245, 158, 11, 0.24) !important;
+                box-shadow: -12px 0 34px rgba(2, 20, 16, 0.5) !important;
             }
             #sidebar > div:first-child {
-                background: linear-gradient(135deg, rgba(245, 158, 11, 0.14), rgba(6, 78, 59, 0.35)) !important;
-                border-bottom: 1px solid rgba(245, 158, 11, 0.22) !important;
+                background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(6, 78, 59, 0.35)) !important;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
             }
-            #sidebar .nav-btn {
-                border: 1px solid transparent;
-                border-radius: 0.95rem !important;
-                padding: 0.62rem 0.75rem !important;
-                margin-bottom: 0.22rem !important;
-                color: rgba(236, 253, 245, 0.82) !important;
-                transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+            #sidebar .sb-hero-tile {
+                background: rgba(255, 255, 255, 0.06) !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                padding: 0.6rem 0.75rem !important;
+                margin-bottom: 0 !important;
+                border-radius: 1rem !important;
+                color: #ecfdf5 !important;
             }
-            #sidebar .nav-btn i {
+            #sidebar .sb-hero-tile > div > i {
                 width: 2rem !important;
                 height: 2rem !important;
                 display: inline-flex !important;
                 align-items: center !important;
                 justify-content: center !important;
                 border-radius: 0.7rem !important;
-                background: rgba(255, 255, 255, 0.08) !important;
-                border: 1px solid rgba(255, 255, 255, 0.1) !important;
-                margin-left: 0.65rem !important;
-                font-size: 0.85rem !important;
-                transition: all 0.2s ease !important;
+                background: rgba(16, 185, 129, 0.18) !important;
+                border: 1px solid rgba(52, 211, 153, 0.3) !important;
+                font-size: 0.9rem !important;
+                flex-shrink: 0 !important;
             }
-            #sidebar .nav-btn:hover {
-                background: rgba(255, 255, 255, 0.08) !important;
-                border-color: rgba(245, 158, 11, 0.25) !important;
+            #sidebar .sb-tile {
+                position: relative !important;
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                justify-content: space-between !important;
+                gap: 0.45rem !important;
+                padding: 0.65rem 0.7rem !important;
+                margin: 0 !important;
+                border-radius: 1rem !important;
+                background: rgba(255, 255, 255, 0.055) !important;
+                border: 1px solid rgba(255, 255, 255, 0.09) !important;
+                color: rgba(236, 253, 245, 0.9) !important;
+                text-align: right !important;
+                transition: background-color 0.16s ease, border-color 0.16s ease, transform 0.14s ease !important;
+            }
+            #sidebar .sb-tile:active {
+                transform: scale(0.96);
+            }
+            #sidebar .sb-tile:hover {
+                background: rgba(255, 255, 255, 0.1) !important;
+                border-color: rgba(245, 158, 11, 0.3) !important;
                 color: #ffffff !important;
-                transform: translateX(-3px);
+            }
+            #sidebar .sb-tile > i {
+                width: 1.9rem !important;
+                height: 1.9rem !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                border-radius: 0.65rem !important;
+                background: rgba(255, 255, 255, 0.09) !important;
+                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                font-size: 0.85rem !important;
+                margin: 0 !important;
+            }
+            #sidebar .sb-tile-label {
+                display: block;
+                font-size: 0.72rem;
+                font-weight: 800;
+                line-height: 1.25;
+                width: 100%;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            #sidebar .sb-tile-badge {
+                position: absolute;
+                top: 0.45rem;
+                left: 0.45rem;
+                font-size: 0.6rem;
+                font-weight: 900;
+                padding: 0.1rem 0.42rem;
+                border-radius: 9999px;
+                line-height: 1.2;
+                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
             }
             #sidebar .nav-btn.active {
-                background: linear-gradient(90deg, rgba(245, 158, 11, 0.22) 0%, rgba(16, 185, 129, 0.28) 100%) !important;
-                border: 1px solid rgba(245, 158, 11, 0.55) !important;
+                background: linear-gradient(135deg, rgba(245, 158, 11, 0.24) 0%, rgba(16, 185, 129, 0.28) 100%) !important;
+                border: 1px solid rgba(245, 158, 11, 0.65) !important;
                 color: #ffffff !important;
-                box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.45) !important;
+                box-shadow: 0 6px 16px -6px rgba(245, 158, 11, 0.35) !important;
             }
-            #sidebar .nav-btn.active i {
+            #sidebar .nav-btn.active > i,
+            #sidebar .sb-hero-tile.active > div > i {
                 background: linear-gradient(135deg, #f59e0b, #fbbf24) !important;
-                color: #031d19 !important;
+                color: #031d18 !important;
                 border-color: #fde68a !important;
-                box-shadow: 0 3px 10px rgba(245, 158, 11, 0.35);
             }
+            #sidebar .sb-mini-foot {
+                margin: 0 !important;
+                padding: 0.4rem 0.5rem !important;
+            }
+
 
             /* ترقية رؤوس وجداول الصفحات القديمة (البلاك ليست، المديونيات، أرشيف الدفعات، سلة المحذوفات) */
             #view-blacklist > div:first-child,
