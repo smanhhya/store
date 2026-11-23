@@ -154,53 +154,151 @@
 
     <div id="mobile-overlay" onclick="toggleSidebar()" class="fixed inset-0 bg-slate-900/40 z-30 hidden md:hidden backdrop-blur-sm transition-opacity"></div>
 
-    <aside id="sidebar" class="w-64 bg-brand-dark text-slate-300 flex flex-col shadow-2xl z-40 fixed inset-y-0 right-0 md:relative h-full border-l border-emerald-900/50">
-        <div class="h-[72px] flex items-center justify-between px-6 border-b border-emerald-800/50 bg-emerald-900/20 shrink-0">
-            <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded-lg bg-emerald-500 text-white flex items-center justify-center font-black shadow-soft"><i class="fa-solid fa-crown text-sm"></i></div>
-                <h1 class="text-lg font-black text-white tracking-wide">الإدارة المركزية</h1>
+    <aside id="sidebar" class="w-[292px] max-w-[86vw] bg-[#041f1a] text-slate-200 flex flex-col shadow-2xl z-40 fixed inset-y-0 right-0 md:relative h-full border-l border-amber-400/20">
+        <!-- الرأس الملكي المدمج + شريط اختصارات بلمسة -->
+        <div class="px-3.5 pt-3.5 pb-3 border-b border-white/10 shrink-0 space-y-2.5">
+            <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2.5 min-w-0">
+                    <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-300 via-amber-400 to-yellow-500 text-slate-950 flex items-center justify-center font-black shadow-lg shadow-amber-500/25 shrink-0">
+                        <i class="fa-solid fa-crown text-base"></i>
+                    </div>
+                    <div class="min-w-0">
+                        <h1 class="text-sm font-black text-white tracking-wide leading-tight truncate">سمان ههيا</h1>
+                        <span class="text-[10px] font-bold text-emerald-300/85 block truncate">مركز القيادة • CRM</span>
+                    </div>
+                </div>
+                <button type="button" onclick="toggleSidebar()" aria-label="إغلاق القائمة" class="md:hidden w-8 h-8 rounded-xl bg-white/10 hover:bg-rose-500/80 text-white flex items-center justify-center transition-colors shrink-0">
+                    <i class="fa-solid fa-xmark text-base"></i>
+                </button>
             </div>
-            <button onclick="toggleSidebar()" class="md:hidden text-emerald-200 hover:text-white transition-colors"><i class="fa-solid fa-xmark text-xl"></i></button>
+
+            <div class="grid grid-cols-2 gap-1.5">
+                <button type="button" onclick="if(window.innerWidth<768) toggleSidebar(true); openModal('add-order-modal');" class="bg-gradient-to-l from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 py-2 px-2.5 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all">
+                    <i class="fa-solid fa-plus text-xs"></i><span>طلب جديد</span>
+                </button>
+                <button type="button" onclick="if(window.innerWidth<768) toggleSidebar(true); if(window.openWaybillSettingsModal) openWaybillSettingsModal();" class="bg-white/10 hover:bg-amber-400 hover:text-slate-950 text-amber-200 border border-amber-400/35 py-2 px-2.5 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 active:scale-95 transition-all">
+                    <i class="fa-solid fa-print text-xs"></i><span>البوالص</span>
+                </button>
+            </div>
         </div>
-        
-        <nav class="flex-1 overflow-y-auto custom-scroll py-6 px-4 space-y-1">
-            <button onclick="switchTab('dashboard', this)" class="nav-btn active w-full text-right flex items-center px-4 py-3 rounded-xl text-sm font-bold bg-emerald-600/20 text-white shadow-sm mb-4 border border-emerald-500/30 transition-all"><i class="fa-solid fa-chart-line w-7 text-center text-emerald-400"></i> لوحة القيادة</button>
-            
-            <div class="pt-2 pb-2 px-2 text-[10px] uppercase font-black text-emerald-300/50 tracking-wider">المبيعات والعملاء</div>
-            <button onclick="switchTab('orders', this)" class="nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-800/50 hover:text-white text-emerald-100/70 transition-all"><i class="fa-solid fa-bolt w-7 text-center text-amber-400"></i> الطلبات الحية</button>
-            <button onclick="switchTab('customers', this)" class="nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-800/50 hover:text-white text-emerald-100/70 transition-all"><i class="fa-solid fa-users w-7 text-center text-blue-400"></i> أرشيف العملاء</button>
-            <button onclick="switchTab('notes', this)" class="nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-800/50 hover:text-white text-emerald-100/70 transition-all"><i class="fa-solid fa-clipboard-list w-7 text-center text-rose-400"></i> مركز الملاحظات</button>
-            <button onclick="switchTab('debts', this)" class="nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-red-500/20 hover:text-white text-emerald-100/70 transition-all"><i class="fa-solid fa-book-journal-whills w-7 text-center text-red-400"></i> سجل المديونيات</button>
-            <button onclick="switchTab('blacklist', this)" class="nav-btn w-full text-right flex items-center justify-between px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-red-600/30 hover:text-white text-emerald-100/70 transition-all border-b border-emerald-900/50 pb-4 mb-2">
-                <span class="flex items-center"><i class="fa-solid fa-ban w-7 text-center text-red-500"></i> قائمة البلاك ليست</span>
-                <span id="sidebar-blacklist-badge" class="bg-red-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-sm">0</span>
+
+        <!-- شبكة التطبيقات الملكية (Bento 2-Column Grid — كل الشاشات أمام عينك بخفة ووضوح) -->
+        <nav class="flex-1 overflow-y-auto custom-scroll p-3 space-y-2.5">
+            <!-- بطاقة القيادة العلوية العريضة -->
+            <button type="button" onclick="switchTab('dashboard', this)" class="nav-btn sb-hero-tile active w-full text-right flex items-center justify-between px-3 py-2.5 rounded-2xl transition-all">
+                <div class="flex items-center gap-2.5 min-w-0">
+                    <i class="fa-solid fa-chart-line text-emerald-300"></i>
+                    <div class="min-w-0">
+                        <span class="block text-xs font-black text-white truncate">لوحة القيادة</span>
+                        <span class="block text-[9px] font-bold text-emerald-200/70 truncate">الأرباح، الخزنة، والدفعات</span>
+                    </div>
+                </div>
+                <i class="fa-solid fa-chevron-left text-[10px] text-amber-300/80 !bg-transparent !border-0 !w-auto !h-auto !m-0"></i>
             </button>
 
-            <div class="pt-6 pb-2 px-2 text-[10px] uppercase font-black text-emerald-300/50 tracking-wider">التحكم والتجهيز</div>
-            <button onclick="switchTab('inventory', this)" class="nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-800/50 hover:text-white text-emerald-100/70 transition-all"><i class="fa-solid fa-boxes-packing w-7 text-center text-indigo-400"></i> الأصناف والأسعار</button>
-            <button onclick="switchTab('batches', this)" class="nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-800/50 hover:text-white text-emerald-100/70 transition-all"><i class="fa-solid fa-layer-group w-7 text-center text-teal-400"></i> إدارة الدفعات</button>
-            <button onclick="switchTab('archive', this)" class="nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-800/50 hover:text-white text-emerald-100/70 transition-all"><i class="fa-solid fa-box-archive w-7 text-center text-slate-400"></i> أرشيف الدفعات</button>
-            <button onclick="switchTab('radar', this)" class="nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-800/50 hover:text-white text-emerald-100/70 transition-all mb-1"><i class="fa-solid fa-satellite-dish w-7 text-center text-amber-400 animate-pulse"></i> رادار المناديب</button>
-            <button onclick="switchTab('reconciliation', this)" class="nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-800/50 hover:text-white text-emerald-100/70 transition-all"><i class="fa-solid fa-hand-holding-dollar w-7 text-center text-emerald-400"></i> تقفيل المناديب</button>
+            <!-- المجموعة 1: التشغيل والمناديب -->
+            <div class="space-y-1.5">
+                <div class="px-1 text-[10px] font-black text-amber-300/80 flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><span>التشغيل والمناديب</span>
+                </div>
+                <div class="grid grid-cols-2 gap-1.5">
+                    <button type="button" onclick="switchTab('orders', this)" class="nav-btn sb-tile">
+                        <i class="fa-solid fa-bolt text-amber-400"></i>
+                        <span class="sb-tile-label">الطلبات الحية</span>
+                        <span id="lc-sb-orders" class="sb-tile-badge hidden bg-amber-400 text-slate-950">0</span>
+                    </button>
+                    <button type="button" onclick="switchTab('batches', this)" class="nav-btn sb-tile">
+                        <i class="fa-solid fa-layer-group text-teal-300"></i>
+                        <span class="sb-tile-label">إدارة الدفعات</span>
+                        <span id="lc-sb-batches" class="sb-tile-badge hidden bg-teal-500 text-white">0</span>
+                    </button>
+                    <button type="button" onclick="switchTab('radar', this)" class="nav-btn sb-tile">
+                        <i class="fa-solid fa-satellite-dish text-sky-300"></i>
+                        <span class="sb-tile-label">رادار المناديب</span>
+                        <span id="lc-sb-radar" class="sb-tile-badge hidden bg-indigo-500 text-white">0</span>
+                    </button>
+                    <button type="button" onclick="switchTab('reconciliation', this)" class="nav-btn sb-tile">
+                        <i class="fa-solid fa-hand-holding-dollar text-emerald-300"></i>
+                        <span class="sb-tile-label">تقفيل المناديب</span>
+                        <span id="lc-sb-recon" class="sb-tile-badge hidden bg-emerald-500 text-white">0</span>
+                    </button>
+                </div>
+            </div>
 
-            <button onclick="switchTab('settings', this)" class="nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-800/50 hover:text-white text-emerald-100/70 transition-all"><i class="fa-solid fa-gear w-7 text-center text-slate-400"></i> إعدادات المتجر</button>
-            <button onclick="switchTab('kitchen', this)" class="nav-btn w-full text-right flex items-center justify-between px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-800/50 hover:text-white text-emerald-100/70 transition-all">
-                <span class="flex items-center"><i class="fa-solid fa-fire-burner w-7 text-center text-amber-400"></i> مطبخ سمان ههيا</span>
-                <span id="sidebar-kitchen-fb-badge" class="hidden bg-amber-400 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded-full shadow-sm">0</span>
-            </button>
+            <!-- المجموعة 2: العملاء والجودة -->
+            <div class="space-y-1.5 pt-1 border-t border-white/10">
+                <div class="px-1 text-[10px] font-black text-emerald-300/75 flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>العملاء والجودة</span>
+                </div>
+                <div class="grid grid-cols-2 gap-1.5">
+                    <button type="button" onclick="switchTab('customers', this)" class="nav-btn sb-tile">
+                        <i class="fa-solid fa-users text-blue-300"></i>
+                        <span class="sb-tile-label">أرشيف العملاء</span>
+                    </button>
+                    <button type="button" onclick="switchTab('notes', this)" class="nav-btn sb-tile">
+                        <i class="fa-solid fa-clipboard-list text-rose-300"></i>
+                        <span class="sb-tile-label">مركز الملاحظات</span>
+                        <span id="lc-sb-notes" class="sb-tile-badge hidden bg-rose-500 text-white">0</span>
+                    </button>
+                    <button type="button" onclick="switchTab('debts', this)" class="nav-btn sb-tile">
+                        <i class="fa-solid fa-book-journal-whills text-red-300"></i>
+                        <span class="sb-tile-label">سجل المديونيات</span>
+                        <span id="lc-sb-debts" class="sb-tile-badge hidden bg-red-500 text-white">0</span>
+                    </button>
+                    <button type="button" onclick="switchTab('blacklist', this)" class="nav-btn sb-tile">
+                        <i class="fa-solid fa-ban text-red-400"></i>
+                        <span class="sb-tile-label">البلاك ليست</span>
+                        <span id="sidebar-blacklist-badge" class="sb-tile-badge bg-red-600 text-white">0</span>
+                    </button>
+                </div>
+            </div>
 
-            <div class="my-2 border-t border-slate-700/50"></div>
-            <button onclick="switchTab('trash', this)" class="nav-btn w-full text-right flex items-center px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-red-500/20 hover:text-red-300 text-emerald-100/70 transition-all"><i class="fa-solid fa-trash-can w-7 text-center text-red-400"></i> سلة المحذوفات</button>
+            <!-- المجموعة 3: المتجر والأرشيف -->
+            <div class="space-y-1.5 pt-1 border-t border-white/10">
+                <div class="px-1 text-[10px] font-black text-slate-300/70 flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span><span>المتجر والأرشيف</span>
+                </div>
+                <div class="grid grid-cols-2 gap-1.5">
+                    <button type="button" onclick="switchTab('inventory', this)" class="nav-btn sb-tile">
+                        <i class="fa-solid fa-boxes-packing text-indigo-300"></i>
+                        <span class="sb-tile-label">الأصناف والأسعار</span>
+                    </button>
+                    <button type="button" onclick="switchTab('settings', this)" class="nav-btn sb-tile">
+                        <i class="fa-solid fa-sliders text-amber-300"></i>
+                        <span class="sb-tile-label">المتجر والقالب</span>
+                    </button>
+                    <button type="button" onclick="switchTab('kitchen', this)" class="nav-btn sb-tile">
+                        <i class="fa-solid fa-fire-burner text-orange-300"></i>
+                        <span class="sb-tile-label">مطبخ سمان ههيا</span>
+                        <span id="sidebar-kitchen-fb-badge" class="sb-tile-badge hidden bg-amber-400 text-slate-950">0</span>
+                    </button>
+                    <button type="button" onclick="switchTab('archive', this)" class="nav-btn sb-tile">
+                        <i class="fa-solid fa-box-archive text-slate-300"></i>
+                        <span class="sb-tile-label">أرشيف الدفعات</span>
+                    </button>
+                </div>
+            </div>
         </nav>
-        
-        <div class="p-3.5 border-t border-amber-400/20 bg-black/25 shrink-0 space-y-2">
-            <button type="button" id="btn-check-apk-update" onclick="window.checkSmanApkUpdate(true)" class="w-full py-2.5 px-3 rounded-xl bg-gradient-to-l from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-xs shadow-lg flex items-center justify-between gap-2 transition-all active:scale-95">
-                <span class="flex items-center gap-2"><i class="fa-solid fa-cloud-arrow-down"></i> فحص تحديثات التطبيق</span>
+
+        <!-- شريط التحكم السفلي المدمج -->
+        <div class="p-2.5 border-t border-white/10 bg-black/30 shrink-0 space-y-1.5">
+            <button type="button" id="btn-check-apk-update" onclick="window.checkSmanApkUpdate(true)" class="w-full py-2 px-3 rounded-xl bg-gradient-to-l from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-black text-[11px] shadow flex items-center justify-between gap-2 transition-all active:scale-95">
+                <span class="flex items-center gap-1.5"><i class="fa-solid fa-cloud-arrow-down"></i> فحص التحديثات</span>
                 <span id="sidebar-apk-version-tag" class="text-[10px] font-black bg-slate-950/15 px-2 py-0.5 rounded-lg" dir="ltr"></span>
             </button>
-            <button onclick="logoutApp()" class="text-red-300 hover:text-white hover:bg-red-500/80 transition-all flex items-center gap-2 text-xs font-black w-full justify-center py-2 bg-red-500/10 rounded-xl border border-red-500/25"><i class="fa-solid fa-right-from-bracket"></i> خروج آمن</button>
+            <div class="grid grid-cols-2 gap-1.5">
+                <button type="button" onclick="switchTab('trash', this)" class="nav-btn sb-mini-foot flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-[11px] font-black bg-white/5 hover:bg-rose-500/20 text-slate-300 hover:text-rose-200 border border-white/10 transition-all">
+                    <i class="fa-solid fa-trash-can text-rose-400 !w-auto !h-auto !bg-transparent !border-0 !m-0 text-[11px]"></i>
+                    <span>المحذوفات</span>
+                </button>
+                <button type="button" onclick="logoutApp()" class="flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-[11px] font-black bg-rose-500/15 hover:bg-rose-600 text-rose-200 hover:text-white border border-rose-400/25 transition-all">
+                    <i class="fa-solid fa-right-from-bracket text-[11px]"></i>
+                    <span>خروج آمن</span>
+                </button>
+            </div>
         </div>
     </aside>
+
 
     <main class="flex-1 flex flex-col min-w-0 h-full relative">
         <header class="h-[72px] bg-white border-b border-slate-200/60 flex items-center justify-between px-4 lg:px-8 shadow-sm z-10 shrink-0">
@@ -2987,7 +3085,10 @@
                     if (b) b.innerText = counts[s] || 0;
                 });
 
+
                 ordersLoadedOnce = true;
+                window._crmCloudOrdersLoaded = true;
+
                 if (typeof window.saveOrdersFastMirror === 'function') window.saveOrdersFastMirror();
                 triggerUnifiedBootRender();
             }, err => console.log("خطأ في مزامنة الطلبات:", err));
@@ -6821,311 +6922,6 @@ window.deleteProductUI = async (id) => {
         var archivedBatchesData = window.archivedBatchesData = window.archivedBatchesData || [];
 
         
-        // دالة الترحيل للأرشيف
-        window.archiveBatch = async (bId) => {
-            const b = storeBatches[bId]; if(!b) return;
-            
-            if(!confirm(`⚠️ هل أنت متأكد من إغلاق وترحيل دفعة (${b.name}) نهائياً للأرشيف؟\nسيتم حساب أرباحها وإغلاقها، ولن تظهر في الشاشات الحية بعد الآن.`)) return;
-            
-            try {
-                // السحر هنا: هنجيب كل الأوردرات بتاعة الدفعة دي مباشرة من الداتابيز عشان مننساش حاجة
-                let snap = await db.collection('orders').where('batchId', '==', bId).get();
-                let bOrders = [];
-                snap.forEach(doc => bOrders.push({id: doc.id, ...doc.data()}));
-
-                let totalRev = 0, totalDel = 0, totalDisc = 0, itemsMap = {}, zonesMap = {};
-                let ordersToArchiveRefs = [];
-                
-                bOrders.forEach(o => {
-                    // حسابات الأرباح من المكتمل فقط
-                    if(o.status === 'completed') {
-                        totalRev += Number(o.total) || 0;
-                        totalDel += Number(o.deliveryFee) || 0;
-                        totalDisc += Number(o.discount) || 0;
-                        
-                        let z = o.zone || 'غير محدد';
-                        zonesMap[z] = (zonesMap[z] || 0) + 1;
-
-                        if(o.items) {
-                            o.items.forEach(i => { itemsMap[i.name] = (itemsMap[i.name] || 0) + i.quantity; });
-                        }
-                    }
-                    
-                    // تجميع الأوردرات المكتملة والملغية عشان نأرشفهم ونخفيهم من اللايف
-                    if(o.status === 'completed' || o.status === 'canceled') {
-                        ordersToArchiveRefs.push(db.collection('orders').doc(o.id));
-                    }
-                });
-
-                let archiveData = {
-                    batchName: b.name,
-                    originalBatchId: bId,
-                    totalRevenue: totalRev,
-                    totalDelivery: totalDel,
-                    totalDiscount: totalDisc,
-                    ordersCount: bOrders.filter(x => x.status === 'completed').length,
-                    itemsSummary: itemsMap,
-                    zonesSummary: zonesMap,
-                    rawStock: b.stock || {}, // 💾 نسخة احتياطية من كميات الدفعة
-                    rawBooked: b.booked || {}, // 💾 نسخة احتياطية من المحجوز
-                    archivedAt: firebase.firestore.FieldValue.serverTimestamp()
-                };
-
-                let batchProcess = db.batch();
-                
-                // 1. حفظ في الأرشيف
-                let newArchiveRef = db.collection('archived_batches').doc();
-                archiveData.id = newArchiveRef.id; // حفظ الـ ID
-                archivedBatchesData.unshift(archiveData); // التحديث الفوري في الذاكرة الحية لتظهر في قوائم الربط فوراً
-                batchProcess.set(newArchiveRef, archiveData);
-                
-                // 2. مسح من الدفعات الحية (الطريقة الأصح والأكثر أماناً لفايربيس)
-                let batchRef = db.collection('inventory').doc('batches');
-                batchProcess.update(batchRef, {
-                    [bId]: firebase.firestore.FieldValue.delete()
-                });
-
-                // 3. وضع علامة (isArchived) على الأوردرات عشان تختفي من الشاشات الحية
-                ordersToArchiveRefs.forEach(ref => {
-                    batchProcess.update(ref, { isArchived: true });
-                });
-                
-                await batchProcess.commit();
-                
-                // تنظيف المتغير المحلي عشان الواجهة تتحدث صح
-                delete storeBatches[bId];
-                
-                // تحديث الذاكرة الحية عشان يختفوا فوراً قدامك
-                allOrdersRaw.forEach(o => {
-                    if (o.batchId === bId && (o.status === 'completed' || o.status === 'canceled')) {
-                        o.isArchived = true;
-                        if(globalOrdersMap[o.id]) globalOrdersMap[o.id].isArchived = true;
-                    }
-                });
-
-                renderBatchesUI();
-                renderOrdersList();
-                
-                alert("تم إغلاق الدفعة وترحيلها للأرشيف بنجاح! 🚀📊");
-            } catch(e) { 
-                console.error("Firebase Error:", e);
-                alert("حدث خطأ أثناء الأرشفة! (السبب غالباً من قواعد حماية فايربيس، راجع الشرح)"); 
-            }
-        };
-
-
-
-        // رسم شاشة الأرشيف
-        window.renderArchiveUI = () => {
-            const cont = document.getElementById('archive-list-container'); if(!cont) return;
-            if(archivedBatchesData.length === 0) {
-                cont.innerHTML = '<div class="col-span-1 md:col-span-2 text-center py-16 text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-[2rem]">لا توجد دفعات مؤرشفة حتى الآن.</div>';
-                return;
-            }
-            
-            cont.innerHTML = archivedBatchesData.map(a => {
-                let dDate = a.archivedAt ? new Date(a.archivedAt.toMillis()).toLocaleDateString('ar-EG') : '';
-                return `
-                <div onclick="openArchiveReport('${a.id}')" class="bg-white p-5 rounded-[1.5rem] shadow-soft border border-slate-100 hover:shadow-card transition-all cursor-pointer hover:-translate-y-1">
-                    <div class="flex justify-between items-start mb-4 pb-3 border-b border-slate-50">
-                        <div>
-                            <h4 class="font-black text-slate-800 text-lg mb-1"><i class="fa-solid fa-file-invoice text-slate-400 mr-1"></i> ${a.batchName}</h4>
-                            <p class="text-[10px] font-bold text-slate-400">تاريخ الإغلاق: ${dDate}</p>
-                        </div>
-                        <span class="bg-emerald-50 text-emerald-600 px-3 py-1.5 rounded-xl text-xs font-black shadow-sm">${a.ordersCount} طلب</span>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <div>
-                            <p class="text-[10px] font-bold text-slate-500 mb-1">الصافي النهائي</p>
-                            <p class="text-xl font-black text-brand-primary">${(a.totalRevenue || 0).toLocaleString()} <span class="text-[10px]">ج</span></p>
-                        </div>
-                        <i class="fa-solid fa-chevron-left text-slate-300"></i>
-                    </div>
-                </div>`;
-            }).join('');
-        };
-
-        // فتح التقرير التفصيلي للدفعة المؤرشفة + إمكانية استعادة أي طلب منفرد للطلبات الحية
-        window.openArchiveReport = (arId) => {
-            let a = archivedBatchesData.find(x => x.id === arId); if(!a) return;
-            document.getElementById('ar-title').innerText = a.batchName;
-            
-            let itemsHtml = Object.keys(a.itemsSummary || {}).sort((k1, k2) => a.itemsSummary[k2] - a.itemsSummary[k1]).map(k => {
-                if ((a.itemsSummary[k] || 0) <= 0) return '';
-                return `<div class="bg-slate-50 border border-slate-100 p-3 rounded-xl text-center shadow-sm"><span class="block text-[10px] font-bold text-slate-500 mb-1 truncate">${k}</span><span class="text-lg font-black text-brand-primary">${a.itemsSummary[k]}</span></div>`;
-            }).join('');
-
-            let zonesHtml = Object.keys(a.zonesSummary || {}).sort((k1, k2) => a.zonesSummary[k2] - a.zonesSummary[k1]).map(k => {
-                if ((a.zonesSummary[k] || 0) <= 0) return '';
-                return `<span class="bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-black border border-indigo-100 shadow-sm">${k} <span class="bg-white text-indigo-500 px-1.5 py-0.5 rounded ml-1">${a.zonesSummary[k]}</span></span>`;
-            }).join(' ');
-
-            // جلب الطلبات المؤرشفة المرتبطة بهذه الدفعة (أو التي دخلت الأرشيف بدون دفعة بالخطأ)
-            let batchArchivedOrders = (allOrdersRaw || []).filter(o => {
-                if (!o || !o.isArchived) return false;
-                let matchById = (a.originalBatchId && o.batchId === a.originalBatchId) || (o.batchId === a.id);
-                let matchByName = (a.batchName && o.batchName === a.batchName);
-                let matchOrphan = (!o.batchId || o.batchId === '') && (!o.batchName || o.batchName === '');
-                return matchById || matchByName || matchOrphan;
-            });
-
-            let ordersRowsHtml = batchArchivedOrders.map(o => {
-                let itemsBadges = (o.items && Array.isArray(o.items))
-                    ? o.items.map(i => `<span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[10px] font-bold">${i.quantity}x ${i.name}</span>`).join(' ')
-                    : '-';
-                let isOrphan = (!o.batchId || o.batchId === '');
-                return `
-                <div class="bg-slate-50 p-3.5 rounded-xl border ${isOrphan ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200'} flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                    <div>
-                        <div class="flex flex-wrap items-center gap-2">
-                            <span class="font-black text-slate-800 text-xs">${o.customerName || 'عميل'}</span>
-                            <span class="text-[10px] font-bold text-slate-400" dir="ltr">${o.customerPhone || ''}</span>
-                            <span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-[10px] font-black">${o.total || 0} ج</span>
-                            ${isOrphan ? '<span class="bg-amber-200 text-amber-900 px-2 py-0.5 rounded text-[9px] font-black">⚠️ أُرشف بدون دفعة</span>' : ''}
-                        </div>
-                        <div class="text-[10px] font-bold text-slate-500 mt-1">${o.zone || ''} ${o.customerAddress ? ' - ' + o.customerAddress : ''} • ${o.orderDate || ''}</div>
-                        <div class="flex flex-wrap gap-1 mt-1.5">${itemsBadges}</div>
-                    </div>
-                    <div class="flex flex-wrap gap-1.5 w-full sm:w-auto justify-end shrink-0">
-                        <button onclick="restoreSingleOrderFromArchive('${o.id}', '${a.id}', true)" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition-all flex items-center gap-1" title="إرجاع الطلب لشاشة الطلبات الحية كطلب عادي بدون دفعة وخصمه من هذا الأرشيف">
-                            <i class="fa-solid fa-rotate-left"></i> استعادة للحي (بدون دفعة)
-                        </button>
-                        <button onclick="restoreSingleOrderFromArchive('${o.id}', '${a.id}', false)" class="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition-all flex items-center gap-1" title="إرجاع الطلب للطلبات الحية مع الاحتفاظ باسم الدفعة">
-                            <i class="fa-solid fa-arrow-up-from-bracket"></i> استعادة للحي
-                        </button>
-                    </div>
-                </div>`;
-            }).join('');
-
-            let html = `
-            <div id="print-archive-area">
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                    <div class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm text-center">
-                        <p class="text-[10px] font-bold text-slate-500 mb-1">الطلبات المسلمة</p>
-                        <p class="text-2xl font-black text-blue-600">${a.ordersCount}</p>
-                    </div>
-                    <div class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm text-center">
-                        <p class="text-[10px] font-bold text-slate-500 mb-1">إجمالي التوصيل</p>
-                        <p class="text-2xl font-black text-indigo-500">${(a.totalDelivery || 0).toLocaleString()} ج</p>
-                    </div>
-                    <div class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm text-center">
-                        <p class="text-[10px] font-bold text-slate-500 mb-1">الخصومات</p>
-                        <p class="text-2xl font-black text-red-500">${(a.totalDiscount || 0).toLocaleString()} ج</p>
-                    </div>
-                    <div class="bg-emerald-50 p-4 rounded-xl border border-emerald-100 shadow-sm text-center">
-                        <p class="text-[10px] font-bold text-emerald-600 mb-1">الصافي الكلي</p>
-                        <p class="text-2xl font-black text-emerald-700">${(a.totalRevenue || 0).toLocaleString()} ج</p>
-                    </div>
-                </div>
-                
-                <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-6">
-                    <h4 class="text-xs font-black text-slate-800 mb-4 pb-2 border-b border-slate-50"><i class="fa-solid fa-boxes-packing text-brand-primary mr-1"></i> إجمالي مبيعات الأصناف في هذه الدفعة</h4>
-                    <div class="grid grid-cols-3 md:grid-cols-6 gap-3">${itemsHtml || '<span class="text-xs text-slate-400">لا توجد بيانات</span>'}</div>
-                </div>
-
-                <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-6">
-                    <h4 class="text-xs font-black text-slate-800 mb-4 pb-2 border-b border-slate-50"><i class="fa-solid fa-map-location-dot text-indigo-500 mr-1"></i> التوزيع الجغرافي التاريخي</h4>
-                    <div class="flex flex-wrap gap-2">${zonesHtml || '<span class="text-xs text-slate-400">لا توجد بيانات</span>'}</div>
-                </div>
-            </div>
-
-            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                <div class="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
-                    <div>
-                        <h4 class="text-xs font-black text-slate-800"><i class="fa-solid fa-clock-rotate-left text-amber-500 mr-1"></i> الطلبات المؤرشفة داخل هذه الدفعة (${batchArchivedOrders.length} طلب)</h4>
-                        <p class="text-[10px] font-bold text-slate-400 mt-0.5">يمكنك استعادة أي طلب منفرد إلى شاشة (الطلبات الحية) وخصم قيمته من هذا الأرشيف بضغطة زر.</p>
-                    </div>
-                </div>
-                <div class="space-y-2.5 max-h-80 overflow-y-auto custom-scroll pr-1">
-                    ${ordersRowsHtml || '<div class="text-center py-6 text-xs font-bold text-slate-400">لا توجد طلبات مؤرشفة مرتبطة حالياً.</div>'}
-                </div>
-            </div>`;
-            
-            document.getElementById('archive-report-content').innerHTML = html;
-            document.getElementById('btn-unarchive').onclick = () => { unarchiveBatch(arId); };
-            openModal('archive-report-modal');
-        };
-
-        // دالة استعادة طلب واحد من الأرشيف وإرجاعه للطلبات الحية وخصم حسابه من الدفعة المؤرشفة
-        window.restoreSingleOrderFromArchive = async (orderId, arId, clearBatchInfo = true) => {
-            let o = (allOrdersRaw || []).find(x => x.id === orderId);
-            let a = (archivedBatchesData || []).find(x => x.id === arId);
-            if (!o) return alert("لم يتم العثور على هذا الطلب!");
-
-            let msg = clearBatchInfo
-                ? `↩️ هل تريد استعادة طلب العميل (${o.customerName}) إلى شاشة الطلبات الحية (قسم مكتمل) كطلب عادي بدون دفعة، وخصم حسابه (${o.total} ج) من أرشيف هذه الدفعة؟`
-                : `↩️ هل تريد استعادة طلب العميل (${o.customerName}) إلى شاشة الطلبات الحية؟`;
-            if (!confirm(msg)) return;
-
-            try {
-                let orderUpdate = {
-                    isArchived: firebase.firestore.FieldValue.delete()
-                };
-                if (clearBatchInfo) {
-                    orderUpdate.batchId = '';
-                    orderUpdate.batchName = '';
-                }
-
-                await db.collection('orders').doc(orderId).update(orderUpdate);
-
-                // تحديث بيانات الدفعة المؤرشفة بخصم أرقام هذا الطلب منها إذا كان مكتملاً
-                if (a && o.status === 'completed') {
-                    let oRev = Number(o.total) || 0;
-                    let oDel = Number(o.deliveryFee) || 0;
-                    let oDisc = Number(o.discount) || 0;
-
-                    a.totalRevenue = Math.max(0, (Number(a.totalRevenue) || 0) - oRev);
-                    a.totalDelivery = Math.max(0, (Number(a.totalDelivery) || 0) - oDel);
-                    a.totalDiscount = Math.max(0, (Number(a.totalDiscount) || 0) - oDisc);
-                    a.ordersCount = Math.max(0, (Number(a.ordersCount) || 0) - 1);
-
-                    if (o.zone && a.zonesSummary && a.zonesSummary[o.zone]) {
-                        a.zonesSummary[o.zone] = Math.max(0, a.zonesSummary[o.zone] - 1);
-                        if (a.zonesSummary[o.zone] === 0) delete a.zonesSummary[o.zone];
-                    }
-                    if (o.items && Array.isArray(o.items) && a.itemsSummary) {
-                        o.items.forEach(i => {
-                            if (a.itemsSummary[i.name] !== undefined) {
-                                a.itemsSummary[i.name] = Math.max(0, a.itemsSummary[i.name] - (Number(i.quantity) || 0));
-                                if (a.itemsSummary[i.name] === 0) delete a.itemsSummary[i.name];
-                            }
-                        });
-                    }
-
-                    // حفظ الأرقام المعدلة في كلتا مجموعتي الأرشيف لضمان التطابق 100%
-                    await db.collection('archived_batches').doc(a.id).set(a, { merge: true }).catch(() => {});
-                    await db.collection('inventory').doc('archived_batches').set({ [a.id]: a }, { merge: true }).catch(() => {});
-                }
-
-                // تحديث الذاكرة الحية فوراً
-                o.isArchived = false;
-                if (clearBatchInfo) {
-                    o.batchId = '';
-                    o.batchName = '';
-                }
-                if (globalOrdersMap && globalOrdersMap[orderId]) {
-                    globalOrdersMap[orderId].isArchived = false;
-                    if (clearBatchInfo) {
-                        globalOrdersMap[orderId].batchId = '';
-                        globalOrdersMap[orderId].batchName = '';
-                    }
-                }
-
-                openArchiveReport(arId);
-                if (typeof renderArchiveUI === 'function') renderArchiveUI();
-                if (typeof renderOrdersList === 'function') renderOrdersList();
-                if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
-
-                if (typeof window.showQuickAppToast === 'function') {
-                    window.showQuickAppToast("✅ تمت استعادة الطلب إلى شاشة الطلبات الحية بنجاح!");
-                } else {
-                    alert("✅ تمت استعادة الطلب إلى شاشة الطلبات الحية (قسم مكتمل) بنجاح!");
-                }
-            } catch (e) {
-                console.error(e);
-                alert("حدث خطأ أثناء استعادة الطلب: " + (e.message || e));
-            }
-        };
 
 
         window.printArchiveReport = () => {
@@ -8351,316 +8147,6 @@ window.deleteProductUI = async (id) => {
         };
 
 
-        // ↩️ دالة إلغاء الأرشفة واستعادة الدفعة للوضع الحي بالكامل ↩️
-        window.unarchiveBatch = async (arId) => {
-            let a = archivedBatchesData.find(x => x.id === arId); if(!a) return;
-            
-            if(!confirm(`↩️ هل أنت متأكد من استعادة دفعة (${a.batchName}) لشاشة الدفعات الحية؟\nسيتم حذف هذا التقرير المالي وإعادتها فوراً للتشغيل.`)) return;
-            
-            let btn = document.getElementById('btn-unarchive');
-            let origHtml = btn.innerHTML;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الاستعادة...';
-            btn.disabled = true;
-
-            try {
-                // نجيب الأوردرات المؤرشفة للدفعة دي عشان نرجعها للايف
-                let snap = await db.collection('orders').where('batchId', '==', a.originalBatchId).where('isArchived', '==', true).get();
-                
-                let batchProcess = db.batch();
-                
-                // 1. حذف وثيقة الأرشيف نهائياً
-                let archiveRef = db.collection('archived_batches').doc(arId);
-                batchProcess.delete(archiveRef);
-                
-                // 2. إعادة الدفعة الحية بكافة أرقام مخزنها ومحجوزاتها
-                let batchRef = db.collection('inventory').doc('batches');
-                let restoredBatch = {
-                    name: a.batchName,
-                    isOpen: false, // بنرجعها مقفولة حجز افتراضياً عشان تراجعها براحتك
-                    stock: a.rawStock || {},
-                    booked: a.rawBooked || {}
-                };
-                
-                batchProcess.set(batchRef, {
-                    [a.originalBatchId]: restoredBatch
-                }, { merge: true });
-
-                // 3. مسح علامة الأرشفة من الأوردرات عشان تظهر تاني
-                snap.forEach(doc => {
-                    batchProcess.update(doc.ref, { isArchived: firebase.firestore.FieldValue.delete() });
-                });
-                
-                await batchProcess.commit();
-
-                // تحديث الذاكرة
-                allOrdersRaw.forEach(o => {
-                    if (o.batchId === a.originalBatchId && o.isArchived) {
-                        o.isArchived = false;
-                        if(globalOrdersMap[o.id]) globalOrdersMap[o.id].isArchived = false;
-                    }
-                });
-
-                closeModal('archive-report-modal');
-                renderOrdersList();
-                alert("تم إلغاء الأرشفة بنجاح وعادت الدفعة للتشغيل الحي! ↩️📊");
-            } catch(e) { 
-                console.error(e);
-                alert("حدث خطأ أثناء الاستعادة! تأكد من قواعد حماية فايربيس."); 
-            }
-            btn.innerHTML = origHtml; btn.disabled = false;
-        };
-        // ==========================================
-        // 🚀 محرك الربط السري بشيت جوجل (الخزان المجاني) 🚀
-        // ==========================================
-        window.syncOrderToGoogleSheet = function(orderObj, action) {
-            if(!orderObj || !orderObj.customerPhone) return;
-            
-            const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwp7qhmVx2Uz1ihRdvJ7bDEVsZfejG51116ylcWyVSiDm2OOTOWR_9A4UNDeHKuYgeQQw/exec";
-            
-            let statusAr = "جديد 🆕";
-            if (orderObj.status === "processing") statusAr = "⏳ قيد التجهيز";
-            else if (orderObj.status === "completed") statusAr = "✅ مكتمل";
-            else if (orderObj.status === "canceled") statusAr = "❌ ملغي";
-            else if (orderObj.status === "deferred") statusAr = "📅 مؤجل";
-            else if (orderObj.status === "dispatched") statusAr = "🛵 في الطريق";
-            else if (orderObj.status === "no_answer") statusAr = "📵 لم يرد";
-            else if (orderObj.status === "trash") statusAr = "🗑️ محذوف";
-
-            let itemsText = "";
-            if (orderObj.items && Array.isArray(orderObj.items)) {
-                itemsText = orderObj.items.map(i => "▪️ " + i.quantity + "x " + i.name).join('\n');
-            }
-
-            let notesText = "";
-            if (orderObj.adminNote) notesText += "🔒 إداري: " + orderObj.adminNote + "\n";
-            if (orderObj.driverNote) notesText += "🛵 مندوب: " + orderObj.driverNote;
-
-            let payload = {
-                action: action || "update",
-                phone: orderObj.customerPhone,
-                name: orderObj.customerName || "بدون اسم",
-                zone: orderObj.zone || "---",
-                status: orderObj.status,
-                statusAr: statusAr,
-                total: orderObj.total || 0,
-                batch: orderObj.batchName || "أوردر عادي",
-                details: itemsText || "لا توجد تفاصيل",
-                notes: notesText.trim()
-            };
-
-            fetch(WEB_APP_URL, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            }).catch(e => console.log("خطأ في المزامنة مع الشيت"));
-        };
-
-        // ==========================================
-        // === تحديث وتطوير شاشة تقفيل عهدة المناديب ===
-        window.renderReconciliationUI = () => {
-            const selectEl = document.getElementById('recon-driver-select');
-            if(!selectEl) return;
-            
-            // حفظ الاختيار القديم لو موجود
-            let currentSelectedDriver = selectEl.value;
-            
-            selectEl.innerHTML = '<option value="">-- اختر المندوب لحساب عهدته وتصفية الوردية --</option>';
-            (storeSettings.drivers || []).forEach(d => {
-                selectEl.innerHTML += `<option value="${d.name}" ${currentSelectedDriver === d.name ? 'selected' : ''}>${d.name} (${d.phone})</option>`;
-            });
-            
-            if(currentSelectedDriver) {
-                calculateDriverReconciliation();
-            }
-        };
-
-        window.calculateDriverReconciliation = () => {
-            const driverName = document.getElementById('recon-driver-select').value;
-            const container = document.getElementById('recon-details-container');
-            const settleBtn = document.getElementById('btn-settle-recon');
-            
-            if(!driverName) {
-                container.innerHTML = '<div class="text-center py-10 text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-xl bg-white">برجاء اختيار مندوب لعرض تفاصيل عهدته المالية.</div>';
-                settleBtn.classList.add('hidden');
-                return;
-            }
-
-            // تصفية الطلبات الخاصة بهذا المندوب والتي لم يتم تقفيل عهدتها بعد
-            let driverOrders = allOrdersRaw.filter(o => o.driverName === driverName && !o.isReconciled && !o.isSupplied && !o.isArchived && (o.status === 'dispatched' || o.status === 'completed'));
-
-            if(driverOrders.length === 0) {
-                container.innerHTML = `<div class="text-center py-12 text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-xl bg-white">لا توجد أوردرات مسجلة حالياً للمندوب: <span class="text-slate-800">${driverName}</span></div>`;
-                settleBtn.classList.add('hidden');
-                return;
-            }
-
-            let totalCashToCollect = 0;
-            let totalOnlineCount = 0;
-            let totalCashCount = 0;
-            let ordersHtml = '';
-
-            driverOrders.forEach((o, index) => {
-                let isOnline = (o.paymentMethod === 'online');
-                let orderTotal = Number(o.total) || 0;
-                
-                if(!isOnline) {
-                    totalCashToCollect += orderTotal;
-                    totalCashCount++;
-                } else {
-                    totalOnlineCount++;
-                }
-
-                let badgeStatus = o.status === 'completed' ? 
-                    '<span class="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded text-[10px] font-black border border-emerald-100">تم التسليم</span>' : 
-                    '<span class="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-[10px] font-black border border-indigo-100">في الطريق</span>';
-
-                let paymentBadge = isOnline ? 
-                    '<span class="bg-emerald-500 text-white px-2 py-0.5 rounded text-[9px] font-black">خالص أونلاين 💳</span>' : 
-                    '<span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[9px] font-black">كاش عند الاستلام 💵</span>';
-
-                ordersHtml += `
-                <div class="bg-white p-4 rounded-2xl border ${isOnline ? 'border-emerald-100 bg-emerald-50/20' : 'border-slate-100'} shadow-sm mb-3 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                    <div>
-                        <div class="flex items-center gap-2 mb-1">
-                            <span class="text-xs font-black text-slate-400">#${index+1}</span>
-                            <h5 class="font-black text-slate-800 text-sm">${o.customerName}</h5>
-                            ${badgeStatus}
-                            ${paymentBadge}
-                        </div>
-                        <p class="text-[11px] font-bold text-slate-500"><i class="fa-solid fa-location-dot text-indigo-400 mr-1"></i> ${o.zone} - ${o.customerAddress || ''}</p>
-                        <p class="text-[10px] text-slate-400 font-bold mt-0.5" dir="ltr">📞 ${o.customerPhone}</p>
-                    </div>
-                    <div class="text-left md:text-left flex flex-col items-end w-full md:w-auto border-t md:border-t-0 pt-2 md:pt-0 border-slate-100">
-                        <span class="text-[10px] font-bold text-slate-400">إجمالي الأوردر</span>
-                        <span class="font-black ${isOnline ? 'text-emerald-600' : 'text-brand-primary'} text-lg">${orderTotal} ج.م</span>
-                    </div>
-                </div>`;
-            });
-
-            container.innerHTML = `
-                <!-- كروت ملخص العهدة -->
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-                    <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center">
-                        <p class="text-[10px] font-bold text-slate-400 mb-1">إجمالي الأوردرات</p>
-                        <p class="text-xl font-black text-slate-800">${driverOrders.length} طلب</p>
-                    </div>
-                    <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center">
-                        <p class="text-[10px] font-bold text-slate-400 mb-1">كاش مطلوب تحصيله</p>
-                        <p class="text-xl font-black text-brand-primary">${totalCashToCollect.toLocaleString()} ج</p>
-                    </div>
-                    <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm text-center">
-                        <p class="text-[10px] font-bold text-slate-400 mb-1">أوردرات أونلاين (خالصة)</p>
-                        <p class="text-xl font-black text-emerald-600">${totalOnlineCount} طلب</p>
-                    </div>
-                    <div class="bg-amber-50 p-4 rounded-2xl border border-amber-100 shadow-sm text-center">
-                        <p class="text-[10px] font-bold text-amber-700 mb-1">أوردرات كاش</p>
-                        <p class="text-xl font-black text-amber-800">${totalCashCount} طلب</p>
-                    </div>
-                </div>
-
-                <!-- حاسبة مطابقة العهدة الفعلية -->
-                <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-lg mb-5 flex flex-col md:flex-row justify-between items-center gap-4">
-                    <div>
-                        <h4 class="font-black text-sm text-amber-400 mb-1"><i class="fa-solid fa-calculator mr-1"></i> مطابقة الخزنة الفعلية مع المندوب</h4>
-                        <p class="text-[11px] text-slate-300 font-bold">اكتب المبلغ النقدي (الكاش) الذي سلمه المندوب لمدير الدرج:</p>
-                    </div>
-                    <div class="flex items-center gap-2 w-full md:w-auto">
-                        <input type="number" id="actual-collected-cash" value="${totalCashToCollect}" oninput="checkCashDifference(${totalCashToCollect})" class="w-36 bg-slate-800 border-2 border-slate-700 rounded-xl p-3 text-center font-black text-white text-lg outline-none focus:border-amber-400 transition-all" placeholder="المبلغ...">
-                        <span class="text-xs font-bold text-slate-400">ج.م</span>
-                    </div>
-                </div>
-                <div id="cash-diff-alert" class="mb-4 text-center text-xs font-black"></div>
-
-                <!-- قائمة الأوردرات -->
-                <div class="space-y-2 max-h-[50vh] overflow-y-auto custom-scroll pr-1">
-                    ${ordersHtml}
-                </div>
-            `;
-
-            settleBtn.classList.remove('hidden');
-            settleBtn.onclick = () => confirmAndSettleDriverReconciliation(driverName, totalCashToCollect);
-        };
-
-        // دالة فحص العجز أو الزيادة اللحظية
-        window.checkCashDifference = (expectedCash) => {
-            let actualInput = document.getElementById('actual-collected-cash');
-            let alertBox = document.getElementById('cash-diff-alert');
-            if(!actualInput || !alertBox) return;
-
-            let actualCash = Number(actualInput.value) || 0;
-            let diff = actualCash - expectedCash;
-
-            if (diff === 0) {
-                alertBox.innerHTML = `<span class="bg-emerald-100 text-emerald-800 px-4 py-2 rounded-xl inline-block border border-emerald-200">✅ العهدة مطابقة تماماً (لا يوجد عجز أو زيادة)</span>`;
-            } else if (diff > 0) {
-                alertBox.innerHTML = `<span class="bg-blue-100 text-blue-800 px-4 py-2 rounded-xl inline-block border border-blue-200">💡 يوجد زيادة في عهدة المندوب بمبلغ: +${diff} جنيه</span>`;
-            } else {
-                alertBox.innerHTML = `<span class="bg-red-100 text-red-800 px-4 py-2 rounded-xl inline-block border border-red-200">⚠️ تنبيه: يوجد عجز في عهدة المندوب بمبلغ: ${diff} جنيه</span>`;
-            }
-        };
-
-        // دالة تأكيد وتقفيل العهدة وترحيل الطلبات
-        window.confirmAndSettleDriverReconciliation = async (driverName, expectedCash) => {
-            let actualInput = document.getElementById('actual-collected-cash');
-            let actualCash = actualInput ? (Number(actualInput.value) || 0) : expectedCash;
-            
-            if(!confirm(`هل أنت متأكد من تصفية وتقفيل عهدة المندوب (${driverName}) ؟\nالمبلغ المستلم فعلياً: ${actualCash} ج.م`)) return;
-
-            let btn = document.getElementById('btn-settle-recon');
-            let origHtml = btn.innerHTML;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري التصفية والإغلاق...';
-            btn.disabled = true;
-
-            try {
-                let driverOrders = allOrdersRaw.filter(o => o.driverName === driverName && !o.isReconciled && !o.isSupplied && !o.isArchived && (o.status === 'dispatched' || o.status === 'completed'));
-                let batchProcess = db.batch();
-                let nowStr = new Date().toLocaleDateString('en-US');
-                let timeStr = new Date().toLocaleString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' });
-
-                driverOrders.forEach(o => {
-                    let ref = db.collection('orders').doc(o.id);
-                    let updateObj = {
-                        status: 'completed',
-                        isReconciled: true,
-                        isSupplied: true,
-                        reconciledAt: firebase.firestore.FieldValue.serverTimestamp()
-                    };
-                    if (o.status !== 'completed') {
-                        updateObj.completedAtStr = nowStr;
-                        updateObj.completedTimeDisplay = timeStr;
-                        updateObj.completedAt = firebase.firestore.FieldValue.serverTimestamp();
-                    }
-                    batchProcess.update(ref, updateObj);
-
-                    // تحديث الذاكرة الحية فوراً لإخفاء الطلبات المقفلة من عهدة المندوب والرادار
-                    o.status = 'completed';
-                    o.isReconciled = true;
-                    o.isSupplied = true;
-                    if (!o.completedAtStr) o.completedAtStr = nowStr;
-                    if (!o.completedTimeDisplay) o.completedTimeDisplay = timeStr;
-                    if (globalOrdersMap[o.id]) {
-                        globalOrdersMap[o.id].status = 'completed';
-                        globalOrdersMap[o.id].isReconciled = true;
-                        globalOrdersMap[o.id].isSupplied = true;
-                    }
-                });
-
-                await batchProcess.commit();
-                alert(`تم تقفيل عهدة المندوب ${driverName} بنجاح وتحويل الأوردرات إلى (مكتملة) وتوريد النقدية! 🎉`);
-                
-                document.getElementById('recon-driver-select').value = "";
-                calculateDriverReconciliation();
-                if (typeof renderDriversRadarUI === 'function') renderDriversRadarUI();
-            } catch (e) {
-                console.error(e);
-                alert("حدث خطأ أثناء حفظ التصفية في قاعدة البيانات!");
-            }
-
-
-            btn.innerHTML = origHtml;
-            btn.disabled = false;
-        };
 
 
         window.settleDriverAccount = async (driverName, cashAmount, driverOrders) => {
@@ -8779,187 +8265,6 @@ window.deleteProductUI = async (id) => {
         })();
 
 
-        // ==========================================
-        // 💬 نظام مركز الملاحظات الذكي 💬
-        // ==========================================
-        let currentNotesFilter = 'all';
-
-        window.setNotesFilter = (filter) => {
-            currentNotesFilter = filter;
-            document.querySelectorAll('.notes-filter-btn').forEach(btn => {
-                btn.classList.remove('bg-slate-800', 'text-white', 'shadow-sm');
-                btn.classList.add('bg-white', 'text-slate-600', 'border', 'border-slate-200');
-            });
-            let activeBtn = document.getElementById('n-filter-' + filter);
-            if(activeBtn) {
-                activeBtn.classList.remove('bg-white', 'text-slate-600', 'border', 'border-slate-200');
-                activeBtn.classList.add('bg-slate-800', 'text-white', 'shadow-sm');
-            }
-            renderNotesUI();
-        };
-
-        window.renderNotesUI = () => {
-            const container = document.getElementById('notes-list-container');
-            if(!container) return;
-
-            let searchTerm = (document.getElementById('search-notes').value || '').toLowerCase().trim();
-            let allNotes = [];
-
-            // تجميع الملاحظات من الطلبات الحية
-            allOrdersRaw.forEach(o => {
-                if (o.status === 'trash' || o.status === 'completed' || o.status === 'canceled') return; 
-                
-                // ملاحظات الإدارة
-                if (o.adminNote) {
-                    let chunks = o.adminNote.split('\n---\n').filter(c => c.trim() !== '');
-                    chunks.forEach(chunk => {
-                        allNotes.push({ orderId: o.id, customerName: o.customerName || 'بدون اسم', customerPhone: o.customerPhone || '', status: o.status, type: 'admin', content: chunk, rawContent: chunk.toLowerCase(), timestamp: o.createdAt?.toMillis() || 0 });
-                    });
-                }
-                
-                // ملاحظات المندوب
-                if (o.driverNote) {
-                    let chunks = o.driverNote.split('\n---\n').filter(c => c.trim() !== '');
-                    chunks.forEach(chunk => {
-                        allNotes.push({ orderId: o.id, customerName: o.customerName || 'بدون اسم', customerPhone: o.customerPhone || '', status: o.status, type: 'driver', content: chunk, rawContent: chunk.toLowerCase(), timestamp: o.createdAt?.toMillis() || 0 });
-                    });
-                }
-            });
-
-            // فلترة ذكية
-            let filteredNotes = allNotes.filter(n => {
-                let matchSearch = true;
-                if (searchTerm) {
-                    matchSearch = n.rawContent.includes(searchTerm) || n.customerName.toLowerCase().includes(searchTerm) || n.customerPhone.includes(searchTerm);
-                }
-
-                let matchCategory = true;
-                let urgentWords = ['مستعجل', 'بسرعة', 'ضروري', 'عاجل', 'بدري', 'الصبح', 'بكره'];
-                let problemWords = ['مشكلة', 'شكوى', 'ناقص', 'تالف', 'غلط', 'سيء', 'رفض', 'مرتجع'];
-
-                if (currentNotesFilter === 'urgent') {
-                    matchCategory = urgentWords.some(w => n.rawContent.includes(w));
-                } else if (currentNotesFilter === 'problem') {
-                    matchCategory = problemWords.some(w => n.rawContent.includes(w));
-                } else if (currentNotesFilter === 'driver') {
-                    matchCategory = n.type === 'driver';
-                }
-
-                return matchSearch && matchCategory;
-            });
-
-            if (filteredNotes.length === 0) {
-                container.innerHTML = '<div class="text-center py-16 text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-[2rem]">لا توجد ملاحظات تطابق بحثك حالياً.</div>';
-                return;
-            }
-
-            // ترتيب الملاحظات وعرضها
-            let html = '';
-            filteredNotes.reverse().forEach(n => {
-                let typeBadge = n.type === 'admin' 
-                    ? '<span class="bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded text-[10px] font-black"><i class="fa-solid fa-lock mr-1"></i> إداري</span>'
-                    : '<span class="bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded text-[10px] font-black"><i class="fa-solid fa-motorcycle mr-1"></i> للمندوب</span>';
-                
-                let sBadge = n.status==='new' ? '<span class="text-blue-500 bg-blue-50 px-1.5 rounded border border-blue-100">جديد</span>' : 
-                            (n.status==='processing' ? '<span class="text-amber-500 bg-amber-50 px-1.5 rounded border border-amber-100">تجهيز</span>' : 
-                            (n.status==='dispatched' ? '<span class="text-indigo-500 bg-indigo-50 px-1.5 rounded border border-indigo-100">بالطريق</span>' : 
-                            '<span class="text-purple-500 bg-purple-50 px-1.5 rounded border border-purple-100">مؤجل/لم يرد</span>'));
-
-                let isUrgent = ['مستعجل', 'عاجل', 'ضروري'].some(w => n.rawContent.includes(w));
-                let borderGlow = isUrgent ? 'border-r-4 border-r-red-500 bg-red-50/20' : 'border-r-4 border-r-transparent hover:border-r-slate-300';
-
-                html += `
-                <div class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm transition-all ${borderGlow}">
-                    <div class="flex justify-between items-start mb-2">
-                        <div>
-                            <h5 class="font-black text-slate-800 text-sm cursor-pointer hover:text-brand-primary transition-colors inline-block" onclick="openCustomerCard('${n.customerPhone}')">${n.customerName}</h5>
-                            <span class="text-[10px] text-slate-500 font-bold ml-2" dir="ltr">${n.customerPhone}</span>
-                        </div>
-                        <div class="flex gap-2 items-center">
-                            <span class="text-[10px] font-bold">${sBadge}</span>
-                            ${typeBadge}
-                        </div>
-                    </div>
-                    <div class="text-xs font-bold text-slate-700 bg-slate-50 p-3 rounded-lg border border-slate-100 whitespace-pre-wrap leading-relaxed mb-3">${window.formatTags(n.content)}</div>
-                    <div class="flex justify-end gap-2">
-                        <button onclick="openEditOrderModal('${n.orderId}')" class="bg-slate-800 hover:bg-slate-900 text-white px-4 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all flex items-center gap-1.5"><i class="fa-solid fa-folder-open"></i> فتح الطلب للتعديل</button>
-                    </div>
-                </div>`;
-            });
-            container.innerHTML = html;
-        };
-        // 🎁 الدالة السرية المحدثة: حساب النقاط من إجمالي الطلبات (المكتملة فقط) 🎁
-        window.calculateRetroactivePoints = async () => {
-            let ptsPer100 = storeSettings.pointsPer100 || 5;
-            
-            if(!confirm(`⚠️ تحذير: هذه العملية ستقوم بجمع (الطلبات المكتملة فقط) في الأرشيف.\nسيتم حساب ( ${ptsPer100} نقطة لكل 100 جنيه ) من قيمة السمان لكل عميل.\n\nهل أنت متأكد من المتابعة؟`)) return;
-
-            const btn = document.getElementById('btn-retro-points');
-            const origHtml = btn.innerHTML;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري حساب الطلبات السابقة...';
-            btn.disabled = true;
-
-            try {
-                // 🧠 السحر هنا: تجميع إجمالي المشتريات للطلبات المسلمة بنجاح فقط
-                let customerSpendingMap = {};
-                
-                allOrdersRaw.forEach(o => {
-                    // ✂️ التعديل الجذري هنا: الشرط بقى صارم جداً، الطلبات "المكتملة" فقط هي اللي بتتحسب
-                    if (o.status !== 'completed') return; 
-                    
-                    if (!o.customerPhone) return;
-                    let normPhone = window.normalizePhone(o.customerPhone);
-                    if (!normPhone) return;
-                    
-                    // التعديل التاني: حساب النقط على (المنتجات فقط) عشان مصاريف التوصيل مفيش عليها كاش باك
-                    let orderSubtotal = Number(o.subtotal) || Number(o.total) || 0; 
-                    customerSpendingMap[normPhone] = (customerSpendingMap[normPhone] || 0) + orderSubtotal;
-                });
-
-                let dbBatch = db.batch();
-                let count = 0;
-                let batchesCommits = [];
-
-                // المرور على خريطة المشتريات الحقيقية المجمعة
-                Object.keys(customerSpendingMap).forEach(phone => {
-                    let totalSpent = customerSpendingMap[phone];
-                    
-                    if (totalSpent >= 100) {
-                        let earnedPoints = Math.floor(totalSpent / 100) * ptsPer100;
-                        
-                        if (earnedPoints > 0) {
-                            let cleanPhone = phone.startsWith('0') ? phone : '0' + phone;
-                            let ref = db.collection('customers').doc(cleanPhone);
-                            
-                            // تحديث إجمالي الإنفاق الحقيقي + شحن المحفظة بالنقط
-                            dbBatch.set(ref, { 
-                                totalSpent: totalSpent, 
-                                walletPoints: earnedPoints 
-                            }, { merge: true });
-                            
-                            count++;
-                            
-                            if (count === 400) {
-                                batchesCommits.push(dbBatch.commit());
-                                dbBatch = db.batch();
-                                count = 0;
-                            }
-                        }
-                    }
-                });
-
-                if (count > 0) batchesCommits.push(dbBatch.commit());
-                await Promise.all(batchesCommits);
-                
-                alert('🎉 تمت العملية بنجاح!\nتم حساب كل الأوردرات (المكتملة فقط) وشحن محافظ العملاء بالنقاط المستحقة.');
-            } catch(e) {
-                console.error("Retroactive Points Error:", e);
-                alert('حدث خطأ أثناء معالجة البيانات: ' + e.message);
-            }
-
-            btn.innerHTML = origHtml;
-            btn.disabled = false;
-        };
 
 
         // ==========================================
@@ -9061,289 +8366,7 @@ window.deleteProductUI = async (id) => {
             openModal('points-dashboard-modal');
         };
 
-        // ==========================================
-        // 🔪 نظام إتمام الذبح والترحيل الذكي للفريزر 🔪
-        // ==========================================
-        window.openSlaughterModal = (bId) => {
-            const b = storeBatches[bId]; if(!b) return;
-            document.getElementById('slaughter-batch-id').value = bId;
-            let cont = document.getElementById('slaughter-items-container');
-            cont.innerHTML = '';
-            
-            Object.keys(storeProducts).forEach(id => {
-                let p = storeProducts[id];
-                // لو الصنف ده متسجل إنه إتذبح قبل كده نعرضه، وإلا صفر
-                let currentSlaughtered = (b.slaughtered && b.slaughtered[id]) ? b.slaughtered[id] : 0;
-                
-                cont.innerHTML += `
-                <div class="flex justify-between items-center bg-white shadow-sm border border-slate-100 p-3 rounded-xl hover:border-rose-200 transition-colors">
-                    <span class="font-black text-slate-700 text-sm">${p.name}</span>
-                    <input type="number" id="slaughter-q-${id}" value="${currentSlaughtered}" min="0" class="w-20 border border-slate-200 bg-slate-50 text-center font-black text-rose-700 text-base rounded-lg py-1 outline-none focus:ring-2 focus:ring-rose-300 focus:bg-white transition-all" placeholder="العدد">
-                </div>`;
-            });
-            
-            openModal('slaughter-modal');
-        };
 
-        window.confirmBatchSlaughter = async () => {
-            let bId = document.getElementById('slaughter-batch-id').value;
-            if(!bId || !storeBatches[bId]) return;
-            
-            let btn = document.getElementById('btn-confirm-slaughter');
-            let origHtml = btn.innerHTML;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الترحيل للفريزر...';
-            btn.disabled = true;
-
-            let slaughteredData = {};
-            let expectedValue = 0;
-            let freezerUpdates = {};
-            
-            Object.keys(storeProducts).forEach(id => {
-                let q = parseInt(document.getElementById(`slaughter-q-${id}`).value) || 0;
-                if(q > 0) {
-                    slaughteredData[id] = q;
-                    let price = storePrices[id] || storeProducts[id].basePrice || 0;
-                    expectedValue += (q * price);
-                    
-                    // حساب الزيادة اللي هتروح للفريزر (عشان لو رجع يعدل الرقم ميزودش من الأول)
-                    let oldSlaughtered = (storeBatches[bId].slaughtered && storeBatches[bId].slaughtered[id]) ? storeBatches[bId].slaughtered[id] : 0;
-                    let diff = q - oldSlaughtered;
-                    if(diff !== 0) {
-                        freezerUpdates[id] = firebase.firestore.FieldValue.increment(diff);
-                        storeFreezer[id] = (storeFreezer[id] || 0) + diff; 
-                    }
-                }
-            });
-
-            try {
-                let dbBatch = db.batch();
-                let slaughterTime = Date.now(); // ⏱️ توقيت الذبح بالثانية
-                
-                storeBatches[bId].isOpen = false; // قفل الحجز
-                storeBatches[bId].isVisible = true; // تفضل ظاهرة في الموقع
-                storeBatches[bId].slaughtered = slaughteredData;
-                storeBatches[bId].expectedValue = expectedValue;
-                storeBatches[bId].slaughteredAt = slaughterTime; // تسجيل توقيت الذبح في الذاكرة
-                storeBatches[bId].urgentNote = ""; // بنفضي الرسالة اليدوية عشان السيستم الذكي يشتغل مكانه
-                
-                let batchRef = db.collection('inventory').doc('batches');
-                dbBatch.set(batchRef, { 
-                    [bId]: { 
-                        isOpen: false,
-                        isVisible: true,
-                        urgentNote: firebase.firestore.FieldValue.delete(), // بنمسح الرسالة من الداتا بيز عشان الذكاء الاصطناعي يحل محلها
-                        slaughtered: slaughteredData,
-                        expectedValue: expectedValue,
-                        slaughteredAt: slaughterTime // حفظ التوقيت في فايربيس
-                    } 
-                }, { merge: true });
-
-                if(Object.keys(freezerUpdates).length > 0) {
-                    let freezerRef = db.collection('inventory').doc('freezer');
-                    dbBatch.set(freezerRef, freezerUpdates, { merge: true });
-                }
-
-                await dbBatch.commit();
-                
-                closeModal('slaughter-modal');
-                renderBatchesUI(); 
-                
-                let freezerCont = document.getElementById('freezer-items-container');
-                if(freezerCont && freezerCont.innerHTML !== '') {
-                    Object.keys(storeFreezer).forEach(id => {
-                        let inputEl = document.getElementById(`fz-${id}`);
-                        if(inputEl) inputEl.value = storeFreezer[id];
-                    });
-                }
-
-                alert(`✅ تم إتمام الذبح بنجاح!\n- تم إغلاق الحجز وبدأ عداد الـ 3 أيام للعملاء.\n- تم ترحيل الكميات للفريزر.\n- القيمة المتوقعة للدفعة: ${expectedValue.toLocaleString()} ج.م`);
-                
-            } catch(e) {
-                console.error(e);
-                alert("حدث خطأ أثناء الترحيل للفريزر!");
-            }
-            
-            btn.innerHTML = origHtml;
-            btn.disabled = false;
-        };
-
-        // ==========================================
-        // 🔮 نظام التوزيع الذكي والتحليل التوقعي للكميات (مُحدث بالدقة المتناهية) 🔮
-        // ==========================================
-        window.smartDistributeBatch = async (bId) => {
-            let totalInput = prompt("🔮 نظام التوزيع الذكي:\n\nأدخل العدد الكلي التقريبي للسمان في هذه الدفعة (مثال: 500):");
-            if (!totalInput) return;
-            
-            let totalTarget = parseInt(totalInput);
-            if (isNaN(totalTarget) || totalTarget <= 0) return alert("⛔ برجاء إدخال رقم صحيح للعدد الكلي!");
-
-            // 💬 تعديل الرسالة لتطابق طلبك وتكون واضحة
-            let batchCountInput = prompt("📊 تحب نحسب التوقع بناءً على آخر كام دفعة؟\n\n- اكتب 1 (للحساب على آخر دفعة فقط)\n- اكتب 2 (لمتوسط آخر دفعتين)\n- اكتب 3 (لمتوسط آخر 3 دفعات)\n- اترك المربع فارغاً (لمتوسط كل الدفعات السابقة)");
-            
-            let limit = 0; // صفر يعني هيحسب على الكل
-            if (batchCountInput && batchCountInput.trim() !== "") {
-                limit = parseInt(batchCountInput);
-                if (isNaN(limit) || limit < 0) return alert("⛔ برجاء إدخال رقم صحيح لعدد الدفعات!");
-            }
-
-            // 1. فلترة وتجهيز الأصناف الأساسية فقط (تجاهل البيض والكتاكيت)
-            let validMainProducts = {};
-            Object.keys(storeProducts).forEach(id => {
-                if (!storeProducts[id].isExtra) {
-                    validMainProducts[storeProducts[id].name] = id;
-                }
-            });
-
-            // 2. تحليل الأرشيف التاريخي بناءً على اختيارك
-            let historyItems = {};
-            let grandTotalHistory = 0;
-
-            // أخذ العدد المطلوب من الدفعات الأحدث فقط
-            let batchesToAnalyze = limit > 0 ? archivedBatchesData.slice(0, limit) : archivedBatchesData;
-
-            if (batchesToAnalyze.length === 0) {
-                return alert("⛔ لا يوجد سجل تاريخي كافي في الأرشيف لعمل التحليل!");
-            }
-
-            batchesToAnalyze.forEach(a => {
-                if (a.itemsSummary) {
-                    Object.keys(a.itemsSummary).forEach(itemName => {
-                        // حساب الأصناف الأساسية فقط
-                        if (validMainProducts[itemName]) {
-                            let q = a.itemsSummary[itemName];
-                            historyItems[itemName] = (historyItems[itemName] || 0) + q;
-                            grandTotalHistory += q;
-                        }
-                    });
-                }
-            });
-
-            if (grandTotalHistory === 0) {
-                return alert("⛔ لا توجد مبيعات للأصناف الأساسية في الدفعات المحددة لعمل التحليل التوقعي!");
-            }
-
-            // 3. تطبيق خوارزمية التوزيع (Largest Remainder Method) لضمان دقة 100% بدون تقريب خاطئ
-            let newStock = storeBatches[bId].stock || {};
-            let textLog = `📊 تقرير التوزيع الذكي لـ (${totalTarget}) جوز (مبني على ${limit > 0 ? 'متوسط آخر ' + limit + ' دفعات' : 'متوسط كل الدفعات'}):\n\n`;
-            
-            let exactCalculations = [];
-            let currentSum = 0;
-
-            Object.keys(historyItems).forEach(itemName => {
-                let id = validMainProducts[itemName];
-                let percentage = historyItems[itemName] / grandTotalHistory;
-                let exactValue = percentage * totalTarget;
-                let floorValue = Math.floor(exactValue); // بناخد الرقم الصحيح الأول
-                let remainder = exactValue - floorValue; // ونعزل الكسر
-                
-                exactCalculations.push({
-                    itemName: itemName,
-                    id: id,
-                    floorValue: floorValue,
-                    remainder: remainder,
-                    percentage: percentage
-                });
-                
-                currentSum += floorValue;
-            });
-
-            // توزيع الباقي على الأصناف صاحبة أكبر كسر عشري عشان نكمل الرقم المستهدف بالظبط
-            let difference = totalTarget - currentSum;
-            exactCalculations.sort((a, b) => b.remainder - a.remainder); // ترتيب تنازلي حسب الكسر
-
-            for (let i = 0; i < difference; i++) {
-                exactCalculations[i % exactCalculations.length].floorValue += 1;
-            }
-
-            // إدراج الأرقام النهائية المعالجة
-            exactCalculations.forEach(item => {
-                newStock[item.id] = item.floorValue;
-                textLog += `- ${item.itemName}: ${item.floorValue} (بنسبة ${Math.round(item.percentage * 100)}%)\n`;
-            });
-
-            // 4. حفظ البيانات في الذاكرة الحية وقاعدة البيانات
-            storeBatches[bId].stock = newStock;
-            
-            try {
-                let btn = document.querySelector(`button[onclick="smartDistributeBatch('${bId}')"]`);
-                let origHtml = btn ? btn.innerHTML : '';
-                if(btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري...';
-
-                await db.collection('inventory').doc('batches').update({
-                    [`${bId}.stock`]: newStock
-                });
-                renderBatchesUI();
-                alert(textLog + "\n✅ تم التوزيع بدقة 100% وتحديث الكميات بنجاح!");
-            } catch (e) {
-                console.error(e);
-                alert("حدث خطأ أثناء حفظ التوزيع الذكي!");
-            }
-        };
-
-        window.renderDebtsUI = () => {
-            const tbody = document.getElementById('debts-tbody');
-            if(!tbody) return;
-            
-            let searchTerm = (document.getElementById('search-debts').value || '').toLowerCase().trim();
-            let totalMarketDebt = 0;
-            
-            let indebtedCustomers = customersData.filter(c => (Number(c.debt) || 0) > 0);
-            
-            if (searchTerm) {
-                indebtedCustomers = indebtedCustomers.filter(c => 
-                    (c.name || '').toLowerCase().includes(searchTerm) || 
-                    (c.phone || '').includes(searchTerm)
-                );
-            }
-            
-            indebtedCustomers.sort((a, b) => (Number(b.debt) || 0) - (Number(a.debt) || 0));
-            
-            let html = '';
-            indebtedCustomers.forEach(c => {
-                let currentDebt = Number(c.debt) || 0;
-                totalMarketDebt += currentDebt;
-
-                // 🔥 سحر تتبع الأوردر: بنجيب الأوردرات اللي فيها دين للعميل ده
-                let cNormPhone = window.normalizePhone(c.phone);
-                let debtOrders = allOrdersRaw.filter(o => window.normalizePhone(o.customerPhone) === cNormPhone && o.debt > 0);
-                
-                let debtSourcesHtml = '';
-                if(debtOrders.length > 0) {
-                    debtSourcesHtml = '<div class="mt-2 text-right space-y-1.5">';
-                    debtOrders.forEach(o => {
-                        debtSourcesHtml += `<span onclick="openOrderTracking('${o.id}')" class="bg-red-50 text-red-700 border border-red-200 px-2 py-1.5 rounded-lg text-[10px] font-black inline-flex items-center gap-1 cursor-pointer hover:bg-red-500 hover:text-white transition-all shadow-sm" title="اضغط لتتبع هذا الطلب"><i class="fa-solid fa-link"></i> أوردر (${o.orderDate}) عليه: ${o.debt} ج</span><br>`;
-                    });
-                    debtSourcesHtml += '</div>';
-                } else {
-                    debtSourcesHtml = '<div class="mt-2"><span class="bg-slate-50 text-slate-500 border border-slate-200 px-2 py-1 rounded-lg text-[10px] font-black inline-block"><i class="fa-solid fa-circle-info mr-1"></i> أضيف يدوياً (أو من أرشيف قديم)</span></div>';
-                }
-                
-                html += `
-                <tr class="hover:bg-red-50/40 transition-colors border-b border-slate-50">
-                    <td class="py-4 px-6 align-top">
-                        <div class="font-black text-slate-800 text-sm cursor-pointer hover:text-brand-primary transition-colors" onclick="openCustomerCard('${c.phone}')">${c.name || 'عميل غير مسجل'}</div>
-                        <div class="text-[11px] text-slate-500 font-bold mt-0.5 mb-2" dir="ltr">${c.phone}</div>
-                        ${debtSourcesHtml}
-                    </td>
-                    <td class="py-4 px-6 text-center font-bold text-slate-600 text-xs align-top">${c.zone || '<span class="text-slate-300">غير مسجل</span>'}</td>
-                    <td class="py-4 px-6 text-center align-top">
-                        <span class="bg-white text-red-600 px-3 py-1.5 rounded-lg font-black text-base shadow-sm border border-red-200 inline-block min-w-[80px] text-center">${currentDebt} ج</span>
-                    </td>
-                    <td class="py-4 px-6 text-center align-top">
-                        <button onclick="openCustomerCard('${c.phone}')" class="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-black hover:bg-slate-900 transition-all shadow-sm flex items-center justify-center gap-2 mx-auto"><i class="fa-solid fa-wallet text-red-400"></i> السداد وكشف الحساب</button>
-                    </td>
-                </tr>`;
-            });
-            
-            if (indebtedCustomers.length === 0) {
-                html = `<tr><td colspan="4" class="text-center py-16 text-slate-400 font-bold border-2 border-dashed border-slate-200 rounded-[2rem] m-4">الحمد لله.. لا توجد مديونيات متأخرة في السوق حالياً.</td></tr>`;
-            }
-            
-            tbody.innerHTML = html;
-            
-            let debtTotalEl = document.getElementById('total-market-debt');
-            if (debtTotalEl) debtTotalEl.innerText = totalMarketDebt.toLocaleString();
-        };
         // ========================================================
         // 🔗 دوال الربط اليدوي للطلبات المكتملة بالأرشيف 🔗
         // ========================================================
