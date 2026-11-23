@@ -1705,9 +1705,13 @@
         window.updateLiveHeaderAndSidebar();
     }
 
+    // حقن ستايلات الهيدر والقائمة فوراً قبل أول فريم لمنع ومضة الواجهة القديمة
+    injectLiveConnectStyles();
+
     if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', () => setTimeout(bootLiveConnect, 350));
+        window.addEventListener('DOMContentLoaded', bootLiveConnect, { once: true });
     } else {
-        setTimeout(bootLiveConnect, 350);
+        bootLiveConnect();
     }
+
 })();
