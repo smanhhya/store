@@ -466,6 +466,7 @@
                         <button onclick="setOrderTab('all')" id="tab-all" class="order-tab active whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs font-black bg-slate-800 text-white transition-all shadow-sm">الكل</button>
                         <button onclick="setOrderTab('new')" id="tab-new" class="order-tab whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">🆕 جديد <span id="badge-new" class="mr-1 bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-md text-[10px]">0</span></button>
                         <button onclick="setOrderTab('processing')" id="tab-processing" class="order-tab whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">⏳ تجهيز <span id="badge-processing" class="mr-1 bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-md text-[10px]">0</span></button>
+                        <button onclick="setOrderTab('for_driver')" id="tab-for_driver" class="order-tab whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">📦 للمندوب <span id="badge-for_driver" class="mr-1 bg-cyan-100 text-cyan-800 px-1.5 py-0.5 rounded-md text-[10px]">0</span></button>
                         <button onclick="setOrderTab('dispatched')" id="tab-dispatched" class="order-tab whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">🛵 في الطريق <span id="badge-dispatched" class="mr-1 bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-md text-[10px]">0</span></button>
                         <button onclick="setOrderTab('deferred')" id="tab-deferred" class="order-tab whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">📅 مؤجل <span id="badge-deferred" class="mr-1 bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-md text-[10px]">0</span></button>                  
                         <button onclick="setOrderTab('no_answer')" id="tab-no_answer" class="order-tab whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-black bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all">📵 لم يرد <span id="badge-no_answer" class="mr-1 bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-md text-[10px]">0</span></button>
@@ -3060,7 +3061,7 @@
                     });
                 }
 
-                let counts = { new: 0, processing: 0, dispatched: 0, deferred: 0, no_answer: 0, completed: 0, canceled: 0 };
+                let counts = { new: 0, processing: 0, for_driver: 0, dispatched: 0, deferred: 0, no_answer: 0, completed: 0, canceled: 0 };
                 allOrdersRaw = [];
                 dispatchOrdersRaw = [];
 
@@ -3080,7 +3081,7 @@
                     }
                 });
 
-                ['new', 'processing', 'dispatched', 'deferred', 'no_answer', 'completed', 'canceled'].forEach(s => {
+                ['new', 'processing', 'for_driver', 'dispatched', 'deferred', 'no_answer', 'completed', 'canceled'].forEach(s => {
                     let b = document.getElementById(`badge-${s}`);
                     if (b) b.innerText = counts[s] || 0;
                 });
@@ -3173,7 +3174,7 @@
             
             allOrdersRaw.forEach(o => {
                 // 💡 السر هنا: الشاشة هتقرأ الطلبات الحية فقط! (المكتمل والملغي هيختفوا عشان الشاشة تنظف نفسها)
-                if(['new', 'processing', 'dispatched', 'deferred', 'no_answer'].includes(o.status)) {
+                if(['new', 'processing', 'for_driver', 'dispatched', 'deferred', 'no_answer'].includes(o.status)) {
 
                     
                     totalOrders++;
@@ -3975,8 +3976,8 @@
                         } else {
                             let o = item.data;
                             let itemsHtml = o.items && o.items.length > 0 ? o.items.map(i => `<div class="flex justify-between text-[11px] font-bold text-slate-600 border-b border-slate-50 py-2 last:border-0"><span class="flex items-center gap-1.5"><span class="bg-slate-100 text-slate-500 px-1.5 rounded">${i.quantity}x</span> ${i.name}</span><span class="text-slate-400">${i.price * i.quantity} ج</span></div>`).join('') : '<p class="text-xs text-slate-400">لا توجد تفاصيل</p>';
-                            let statusAr = o.status === 'new' ? 'جديد' : (o.status === 'processing' ? 'قيد التجهيز' : (o.status === 'no_answer' ? 'لم يتم الرد' : (o.status === 'completed' ? 'مكتمل' : 'ملغي')));
-                            let statusColor = o.status === 'new' ? 'text-blue-600 bg-blue-50 border-blue-100' : (o.status === 'processing' ? 'text-amber-600 bg-amber-50 border-amber-100' : (o.status === 'no_answer' ? 'text-purple-600 bg-purple-50 border-purple-100' : (o.status === 'completed' ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-slate-500 bg-slate-50 border-slate-200')));
+                            let statusAr = o.status === 'new' ? 'جديد' : (o.status === 'processing' ? 'قيد التجهيز' : (o.status === 'for_driver' ? '📦 للمندوب' : (o.status === 'dispatched' ? '🛵 في الطريق' : (o.status === 'no_answer' ? 'لم يتم الرد' : (o.status === 'completed' ? 'مكتمل' : 'ملغي')))));
+                            let statusColor = o.status === 'new' ? 'text-blue-600 bg-blue-50 border-blue-100' : (o.status === 'processing' ? 'text-amber-600 bg-amber-50 border-amber-100' : (o.status === 'for_driver' ? 'text-cyan-700 bg-cyan-50 border-cyan-200' : (o.status === 'dispatched' ? 'text-indigo-600 bg-indigo-50 border-indigo-200' : (o.status === 'no_answer' ? 'text-purple-600 bg-purple-50 border-purple-100' : (o.status === 'completed' ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-slate-500 bg-slate-50 border-slate-200')))));
                             let noteHtml = o.adminNote ? `<div class="mt-3 bg-amber-50/50 border border-amber-100/50 rounded-xl p-3 text-xs font-bold text-amber-800 leading-relaxed"><i class="fa-solid fa-pen-to-square text-amber-400 mr-1"></i> <strong>ملاحظات الأوردر:</strong><br>${o.adminNote}</div>` : '';
                             
                             return `
@@ -5202,14 +5203,38 @@
             closeModal('dispatch-modal');
         };
 
-        // دالة مخفية بتشتغل لما تدوس على زرار الواتساب في الصفحة الجديدة عشان تحدث الداتا
+// دالة مخفية بتشتغل لما تدوس على زرار الواتساب في الصفحة الجديدة عشان تحدث الداتا
         window.executeDispatchUpdates = async () => {
-            if(!window.pendingDispatchData) return;
+            if (!window.pendingDispatchData) return;
             let data = window.pendingDispatchData;
-            for (let id of data.selectedIds) { 
-                try { await db.collection('orders').doc(id).update({ driverName: data.driverName, driverPhone: data.driverPhone, status: 'dispatched' }); } catch(e) { } 
+            for (let id of data.selectedIds) {
+                try {
+                    await db.collection('orders').doc(id).update({
+                        driverName: data.driverName,
+                        driverPhone: data.driverPhone,
+                        status: 'for_driver',
+                        assignedToDriverAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    let localO = allOrdersRaw.find(x => x.id === id);
+                    if (localO) {
+                        localO.driverName = data.driverName;
+                        localO.driverPhone = data.driverPhone;
+                        localO.status = 'for_driver';
+                    }
+                    if (globalOrdersMap[id]) {
+                        globalOrdersMap[id].driverName = data.driverName;
+                        globalOrdersMap[id].driverPhone = data.driverPhone;
+                        globalOrdersMap[id].status = 'for_driver';
+                    }
+                    if (localO && typeof window.syncOrderToGoogleSheet === 'function') {
+                        window.syncOrderToGoogleSheet(localO, 'update');
+                    }
+                } catch (e) {}
             }
             window.pendingDispatchData = null; // تفريغ البيانات بعد التنفيذ
+            if (typeof renderOrdersList === 'function') renderOrdersList();
+            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
         };
 
         window.toggleOrderDetails = (detailsId, iconId) => { 
@@ -5900,6 +5925,15 @@ window.deleteProductUI = async (id) => {
             // 1. تاريخ الإنشاء
             let createdAtStr = order.createdAt ? new Date(order.createdAt.toMillis()).toLocaleString('ar-EG', { hour12: true, hour: 'numeric', minute: 'numeric', month: 'numeric', day: 'numeric' }) : order.orderDate;
             timelineHtml += createTimelineNode('fa-cart-plus', 'text-blue-500', 'bg-blue-50', 'border-blue-200', 'تم إنشاء الطلب', createdAtStr, 'بواسطة النظام الإداري');
+
+            // 1.5 تخصيص للمندوب (بانتظار الاستلام)
+            if (order.assignedToDriverAt || order.status === 'for_driver') {
+                let assignStr = (order.assignedToDriverAt && typeof order.assignedToDriverAt.toMillis === 'function')
+                    ? new Date(order.assignedToDriverAt.toMillis()).toLocaleString('ar-EG', { hour12: true, hour: 'numeric', minute: 'numeric', month: 'numeric', day: 'numeric' })
+                    : 'تم التخصيص';
+                let drvAssignInfo = order.driverName ? `المندوب المخصص: <span class="text-cyan-700">${order.driverName}</span>` : 'بانتظار استلام المندوب';
+                timelineHtml += createTimelineNode('fa-box-open', 'text-cyan-600', 'bg-cyan-50', 'border-cyan-200', 'في خانة للمندوب (بانتظار الاستلام)', assignStr, drvAssignInfo);
+            }
 
             // 2. خروج للتوصيل
             if (order.dispatchedAt) {
@@ -7551,7 +7585,7 @@ window.deleteProductUI = async (id) => {
 
             // 🔒 قفل البوابة الفردية للبلاك ليست (سواء بالرقم أو بالاشتباه)
             let blCheck = window.findBlacklistedCustomerMatch(o.customerPhone, o.customerPhone2, o.customerName, o.customerAddress);
-            if (blCheck && ['processing', 'dispatched', 'completed'].includes(s)) {
+            if (blCheck && ['processing', 'for_driver', 'dispatched', 'completed'].includes(s)) {
                 if (blCheck.type === 'suspected') {
                     let proceedSuspect = confirm('🕵️ تحذير رادار التحايل!\n\nالعميل (' + o.customerName + ') يتطابق في (' + blCheck.reason + ') مع العميل المحظور (' + blCheck.customer.name + ').\n\nهل أنت متأكد من تمرير الطلب بدون ضمه للبلاك ليست؟');
                     if (!proceedSuspect) { renderOrdersList(); return; }
@@ -7598,7 +7632,7 @@ window.deleteProductUI = async (id) => {
                 }
             }
 
-            let deductingStates = ['processing', 'dispatched', 'completed', 'deferred'];
+            let deductingStates = ['processing', 'for_driver', 'dispatched', 'completed', 'deferred'];
 
             let wasInFreezer = deductingStates.includes(oldStatus);
             let isNowInFreezer = deductingStates.includes(s);
@@ -7676,7 +7710,11 @@ window.deleteProductUI = async (id) => {
                 }
 
                 if (s === 'trash') updateData.deletedAt = firebase.firestore.FieldValue.serverTimestamp();
-                if (s === 'dispatched') updateData.dispatchedAt = firebase.firestore.FieldValue.serverTimestamp();
+                if (s === 'for_driver') updateData.assignedToDriverAt = firebase.firestore.FieldValue.serverTimestamp();
+                if (s === 'dispatched') {
+                    updateData.dispatchedAt = firebase.firestore.FieldValue.serverTimestamp();
+                    updateData.dispatchedAtMs = Date.now();
+                }
                 if (s === 'canceled') updateData.canceledAt = firebase.firestore.FieldValue.serverTimestamp();
                 
                 if (s === 'completed') {
@@ -7803,7 +7841,7 @@ window.deleteProductUI = async (id) => {
             let checked = Array.from(document.querySelectorAll('.bulk-order-cb:checked')).map(cb => cb.value);
             if(checked.length === 0) return;
 
-            if (['processing', 'dispatched', 'completed'].includes(newStatus)) {
+            if (['processing', 'for_driver', 'dispatched', 'completed'].includes(newStatus)) {
                 let blockedNames = [];
                 checked = checked.filter(id => {
                     let o = allOrdersRaw.find(x => x.id === id);
@@ -7839,8 +7877,8 @@ window.deleteProductUI = async (id) => {
 
                     let o = allOrdersRaw.find(x => x.id === id);
                     if(o && o.items) {
-                        let wasIn = ['processing', 'dispatched', 'completed', 'deferred'].includes(o.status);
-                        let isNowIn = ['processing', 'dispatched', 'completed', 'deferred'].includes(newStatus);
+                        let wasIn = ['processing', 'for_driver', 'dispatched', 'completed', 'deferred'].includes(o.status);
+                        let isNowIn = ['processing', 'for_driver', 'dispatched', 'completed', 'deferred'].includes(newStatus);
                         
                         if (!wasIn && isNowIn) {
                             o.items.forEach(i => {
@@ -8058,8 +8096,8 @@ window.deleteProductUI = async (id) => {
                     if(Object.keys(finalStockUpdates).length > 0) { atomicBatch.set(db.collection("inventory").doc("stock"), finalStockUpdates, { merge: true }); }
 
                     // 🧊 الفريزر الدقيق عند تعديل طلب داخل مراحل التجهيز (لا يضيف رصيداً وهمياً ولا ينزل تحت الصفر)
-                    if (['processing', 'dispatched', 'completed', 'deferred'].includes(editingOrderData.status)) {
-                        const prevMap = (editingOrderData.freezerDeductedMap && typeof editingOrderData.freezerDeductedMap === 'object')
+                    if (['processing', 'for_driver', 'dispatched', 'completed', 'deferred'].includes(editingOrderData.status)) {
+                    const prevMap = (editingOrderData.freezerDeductedMap && typeof editingOrderData.freezerDeductedMap === 'object')
                             ? { ...editingOrderData.freezerDeductedMap }
                             : null;
                         const newQtyByProd = {};
@@ -8494,6 +8532,7 @@ window.deleteProductUI = async (id) => {
                     else if (latestOrder.status === "completed") statusAr = "✅ مكتمل";
                     else if (latestOrder.status === "canceled") statusAr = "❌ ملغي";
                     else if (latestOrder.status === "deferred") statusAr = "📅 مؤجل";
+                    else if (latestOrder.status === "for_driver") statusAr = "📦 للمندوب (بانتظار الاستلام)";
                     else if (latestOrder.status === "dispatched") statusAr = "🛵 في الطريق";
                     else if (latestOrder.status === "no_answer") statusAr = "📵 لم يرد";
 
@@ -8838,9 +8877,51 @@ window.deleteProductUI = async (id) => {
                 };
             });
 
-            (allOrdersRaw || []).forEach(o => {
-                if (o.status === 'trash' || o.isArchived) return;
-                if (!['dispatched', 'no_answer', 'completed'].includes(o.status)) return;
+                let dispatchedOrders = [];
+                let noAnswerOrders = [];
+                let completedOrders = [];
+                let collectedCash = 0;
+                let driverFees = 0;
+
+                drv.orders.forEach(o => {
+                    const total = Number(o.total) || 0;
+                    const fee = Number(o.deliveryFee) || 0;
+
+                    if (o.status === 'dispatched') {
+                        dispatchedOrders.push(o);
+                        totalDispatchedAll++;
+                    } else if (o.status === 'no_answer') {
+                        noAnswerOrders.push(o);
+                    } else if (o.status === 'completed') {
+                        completedOrders.push(o);
+                        totalCompletedAll++;
+                        if (!o.isSupplied) {
+                            if (o.paymentMethod !== 'online') collectedCash += total;
+                            driverFees += fee;
+                        }
+                    }
+                });
+
+                const totalRouteOrders = dispatchedOrders.length + noAnswerOrders.length + completedOrders.length;
+                if (totalRouteOrders === 0) return;
+
+                totalActiveDrivers++;
+                const netToRemit = Math.max(0, collectedCash - driverFees);
+                totalNetCashAll += netToRemit;
+
+                const filterOrderFn = (o) => {
+                    if (radarStatusFilter !== 'all' && o.status !== radarStatusFilter) return false;
+                    if (!searchVal) return true;
+                    const itemsTxt = (o.items && Array.isArray(o.items)) ? o.items.map(i => i.name).join(' ') : '';
+                    const hay = `${o.customerName || ''} ${o.customerPhone || ''} ${o.customerPhone2 || ''} ${o.zone || ''} ${o.customerAddress || ''} ${itemsTxt} ${o.driverNote || ''}`.toLowerCase();
+                    return hay.includes(searchVal);
+                };
+
+                const shownDispatched = dispatchedOrders.filter(filterOrderFn);
+                const shownNoAnswer = noAnswerOrders.filter(filterOrderFn);
+                const shownCompleted = completedOrders.filter(filterOrderFn);
+
+                if (searchVal && shownDispatched.length === 0 && shownNoAnswer.length === 0 && shownCompleted.length === 0) return;
 
                 if (o.status === 'completed' && o.isSupplied === true) {
                     if (!radarShowSupplied || o.completedAtStr !== nowStr) return;
@@ -8977,6 +9058,7 @@ window.deleteProductUI = async (id) => {
                         </div>
 
                         <div class="flex flex-wrap gap-2 mt-4 pt-3 border-t border-white/10 text-xs font-black">
+                            ${forDriverOrders.length > 0 ? `<button type="button" onclick="if(window.launchDriverOrdersOnWay) launchDriverOrdersOnWay('${(drv.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" class="bg-cyan-400 hover:bg-cyan-300 text-slate-950 px-3 py-1 rounded-lg font-black transition-all">📦 بانتظار الاستلام: ${forDriverOrders.length} — استلم واتحرك 🛵</button>` : ''}
                             <span class="bg-blue-500/20 text-blue-200 border border-blue-400/30 px-3 py-1 rounded-lg">🛵 في الطريق الآن: ${dispatchedOrders.length}</span>
                             <span class="bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 px-3 py-1 rounded-lg">✅ سلّم وخلّص: ${completedOrders.length}</span>
                             <span class="bg-purple-500/20 text-purple-200 border border-purple-400/30 px-3 py-1 rounded-lg">📵 لم يرد: ${noAnswerOrders.length}</span>
@@ -8984,6 +9066,7 @@ window.deleteProductUI = async (id) => {
                     </div>
 
                     <div class="p-5 bg-slate-50/60 space-y-5">
+                        ${window.renderRadarSection('📦 مخصص للمندوب (بانتظار الاستلام الفعلي)', 'cyan', shownForDriver)}
                         ${window.renderRadarSection('🛵 معاه في الطريق الآن (جاري التوصيل)', 'blue', shownDispatched)}
                         ${window.renderRadarSection('📵 عملاء لم ترد على المندوب (تحتاج تدخل)', 'purple', shownNoAnswer)}
                         ${window.renderRadarSection('✅ راح لمين وخلّص مين (تم التسليم)', 'emerald', shownCompleted)}
