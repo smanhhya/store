@@ -26,6 +26,7 @@
         all:        { btn: 'bg-slate-900 text-white border-slate-900 shadow-md scale-[1.02]',      badge: 'bg-amber-400 text-slate-950' },
         new:        { btn: 'bg-blue-600 text-white border-blue-600 shadow-md scale-[1.02]',        badge: 'bg-white text-blue-700' },
         processing: { btn: 'bg-amber-500 text-slate-950 border-amber-500 shadow-md scale-[1.02]',  badge: 'bg-slate-900 text-amber-300' },
+        for_driver: { btn: 'bg-cyan-600 text-white border-cyan-600 shadow-md scale-[1.02]',        badge: 'bg-white text-cyan-800' },
         dispatched: { btn: 'bg-indigo-600 text-white border-indigo-600 shadow-md scale-[1.02]',    badge: 'bg-white text-indigo-700' },
         deferred:   { btn: 'bg-orange-600 text-white border-orange-600 shadow-md scale-[1.02]',    badge: 'bg-white text-orange-700' },
         no_answer:  { btn: 'bg-purple-600 text-white border-purple-600 shadow-md scale-[1.02]',    badge: 'bg-white text-purple-700' },
@@ -36,6 +37,7 @@
     const TAB_INACTIVE_BADGES = {
         new:        'bg-blue-100 text-blue-700',
         processing: 'bg-amber-100 text-amber-800',
+        for_driver: 'bg-cyan-100 text-cyan-800',
         dispatched: 'bg-indigo-100 text-indigo-700',
         deferred:   'bg-orange-100 text-orange-700',
         no_answer:  'bg-purple-100 text-purple-700',
@@ -45,7 +47,7 @@
 
     window.applyCrispOrderTabsVisuals = function (activeTabName) {
         const current = activeTabName || (typeof currentOrderTab !== 'undefined' ? currentOrderTab : 'all');
-        const allTabs = ['all', 'new', 'processing', 'dispatched', 'deferred', 'no_answer', 'completed', 'canceled'];
+        const allTabs = ['all', 'new', 'processing', 'for_driver', 'dispatched', 'deferred', 'no_answer', 'completed', 'canceled'];
 
         allTabs.forEach(t => {
             const btn = document.getElementById(`tab-${t}`);
@@ -299,9 +301,10 @@
                 </div>
 
                 <!-- الصف 2: تحويل الحالة الجماعي بألوان هادئة متناسقة -->
-                <div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                <div class="grid grid-cols-3 sm:grid-cols-7 gap-1.5">
                     <button type="button" onclick="bulkChangeStatus('new')" class="bg-slate-50 hover:bg-blue-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all active:scale-95">🆕 جديد</button>
                     <button type="button" onclick="bulkChangeStatus('processing')" class="bg-slate-50 hover:bg-amber-500 text-slate-700 hover:text-slate-950 border border-slate-200 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all active:scale-95">⏳ تجهيز</button>
+                    <button type="button" onclick="bulkChangeStatus('dispatched')" class="bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-600 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all shadow-sm active:scale-95">🛵 بالطريق</button>
                     <button type="button" onclick="bulkChangeStatus('deferred')" class="bg-slate-50 hover:bg-orange-500 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all active:scale-95">📅 مؤجل</button>
                     <button type="button" onclick="bulkChangeStatus('no_answer')" class="bg-slate-50 hover:bg-purple-600 text-slate-700 hover:text-white border border-slate-200 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all active:scale-95">📵 لم يرد</button>
                     <button type="button" onclick="bulkChangeStatus('completed')" class="bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-600 py-1.5 px-2 rounded-xl text-[10px] font-black transition-all shadow-sm active:scale-95">✅ مكتمل</button>
@@ -528,20 +531,49 @@
         if (!order) return;
 
         try {
-            await db.collection('orders').doc(orderId).update({
+            const oldStatus = order.status;
+            const dbBatch = db.batch();
+            const patch = {
                 driverName: driverName,
                 driverPhone: driverPhone || '',
-                status: 'dispatched',
-                dispatchedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
+                status: 'for_driver',
+                assignedToDriverAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+
+            const wasInFreezer = ['processing', 'for_driver', 'dispatched', 'completed', 'deferred'].includes(oldStatus);
+            if (!wasInFreezer && Array.isArray(order.items)) {
+                const fzNew = { ...(typeof storeFreezer !== 'undefined' ? storeFreezer : {}) };
+                const deductedMap = {};
+                let fzTouched = false;
+                order.items.forEach(i => {
+                    if (!i || !i.id || i.pendingWeight) return;
+                    const needQty = Math.max(0, Number(i.quantity) || 0);
+                    if (needQty <= 0) return;
+                    const cur = Math.max(0, Number(fzNew[i.id]) || 0);
+                    const actualDed = Math.min(cur, needQty);
+                    deductedMap[i.id] = Number(((deductedMap[i.id] || 0) + actualDed).toFixed(3));
+                    if (actualDed > 0) {
+                        fzNew[i.id] = Number((cur - actualDed).toFixed(3));
+                        if (typeof storeFreezer !== 'undefined') storeFreezer[i.id] = fzNew[i.id];
+                        fzTouched = true;
+                    }
+                });
+                patch.freezerDeductedMap = deductedMap;
+                order.freezerDeductedMap = deductedMap;
+                if (fzTouched) dbBatch.set(db.collection('inventory').doc('freezer'), fzNew, { merge: true });
+            }
+
+            dbBatch.update(db.collection('orders').doc(orderId), patch);
+            await dbBatch.commit();
 
             order.driverName = driverName;
             order.driverPhone = driverPhone || '';
-            order.status = 'dispatched';
+            order.status = 'for_driver';
             if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
                 globalOrdersMap[orderId].driverName = driverName;
                 globalOrdersMap[orderId].driverPhone = driverPhone || '';
-                globalOrdersMap[orderId].status = 'dispatched';
+                globalOrdersMap[orderId].status = 'for_driver';
+                if (order.freezerDeductedMap) globalOrdersMap[orderId].freezerDeductedMap = order.freezerDeductedMap;
             }
 
             if (sendWa && driverPhone) {
@@ -556,18 +588,99 @@
                         ? `${payBr.cash} ج.م كاش (ومدفوع ${payBr.online} ج محفظة ✅)`
                         : `${order.total || 0} ج.م`);
 
-                const msg = `*🛵 طلب توصيل - سمان ههيا*\n👤 العميل: ${order.customerName || ''}\n📞 موبايل: ${order.customerPhone || ''}${order.customerPhone2 ? '\n📱 بديل: ' + order.customerPhone2 : ''}\n📍 العنوان: ${order.zone || ''} - ${order.customerAddress || ''}\n📦 الأصناف: ${itemsStr}\n💰 المطلوب تحصيله: *${totalToCollect}*${order.driverNote ? '\n⚠️ ملاحظة: ' + order.driverNote.split('\n---\n').pop() : ''}`;
+                const msg = `*📦 طلب مخصص للتوصيل - سمان ههيا*\n👤 العميل: ${order.customerName || ''}\n📞 موبايل: ${order.customerPhone || ''}${order.customerPhone2 ? '\n📱 بديل: ' + order.customerPhone2 : ''}\n📍 العنوان: ${order.zone || ''} - ${order.customerAddress || ''}\n📦 الأصناف: ${itemsStr}\n💰 المطلوب تحصيله: *${totalToCollect}*${order.driverNote ? '\n⚠️ ملاحظة: ' + order.driverNote.split('\n---\n').pop() : ''}`;
                 const cleanP = driverPhone.toString().trim();
                 const waNum = cleanP.startsWith('0') ? '2' + cleanP : cleanP;
                 window.open(`https://wa.me/${waNum}?text=${encodeURIComponent(msg)}`, '_blank');
             }
 
+            if (typeof window.syncOrderToGoogleSheet === 'function') window.syncOrderToGoogleSheet(order, 'update');
             window.renderOrdersList();
             if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
             if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
-            if (typeof window.showToast === 'function') window.showToast(`🛵 خرج الطلب مع المندوب: ${driverName}`);
+            if (typeof window.showToast === 'function') window.showToast(`📦 تم نقل الطلب لخانة (للمندوب: ${driverName}) بانتظار الاستلام`);
         } catch (e) {
             alert('حدث خطأ أثناء توجيه الطلب للمندوب!');
+        }
+    };
+
+    window.markForDriverOrderDispatched = async function (orderId) {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === orderId);
+        if (!order) return;
+        if (typeof window.orderHasPendingWeight === 'function' && window.orderHasPendingWeight(order)) {
+            if (typeof window.showToast === 'function') window.showToast('⚖️ سكّن أوزان الطلب أولاً قبل خروجه بالطريق!');
+            return window.openAssignPendingWeightsModal(orderId);
+        }
+
+        try {
+            const nowMs = Date.now();
+            await db.collection('orders').doc(orderId).update({
+                status: 'dispatched',
+                dispatchedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                dispatchedAtMs: nowMs
+            });
+            order.status = 'dispatched';
+            order.dispatchedAtMs = nowMs;
+            if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[orderId]) {
+                globalOrdersMap[orderId].status = 'dispatched';
+                globalOrdersMap[orderId].dispatchedAtMs = nowMs;
+            }
+            if (typeof window.syncOrderToGoogleSheet === 'function') window.syncOrderToGoogleSheet(order, 'update');
+            window.renderOrdersList();
+            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
+            if (typeof window.renderReconciliationUI === 'function') window.renderReconciliationUI();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
+            if (typeof window.showToast === 'function') window.showToast('🛵 المندوب استلم الطلب وهو الآن (في الطريق) — ظاهر للعميل في التتبع!');
+        } catch (e) {
+            alert('حدث خطأ أثناء تحويل الطلب إلى بالطريق!');
+        }
+    };
+
+    window.launchDriverOrdersOnWay = async function (driverName) {
+        const cleanDrv = String(driverName || '').trim();
+        const targetOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o =>
+            o && !o.isArchived && o.status === 'for_driver' && (o.driverName || 'غير محدد').trim() === cleanDrv
+        );
+        if (targetOrders.length === 0) return;
+
+        const firstPending = targetOrders.find(o => typeof window.orderHasPendingWeight === 'function' && window.orderHasPendingWeight(o));
+        if (firstPending) {
+            if (typeof window.showToast === 'function') window.showToast('⚖️ يوجد طلب بانتظار الميزان ضمن طلبات المندوب — سكّنه أولاً!');
+            return window.openAssignPendingWeightsModal(firstPending.id);
+        }
+
+        const msg = `🛵 هل استلم المندوب (${cleanDrv}) جميع طلباته وعددها (${targetOrders.length} طلب) وتحرك بها؟\nسيتم نقلها جميعاً إلى (في الطريق) لتظهر للعملاء في صفحة التتبع فوراً.`;
+        const ok = (typeof window.execConfirm === 'function')
+            ? await window.execConfirm(msg, { title: 'تأكيد استلام المندوب والتحرك', tone: 'success', confirmText: 'نعم، استلم وتحرك 🛵' })
+            : confirm(msg);
+        if (!ok) return;
+
+        try {
+            const dbBatch = db.batch();
+            const nowMs = Date.now();
+            targetOrders.forEach(o => {
+                dbBatch.update(db.collection('orders').doc(o.id), {
+                    status: 'dispatched',
+                    dispatchedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    dispatchedAtMs: nowMs
+                });
+                o.status = 'dispatched';
+                o.dispatchedAtMs = nowMs;
+                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[o.id]) {
+                    globalOrdersMap[o.id].status = 'dispatched';
+                    globalOrdersMap[o.id].dispatchedAtMs = nowMs;
+                }
+                if (typeof window.syncOrderToGoogleSheet === 'function') window.syncOrderToGoogleSheet(o, 'update');
+            });
+            await dbBatch.commit();
+
+            window.renderOrdersList();
+            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
+            if (typeof window.renderReconciliationUI === 'function') window.renderReconciliationUI();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
+            if (typeof window.showToast === 'function') window.showToast(`🛵 تم تحويل (${targetOrders.length}) طلب للمندوب (${cleanDrv}) إلى (في الطريق) بنجاح!`);
+        } catch (e) {
+            alert('حدث خطأ أثناء تحويل الطلبات إلى بالطريق!');
         }
     };
       window.markOrderDirectPickup = async function (orderId) {
@@ -973,7 +1086,7 @@
         if (!container) return;
 
         let filterText = (document.getElementById('search-order')?.value || '').toLowerCase();
-        let dynamicCounts = { new: 0, processing: 0, dispatched: 0, deferred: 0, no_answer: 0, completed: 0, canceled: 0 };
+        let dynamicCounts = { new: 0, processing: 0, for_driver: 0, dispatched: 0, deferred: 0, no_answer: 0, completed: 0, canceled: 0 };
 
         let filterWords = [];
         let exactPhrases = [];
@@ -1053,7 +1166,7 @@
             return false;
         });
 
-        ['new', 'processing', 'dispatched', 'deferred', 'no_answer', 'completed', 'canceled'].forEach(s => {
+        ['new', 'processing', 'for_driver', 'dispatched', 'deferred', 'no_answer', 'completed', 'canceled'].forEach(s => {
             let b = document.getElementById(`badge-${s}`);
             if (b) b.innerText = dynamicCounts[s] || 0;
         });
@@ -1155,8 +1268,8 @@
                 compToday++;
             }
         });
-        const activePipelineTotal = dynamicCounts.new + dynamicCounts.processing + dynamicCounts.dispatched + compToday;
-        const progPct = activePipelineTotal > 0 ? Math.min(100, Math.round(((compToday + (dynamicCounts.dispatched * 0.6) + (dynamicCounts.processing * 0.3)) / activePipelineTotal) * 100)) : 100;
+        const activePipelineTotal = dynamicCounts.new + dynamicCounts.processing + dynamicCounts.for_driver + dynamicCounts.dispatched + compToday;
+        const progPct = activePipelineTotal > 0 ? Math.min(100, Math.round(((compToday + (dynamicCounts.dispatched * 0.6) + (dynamicCounts.for_driver * 0.45) + (dynamicCounts.processing * 0.3)) / activePipelineTotal) * 100)) : 100;
 
         if (document.getElementById('so-prog-pct')) document.getElementById('so-prog-pct').innerText = progPct + '%';
         if (document.getElementById('so-prog-bar')) document.getElementById('so-prog-bar').style.width = progPct + '%';
@@ -1198,6 +1311,7 @@
         const statusBorderMap = {
             new: 'border-r-4 border-r-blue-500',
             processing: 'border-r-4 border-r-amber-500',
+            for_driver: 'border-r-4 border-r-cyan-500',
             dispatched: 'border-r-4 border-r-indigo-500',
             deferred: 'border-r-4 border-r-orange-500',
             no_answer: 'border-r-4 border-r-purple-500',
@@ -1230,11 +1344,12 @@
 
             let sBadge = o.status === 'new' ? '<span class="bg-blue-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">🆕 جديد</span>' :
                 (o.status === 'processing' ? '<span class="bg-amber-500 text-slate-950 px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">⏳ تجهيز</span>' :
+                (o.status === 'for_driver' ? '<span class="bg-cyan-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">📦 للمندوب</span>' :
                 (o.status === 'dispatched' ? '<span class="bg-indigo-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">🛵 بالطريق</span>' :
                 (o.status === 'deferred' ? '<span class="bg-orange-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">📅 مؤجل</span>' :
                 (o.status === 'no_answer' ? '<span class="bg-purple-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">📵 لم يرد</span>' :
                 (o.status === 'completed' ? '<span class="bg-emerald-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">✅ مكتمل</span>' :
-                '<span class="bg-rose-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">❌ ملغي</span>')))));
+                '<span class="bg-rose-600 text-white px-2 py-0.5 rounded-md text-[9px] font-black shadow-sm">❌ ملغي</span>'))))));
 
             let trustInfo = (typeof window.fastAnalyzeOrderTrust === 'function')
                 ? window.fastAnalyzeOrderTrust(o)
@@ -1247,7 +1362,8 @@
             if (isCompact) {
                 let compactStepBtn = '';
                 if (o.status === 'new') compactStepBtn = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-amber-500 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black">للتجهيز</button>`;
-                else if (o.status === 'processing') compactStepBtn = `<button data-lc-trigger="1" onclick="event.stopPropagation(); triggerOrderDriverStep(this, '${o.id}')" class="bg-indigo-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black">للمندوب</button>`;
+                else if (o.status === 'processing') compactStepBtn = `<button data-lc-trigger="1" onclick="event.stopPropagation(); triggerOrderDriverStep(this, '${o.id}')" class="bg-cyan-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black">📦 للمندوب</button>`;
+                else if (o.status === 'for_driver') compactStepBtn = `<button onclick="event.stopPropagation(); markForDriverOrderDispatched('${o.id}')" class="bg-indigo-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black">🛵 بالطريق</button>`;
                 else if (o.status === 'dispatched') compactStepBtn = `<button onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-600 text-white px-2.5 py-1 rounded-lg text-[10px] font-black">تسليم</button>`;
 
                 const compactItemsPills = (o.items && Array.isArray(o.items) && o.items.length > 0)
@@ -1265,7 +1381,7 @@
                         : '<span class="bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded text-[9px] font-black">كاش</span>');
 
                 return `${completedDayHeaderHtml}
-                <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-2.5
+                <div data-id="${o.id}" onclick="highlightOrderCard(this, event)" class="order-card ${trustInfo.cardClass} ${rightAccentCls} p-2.5 rounded-2xl shadow-sm border border-slate-200 space-y-2 relative cursor-pointer">
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div class="flex flex-wrap items-center gap-1.5 min-w-0">
                             <input type="checkbox" value="${o.id}" onchange="toggleBulkActionBar()" class="bulk-order-cb w-4 h-4 accent-brand-primary cursor-pointer shrink-0">
@@ -1403,6 +1519,14 @@
                         <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'deferred')" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-regular fa-calendar text-[9px]"></i> تأجيل</button>
                         <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'canceled')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-xmark text-[9px]"></i> إلغاء</button>
                     </div>`;
+            } else if (o.status === 'for_driver') {
+                workflowGridHtml = `
+                    <div class="grid grid-cols-4 gap-1">
+                        <button type="button" onclick="event.stopPropagation(); markForDriverOrderDispatched('${o.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white h-7 rounded-lg text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-motorcycle text-[9px]"></i> بالطريق</button>
+                        <button type="button" data-lc-trigger="1" onclick="event.stopPropagation(); triggerOrderDriverStep(this, '${o.id}')" class="bg-cyan-50 hover:bg-cyan-600 text-cyan-800 hover:text-white border border-cyan-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-repeat text-[9px]"></i> تبديل</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-slate-100 hover:bg-slate-700 text-slate-700 hover:text-white h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">↩️ لتجهيز</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'canceled')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-xmark text-[9px]"></i> إلغاء</button>
+                    </div>`;
             } else if (o.status === 'dispatched') {
                 workflowGridHtml = `
                     <div class="grid grid-cols-4 gap-1">
@@ -1522,7 +1646,35 @@
             </button>`;
         }
 
-        container.innerHTML = cardsHtml;
+        let driverHandoverBarHtml = '';
+        if (activeTab === 'for_driver' && filtered.length > 0) {
+            const byDriver = {};
+            filtered.forEach(o => {
+                const dn = (o.driverName || 'غير محدد').trim();
+                if (!byDriver[dn]) byDriver[dn] = { count: 0, total: 0 };
+                byDriver[dn].count++;
+                byDriver[dn].total += Number(o.total) || 0;
+            });
+            driverHandoverBarHtml = `
+            <div class="bg-gradient-to-l from-slate-900 via-cyan-950 to-slate-900 text-white p-3 rounded-2xl shadow-md border border-cyan-400/35 space-y-2 mb-3">
+                <div class="text-[11px] font-black text-cyan-200 flex items-center gap-1.5">
+                    <i class="fa-solid fa-box-open text-amber-400"></i>
+                    <span>طلبات بانتظار استلام المندوب — اضغط «استلم واتحرك» ليظهر للعميل في التتبع:</span>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    ${Object.keys(byDriver).map(dn => {
+                        const safeDn = dn.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                        return `
+                        <button type="button" onclick="launchDriverOrdersOnWay('${safeDn}')" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-2 rounded-xl text-xs font-black shadow flex items-center gap-2 active:scale-95 transition-all">
+                            <span>🛵 ${dn} (${byDriver[dn].count} طلب • ${byDriver[dn].total.toLocaleString()} ج)</span>
+                            <span class="bg-slate-950 text-amber-300 px-2 py-0.5 rounded-lg text-[10px]">استلم واتحرك ⬅️</span>
+                        </button>`;
+                    }).join('')}
+                </div>
+            </div>`;
+        }
+
+        container.innerHTML = driverHandoverBarHtml + cardsHtml;
 
         if (typeof openInlineNoteId !== 'undefined' && openInlineNoteId) {
             setTimeout(() => { window.toggleInlineNotes(null, openInlineNoteId, openInlineNoteField || 'driverNote', true); }, 50);
@@ -1673,24 +1825,52 @@
 
         try {
             const dbBatch = db.batch();
+            const fzNew = { ...(typeof storeFreezer !== 'undefined' ? storeFreezer : {}) };
+            let fzTouched = false;
+
             checked.forEach(id => {
                 const o = allOrdersRaw.find(x => x && x.id === id);
                 if (!o) return;
-                dbBatch.update(db.collection('orders').doc(id), {
+                const patch = {
                     driverName: driverName,
                     driverPhone: driverPhone || '',
-                    status: 'dispatched',
-                    dispatchedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
+                    status: 'for_driver',
+                    assignedToDriverAt: firebase.firestore.FieldValue.serverTimestamp()
+                };
+
+                const wasInFreezer = ['processing', 'for_driver', 'dispatched', 'completed', 'deferred'].includes(o.status);
+                if (!wasInFreezer && Array.isArray(o.items)) {
+                    const deductedMap = {};
+                    o.items.forEach(i => {
+                        if (!i || !i.id || i.pendingWeight) return;
+                        const needQty = Math.max(0, Number(i.quantity) || 0);
+                        if (needQty <= 0) return;
+                        const cur = Math.max(0, Number(fzNew[i.id]) || 0);
+                        const actualDed = Math.min(cur, needQty);
+                        deductedMap[i.id] = Number(((deductedMap[i.id] || 0) + actualDed).toFixed(3));
+                        if (actualDed > 0) {
+                            fzNew[i.id] = Number((cur - actualDed).toFixed(3));
+                            if (typeof storeFreezer !== 'undefined') storeFreezer[i.id] = fzNew[i.id];
+                            fzTouched = true;
+                        }
+                    });
+                    patch.freezerDeductedMap = deductedMap;
+                    o.freezerDeductedMap = deductedMap;
+                }
+
+                dbBatch.update(db.collection('orders').doc(id), patch);
                 o.driverName = driverName;
                 o.driverPhone = driverPhone || '';
-                o.status = 'dispatched';
+                o.status = 'for_driver';
                 if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) {
                     globalOrdersMap[id].driverName = driverName;
                     globalOrdersMap[id].driverPhone = driverPhone || '';
-                    globalOrdersMap[id].status = 'dispatched';
+                    globalOrdersMap[id].status = 'for_driver';
+                    if (o.freezerDeductedMap) globalOrdersMap[id].freezerDeductedMap = o.freezerDeductedMap;
                 }
+                if (typeof window.syncOrderToGoogleSheet === 'function') window.syncOrderToGoogleSheet(o, 'update');
             });
+            if (fzTouched) dbBatch.set(db.collection('inventory').doc('freezer'), fzNew, { merge: true });
             await dbBatch.commit();
 
             window.clearAllBulkSelections();
@@ -1698,7 +1878,7 @@
             if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
             if (typeof window.renderReconciliationUI === 'function') window.renderReconciliationUI();
             if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
-            if (typeof window.showToast === 'function') window.showToast(`🛵 تم توجيه (${checked.length}) طلب إلى المندوب: ${driverName}`);
+            if (typeof window.showToast === 'function') window.showToast(`📦 تم نقل (${checked.length}) طلب لخانة (للمندوب: ${driverName}) بانتظار الاستلام`);
         } catch (e) {
             console.error(e);
             alert('حدث خطأ أثناء توجيه الطلبات للمندوب!');
@@ -1721,7 +1901,7 @@
             }
         }
 
-        if (['processing', 'dispatched', 'completed'].includes(newStatus)) {
+        if (['processing', 'for_driver', 'dispatched', 'completed'].includes(newStatus)) {
             let blockedNames = [];
             checked = checked.filter(id => {
                 let o = allOrdersRaw.find(x => x.id === id);
@@ -1742,6 +1922,7 @@
         const statusNamesAr = {
             'new': 'جديد',
             'processing': 'قيد التجهيز',
+            'for_driver': 'للمندوب',
             'dispatched': 'في الطريق',
             'deferred': 'مؤجل',
             'no_answer': 'لم يتم الرد',
@@ -1795,7 +1976,11 @@
                     }
                 }
                 if (newStatus === 'trash') updateData.deletedAt = firebase.firestore.FieldValue.serverTimestamp();
-                if (newStatus === 'dispatched') updateData.dispatchedAt = firebase.firestore.FieldValue.serverTimestamp();
+                if (newStatus === 'for_driver') updateData.assignedToDriverAt = firebase.firestore.FieldValue.serverTimestamp();
+                if (newStatus === 'dispatched') {
+                    updateData.dispatchedAt = firebase.firestore.FieldValue.serverTimestamp();
+                    updateData.dispatchedAtMs = Date.now();
+                }
                 if (newStatus === 'canceled') updateData.canceledAt = firebase.firestore.FieldValue.serverTimestamp();
 
                 if (newStatus === 'completed') {
@@ -1829,8 +2014,8 @@
                 }
 
                 if (o.items && Array.isArray(o.items)) {
-                    let wasIn = ['processing', 'dispatched', 'completed', 'deferred'].includes(oldStatus);
-                    let isNowIn = ['processing', 'dispatched', 'completed', 'deferred'].includes(newStatus);
+                    let wasIn = ['processing', 'for_driver', 'dispatched', 'completed', 'deferred'].includes(oldStatus);
+                    let isNowIn = ['processing', 'for_driver', 'dispatched', 'completed', 'deferred'].includes(newStatus);
 
                     if (!wasIn && isNowIn) {
                         const deductedMap = {};
@@ -1954,6 +2139,7 @@
             if (!o || o.status === 'trash' || o.isArchived) return false;
             if (scope === 'processing' && o.status !== 'processing') return false;
             if (scope === 'new_and_proc' && !['new', 'processing'].includes(o.status)) return false;
+            if (scope === 'for_driver' && o.status !== 'for_driver') return false;
             if (scope === 'dispatched' && o.status !== 'dispatched') return false;
 
             if (pBatch !== 'all' && getOrderBatchTitle(o) !== pBatch) return false;
@@ -1991,6 +2177,7 @@
                     <select onchange="updatePackingListFilter('packingScope', this.value)" class="border border-slate-200 rounded-xl p-2 text-[11px] font-black bg-white outline-none">
                         <option value="processing" ${scope === 'processing' ? 'selected' : ''}>⏳ قيد التجهيز فقط</option>
                         <option value="new_and_proc" ${scope === 'new_and_proc' ? 'selected' : ''}>🆕 جديد + تجهيز معاً</option>
+                        <option value="for_driver" ${scope === 'for_driver' ? 'selected' : ''}>📦 في خانة للمندوب (بانتظار الاستلام)</option>
                         <option value="dispatched" ${scope === 'dispatched' ? 'selected' : ''}>🛵 في الطريق حالياً</option>
                     </select>
                     <select onchange="updatePackingListFilter('packingBatch', this.value)" class="border border-slate-200 rounded-xl p-2 text-[11px] font-black bg-white outline-none">${batchOpts}</select>
@@ -2125,17 +2312,18 @@
                 batch.update(db.collection('orders').doc(o.id), {
                     driverName: driverName,
                     driverPhone: driverPhone || '',
-                    status: 'dispatched',
-                    dispatchedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    status: 'for_driver',
+                    assignedToDriverAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
                 o.driverName = driverName;
                 o.driverPhone = driverPhone || '';
-                o.status = 'dispatched';
+                o.status = 'for_driver';
                 if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[o.id]) {
                     globalOrdersMap[o.id].driverName = driverName;
                     globalOrdersMap[o.id].driverPhone = driverPhone || '';
-                    globalOrdersMap[o.id].status = 'dispatched';
+                    globalOrdersMap[o.id].status = 'for_driver';
                 }
+                if (typeof window.syncOrderToGoogleSheet === 'function') window.syncOrderToGoogleSheet(o, 'update');
             });
 
             await batch.commit();
@@ -2143,7 +2331,7 @@
             if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
             if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
             if (typeof window.showToast === 'function') {
-                window.showToast(`🛵 تم توجيه (${targetOrders.length}) طلب إلى المندوب (${driverName}) في لمحة بصر!`);
+                window.showToast(`📦 تم نقل (${targetOrders.length}) طلب لخانة (للمندوب: ${driverName}) — اضغط بالطريق عند الاستلام!`);
             }
         } catch (e) {
             alert('حدث خطأ أثناء التوجيه السريع للمندوب!');
@@ -2514,7 +2702,7 @@
             }
 
             // في حالة استعادة طلب موقع من (ملغي) إلى (جديد/تجهيز): إعادة تفعيل الحجز تلقائياً
-            if (['new', 'processing', 'dispatched', 'deferred', 'no_answer'].includes(newStatus) && orderObj.source !== 'admin_crm') {
+            if (['new', 'processing', 'for_driver', 'dispatched', 'deferred', 'no_answer'].includes(newStatus) && orderObj.source !== 'admin_crm') {
                 const holdPayload = {};
                 orderObj.items.forEach(i => {
                     if (i && i.isWeightBased && Array.isArray(i.selectedWeightsGrams) && i.selectedWeightsGrams.length > 0) {
@@ -2543,6 +2731,9 @@
                     if (typeof window.showToast === 'function') window.showToast('⚖️ سكّن أوزان الطلب أولاً لحساب الفاتورة النهائية قبل التسليم!');
                     window.openAssignPendingWeightsModal(id);
                     return;
+                }
+                if (ord && ord.status === 'for_driver' && newStatus === 'dispatched') {
+                    return window.markForDriverOrderDispatched(id);
                 }
                 if (ord && ord.status === 'deferred' && newStatus !== 'deferred') {
                     ord.deferredAlertDismissed = true;
