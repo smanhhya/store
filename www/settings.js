@@ -1336,6 +1336,7 @@
             else if (orderObj.status === 'completed') statusAr = '✅ مكتمل';
             else if (orderObj.status === 'canceled') statusAr = '❌ ملغي';
             else if (orderObj.status === 'deferred') statusAr = '📅 مؤجل';
+            else if (orderObj.status === 'for_driver') statusAr = '📦 للمندوب (بانتظار الاستلام)';
             else if (orderObj.status === 'dispatched') statusAr = '🛵 في الطريق';
             else if (orderObj.status === 'no_answer') statusAr = '📵 لم يرد';
             else if (orderObj.status === 'trash') statusAr = '🗑️ محذوف';
@@ -3652,6 +3653,7 @@
         const statusLabels = {
             new: { t: '🆕 جديد', c: 'bg-blue-50 text-blue-700 border-blue-200' },
             processing: { t: '⏳ تجهيز', c: 'bg-amber-50 text-amber-800 border-amber-200' },
+            for_driver: { t: '📦 للمندوب', c: 'bg-cyan-50 text-cyan-800 border-cyan-200' },
             dispatched: { t: '🛵 بالطريق', c: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
             deferred: { t: '📅 مؤجل', c: 'bg-orange-50 text-orange-700 border-orange-200' },
             no_answer: { t: '📵 لم يرد', c: 'bg-purple-50 text-purple-700 border-purple-200' },
