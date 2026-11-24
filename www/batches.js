@@ -189,7 +189,7 @@
         let activeOrders = 0;
         let canceledOrders = 0;
 
-        const statusCounts = { new: 0, processing: 0, dispatched: 0, deferred: 0, no_answer: 0, completed: 0, canceled: 0 };
+        const statusCounts = { new: 0, processing: 0, for_driver: 0, dispatched: 0, deferred: 0, no_answer: 0, completed: 0, canceled: 0 };
         const zonesMap = {};
         const realBookedByProd = {};
         const realCompletedByProd = {};
@@ -1196,10 +1196,11 @@
 
                     <div>
                         <span class="text-[11px] font-black text-slate-500 block mb-2">📊 اضغط على أي مرحلة لعرض طلباتها في شاشة الطلبات الحية:</span>
-                        <div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-center">
+                        <div class="grid grid-cols-3 sm:grid-cols-7 gap-1.5 text-center">
                             <button type="button" onclick="jumpToBatchOrdersWithStatus('${safeBName}', 'all')" class="bg-slate-900 text-white p-2 rounded-xl text-[11px] font-black">الكل<span class="block text-base text-amber-300">${metrics.totalOrders}</span></button>
                             <button type="button" onclick="jumpToBatchOrdersWithStatus('${safeBName}', 'new')" class="bg-blue-50 text-blue-800 border border-blue-200 p-2 rounded-xl text-[11px] font-black">🆕 جديد<span class="block text-base">${sc.new}</span></button>
                             <button type="button" onclick="jumpToBatchOrdersWithStatus('${safeBName}', 'processing')" class="bg-amber-50 text-amber-900 border border-amber-200 p-2 rounded-xl text-[11px] font-black">⏳ تجهيز<span class="block text-base">${sc.processing}</span></button>
+                            <button type="button" onclick="jumpToBatchOrdersWithStatus('${safeBName}', 'for_driver')" class="bg-cyan-50 text-cyan-800 border border-cyan-200 p-2 rounded-xl text-[11px] font-black">📦 للمندوب<span class="block text-base">${sc.for_driver}</span></button>
                             <button type="button" onclick="jumpToBatchOrdersWithStatus('${safeBName}', 'dispatched')" class="bg-indigo-50 text-indigo-800 border border-indigo-200 p-2 rounded-xl text-[11px] font-black">🛵 بالطريق<span class="block text-base">${sc.dispatched}</span></button>
                             <button type="button" onclick="jumpToBatchOrdersWithStatus('${safeBName}', 'deferred')" class="bg-purple-50 text-purple-800 border border-purple-200 p-2 rounded-xl text-[11px] font-black">📵 مؤجل<span class="block text-base">${sc.deferred + sc.no_answer}</span></button>
                             <button type="button" onclick="jumpToBatchOrdersWithStatus('${safeBName}', 'completed')" class="bg-emerald-50 text-emerald-800 border border-emerald-200 p-2 rounded-xl text-[11px] font-black">✅ مكتمل<span class="block text-base">${sc.completed}</span></button>
@@ -1852,7 +1853,7 @@
                 ? o.items.map(i => `<span class="bg-indigo-50 px-2 py-0.5 rounded-lg text-indigo-700 font-black border border-indigo-100 text-xs inline-block m-0.5">${i.quantity}x ${escapeHtmlSafe(i.name)}</span>`).join(' ')
                 : '';
             const locationStr = `${o.zone || 'بدون منطقة'}${o.customerAddress ? ' - ' + o.customerAddress : ''}`;
-            const stAr = o.status === 'completed' ? '✅ مسلم' : (o.status === 'dispatched' ? '🛵 بالطريق' : (o.status === 'processing' ? '⏳ تجهيز' : '🆕 جديد'));
+            const stAr = o.status === 'completed' ? '✅ مسلم' : (o.status === 'dispatched' ? '🛵 بالطريق' : (o.status === 'for_driver' ? '📦 للمندوب' : (o.status === 'processing' ? '⏳ تجهيز' : '🆕 جديد')));
             const payStr = o.paymentMethod === 'online'
                 ? '<span class="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-black block">خالص أونلاين</span>'
                 : (o.paymentMethod === 'split' ? `<span class="text-[9px] bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded font-black block">كاش: ${o.paidCash || 0} | محفظة: ${o.paidOnline || 0}</span>` : '');
