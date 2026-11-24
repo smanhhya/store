@@ -929,7 +929,7 @@
                     }, { merge: true });
                 }
 
-                if (['processing', 'dispatched', 'deferred'].includes(order.status) && typeof storeFreezer !== 'undefined') {
+                if (['processing', 'for_driver', 'dispatched', 'deferred'].includes(order.status) && typeof storeFreezer !== 'undefined') {
                     const curFz = Math.max(0, Number(storeFreezer[targetItem.id]) || 0);
                     const prevMap = (order.freezerDeductedMap && typeof order.freezerDeductedMap === 'object') ? { ...order.freezerDeductedMap } : {};
                     const prevDed = Math.max(0, Number(prevMap[targetItem.id]) || 0);
@@ -1152,15 +1152,18 @@
                 order.status = 'processing';
                 notifyQuickToast('🔄 تم إلغاء تعيين المندوب وإرجاع الطلب للتجهيز');
             } else {
-                await db.collection('orders').doc(orderId).update({
+                const targetSt = (order.status === 'dispatched') ? 'dispatched' : 'for_driver';
+                const upd = {
                     driverName: newName,
                     driverPhone: newPhone || '',
-                    status: 'dispatched',
-                    dispatchedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
+                    status: targetSt
+                };
+                if (targetSt === 'dispatched') upd.dispatchedAt = firebase.firestore.FieldValue.serverTimestamp();
+                else upd.assignedToDriverAt = firebase.firestore.FieldValue.serverTimestamp();
+                await db.collection('orders').doc(orderId).update(upd);
                 order.driverName = newName;
                 order.driverPhone = newPhone || '';
-                order.status = 'dispatched';
+                order.status = targetSt;
                 notifyQuickToast(`🛵 تم نقل الطلب للمندوب: ${newName}`);
             }
             window.renderOrdersList();
@@ -1412,13 +1415,14 @@
         const fzEl = document.getElementById('lc-hdr-freezer-count');
         if (fzEl) fzEl.innerHTML = `${totalFreezerMeat}<span class="hidden sm:inline mr-0.5">طبق</span>`;
 
-        let newCount = 0, procCount = 0, dispCount = 0, noAnsCount = 0, notesCount = 0;
+        let newCount = 0, procCount = 0, forDriverCount = 0, dispCount = 0, noAnsCount = 0, notesCount = 0;
         let unsettledGrossCash = 0;
 
         ordersList.forEach(o => {
             if (!o || o.status === 'trash' || o.isArchived) return;
             if (o.status === 'new') newCount++;
             else if (o.status === 'processing') procCount++;
+            else if (o.status === 'for_driver') forDriverCount++;
             else if (o.status === 'dispatched') dispCount++;
             else if (o.status === 'no_answer' || o.status === 'deferred') noAnsCount++;
 
@@ -1471,6 +1475,7 @@
         if (pendingFarmBatches.length > 0) activeTasksGroups++;
         if (newCount > 0) activeTasksGroups++;
         if (procCount > 0) activeTasksGroups++;
+        if (forDriverCount > 0) activeTasksGroups++;
         if (noAnsCount > 0) activeTasksGroups++;
         if (unsettledGrossCash > 0) activeTasksGroups++;
         if (batchAlertCount > 0) activeTasksGroups++;
@@ -1499,7 +1504,7 @@
         const totalMarketDebt = custList.reduce((s, c) => s + (Number(c.debt) > 0 ? Number(c.debt) : 0), 0);
         const openBatchesCount = Object.values(batchesObj).filter(b => b && b.isOpen && b.name && b.name !== 'undefined').length;
 
-        setSbBadge('lc-sb-orders', newCount + procCount + dispCount);
+        setSbBadge('lc-sb-orders', newCount + procCount + forDriverCount + dispCount);
         setSbBadge('lc-sb-notes', notesCount);
         setSbBadge('lc-sb-debts', totalMarketDebt, ' ج');
         setSbBadge('lc-sb-batches', openBatchesCount);
@@ -1523,13 +1528,14 @@
         const batchesObj = (typeof storeBatches !== 'undefined' && storeBatches) ? storeBatches : {};
 
         let newCount = 0, newMoney = 0;
-        let procCount = 0, dispCount = 0, noAnsCount = 0;
+        let procCount = 0, forDriverCount = 0, dispCount = 0, noAnsCount = 0;
         let unsettledCash = 0, unsettledOrdersCount = 0;
 
         ordersList.forEach(o => {
             if (!o || o.status === 'trash' || o.isArchived) return;
             if (o.status === 'new') { newCount++; newMoney += (Number(o.total) || 0); }
             else if (o.status === 'processing') procCount++;
+            else if (o.status === 'for_driver') forDriverCount++;
             else if (o.status === 'dispatched') {
                 dispCount++;
                 if (o.driverName) {
@@ -1573,6 +1579,17 @@
                         <span class="text-[10px] font-bold text-amber-700">اضغط لمراجعتها أو توجيهها للمندوب</span>
                     </div>
                     <span class="bg-amber-500 text-slate-950 text-xs font-black px-2.5 py-1 rounded-xl shadow-sm">${procCount} طلب</span>
+                </div>`;
+        }
+
+        if (forDriverCount > 0) {
+            itemsHtml += `
+                <div onclick="closeLivePopover(); switchTab('orders', document.querySelector('#sidebar button[onclick*=\\'orders\\']')); setOrderTab('for_driver');" class="p-2.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 cursor-pointer flex justify-between items-center transition-all">
+                    <div>
+                        <span class="text-xs font-black text-cyan-950 block">📦 طلبات للمندوب (بانتظار الاستلام)</span>
+                        <span class="text-[10px] font-bold text-cyan-700">اضغط لتأكيد الاستلام وتحويلها إلى بالطريق</span>
+                    </div>
+                    <span class="bg-cyan-600 text-white text-xs font-black px-2.5 py-1 rounded-xl shadow-sm">${forDriverCount} طلب</span>
                 </div>`;
         }
 
