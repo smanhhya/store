@@ -1,9 +1,3 @@
-// =========================================================================
-// 🎁 استوديو العروض، الباكجات، وخزنة الهدايا الذكية (store-main/www/offers-studio.js)
-// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM)
-// يتحكم بالكامل في: خزنة النقاط (بيض وهدايا فقط) + سُلّم أطباق السمان + صانع الباكجات
-// =========================================================================
-
 (function () {
     const OFFERS_MIRROR_KEY = 'sman_loyalty_offers_mirror_v1';
 
@@ -17,7 +11,7 @@
                 enabled: true,
                 pointsPer100: 5,               // 5 نقاط لكل 100 ج
                 pointValueEGP: 0.40,           // قيمة مرجعية 0.40 ج (2% ظاهر للعميل)
-                eggPlateRealCost: 35,          // تكلفتك الحقيقية لطبق البيض
+                eggPlateRealCost: 40,          // تكلفتك الحقيقية لطبق البيض
                 allowCashRedemption: false,    // ممنوع خصم فلوس — هدايا عينية فقط
                 minOrderForRedeemEGP: 110,     // لا هدية بدون أوردر فعلي
                 rewards: [
@@ -27,7 +21,7 @@
                         productId: 'eggs',
                         qty: 1,
                         pointsCost: 125,
-                        realCostEGP: 35,
+                        realCostEGP: 40,
                         enabled: true
                     },
                     {
@@ -36,7 +30,7 @@
                         productId: 'eggs',
                         qty: 2,
                         pointsCost: 250,
-                        realCostEGP: 70,
+                        realCostEGP: 80,
                         enabled: true
                     }
                 ]
@@ -155,12 +149,20 @@
     // 🔄 1. التحميل والحفظ اللحظي في Firebase (inventory/loyalty_offers)
     // =========================================================================
     let offersListenerBound = false;
+    let offersLoadedOnce = false;
 
     window.bindOffersStudioFirestore = function () {
         if (offersListenerBound || typeof db === 'undefined') return;
         offersListenerBound = true;
         try {
             db.collection('inventory').doc('loyalty_offers').onSnapshot(snap => {
+                offersLoadedOnce = true;
+                if (snap && !snap.exists && typeof storeSettings !== 'undefined' && storeSettings) {
+                    // لا يوجد إعداد محفوظ بعد: ابدأ بقيم النقاط الحالية الفعلية بدل الافتراضية
+                    const ps = Number(storeSettings.pointsPer100), pv = Number(storeSettings.pointValueInEGP);
+                    if (ps > 0) window.storeOffersConfig.wallet.pointsPer100 = ps;
+                    if (pv > 0) window.storeOffersConfig.wallet.pointValueEGP = pv;
+                }
                 if (snap && snap.exists) {
                     const d = snap.data() || {};
                     const def = getDefaultOffersConfig();
@@ -176,7 +178,7 @@
                         window.renderOffersStudioUI();
                     }
                 }
-            }, () => {});
+            }, () => { offersLoadedOnce = true; });
         } catch (e) {}
     };
 
@@ -185,23 +187,29 @@
             if (!silent) alert('⚠️ يرجى تسجيل الدخول بحساب الأدمن أولاً ليتم الحفظ في السيرفر.');
             return;
         }
+        if (!offersLoadedOnce) {
+            if (!silent) alert('⏳ لسه بحمّل الإعدادات الحالية من السيرفر، استنى ثانيتين وجرب تاني.');
+            return;
+        }
         window.storeOffersConfig.updatedAt = Date.now();
         try { localStorage.setItem(OFFERS_MIRROR_KEY, JSON.stringify(window.storeOffersConfig)); } catch (e) {}
 
         try {
             const w = window.storeOffersConfig.wallet;
-            await Promise.all([
-                db.collection('inventory').doc('loyalty_offers').set(window.storeOffersConfig, { merge: true }),
-                // مزامنة قيم النقاط الأساسية مع settings حتى تبقى كل الشاشات متطابقة
-                db.collection('inventory').doc('settings').set({
+            const jobs = [db.collection('inventory').doc('loyalty_offers').set(window.storeOffersConfig, { merge: true })];
+            // مزامنة النقاط مع settings فقط لو أنت غيرتها بنفسك من الاستوديو (حتى لا نكتب فوق إعداداتك الحالية)
+            if (window.__osPointsDirty) {
+                jobs.push(db.collection('inventory').doc('settings').set({
                     pointsPer100: Number(w.pointsPer100) || 5,
                     pointValueInEGP: Number(w.pointValueEGP) || 0.40
-                }, { merge: true })
-            ]);
-            if (typeof storeSettings !== 'undefined') {
+                }, { merge: true }));
+            }
+            await Promise.all(jobs);
+            if (window.__osPointsDirty && typeof storeSettings !== 'undefined') {
                 storeSettings.pointsPer100 = Number(w.pointsPer100) || 5;
                 storeSettings.pointValueInEGP = Number(w.pointValueEGP) || 0.40;
             }
+            window.__osPointsDirty = false;
             if (!silent) notify('✅ تم حفظ ونشر نظام الهدايا والباكجات على المتجر بنجاح!');
         } catch (e) {
             console.error('Save offers config error:', e);
@@ -287,7 +295,7 @@
         const activeTab = window.offersStudioState.activeTab || 'wallet';
 
         const eggSellPrice = getProductPrice('eggs') || 50;
-        const eggRealCost = Math.max(1, Number(w.eggPlateRealCost) || 35);
+        const eggRealCost = Math.max(1, Number(w.eggPlateRealCost) || 40);
         const ptsPer100 = Math.max(0.1, Number(w.pointsPer100) || 5);
         const ptVal = Math.max(0.01, Number(w.pointValueEGP) || 0.40);
         const perceivedCashbackPct = (ptsPer100 * ptVal).toFixed(2);
@@ -313,7 +321,7 @@
                 ? `<div class="text-center py-6 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-2xl">لا توجد هدايا مضافة بعد — اضغط (+ إضافة هدية جديدة).</div>`
                 : rewards.map((r, idx) => {
                     const spendNeeded = Math.round((Number(r.pointsCost) / ptsPer100) * 100);
-                    const realCost = Number(r.realCostEGP) || (r.productId === 'eggs' ? eggRealCost * (Number(r.qty) || 1) : Math.round(getProductPrice(r.productId) * 0.7 * (Number(r.qty) || 1)));
+                    const realCost = r.productId === 'eggs' ? eggRealCost * (Number(r.qty) || 1) : (Number(r.realCostEGP) || Math.round(getProductPrice(r.productId) * 0.7 * (Number(r.qty) || 1)));
                     const realPct = spendNeeded > 0 ? ((realCost / spendNeeded) * 100).toFixed(2) : '0';
                     const safeCls = Number(realPct) <= 2.2 ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : (Number(realPct) <= 3.5 ? 'bg-amber-50 text-amber-900 border-amber-200' : 'bg-rose-50 text-rose-700 border-rose-200');
                     return `
@@ -349,15 +357,15 @@
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                         <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
                             <label class="text-[10px] font-black text-slate-500 block mb-1">نقاط لكل 100 ج</label>
-                            <input type="number" step="0.5" value="${w.pointsPer100}" onchange="storeOffersConfig.wallet.pointsPer100=parseFloat(this.value)||5; renderOffersStudioUI();" class="w-full bg-white border border-slate-200 rounded-xl p-2 text-center font-black text-sm text-slate-900 outline-none">
+                            <input type="number" step="0.5" value="${w.pointsPer100}" onchange="storeOffersConfig.wallet.pointsPer100=parseFloat(this.value)||5; window.__osPointsDirty=true; renderOffersStudioUI();" class="w-full bg-white border border-slate-200 rounded-xl p-2 text-center font-black text-sm text-slate-900 outline-none">
                         </div>
                         <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
                             <label class="text-[10px] font-black text-slate-500 block mb-1">قيمة النقطة المرجعية (ج)</label>
-                            <input type="number" step="0.05" value="${w.pointValueEGP}" onchange="storeOffersConfig.wallet.pointValueEGP=parseFloat(this.value)||0.40; renderOffersStudioUI();" class="w-full bg-white border border-slate-200 rounded-xl p-2 text-center font-black text-sm text-slate-900 outline-none">
+                            <input type="number" step="0.05" value="${w.pointValueEGP}" onchange="storeOffersConfig.wallet.pointValueEGP=parseFloat(this.value)||0.40; window.__osPointsDirty=true; renderOffersStudioUI();" class="w-full bg-white border border-slate-200 rounded-xl p-2 text-center font-black text-sm text-slate-900 outline-none">
                         </div>
                         <div class="bg-amber-50/70 p-3 rounded-2xl border border-amber-200">
                             <label class="text-[10px] font-black text-amber-900 block mb-1">تكلفة طبق البيض عليك (ج)</label>
-                            <input type="number" value="${w.eggPlateRealCost}" onchange="storeOffersConfig.wallet.eggPlateRealCost=parseFloat(this.value)||35; renderOffersStudioUI();" class="w-full bg-white border border-amber-300 rounded-xl p-2 text-center font-black text-sm text-amber-950 outline-none">
+                            <input type="number" value="${w.eggPlateRealCost}" onchange="storeOffersConfig.wallet.eggPlateRealCost=parseFloat(this.value)||40; renderOffersStudioUI();" class="w-full bg-white border border-amber-300 rounded-xl p-2 text-center font-black text-sm text-amber-950 outline-none">
                         </div>
                         <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
                             <label class="text-[10px] font-black text-slate-500 block mb-1">أقل أوردر لاستلام هدية (ج)</label>
@@ -660,9 +668,10 @@
         const title = (document.getElementById('os-rw-title')?.value || '').trim();
         const productId = document.getElementById('os-rw-prod')?.value || 'eggs';
         const qty = Math.max(1, parseInt(document.getElementById('os-rw-qty')?.value, 10) || 1);
-        const pointsCost = Math.max(10, parseInt(document.getElementById('os-rw-pts')?.value, 10) || 125);
-        const realCostEGP = Math.max(1, parseFloat(document.getElementById('os-rw-cost')?.value) || 35);
+        const pointsCost = parseInt(document.getElementById('os-rw-pts')?.value, 10) || 0;
+        const realCostEGP = Math.max(1, parseFloat(document.getElementById('os-rw-cost')?.value) || (window.storeOffersConfig.wallet.eggPlateRealCost || 40));
         if (!title) return alert('اكتب اسم الهدية أولاً!');
+        if (pointsCost < 10) return alert('اكتب عدد النقاط المطلوبة للهدية (10 على الأقل)!');
 
         if (!Array.isArray(window.storeOffersConfig.wallet.rewards)) window.storeOffersConfig.wallet.rewards = [];
         window.storeOffersConfig.wallet.rewards.push({
@@ -772,6 +781,10 @@
         if (!title) return alert('اكتب اسم الباكج أولاً!');
         if (items.length === 0) return alert('اختر صنفاً واحداً على الأقل داخل الباكج!');
         if (bundlePrice <= 0) return alert('اكتب سعر الباكج!');
+        const origForGuard = items.reduce((sum, it) => sum + getProductPrice(it.id) * it.qty, 0);
+        if (origForGuard > 0 && bundlePrice >= origForGuard) return alert('سعر الباكج لازم يكون أقل من السعر الأصلي (' + origForGuard + ' ج).');
+        if (origForGuard > 0 && (origForGuard - bundlePrice) / origForGuard > 0.25 &&
+            !confirm('الخصم أكتر من 25% (' + Math.round((origForGuard - bundlePrice) / origForGuard * 100) + '%). اتأكد إن السعر أعلى من تكلفتك. تكمل؟')) return;
 
         if (!Array.isArray(window.storeOffersConfig.bundles)) window.storeOffersConfig.bundles = [];
         window.storeOffersConfig.bundles.unshift({
