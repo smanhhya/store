@@ -305,7 +305,7 @@
             } catch (e) {}
         }
 
-        const activeRemaining = bOrders.filter(o => ['new', 'processing', 'dispatched', 'deferred', 'no_answer'].includes(o.status));
+        const activeRemaining = bOrders.filter(o => ['new', 'processing', 'for_driver', 'dispatched', 'deferred', 'no_answer'].includes(o.status));
         const activeNote = activeRemaining.length > 0
             ? `\n\n📌 ملاحظة: يوجد (${activeRemaining.length}) طلب حي (جديد/تجهيز/في الطريق) سيظل كما هو في شاشة الطلبات الحية، وعندما يكتمل يمكنك ترحيله يدوياً بزر (أرشفة للدفعة).`
             : '';
@@ -3231,7 +3231,7 @@
             const tableOrders = finalPeriodOrders.filter(o => {
                 if (subFilter === 'all_valid' && o.status === 'canceled') return false;
                 if (subFilter === 'completed' && o.status !== 'completed') return false;
-                if (subFilter === 'all_active' && !['new', 'processing', 'dispatched', 'deferred', 'no_answer'].includes(o.status)) return false;
+                if (subFilter === 'all_active' && !['new', 'processing', 'for_driver', 'dispatched', 'deferred', 'no_answer'].includes(o.status)) return false;
                 if (subFilter === 'canceled' && o.status !== 'canceled') return false;
                 if (subFilter === 'discounted') {
                     const fin = window.getAccurateOrderFinancials(o);
