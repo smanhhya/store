@@ -1244,8 +1244,8 @@
                         ? o.items.map(i => `<span class="bg-slate-100 border border-slate-200 text-slate-800 px-2.5 py-1 rounded-xl text-xs font-black inline-flex items-center gap-1"><strong class="text-brand-primary">${i.quantity}x</strong> ${i.name} <span class="text-[10px] text-slate-500">(${i.price}ج)</span></span>`).join('')
                         : '<span class="text-xs text-slate-400">لا توجد تفاصيل أصناف</span>';
 
-                    let statusAr = o.status === 'new' ? '🆕 جديد' : (o.status === 'processing' ? '⏳ قيد التجهيز' : (o.status === 'dispatched' ? '🛵 في الطريق' : (o.status === 'deferred' ? '📅 مؤجل' : (o.status === 'no_answer' ? '📵 لم يتم الرد' : (o.status === 'completed' ? '✅ مكتمل' : '❌ ملغي')))));
-                    let statusColor = o.status === 'new' ? 'text-blue-700 bg-blue-50 border-blue-200' : (o.status === 'processing' ? 'text-amber-800 bg-amber-50 border-amber-200' : (o.status === 'completed' ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : (o.status === 'dispatched' ? 'text-indigo-700 bg-indigo-50 border-indigo-200' : 'text-rose-700 bg-rose-50 border-rose-200')));
+                    let statusAr = o.status === 'new' ? '🆕 جديد' : (o.status === 'processing' ? '⏳ قيد التجهيز' : (o.status === 'for_driver' ? '📦 للمندوب' : (o.status === 'dispatched' ? '🛵 في الطريق' : (o.status === 'deferred' ? '📅 مؤجل' : (o.status === 'no_answer' ? '📵 لم يتم الرد' : (o.status === 'completed' ? '✅ مكتمل' : '❌ ملغي'))))));
+                    let statusColor = o.status === 'new' ? 'text-blue-700 bg-blue-50 border-blue-200' : (o.status === 'processing' ? 'text-amber-800 bg-amber-50 border-amber-200' : (o.status === 'for_driver' ? 'text-cyan-700 bg-cyan-50 border-cyan-200' : (o.status === 'completed' ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : (o.status === 'dispatched' ? 'text-indigo-700 bg-indigo-50 border-indigo-200' : 'text-rose-700 bg-rose-50 border-rose-200'))));
 
                     const batchTitle = (typeof window.resolveOrderBatchName === 'function')
                         ? window.resolveOrderBatchName(o)
