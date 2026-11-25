@@ -1,3 +1,9 @@
+// =========================================================================
+// 🎁 استوديو العروض، الباكجات، وخزنة الهدايا الذكية (store-main/www/offers-studio.js)
+// خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM)
+// يتحكم بالكامل في: خزنة النقاط (بيض وهدايا فقط) + سُلّم أطباق السمان + صانع الباكجات
+// =========================================================================
+
 (function () {
     const OFFERS_MIRROR_KEY = 'sman_loyalty_offers_mirror_v1';
 
@@ -149,20 +155,14 @@
     // 🔄 1. التحميل والحفظ اللحظي في Firebase (inventory/loyalty_offers)
     // =========================================================================
     let offersListenerBound = false;
-    let offersLoadedOnce = false;
+    let offersServerLoaded = false;   // لا حفظ قبل أول تحميل من السيرفر (حماية من مسح الإعدادات بالافتراضي)
+    let syncedPointsSnapshot = null;  // آخر قيم نقاط متزامنة مع settings — لا نكتبها إلا لو اتغيرت فعلاً
 
     window.bindOffersStudioFirestore = function () {
         if (offersListenerBound || typeof db === 'undefined') return;
         offersListenerBound = true;
         try {
             db.collection('inventory').doc('loyalty_offers').onSnapshot(snap => {
-                offersLoadedOnce = true;
-                if (snap && !snap.exists && typeof storeSettings !== 'undefined' && storeSettings) {
-                    // لا يوجد إعداد محفوظ بعد: ابدأ بقيم النقاط الحالية الفعلية بدل الافتراضية
-                    const ps = Number(storeSettings.pointsPer100), pv = Number(storeSettings.pointValueInEGP);
-                    if (ps > 0) window.storeOffersConfig.wallet.pointsPer100 = ps;
-                    if (pv > 0) window.storeOffersConfig.wallet.pointValueEGP = pv;
-                }
                 if (snap && snap.exists) {
                     const d = snap.data() || {};
                     const def = getDefaultOffersConfig();
@@ -178,8 +178,19 @@
                         window.renderOffersStudioUI();
                     }
                 }
-            }, () => { offersLoadedOnce = true; });
-        } catch (e) {}
+                const wSnap = window.storeOffersConfig.wallet || {};
+                syncedPointsSnapshot = {
+                    pointsPer100: Number(wSnap.pointsPer100) || 5,
+                    pointValueEGP: Number(wSnap.pointValueEGP) || 0.40
+                };
+                offersServerLoaded = true;
+            }, () => {
+                // فشل المستمع (مثلاً قبل تسجيل دخول الأدمن أو رفض القواعد): نسمح بإعادة الربط بدل قفل الحفظ للأبد
+                offersListenerBound = false;
+            });
+        } catch (e) {
+            offersListenerBound = false;
+        }
     };
 
     window.saveOffersStudioConfig = async function (silent = false) {
@@ -187,8 +198,9 @@
             if (!silent) alert('⚠️ يرجى تسجيل الدخول بحساب الأدمن أولاً ليتم الحفظ في السيرفر.');
             return;
         }
-        if (!offersLoadedOnce) {
-            if (!silent) alert('⏳ لسه بحمّل الإعدادات الحالية من السيرفر، استنى ثانيتين وجرب تاني.');
+        // حماية: ممنوع الحفظ قبل أول تحميل من السيرفر حتى لا تُكتب القيم الافتراضية فوق إعداداتك المحفوظة
+        if (!offersServerLoaded || typeof db === 'undefined' || !db) {
+            if (!silent) alert('⏳ لسّه بنحمّل الإعدادات الحالية من السيرفر... استنى لحظة وجرّب الحفظ تاني.');
             return;
         }
         window.storeOffersConfig.updatedAt = Date.now();
@@ -196,20 +208,31 @@
 
         try {
             const w = window.storeOffersConfig.wallet;
-            const jobs = [db.collection('inventory').doc('loyalty_offers').set(window.storeOffersConfig, { merge: true })];
-            // مزامنة النقاط مع settings فقط لو أنت غيرتها بنفسك من الاستوديو (حتى لا نكتب فوق إعداداتك الحالية)
-            if (window.__osPointsDirty) {
-                jobs.push(db.collection('inventory').doc('settings').set({
-                    pointsPer100: Number(w.pointsPer100) || 5,
-                    pointValueInEGP: Number(w.pointValueEGP) || 0.40
-                }, { merge: true }));
+            const curPts = Number(w.pointsPer100) || 5;
+            const curVal = Number(w.pointValueEGP) || 0.40;
+            // لا نلمس pointsPer100 / pointValueInEGP في settings إلا لو غيّرتهم فعلاً في الخانات
+            const pointsChanged = !syncedPointsSnapshot
+                || syncedPointsSnapshot.pointsPer100 !== curPts
+                || syncedPointsSnapshot.pointValueEGP !== curVal;
+
+            const writes = [
+                db.collection('inventory').doc('loyalty_offers').set(window.storeOffersConfig, { merge: true })
+            ];
+            if (pointsChanged) {
+                writes.push(
+                    db.collection('inventory').doc('settings').set({
+                        pointsPer100: curPts,
+                        pointValueInEGP: curVal
+                    }, { merge: true })
+                );
             }
-            await Promise.all(jobs);
-            if (window.__osPointsDirty && typeof storeSettings !== 'undefined') {
-                storeSettings.pointsPer100 = Number(w.pointsPer100) || 5;
-                storeSettings.pointValueInEGP = Number(w.pointValueEGP) || 0.40;
+            await Promise.all(writes);
+
+            if (pointsChanged && typeof storeSettings !== 'undefined') {
+                storeSettings.pointsPer100 = curPts;
+                storeSettings.pointValueInEGP = curVal;
             }
-            window.__osPointsDirty = false;
+            syncedPointsSnapshot = { pointsPer100: curPts, pointValueEGP: curVal };
             if (!silent) notify('✅ تم حفظ ونشر نظام الهدايا والباكجات على المتجر بنجاح!');
         } catch (e) {
             console.error('Save offers config error:', e);
@@ -357,11 +380,11 @@
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                         <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
                             <label class="text-[10px] font-black text-slate-500 block mb-1">نقاط لكل 100 ج</label>
-                            <input type="number" step="0.5" value="${w.pointsPer100}" onchange="storeOffersConfig.wallet.pointsPer100=parseFloat(this.value)||5; window.__osPointsDirty=true; renderOffersStudioUI();" class="w-full bg-white border border-slate-200 rounded-xl p-2 text-center font-black text-sm text-slate-900 outline-none">
+                            <input type="number" step="0.5" value="${w.pointsPer100}" onchange="storeOffersConfig.wallet.pointsPer100=parseFloat(this.value)||5; renderOffersStudioUI();" class="w-full bg-white border border-slate-200 rounded-xl p-2 text-center font-black text-sm text-slate-900 outline-none">
                         </div>
                         <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
                             <label class="text-[10px] font-black text-slate-500 block mb-1">قيمة النقطة المرجعية (ج)</label>
-                            <input type="number" step="0.05" value="${w.pointValueEGP}" onchange="storeOffersConfig.wallet.pointValueEGP=parseFloat(this.value)||0.40; window.__osPointsDirty=true; renderOffersStudioUI();" class="w-full bg-white border border-slate-200 rounded-xl p-2 text-center font-black text-sm text-slate-900 outline-none">
+                            <input type="number" step="0.05" value="${w.pointValueEGP}" onchange="storeOffersConfig.wallet.pointValueEGP=parseFloat(this.value)||0.40; renderOffersStudioUI();" class="w-full bg-white border border-slate-200 rounded-xl p-2 text-center font-black text-sm text-slate-900 outline-none">
                         </div>
                         <div class="bg-amber-50/70 p-3 rounded-2xl border border-amber-200">
                             <label class="text-[10px] font-black text-amber-900 block mb-1">تكلفة طبق البيض عليك (ج)</label>
@@ -668,10 +691,11 @@
         const title = (document.getElementById('os-rw-title')?.value || '').trim();
         const productId = document.getElementById('os-rw-prod')?.value || 'eggs';
         const qty = Math.max(1, parseInt(document.getElementById('os-rw-qty')?.value, 10) || 1);
-        const pointsCost = parseInt(document.getElementById('os-rw-pts')?.value, 10) || 0;
-        const realCostEGP = Math.max(1, parseFloat(document.getElementById('os-rw-cost')?.value) || (window.storeOffersConfig.wallet.eggPlateRealCost || 40));
+        const pointsCost = Math.max(10, parseInt(document.getElementById('os-rw-pts')?.value, 10) || 125);
+        const realCostEGP = productId === 'eggs'
+            ? (Math.max(1, Number(window.storeOffersConfig.wallet.eggPlateRealCost) || 40) * qty) // هدايا البيض تتبع خانة تكلفة البيض لحظياً
+            : Math.max(1, parseFloat(document.getElementById('os-rw-cost')?.value) || 40);
         if (!title) return alert('اكتب اسم الهدية أولاً!');
-        if (pointsCost < 10) return alert('اكتب عدد النقاط المطلوبة للهدية (10 على الأقل)!');
 
         if (!Array.isArray(window.storeOffersConfig.wallet.rewards)) window.storeOffersConfig.wallet.rewards = [];
         window.storeOffersConfig.wallet.rewards.push({
@@ -781,10 +805,22 @@
         if (!title) return alert('اكتب اسم الباكج أولاً!');
         if (items.length === 0) return alert('اختر صنفاً واحداً على الأقل داخل الباكج!');
         if (bundlePrice <= 0) return alert('اكتب سعر الباكج!');
-        const origForGuard = items.reduce((sum, it) => sum + getProductPrice(it.id) * it.qty, 0);
-        if (origForGuard > 0 && bundlePrice >= origForGuard) return alert('سعر الباكج لازم يكون أقل من السعر الأصلي (' + origForGuard + ' ج).');
-        if (origForGuard > 0 && (origForGuard - bundlePrice) / origForGuard > 0.25 &&
-            !confirm('الخصم أكتر من 25% (' + Math.round((origForGuard - bundlePrice) / origForGuard * 100) + '%). اتأكد إن السعر أعلى من تكلفتك. تكمل؟')) return;
+
+        // حماية: سعر الباكج لازم يكون أقل من مجموع أسعار الأصناف، وتأكيد إضافي لو الخصم أكبر من 25%
+        const origTotal = items.reduce((sum, it) => sum + (getProductPrice(it.id) * it.qty), 0);
+        if (origTotal > 0 && bundlePrice >= origTotal) {
+            return alert(`⚠️ سعر الباكج (${bundlePrice} ج) أكبر من أو يساوي السعر الأصلي للأصناف (${origTotal} ج) — كده العميل مش هيوفّر حاجة!`);
+        }
+        if (origTotal > 0) {
+            const discountPct = ((origTotal - bundlePrice) / origTotal) * 100;
+            if (discountPct > 25) {
+                const ok = confirm(`⚠️ تنبيه: خصم الباكج ${discountPct.toFixed(1)}% (العميل هيوفّر ${origTotal - bundlePrice} ج من ${origTotal} ج).
+نسبة خصم أعلى من 25% — متأكد إنك مش هتخسر؟
+
+اضغط OK للنشر أو Cancel للتعديل.`);
+                if (!ok) return;
+            }
+        }
 
         if (!Array.isArray(window.storeOffersConfig.bundles)) window.storeOffersConfig.bundles = [];
         window.storeOffersConfig.bundles.unshift({
