@@ -267,6 +267,10 @@
                         <i class="fa-solid fa-sliders text-amber-300"></i>
                         <span class="sb-tile-label">المتجر والقالب</span>
                     </button>
+                    <button type="button" id="sb-btn-offers-studio" onclick="switchTab('offers', this)" class="nav-btn sb-tile">
+                        <i class="fa-solid fa-gift text-amber-300"></i>
+                        <span class="sb-tile-label">العروض والولاء</span>
+                    </button>
                     <button type="button" onclick="switchTab('kitchen', this)" class="nav-btn sb-tile">
                         <i class="fa-solid fa-fire-burner text-orange-300"></i>
                         <span class="sb-tile-label">مطبخ سمان ههيا</span>
@@ -1103,6 +1107,8 @@
                 </div>
 
             </div>
+
+            <div id="view-offers" class="page-view space-y-4 max-w-6xl mx-auto pb-20"></div>
 
             <div id="view-kitchen" class="page-view space-y-4 max-w-6xl mx-auto pb-20"></div>
 
@@ -2597,6 +2603,10 @@
             if (tabId === 'reconciliation' && typeof renderReconciliationUI === 'function') renderReconciliationUI();
             if (tabId === 'radar' && typeof renderDriversRadarUI === 'function') renderDriversRadarUI();
             if (tabId === 'blacklist' && typeof renderBlacklistUI === 'function') renderBlacklistUI();
+            if (tabId === 'offers' && typeof window.renderOffersStudioUI === 'function') {
+                if (typeof window.bindOffersStudioFirestore === 'function') window.bindOffersStudioFirestore();
+                window.renderOffersStudioUI();
+            }
             if (tabId === 'kitchen' && typeof window.renderKitchenCRMUI === 'function') window.renderKitchenCRMUI();
             if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
 
@@ -7723,20 +7733,23 @@ window.deleteProductUI = async (id) => {
                     updateData.completedTimeDisplay = o.completedTimeDisplay || new Date(completionNowMs).toLocaleString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' });
                     updateData.completedAt = firebase.firestore.FieldValue.serverTimestamp();
 
-                    // 🎁 تحديث محفظة نقاط العميل مرة واحدة فقط (لمنع التكرار عند تغيير الحالة) 🎁
+                    // 🎁 تحديث محفظة نقاط العميل مرة واحدة فقط (يدعم مضاعف سُلّم السمان + بونص الباكجات وبديل البيض) 🎁
                     if (oldStatus !== 'completed' && !o.loyaltyPointsAwarded) {
                         updateData.loyaltyPointsAwarded = true;
                         o.loyaltyPointsAwarded = true;
-                        let ptsPer100 = storeSettings.pointsPer100 || 5;
-                        let orderSubtotal = Number(o.subtotal) || 0;
-                        if (orderSubtotal >= 100 && o.customerPhone) {
-                            let earnedPoints = Math.floor(orderSubtotal / 100) * ptsPer100;
-                            if (earnedPoints > 0) {
-                                let cleanPhone = o.customerPhone.startsWith('0') ? o.customerPhone : '0' + o.customerPhone;
-                                atomicBatch.set(db.collection('customers').doc(cleanPhone), { 
-                                    walletPoints: firebase.firestore.FieldValue.increment(earnedPoints) 
-                                }, { merge: true });
-                            }
+                        let ptsPer100 = Number(storeSettings.pointsPer100) || 5;
+                        let netProducts = Math.max(0, (Number(o.subtotal) || 0) - (Number(o.discount) || 0));
+                        let basePoints = netProducts >= 100 ? Math.floor(netProducts / 100) * ptsPer100 : 0;
+                        let mult = Math.max(1, Number(o.pointsMultiplier) || 1);
+                        let bonusPts = Math.max(0, Number(o.bonusPoints) || 0);
+                        let earnedPoints = Math.round(basePoints * mult) + bonusPts;
+                        updateData.earnedPoints = earnedPoints;
+                        o.earnedPoints = earnedPoints;
+                        if (earnedPoints > 0 && o.customerPhone) {
+                            let cleanPhone = o.customerPhone.startsWith('0') ? o.customerPhone : '0' + o.customerPhone;
+                            atomicBatch.set(db.collection('customers').doc(cleanPhone), { 
+                                walletPoints: firebase.firestore.FieldValue.increment(earnedPoints) 
+                            }, { merge: true });
                         }
                     }
                 }
@@ -8320,11 +8333,11 @@ window.deleteProductUI = async (id) => {
             let pointValue = Number(storeSettings.pointValueInEGP) || 0.40;
             let liabilityInEGP = totalPointsInMarket * pointValue;
 
-            // 2. البحث عن عمليات استبدال النقاط في الملاحظات الإدارية
+            // 2. البحث عن عمليات استبدال النقاط (سواء بهدية بيض من الاستوديو أو خصم قديم)
             let redemptionHistory = [];
             allOrdersRaw.forEach(o => {
-                // حماية: التأكد إن الملاحظة موجودة وعبارة عن نص
-                if (o.adminNote && typeof o.adminNote === 'string' && (o.adminNote.includes('استبدل نقاطه') || o.adminNote.includes('فعّل خصم المحفظة'))) {
+                const noteStr = (o.adminNote && typeof o.adminNote === 'string') ? o.adminNote : '';
+                if (o.walletRewardRedeemed || noteStr.includes('استبدل نقاطه') || noteStr.includes('استبدل ') || noteStr.includes('فعّل خصم المحفظة')) {
                     redemptionHistory.push(o);
                 }
             });
@@ -8384,8 +8397,11 @@ window.deleteProductUI = async (id) => {
             } else {
                 redemptionHistory.forEach(o => {
                     // استخلاص السطر اللي فيه كلام المحفظة من الملاحظات
-                    let noteLines = o.adminNote.split('\n');
-                    let targetNote = noteLines.find(l => l.includes('استبدل نقاطه') || l.includes('فعّل خصم المحفظة')) || 'استخدم نقاط المحفظة';
+                    // استخلاص تفاصيل الاستبدال (هدية بيض أو خصم سابق)
+                    let noteLines = (o.adminNote || '').split('\n');
+                    let targetNote = o.walletRewardRedeemed
+                        ? `🎁 استبدل ${o.walletRewardRedeemed.pointsCost || 0} نقطة بهدية: ${o.walletRewardRedeemed.title || 'هدية'}`
+                        : (noteLines.find(l => l.includes('استبدل نقاطه') || l.includes('استبدل ') || l.includes('فعّل خصم المحفظة')) || 'استخدم نقاط المحفظة');
                     // تنظيف النص
                     targetNote = targetNote.replace(/\[.*?\]\s*/, '').replace(/---/g, '').trim();
 
@@ -8877,51 +8893,8 @@ window.deleteProductUI = async (id) => {
                 };
             });
 
-                let dispatchedOrders = [];
-                let noAnswerOrders = [];
-                let completedOrders = [];
-                let collectedCash = 0;
-                let driverFees = 0;
-
-                drv.orders.forEach(o => {
-                    const total = Number(o.total) || 0;
-                    const fee = Number(o.deliveryFee) || 0;
-
-                    if (o.status === 'dispatched') {
-                        dispatchedOrders.push(o);
-                        totalDispatchedAll++;
-                    } else if (o.status === 'no_answer') {
-                        noAnswerOrders.push(o);
-                    } else if (o.status === 'completed') {
-                        completedOrders.push(o);
-                        totalCompletedAll++;
-                        if (!o.isSupplied) {
-                            if (o.paymentMethod !== 'online') collectedCash += total;
-                            driverFees += fee;
-                        }
-                    }
-                });
-
-                const totalRouteOrders = dispatchedOrders.length + noAnswerOrders.length + completedOrders.length;
-                if (totalRouteOrders === 0) return;
-
-                totalActiveDrivers++;
-                const netToRemit = Math.max(0, collectedCash - driverFees);
-                totalNetCashAll += netToRemit;
-
-                const filterOrderFn = (o) => {
-                    if (radarStatusFilter !== 'all' && o.status !== radarStatusFilter) return false;
-                    if (!searchVal) return true;
-                    const itemsTxt = (o.items && Array.isArray(o.items)) ? o.items.map(i => i.name).join(' ') : '';
-                    const hay = `${o.customerName || ''} ${o.customerPhone || ''} ${o.customerPhone2 || ''} ${o.zone || ''} ${o.customerAddress || ''} ${itemsTxt} ${o.driverNote || ''}`.toLowerCase();
-                    return hay.includes(searchVal);
-                };
-
-                const shownDispatched = dispatchedOrders.filter(filterOrderFn);
-                const shownNoAnswer = noAnswerOrders.filter(filterOrderFn);
-                const shownCompleted = completedOrders.filter(filterOrderFn);
-
-                if (searchVal && shownDispatched.length === 0 && shownNoAnswer.length === 0 && shownCompleted.length === 0) return;
+            allOrdersRaw.forEach(o => {
+                if (!o || o.isArchived || !['for_driver', 'dispatched', 'no_answer', 'completed'].includes(o.status)) return;
 
                 if (o.status === 'completed' && o.isSupplied === true) {
                     if (!radarShowSupplied || o.completedAtStr !== nowStr) return;
@@ -8962,6 +8935,7 @@ window.deleteProductUI = async (id) => {
             Object.values(driversMap).forEach(drv => {
                 if (radarDriverFilter !== 'all' && drv.normPhone !== radarDriverFilter && drv.key !== radarDriverFilter) return;
 
+                let forDriverOrders = [];
                 let dispatchedOrders = [];
                 let noAnswerOrders = [];
                 let completedOrders = [];
@@ -8972,7 +8946,9 @@ window.deleteProductUI = async (id) => {
                     const total = Number(o.total) || 0;
                     const fee = Number(o.deliveryFee) || 0;
 
-                    if (o.status === 'dispatched') {
+                    if (o.status === 'for_driver') {
+                        forDriverOrders.push(o);
+                    } else if (o.status === 'dispatched') {
                         dispatchedOrders.push(o);
                         totalDispatchedAll++;
                     } else if (o.status === 'no_answer') {
@@ -8981,13 +8957,17 @@ window.deleteProductUI = async (id) => {
                         completedOrders.push(o);
                         totalCompletedAll++;
                         if (!o.isSupplied) {
-                            if (o.paymentMethod !== 'online') collectedCash += total;
+                            if (o.paymentMethod === 'split') {
+                                collectedCash += (o.paidCash !== undefined ? Number(o.paidCash) : Math.max(0, total - (Number(o.paidOnline) || 0)));
+                            } else if (o.paymentMethod !== 'online') {
+                                collectedCash += total;
+                            }
                             driverFees += fee;
                         }
                     }
                 });
 
-                const totalRouteOrders = dispatchedOrders.length + noAnswerOrders.length + completedOrders.length;
+                const totalRouteOrders = forDriverOrders.length + dispatchedOrders.length + noAnswerOrders.length + completedOrders.length;
                 if (totalRouteOrders === 0) return;
 
                 totalActiveDrivers++;
@@ -9002,11 +8982,12 @@ window.deleteProductUI = async (id) => {
                     return hay.includes(searchVal);
                 };
 
+                const shownForDriver = forDriverOrders.filter(filterOrderFn);
                 const shownDispatched = dispatchedOrders.filter(filterOrderFn);
                 const shownNoAnswer = noAnswerOrders.filter(filterOrderFn);
                 const shownCompleted = completedOrders.filter(filterOrderFn);
 
-                if (searchVal && shownDispatched.length === 0 && shownNoAnswer.length === 0 && shownCompleted.length === 0) return;
+                if (searchVal && shownForDriver.length === 0 && shownDispatched.length === 0 && shownNoAnswer.length === 0 && shownCompleted.length === 0) return;
 
                 const progressPercent = totalRouteOrders > 0 ? Math.round((completedOrders.length / totalRouteOrders) * 100) : 0;
                 const waPhone = (drv.phone || '').startsWith('0') ? '2' + drv.phone : drv.phone;
@@ -9134,7 +9115,7 @@ window.deleteProductUI = async (id) => {
     <script src="customers.js?v=20261129"></script>
     <script src="waybill.js?v=20261129"></script>
     <script src="live-connect.js?v=20261129"></script>
-    <script src="offers-studio.js?v=1" defer></script>
+    <script src="offers-studio.js?v=2"></script>
 
     <script>
         if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
