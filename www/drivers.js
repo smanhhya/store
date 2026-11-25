@@ -1,12 +1,18 @@
 // =========================================================================
-// 🛵 المحرك الموحد للمناديب، التوجيه، الرادار الحي، وتقفيل العهدة المرن (www/drivers.js)
+// 🛵 المحرك الموحد للمناديب، التوجيه، الرادار الحي، وتقفيل العهدة الذكي (www/drivers.js)
 // خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM)
-// يعتمد تقفيل المندوب الفعلي (كاش 💵 / فيزا أو محفظة 💳 / نص ونص ⚖️) كمرجع نهائي للداش بورد
+// ربط كامل 100% بين: تطبيق المندوب (كاش / تحويل / جزء وجزء) ↔ تقفيل العهدة ↔ لوحة القيادة
 // =========================================================================
 
 (function () {
     window.reconShowHistory = false;
     window.reconOpenSplitOrderId = null;
+    window.reconSelectedOrderIds = null; // null = تحديد تلقائي (المسلمة أولاً وإلا في الطريق)
+    window._reconLastDriverKey = '';
+
+    function escAttr(str) {
+        return String(str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
 
     // حساب صافي قيمة المنتجات للمالك (بدون مصاريف التوصيل) للتطابق التام مع dashboard.js
     function getOwnerNetProductTotal(order) {
@@ -25,7 +31,7 @@
     // قراءة تفصيلة دفع الطلب الواحد (شامل الشحن للمندوب + صافي المنتجات للداش بورد)
     window.getOrderPaymentBreakdown = function (order) {
         if (!order) return { method: 'cash', cash: 0, online: 0, total: 0, netCash: 0, netOnline: 0, netTotal: 0 };
-        const total = Number(order.total) || 0;
+        const total = Math.round(Number(order.total) || 0);
         const netTotal = getOwnerNetProductTotal(order);
         const method = order.paymentMethod || 'cash';
 
@@ -37,7 +43,7 @@
             if (cashPart < 0) cashPart = 0;
             if (cashPart > total) cashPart = total;
             let onlinePart = (order.paidOnline !== undefined && order.paidOnline !== null) ? Number(order.paidOnline) : Math.max(0, total - cashPart);
-            if (cashPart + onlinePart !== total) {
+            if (Math.abs((cashPart + onlinePart) - total) > 1) {
                 onlinePart = Math.max(0, total - cashPart);
             }
 
@@ -46,7 +52,7 @@
                 : Math.min(netTotal, onlinePart);
             let netCash = Math.max(0, netTotal - netOnline);
 
-            return { method: 'split', cash: cashPart, online: onlinePart, total: total, netCash: netCash, netOnline: netOnline, netTotal: netTotal };
+            return { method: 'split', cash: Math.round(cashPart), online: Math.round(onlinePart), total: total, netCash: Math.round(netCash), netOnline: Math.round(netOnline), netTotal: netTotal };
         }
         return { method: 'cash', cash: total, online: 0, total: total, netCash: netTotal, netOnline: 0, netTotal: netTotal };
     };
@@ -219,7 +225,7 @@
     setTimeout(attachSplitPaymentHooks, 2000);
 
     // =====================================================================
-    // ب. دالة مطابقة المندوب
+    // ب. مطابقة المندوب وحساب العهدة المفتوحة (تشمل المسلّم من التطبيق + بالطريق)
     // =====================================================================
     function isOrderForDriver(order, driverIdentifier) {
         if (!order || !driverIdentifier) return false;
@@ -243,6 +249,14 @@
         return false;
     }
 
+    function isOrderOpenCustody(o) {
+        if (!o || o.status === 'trash' || o.isArchived) return false;
+        if (o.isReconciled === true) return false; // لا تُغلق العهدة لدى الإدارة إلا بتأكيد الأدمن
+        if (o.deliveryType === 'pickup') return false;
+        if (!o.driverName && !o.driverPhone) return false;
+        return o.status === 'completed' || o.status === 'dispatched';
+    }
+
     // 1. الانتقال السريع من شاشة "رادار المناديب" إلى "تقفيل العهدة"
     window.jumpToDriverRecon = function (driverPhoneOrName) {
         const reconBtn = document.querySelector('button[onclick*="switchTab(\'reconciliation\'"]');
@@ -258,7 +272,7 @@
             const normTarget = window.normalizePhone ? window.normalizePhone(driverPhoneOrName) : driverPhoneOrName;
             const driversList = (typeof storeSettings !== 'undefined' && Array.isArray(storeSettings.drivers)) ? storeSettings.drivers : [];
             const foundDrv = driversList.find(d =>
-                (d.name && d.name.trim() === driverPhoneOrName.trim()) ||
+                (d.name && d.name.trim() === String(driverPhoneOrName || '').trim()) ||
                 (d.phone && (window.normalizePhone ? window.normalizePhone(d.phone) : d.phone) === normTarget)
             );
 
@@ -271,11 +285,12 @@
                     }
                 });
             }
+            window.reconSelectedOrderIds = null;
             window.calculateDriverReconciliation();
         }, 120);
     };
 
-    // 2. رسم قائمة شاشة تقفيل عهدة المناديب
+    // 2. رسم قائمة المناديب في شاشة تقفيل العهدة
     window.renderReconciliationUI = function () {
         const selectEl = document.getElementById('recon-driver-select');
         if (!selectEl) return;
@@ -284,33 +299,52 @@
         const driversMap = {};
 
         (storeSettings?.drivers || []).forEach(d => {
-            if (d && d.name) driversMap[d.name.trim()] = { name: d.name.trim(), phone: d.phone || '', openCount: 0 };
+            if (d && d.name) {
+                driversMap[d.name.trim()] = { name: d.name.trim(), phone: d.phone || '', completedOpen: 0, dispatchedOpen: 0, requestedSupply: 0 };
+            }
         });
 
-        // العهدة المفتوحة = الطلبات التي ما زالت (في الطريق - dispatched) فقط؛ لأن أي طلب (مكتمل) وصلت فلوسه بالفعل
         (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).forEach(o => {
-            if (!o || o.status === 'trash' || o.isArchived) return;
-            if (o.status !== 'dispatched') return;
-            if (o.isReconciled || o.isSupplied) return;
-            const dName = (o.driverName || '').trim();
+            if (!isOrderOpenCustody(o)) return;
+            const dName = (o.driverName || '').trim() || (o.driverPhone || '').trim();
             if (!dName) return;
-            if (!driversMap[dName]) driversMap[dName] = { name: dName, phone: o.driverPhone || '', openCount: 0 };
-            driversMap[dName].openCount++;
+
+            // توحيد الاسم مع قائمة المناديب المسجلة لو التطابق برقم الهاتف
+            let key = dName;
+            const found = Object.values(driversMap).find(d => isOrderForDriver(o, d.name));
+            if (found) key = found.name;
+            else if (!driversMap[key]) driversMap[key] = { name: key, phone: o.driverPhone || '', completedOpen: 0, dispatchedOpen: 0, requestedSupply: 0 };
+
+            if (o.status === 'completed') {
+                driversMap[key].completedOpen++;
+                if (o.isSupplied === true) driversMap[key].requestedSupply++;
+            } else if (o.status === 'dispatched') {
+                driversMap[key].dispatchedOpen++;
+            }
         });
 
+        const driversArr = Object.values(driversMap).sort((a, b) =>
+            (b.completedOpen * 10 + b.dispatchedOpen) - (a.completedOpen * 10 + a.dispatchedOpen)
+        );
 
-        const driversArr = Object.values(driversMap).sort((a, b) => b.openCount - a.openCount);
         let autoSelectedDriver = currentSelectedDriver;
-        const firstOpenDriver = driversArr.find(d => d.openCount > 0);
+        const firstOpenDriver = driversArr.find(d => (d.completedOpen + d.dispatchedOpen) > 0);
         if (!autoSelectedDriver && firstOpenDriver) {
             autoSelectedDriver = firstOpenDriver.name;
-        } else if (autoSelectedDriver && driversMap[autoSelectedDriver] && driversMap[autoSelectedDriver].openCount === 0 && firstOpenDriver && !window.reconShowHistory) {
+        } else if (autoSelectedDriver && driversMap[autoSelectedDriver] && (driversMap[autoSelectedDriver].completedOpen + driversMap[autoSelectedDriver].dispatchedOpen) === 0 && firstOpenDriver && !window.reconShowHistory) {
             autoSelectedDriver = firstOpenDriver.name;
         }
 
         selectEl.innerHTML = '<option value="">-- اختر المندوب لحساب عهدته وتصفية الوردية --</option>';
         driversArr.forEach(d => {
-            const countBadge = d.openCount > 0 ? ` — [عهدة مفتوحة: ${d.openCount} طلب]` : ' — [خالصة ✅]';
+            const totalOpen = d.completedOpen + d.dispatchedOpen;
+            let countBadge = ' — [خالصة ✅]';
+            if (totalOpen > 0) {
+                const parts = [];
+                if (d.completedOpen > 0) parts.push(`${d.completedOpen} مُسلّم`);
+                if (d.dispatchedOpen > 0) parts.push(`${d.dispatchedOpen} بالطريق`);
+                countBadge = ` — [${parts.join(' + ')}${d.requestedSupply > 0 ? ' 🔔 طلب توريد' : ''}]`;
+            }
             selectEl.innerHTML += `<option value="${d.name}" ${autoSelectedDriver === d.name ? 'selected' : ''}>🛵 ${d.name} (${d.phone || 'بدون رقم'})${countBadge}</option>`;
         });
 
@@ -325,6 +359,30 @@
         window.calculateDriverReconciliation();
     };
 
+    window.toggleReconOrderCheck = function (orderId, checked) {
+        if (!window.reconSelectedOrderIds) window.reconSelectedOrderIds = new Set();
+        if (checked) window.reconSelectedOrderIds.add(orderId);
+        else window.reconSelectedOrderIds.delete(orderId);
+        window.calculateDriverReconciliation();
+    };
+
+    window.selectReconOrdersPreset = function (mode) {
+        const driverName = document.getElementById('recon-driver-select')?.value;
+        if (!driverName) return;
+        const openOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o =>
+            isOrderOpenCustody(o) && isOrderForDriver(o, driverName)
+        );
+        const todayStr = new Date().toLocaleDateString('en-US');
+        window.reconSelectedOrderIds = new Set();
+
+        openOrders.forEach(o => {
+            if (mode === 'all') window.reconSelectedOrderIds.add(o.id);
+            else if (mode === 'completed' && o.status === 'completed') window.reconSelectedOrderIds.add(o.id);
+            else if (mode === 'today' && o.status === 'completed' && o.completedAtStr === todayStr) window.reconSelectedOrderIds.add(o.id);
+        });
+        window.calculateDriverReconciliation();
+    };
+
     // =====================================================================
     // ج. تغيير طريقة دفع أوردر معين مباشرة من داخل شاشة تقفيل العهدة
     // =====================================================================
@@ -332,7 +390,7 @@
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
         if (!order) return;
 
-        const total = Number(order.total) || 0;
+        const total = Math.round(Number(order.total) || 0);
         const netTotal = getOwnerNetProductTotal(order);
 
         if (newMode === 'split') {
@@ -399,7 +457,6 @@
         }
     };
 
-    // المزامنة اللحظية لخانتي (الكاش) و(الفيزا/المحفظة) داخل كارت الطلب في التقفيل
     window.syncInlineReconSplit = function (orderId, total, changedSide) {
         const cashEl = document.getElementById(`recon-split-cash-${orderId}`);
         const onlineEl = document.getElementById(`recon-split-online-${orderId}`);
@@ -418,15 +475,14 @@
         }
     };
 
-    // حفظ تقسيمة (النص والنص) للطلب الواحد داخل شاشة تقفيل العهدة
     window.saveInlineReconSplit = async function (orderId) {
         const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
         if (!order) return;
 
-        const total = Number(order.total) || 0;
+        const total = Math.round(Number(order.total) || 0);
         const netTotal = getOwnerNetProductTotal(order);
 
-        let cashVal = Number(document.getElementById(`recon-split-cash-${orderId}`)?.value) || 0;
+        let cashVal = Math.round(Number(document.getElementById(`recon-split-cash-${orderId}`)?.value) || 0);
         if (cashVal < 0) cashVal = 0;
         if (cashVal > total) cashVal = total;
         let onlineVal = Math.max(0, total - cashVal);
@@ -482,73 +538,58 @@
     };
 
     // =====================================================================
-    // د. دوال التحكم في الصندوق السفلي لمطابقة الخزنة مع المندوب
+    // د. حاسبة مطابقة الخزنة الموحدة (صافي الكاش من المندوب + صافي التحويلات)
     // =====================================================================
-    window.applyReconPreset = function (mode, totalAllGross, totalAllNetProducts) {
+    window._lastReconSummary = null;
+
+    window.applyReconPreset = function (mode) {
+        const s = window._lastReconSummary;
         const cashInput = document.getElementById('actual-collected-cash');
         const walletInput = document.getElementById('actual-collected-wallet');
-        const baseSelect = document.getElementById('recon-target-base');
-        if (!cashInput || !walletInput) return;
+        if (!s || !cashInput || !walletInput) return;
 
-        if (mode === 'all_cash') {
-            if (baseSelect) baseSelect.value = String(totalAllGross);
-            cashInput.value = totalAllGross;
-            walletInput.value = 0;
+        if (mode === 'exact_match') {
+            cashInput.value = s.expectedCashFromDriver;
+            walletInput.value = s.expectedNetOnline;
         } else if (mode === 'net_cash') {
-            if (baseSelect) baseSelect.value = String(totalAllNetProducts);
-            cashInput.value = totalAllNetProducts;
+            cashInput.value = s.totalAllNetProducts;
             walletInput.value = 0;
-        } else if (mode === 'all_wallet') {
-            if (baseSelect) baseSelect.value = String(totalAllGross);
-            cashInput.value = 0;
-            walletInput.value = totalAllGross;
         } else if (mode === 'net_wallet') {
-            if (baseSelect) baseSelect.value = String(totalAllNetProducts);
             cashInput.value = 0;
-            walletInput.value = totalAllNetProducts;
-        } else if (mode === 'split_50_50') {
-            const currentTarget = Number(baseSelect?.value) || totalAllNetProducts;
-            const half = Math.round(currentTarget / 2);
-            cashInput.value = half;
-            walletInput.value = Math.max(0, currentTarget - half);
+            walletInput.value = s.totalAllNetProducts;
         }
-        window.checkCashDifference(totalAllGross, totalAllNetProducts);
+        window.checkCashDifference();
     };
 
-    window.onReconSettlementInput = function (changedSide, totalAllGross, totalAllNetProducts) {
+    window.onReconSettlementInput = function (changedSide) {
+        const s = window._lastReconSummary;
         const cashInput = document.getElementById('actual-collected-cash');
         const walletInput = document.getElementById('actual-collected-wallet');
         const autoSplitCb = document.getElementById('recon-auto-split-cb');
-        if (!cashInput || !walletInput) return;
-
-        const targetBase = Number(document.getElementById('recon-target-base')?.value) || totalAllNetProducts;
+        if (!s || !cashInput || !walletInput) return;
 
         if (autoSplitCb && autoSplitCb.checked) {
             if (changedSide === 'cash') {
-                let c = Number(cashInput.value) || 0;
-                if (c < 0) c = 0;
-                walletInput.value = Math.max(0, targetBase - c);
+                let c = Math.max(0, Number(cashInput.value) || 0);
+                walletInput.value = Math.max(0, s.totalAllNetProducts - c);
             } else {
-                let w = Number(walletInput.value) || 0;
-                if (w < 0) w = 0;
-                cashInput.value = Math.max(0, targetBase - w);
+                let w = Math.max(0, Number(walletInput.value) || 0);
+                cashInput.value = Math.max(0, s.totalAllNetProducts - w);
             }
         }
-        window.checkCashDifference(totalAllGross, totalAllNetProducts);
+        window.checkCashDifference();
     };
 
-    window.checkCashDifference = function (totalAllGross, totalAllNetProducts) {
+    window.checkCashDifference = function () {
+        const s = window._lastReconSummary;
         const alertEl = document.getElementById('cash-diff-alert');
-        if (!alertEl) return;
+        if (!s || !alertEl) return;
 
-        const cashVal = Number(document.getElementById('actual-collected-cash')?.value) || 0;
-        const walletVal = Number(document.getElementById('actual-collected-wallet')?.value) || 0;
+        const cashVal = Math.max(0, Math.round(Number(document.getElementById('actual-collected-cash')?.value) || 0));
+        const walletVal = Math.max(0, Math.round(Number(document.getElementById('actual-collected-wallet')?.value) || 0));
         const totalReceived = cashVal + walletVal;
+        const netTarget = s.totalAllNetProducts;
 
-        const netTarget = (totalAllNetProducts !== undefined) ? totalAllNetProducts : totalAllGross;
-        const driverFee = Math.max(0, totalAllGross - netTarget);
-
-        // حساب ما سيسمّع فعلياً في الداش بورد (صافي المنتجات بدون التوصيل)
         let dashOnlinePreview = Math.min(netTarget, walletVal);
         let dashCashPreview = Math.max(0, netTarget - dashOnlinePreview);
         if (walletVal === 0 && cashVal > 0) {
@@ -559,26 +600,24 @@
             dashOnlinePreview = netTarget;
         }
 
-        const dashPreviewLine = `<div class="mt-1.5 pt-1.5 border-t border-black/10 text-[11px] font-black">📊 ما سيسمّع في لوحة القيادة (صافي المنتجات بدون الشحن): [💵 كاش الدرج: ${dashCashPreview.toLocaleString()} ج] + [💳 محفظة/فيزا: ${dashOnlinePreview.toLocaleString()} ج]</div>`;
+        const dashLine = `<div class="mt-1.5 pt-1.5 border-t border-black/10 text-[11px] font-black">📊 ما سيسمّع في لوحة القيادة (صافي المنتجات): [💵 كاش الدرج: ${dashCashPreview.toLocaleString()} ج] + [💳 محفظة/إنستاباي: ${dashOnlinePreview.toLocaleString()} ج]</div>`;
 
-        if (totalReceived === totalAllGross) {
+        if (totalReceived === netTarget) {
             alertEl.className = 'mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-center text-xs font-black shadow-sm';
-            alertEl.innerHTML = `✅ مطابق تماماً لإجمالي العهدة شامل الشحن (${totalAllGross.toLocaleString()} ج) — استلام: [💵 كاش: ${cashVal.toLocaleString()} ج + 💳 فيزا/محفظة: ${walletVal.toLocaleString()} ج]${dashPreviewLine}`;
-        } else if (totalReceived === netTarget && driverFee > 0) {
-            alertEl.className = 'mb-4 p-3 rounded-xl bg-sky-50 border border-sky-200 text-sky-800 text-center text-xs font-black shadow-sm';
-            alertEl.innerHTML = `✅ مطابق تماماً لصافي المنتجات بعد خصم شحن المندوب (${netTarget.toLocaleString()} ج) — استلام: [💵 كاش: ${cashVal.toLocaleString()} ج + 💳 فيزا/محفظة: ${walletVal.toLocaleString()} ج]${dashPreviewLine}`;
+            alertEl.innerHTML = `✅ مطابق 100% لصافي المنتجات (${netTarget.toLocaleString()} ج) — [💵 كاش: ${cashVal.toLocaleString()} ج + 💳 تحويلات: ${walletVal.toLocaleString()} ج]${dashLine}`;
         } else if (totalReceived < netTarget) {
             const diffNet = netTarget - totalReceived;
             alertEl.className = 'mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-center text-xs font-black shadow-sm';
-            alertEl.innerHTML = `⚠️ يوجد عجز قدره (${diffNet.toLocaleString()} ج) عن صافي المنتجات (${netTarget.toLocaleString()} ج)!${dashPreviewLine}`;
+            alertEl.innerHTML = `⚠️ يوجد عجز قدره (${diffNet.toLocaleString()} ج) عن صافي المنتجات (${netTarget.toLocaleString()} ج)!${dashLine}`;
         } else {
+            const extra = totalReceived - netTarget;
             alertEl.className = 'mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-center text-xs font-black shadow-sm';
-            alertEl.innerHTML = `ℹ️ إجمالي المستلم (${totalReceived.toLocaleString()} ج) — [💵 كاش: ${cashVal.toLocaleString()} ج + 💳 فيزا/محفظة: ${walletVal.toLocaleString()} ج]${dashPreviewLine}`;
+            alertEl.innerHTML = `ℹ️ المجموع (${totalReceived.toLocaleString()} ج) يزيد (${extra.toLocaleString()} ج) عن صافي المنتجات (شامل جزء من الشحن)${dashLine}`;
         }
     };
 
     // =====================================================================
-    // هـ. حاسبة تقفيل عهدة المندوب المطورة
+    // هـ. حاسبة تقفيل عهدة المندوب الموحدة (متطابقة بالجنيه مع تطبيق المندوب)
     // =====================================================================
     window.calculateDriverReconciliation = function () {
         const driverName = document.getElementById('recon-driver-select')?.value;
@@ -592,25 +631,50 @@
             return;
         }
 
+        if (window._reconLastDriverKey !== driverName) {
+            window._reconLastDriverKey = driverName;
+            window.reconSelectedOrderIds = null;
+        }
+
         const allDriverOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o =>
             o && o.status !== 'trash' && !o.isArchived &&
+            o.deliveryType !== 'pickup' &&
             isOrderForDriver(o, driverName) &&
             (o.status === 'dispatched' || o.status === 'completed')
         );
 
-        // أي طلب (مكتمل) = استُلم ووصلت فلوسه بالفعل؛ العهدة المفتوحة تضم فقط الطلبات التي ما زالت (في الطريق - dispatched)
-        const activeCustodyOrders = allDriverOrders.filter(o => o.status === 'dispatched' && !o.isReconciled && !o.isSupplied);
-        const settledHistoryOrders = allDriverOrders.filter(o => o.status === 'completed' || o.isReconciled || o.isSupplied);
-        const ordersToDisplay = window.reconShowHistory ? allDriverOrders : activeCustodyOrders;
+        const activeCustodyOrders = allDriverOrders.filter(o => !o.isReconciled);
+        const settledHistoryOrders = allDriverOrders.filter(o => o.isReconciled === true);
+
+        // ترتيب ذكي: المسلّم من التطبيق (فلوسه مع المندوب) أولاً، ثم في الطريق
+        activeCustodyOrders.sort((a, b) => {
+            if (a.status !== b.status) return a.status === 'completed' ? -1 : 1;
+            return (b.completedAtMs || b.createdAt?.toMillis?.() || 0) - (a.completedAtMs || a.createdAt?.toMillis?.() || 0);
+        });
+
+        // تهيئة التحديد الذكي: يحدد الطلبات المسلمة تلقائياً، ولو مفيش مسلم يحدد اللي في الطريق
+        const activeIdsSet = new Set(activeCustodyOrders.map(o => o.id));
+        if (!window.reconSelectedOrderIds) {
+            const completedOpen = activeCustodyOrders.filter(o => o.status === 'completed');
+            const defaultPick = completedOpen.length > 0 ? completedOpen : activeCustodyOrders;
+            window.reconSelectedOrderIds = new Set(defaultPick.map(o => o.id));
+        } else {
+            // إزالة أي IDs لم تعد مفتوحة
+            window.reconSelectedOrderIds.forEach(id => {
+                if (!activeIdsSet.has(id)) window.reconSelectedOrderIds.delete(id);
+            });
+        }
+
+        const ordersToDisplay = window.reconShowHistory ? [...activeCustodyOrders, ...settledHistoryOrders] : activeCustodyOrders;
 
         if (activeCustodyOrders.length === 0 && !window.reconShowHistory) {
             container.innerHTML = `
                 <div class="text-center py-12 bg-white border-2 border-dashed border-emerald-200 rounded-2xl space-y-3">
                     <div class="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto text-2xl"><i class="fa-solid fa-check-double"></i></div>
                     <h4 class="font-black text-slate-800 text-base">عهدة المندوب (${driverName}) خالصة ومصفاة بالكامل! ✅</h4>
-                    <p class="text-xs font-bold text-slate-400">لا توجد أي طلبات معلقة أو مبالغ غير موردة في ذمة هذا المندوب حالياً.</p>
+                    <p class="text-xs font-bold text-slate-400">لا توجد أي طلبات مسلمة أو في الطريق غير مقفلة في ذمة هذا المندوب حالياً.</p>
                     ${settledHistoryOrders.length > 0 ? `
-                    <button onclick="toggleReconHistoryView(true)" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-xs font-black transition-all">
+                    <button type="button" onclick="toggleReconHistoryView(true)" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-xs font-black transition-all">
                         👁️ عرض وتعديل سجل الطلبات المصفاة سابقاً (${settledHistoryOrders.length} طلب)
                     </button>` : ''}
                 </div>`;
@@ -618,54 +682,83 @@
             return;
         }
 
+        // الحساب المالي الموحد للطلبات المحددة للتقفيل
+        const selectedOpenOrders = activeCustodyOrders.filter(o => window.reconSelectedOrderIds.has(o.id));
         let totalAllGross = 0;
         let totalAllNetProducts = 0;
         let totalDeliveryFees = 0;
-        let initialCashNet = 0;
-        let initialOnlineNet = 0;
+        let totalCashInDriverHand = 0;
+        let totalOnlineToStore = 0;
         let totalCashCount = 0;
         let totalOnlineCount = 0;
         let totalSplitCount = 0;
-        let ordersHtml = '';
 
-        activeCustodyOrders.forEach(o => {
+        selectedOpenOrders.forEach(o => {
             const br = window.getOrderPaymentBreakdown(o);
             totalAllGross += br.total;
             totalAllNetProducts += br.netTotal;
             totalDeliveryFees += (Number(o.deliveryFee) || 0);
-            initialCashNet += br.netCash;
-            initialOnlineNet += br.netOnline;
+            totalCashInDriverHand += br.cash;
+            totalOnlineToStore += br.online;
 
             if (br.method === 'online') totalOnlineCount++;
             else if (br.method === 'split') totalSplitCount++;
             else totalCashCount++;
         });
 
+        // المعادلة الموحدة 100% مع تطبيق المندوب:
+        // لو الكاش في إيد المندوب >= عمولته: يخصم عمولته من الكاش ويسلّمك الصافي كاش
+        // لو الكاش < عمولته (التحويلات غطت الكاش): لا يسلّمك كاش، بل له باقي عمولة عندك = Math.abs(netCashDiff)
+        const netCashDiff = totalCashInDriverHand - totalDeliveryFees;
+        const expectedCashFromDriver = Math.max(0, netCashDiff);
+        const ownerOwesDriver = netCashDiff < 0 ? Math.abs(netCashDiff) : 0;
+        const expectedNetOnline = Math.max(0, totalAllNetProducts - expectedCashFromDriver);
+
+        window._lastReconSummary = {
+            driverName,
+            totalAllGross,
+            totalAllNetProducts,
+            totalDeliveryFees,
+            totalCashInDriverHand,
+            totalOnlineToStore,
+            expectedCashFromDriver,
+            ownerOwesDriver,
+            expectedNetOnline
+        };
+
+        const completedOpenCnt = activeCustodyOrders.filter(o => o.status === 'completed').length;
+        const dispatchedOpenCnt = activeCustodyOrders.filter(o => o.status === 'dispatched').length;
+
+        let ordersHtml = '';
         ordersToDisplay.forEach((o, index) => {
             const br = window.getOrderPaymentBreakdown(o);
-            const isSettled = Boolean(o.status === 'completed' || o.isReconciled || o.isSupplied);
+            const isSettled = Boolean(o.isReconciled === true);
+            const isChecked = !isSettled && window.reconSelectedOrderIds.has(o.id);
             const delFee = Number(o.deliveryFee) || 0;
             const isSplitEditorOpen = (window.reconOpenSplitOrderId === o.id || br.method === 'split');
 
             const badgeStatus = isSettled
-                ? '<span class="bg-slate-200 text-slate-700 px-2 py-0.5 rounded text-[10px] font-black">تم التوريد والتقفيل ✅</span>'
+                ? '<span class="bg-slate-200 text-slate-700 px-2 py-0.5 rounded text-[10px] font-black">تم التقفيل نهائياً ✅</span>'
                 : (o.status === 'completed'
-                    ? '<span class="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded text-[10px] font-black border border-emerald-100">تم التسليم (بالعهدة)</span>'
-                    : '<span class="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-[10px] font-black border border-indigo-100">في الطريق مع المندوب</span>');
+                    ? (o.isSupplied
+                        ? '<span class="bg-cyan-100 text-cyan-900 px-2 py-0.5 rounded text-[10px] font-black border border-cyan-300">🔔 المندوب طلب التوريد</span>'
+                        : '<span class="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-black border border-emerald-200">✅ مُسلّم (بانتظار تقفيلك)</span>')
+                    : '<span class="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-[10px] font-black border border-indigo-200">🛵 في الطريق</span>');
 
             const paymentBadge = br.method === 'online'
-                ? '<span class="bg-emerald-500 text-white px-2 py-0.5 rounded text-[9px] font-black">فيزا / محفظة 💳</span>'
+                ? `<span class="bg-emerald-500 text-white px-2 py-0.5 rounded text-[9px] font-black">💳 تحويل للمتجر (${br.online} ج)</span>`
                 : (br.method === 'split'
-                    ? `<span class="bg-indigo-600 text-white px-2 py-0.5 rounded text-[9px] font-black">نص ونص ⚖️ (${br.cash}ج كاش + ${br.online}ج فيزا/محفظة)</span>`
-                    : '<span class="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded text-[9px] font-black">كاش 💵</span>');
+                    ? `<span class="bg-indigo-600 text-white px-2 py-0.5 rounded text-[9px] font-black">⚖️ نص ونص (${br.cash}ج كاش + ${br.online}ج تحويل)</span>`
+                    : `<span class="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded text-[9px] font-black">💵 كاش (${br.cash} ج)</span>`);
 
-            // أزرار تحويل طريقة الدفع تعمل على الطلبات الحالية وحتى الطلبات المصفاة سابقاً لتصحيح أي خطأ فوراً
+            const latestDrvNote = o.driverNote ? String(o.driverNote).split('\n---\n').pop() : '';
+
             const quickSwitchButtons = `
                 <div class="flex flex-wrap items-center gap-1 mt-2 pt-2 border-t border-slate-100">
-                    <span class="text-[10px] font-black text-slate-400 ml-1">تقفيل هذا الطلب كـ:</span>
+                    <span class="text-[10px] font-black text-slate-400 ml-1">طريقة الدفع الفعلية:</span>
                     <button type="button" onclick="setOrderPaymentModeInRecon('${o.id}', 'cash')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${br.method === 'cash' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-amber-50'}">💵 كاش</button>
-                    <button type="button" onclick="setOrderPaymentModeInRecon('${o.id}', 'online')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${br.method === 'online' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-emerald-50'}">💳 فيزا / محفظة</button>
-                    <button type="button" onclick="setOrderPaymentModeInRecon('${o.id}', 'split')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${br.method === 'split' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-indigo-50'}">⚖️ نص ونص</button>
+                    <button type="button" onclick="setOrderPaymentModeInRecon('${o.id}', 'online')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${br.method === 'online' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-emerald-50'}">💳 تحويل للمتجر</button>
+                    <button type="button" onclick="setOrderPaymentModeInRecon('${o.id}', 'split')" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${br.method === 'split' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-indigo-50'}">⚖️ جزء وجزء</button>
                 </div>
                 ${isSplitEditorOpen ? `
                 <div class="mt-2.5 p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-xl flex flex-wrap items-center gap-2">
@@ -674,7 +767,7 @@
                         <input type="number" id="recon-split-cash-${o.id}" value="${br.cash}" min="0" max="${br.total}" oninput="syncInlineReconSplit('${o.id}', ${br.total}, 'cash')" class="w-full bg-white border border-amber-300 rounded-lg p-1.5 text-center font-black text-xs text-amber-900 outline-none">
                     </div>
                     <div class="flex items-center gap-1.5 flex-1 min-w-[120px]">
-                        <span class="text-[10px] font-black text-indigo-800 whitespace-nowrap">💳 فيزا/محفظة:</span>
+                        <span class="text-[10px] font-black text-indigo-800 whitespace-nowrap">💳 تحويل:</span>
                         <input type="number" id="recon-split-online-${o.id}" value="${br.online}" min="0" max="${br.total}" oninput="syncInlineReconSplit('${o.id}', ${br.total}, 'online')" class="w-full bg-white border border-indigo-300 rounded-lg p-1.5 text-center font-black text-xs text-indigo-900 outline-none">
                     </div>
                     <button type="button" onclick="saveInlineReconSplit('${o.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition-all">حفظ التقسيمة ✅</button>
@@ -682,174 +775,186 @@
             `;
 
             ordersHtml += `
-            <div class="bg-white p-4 rounded-2xl border ${isSettled ? 'border-slate-300 bg-slate-50/50' : (br.method === 'online' ? 'border-emerald-200 bg-emerald-50/20' : (br.method === 'split' ? 'border-indigo-200 bg-indigo-50/10' : 'border-slate-200/80'))} shadow-sm mb-2.5 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                <div class="flex-1 w-full">
-                    <div class="flex flex-wrap items-center gap-2 mb-1">
-                        <span class="text-xs font-black text-slate-400">#${index + 1}</span>
-                        <h5 onclick="openCustomerCard('${o.customerPhone}')" class="font-black text-slate-800 text-sm cursor-pointer hover:text-brand-primary">${o.customerName || 'عميل'}</h5>
-                        ${badgeStatus}
-                        ${paymentBadge}
+            <div class="bg-white p-4 rounded-2xl border ${isSettled ? 'border-slate-300 bg-slate-50/60 opacity-80' : (isChecked ? 'border-emerald-300 ring-1 ring-emerald-200' : 'border-slate-200 opacity-65')} shadow-sm mb-2.5 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                <div class="flex items-start gap-2.5 flex-1 w-full">
+                    ${!isSettled ? `<input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleReconOrderCheck('${o.id}', this.checked)" class="w-4 h-4 mt-1 accent-brand-primary cursor-pointer shrink-0">` : ''}
+                    <div class="flex-1 min-w-0">
+                        <div class="flex flex-wrap items-center gap-1.5 mb-1">
+                            <span class="text-xs font-black text-slate-400">#${index + 1}</span>
+                            <h5 onclick="openCustomerCard('${escAttr(o.customerPhone)}')" class="font-black text-slate-800 text-sm cursor-pointer hover:text-brand-primary">${o.customerName || 'عميل'}</h5>
+                            ${badgeStatus}
+                            ${paymentBadge}
+                        </div>
+                        <p class="text-[11px] font-bold text-slate-500"><i class="fa-solid fa-location-dot text-indigo-400 mr-1"></i> ${o.zone || ''} ${o.customerAddress ? '- ' + o.customerAddress : ''}</p>
+                        <p class="text-[10px] text-slate-400 font-bold mt-0.5" dir="ltr">📞 ${o.customerPhone || ''} • منتجات: ${br.netTotal} ج • شحن: ${delFee} ج • فاتورة: ${br.total} ج</p>
+                        ${latestDrvNote ? `<p class="text-[10px] font-black text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-2 py-1 mt-1.5"><i class="fa-solid fa-comment-dots text-blue-500 ml-1"></i> ${latestDrvNote}</p>` : ''}
+                        ${quickSwitchButtons}
                     </div>
-                    <p class="text-[11px] font-bold text-slate-500"><i class="fa-solid fa-location-dot text-indigo-400 mr-1"></i> ${o.zone || ''} - ${o.customerAddress || ''}</p>
-                    <p class="text-[10px] text-slate-400 font-bold mt-0.5" dir="ltr">📞 ${o.customerPhone || ''} • صافي المنتجات: ${br.netTotal} ج • شحن: ${delFee} ج • الإجمالي: ${br.total} ج</p>
-                    ${quickSwitchButtons}
                 </div>
                 <div class="text-left flex flex-col items-end w-full md:w-auto border-t md:border-t-0 pt-2 md:pt-0 border-slate-100 shrink-0">
-                    <span class="text-[10px] font-bold text-slate-400">صافي المنتجات بالداش بورد</span>
-                    <span class="font-black ${br.method === 'online' ? 'text-emerald-600' : (br.method === 'split' ? 'text-indigo-600' : 'text-brand-primary')} text-base">
-                        ${br.method === 'online' ? `${br.netOnline} ج (فيزا/محفظة)` : (br.method === 'split' ? `${br.netCash}ج كاش + ${br.netOnline}ج محفظة` : `${br.netCash} ج (كاش)`)}
+                    <span class="text-[10px] font-bold text-slate-400">مع المندوب كاش / للمتجر تحويل</span>
+                    <span class="font-black ${br.method === 'online' ? 'text-indigo-600' : (br.method === 'split' ? 'text-purple-700' : 'text-brand-primary')} text-sm">
+                        💵 ${br.cash} ج | 💳 ${br.online} ج
                     </span>
                 </div>
             </div>`;
         });
 
+        const settlementHeadlineHtml = ownerOwesDriver > 0
+            ? `
+            <div class="bg-gradient-to-l from-amber-500 to-orange-500 text-slate-950 p-4 rounded-2xl shadow-md mb-4 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                    <span class="text-xs font-black block">⚠️ التحويلات الأونلاين غطت الكاش — المندوب له باقي عمولة عندك:</span>
+                    <span class="text-[11px] font-bold opacity-90">الكاش في إيده (${totalCashInDriverHand.toLocaleString()} ج) أقل من عمولته (${totalDeliveryFees.toLocaleString()} ج) — التحويلات اللي وصلتك (${totalOnlineToStore.toLocaleString()} ج) شاملة باقي عمولته</span>
+                </div>
+                <span class="bg-slate-950 text-amber-300 px-4 py-2 rounded-xl text-xl font-black shrink-0">ادفع للمندوب: ${ownerOwesDriver.toLocaleString()} ج</span>
+            </div>`
+            : `
+            <div class="bg-gradient-to-l from-emerald-700 via-brand-dark to-slate-900 text-white p-4 rounded-2xl shadow-md mb-4 flex flex-wrap items-center justify-between gap-2 border border-emerald-400/30">
+                <div>
+                    <span class="text-xs font-black text-emerald-200 block">💵 المطلوب تستلمه كاش من المندوب الآن (بعد خصم عمولته):</span>
+                    <span class="text-[11px] font-bold text-slate-300">كاش في إيده (${totalCashInDriverHand.toLocaleString()} ج) − عمولته (${totalDeliveryFees.toLocaleString()} ج) | ومعاك بالفعل تحويلات (${totalOnlineToStore.toLocaleString()} ج)</span>
+                </div>
+                <span class="bg-amber-400 text-slate-950 px-4 py-2 rounded-xl text-xl font-black shrink-0 shadow">استلم كاش: ${expectedCashFromDriver.toLocaleString()} ج</span>
+            </div>`;
+
         container.innerHTML = `
-            <div class="flex justify-between items-center mb-3">
-                <span class="text-xs font-black text-slate-700">📊 ملخص العهدة المفتوحة للمندوب: <strong class="text-brand-primary">${driverName}</strong></span>
-                <label class="flex items-center gap-1.5 text-[11px] font-black text-slate-500 cursor-pointer">
-                    <input type="checkbox" ${window.reconShowHistory ? 'checked' : ''} onchange="toggleReconHistoryView(this.checked)" class="w-4 h-4 accent-brand-primary rounded">
-                    إظهار المصفى سابقاً لتعديله (${settledHistoryOrders.length})
-                </label>
-            </div>
-
-            <!-- كروت ملخص العهدة -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <div class="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-sm text-center">
-                    <p class="text-[10px] font-bold text-slate-400 mb-1">أوردرات العهدة المفتوحة</p>
-                    <p class="text-lg font-black text-slate-800">${activeCustodyOrders.length}</p>
-                    <p class="text-[9px] font-bold text-slate-400 mt-0.5">${totalCashCount} كاش | ${totalOnlineCount} فيزا/محفظة | ${totalSplitCount} نص</p>
-                </div>
-                <div class="bg-white p-3.5 rounded-2xl border border-emerald-200 shadow-sm text-center">
-                    <p class="text-[10px] font-bold text-emerald-700 mb-1">إجمالي العهدة (شامل الشحن)</p>
-                    <p class="text-lg font-black text-brand-primary">${totalAllGross.toLocaleString()} ج</p>
-                </div>
-                <div class="bg-white p-3.5 rounded-2xl border border-sky-200 shadow-sm text-center">
-                    <p class="text-[10px] font-bold text-sky-700 mb-1">إجمالي شحن المندوب</p>
-                    <p class="text-lg font-black text-sky-600">${totalDeliveryFees.toLocaleString()} ج</p>
-                </div>
-                <div class="bg-amber-50 p-3.5 rounded-2xl border border-amber-200 shadow-sm text-center">
-                    <p class="text-[10px] font-black text-amber-800 mb-1">صافي المنتجات (بدون الشحن)</p>
-                    <p class="text-lg font-black text-amber-600">${totalAllNetProducts.toLocaleString()} ج</p>
+            <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+                <span class="text-xs font-black text-slate-700">📊 عهدة المندوب: <strong class="text-brand-primary">${driverName}</strong> (محدد ${selectedOpenOrders.length} من ${activeCustodyOrders.length} طلب)</span>
+                <div class="flex flex-wrap items-center gap-1.5">
+                    ${completedOpenCnt > 0 ? `<button type="button" onclick="selectReconOrdersPreset('completed')" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-lg text-[10px] font-black">المُسلّم فقط (${completedOpenCnt})</button>` : ''}
+                    ${dispatchedOpenCnt > 0 ? `<button type="button" onclick="selectReconOrdersPreset('all')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 px-2.5 py-1 rounded-lg text-[10px] font-black">تحديد الكل (${activeCustodyOrders.length})</button>` : ''}
+                    <label class="flex items-center gap-1.5 text-[11px] font-black text-slate-500 cursor-pointer mr-1">
+                        <input type="checkbox" ${window.reconShowHistory ? 'checked' : ''} onchange="toggleReconHistoryView(this.checked)" class="w-4 h-4 accent-brand-primary rounded">
+                        السجل السابق (${settledHistoryOrders.length})
+                    </label>
                 </div>
             </div>
 
-            ${activeCustodyOrders.length > 0 ? `
-            <!-- حاسبة مطابقة الخزنة المرنة (المرجع النهائي للداش بورد) -->
-            <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-lg mb-4 space-y-4">
-                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-800 pb-3">
-                    <div>
-                        <h4 class="font-black text-sm text-amber-400 mb-1"><i class="fa-solid fa-calculator mr-1"></i> كيف استلمت فلوس هذه العهدة من المندوب؟ (يسمّع مباشرة في الداش بورد)</h4>
-                        <p class="text-[11px] text-slate-300 font-bold">اختر بضغطة واحدة أو اكتب المبلغ الذي سلمه المندوب لك كاش أو فيزا/محفظة:</p>
-                    </div>
+            <!-- كروت مطابقة الأرقام اللحظية (نفس أرقام تطبيق المندوب بالجنيه) -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 mb-3">
+                <div class="bg-amber-50/70 p-3 rounded-2xl border border-amber-200 shadow-sm text-center">
+                    <p class="text-[10px] font-black text-amber-800 mb-0.5">💵 الكاش في إيد المندوب</p>
+                    <p class="text-lg font-black text-slate-900">${totalCashInDriverHand.toLocaleString()} <span class="text-xs">ج</span></p>
+                    <p class="text-[9px] font-bold text-slate-500">${totalCashCount} كاش | ${totalSplitCount} نص</p>
+                </div>
+                <div class="bg-indigo-50/70 p-3 rounded-2xl border border-indigo-200 shadow-sm text-center">
+                    <p class="text-[10px] font-black text-indigo-800 mb-0.5">💳 تحويلات دخلت المتجر</p>
+                    <p class="text-lg font-black text-indigo-700">${totalOnlineToStore.toLocaleString()} <span class="text-xs">ج</span></p>
+                    <p class="text-[9px] font-bold text-indigo-500">${totalOnlineCount} تحويل كامل | ${totalSplitCount} نص</p>
+                </div>
+                <div class="bg-sky-50/70 p-3 rounded-2xl border border-sky-200 shadow-sm text-center">
+                    <p class="text-[10px] font-black text-sky-800 mb-0.5">🛵 عمولة المندوب (الشحن)</p>
+                    <p class="text-lg font-black text-sky-700">${totalDeliveryFees.toLocaleString()} <span class="text-xs">ج</span></p>
+                    <p class="text-[9px] font-bold text-slate-500">من إجمالي ${totalAllGross.toLocaleString()} ج</p>
+                </div>
+                <div class="bg-emerald-50/70 p-3 rounded-2xl border border-emerald-200 shadow-sm text-center">
+                    <p class="text-[10px] font-black text-emerald-800 mb-0.5">💎 صافي منتجاتك</p>
+                    <p class="text-lg font-black text-emerald-700">${totalAllNetProducts.toLocaleString()} <span class="text-xs">ج</span></p>
+                    <p class="text-[9px] font-bold text-emerald-600">يدخل لوحة القيادة</p>
+                </div>
+            </div>
+
+            ${selectedOpenOrders.length > 0 ? settlementHeadlineHtml : ''}
+
+            ${selectedOpenOrders.length > 0 ? `
+            <!-- صندوق التأكيد والتسوية النهائية (مجهز تلقائياً بالرقم المضبوط 100%) -->
+            <div class="bg-slate-900 text-white p-4 rounded-2xl shadow-lg mb-4 space-y-3">
+                <div class="flex flex-wrap justify-between items-center gap-2 border-b border-slate-800 pb-2.5">
+                    <h4 class="font-black text-xs sm:text-sm text-amber-400"><i class="fa-solid fa-vault ml-1"></i> تأكيد دخول الفلوس في خزنتك (يسمّع في لوحة القيادة)</h4>
                     <div class="flex flex-wrap items-center gap-1.5">
-                        <button type="button" onclick="applyReconPreset('net_cash', ${totalAllGross}, ${totalAllNetProducts})" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition-all">💵 استلام الصافي كاش (${totalAllNetProducts} ج)</button>
-                        <button type="button" onclick="applyReconPreset('all_cash', ${totalAllGross}, ${totalAllNetProducts})" class="bg-emerald-600/30 hover:bg-emerald-600 text-emerald-200 hover:text-white px-3 py-1.5 rounded-xl text-[10px] font-black border border-emerald-500/40 transition-all">💵 الكل كاش بالشحن (${totalAllGross} ج)</button>
-                        <button type="button" onclick="applyReconPreset('net_wallet', ${totalAllGross}, ${totalAllNetProducts})" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-sm transition-all">💳 استلام الصافي فيزا/محفظة (${totalAllNetProducts} ج)</button>
-                        <button type="button" onclick="applyReconPreset('all_wallet', ${totalAllGross}, ${totalAllNetProducts})" class="bg-indigo-500/30 hover:bg-indigo-600 text-indigo-200 hover:text-white px-3 py-1.5 rounded-xl text-[10px] font-black border border-indigo-400/40 transition-all">💳 الكل فيزا/محفظة بالشحن (${totalAllGross} ج)</button>
-                        <button type="button" onclick="applyReconPreset('split_50_50', ${totalAllGross}, ${totalAllNetProducts})" class="bg-purple-500/30 hover:bg-purple-600 text-purple-200 hover:text-white px-3 py-1.5 rounded-xl text-[10px] font-black border border-purple-400/40 transition-all">⚖️ تقسيمة نص ونص</button>
+                        <button type="button" onclick="applyReconPreset('exact_match')" class="bg-amber-400 hover:bg-amber-300 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm">⚡ المطابقة التلقائية</button>
+                        <button type="button" onclick="applyReconPreset('net_cash')" class="bg-emerald-600/30 hover:bg-emerald-600 text-emerald-200 hover:text-white px-2.5 py-1 rounded-lg text-[10px] font-black border border-emerald-500/40">💵 الكل كاش</button>
+                        <button type="button" onclick="applyReconPreset('net_wallet')" class="bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white px-2.5 py-1 rounded-lg text-[10px] font-black border border-indigo-400/40">💳 الكل تحويل</button>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-                    <div class="bg-slate-800/90 p-3 rounded-xl border border-slate-700">
-                        <label class="text-[10px] font-black text-emerald-400 block mb-1.5">💵 إجمالي المستلم كاش في الإيد (ج.م)</label>
-                        <input type="number" id="actual-collected-cash" value="${initialCashNet}" min="0" oninput="onReconSettlementInput('cash', ${totalAllGross}, ${totalAllNetProducts})" class="w-full bg-slate-900 border-2 border-emerald-500/40 rounded-xl p-2.5 text-center font-black text-white text-base outline-none focus:border-emerald-400 transition-all">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-end">
+                    <div class="bg-slate-800/90 p-2.5 rounded-xl border border-slate-700">
+                        <label class="text-[10px] font-black text-emerald-400 block mb-1">💵 صافي الكاش الداخل للدرج (ج)</label>
+                        <input type="number" id="actual-collected-cash" value="${expectedCashFromDriver}" min="0" oninput="onReconSettlementInput('cash')" class="w-full bg-slate-900 border-2 border-emerald-500/40 rounded-xl p-2 text-center font-black text-white text-base outline-none focus:border-emerald-400">
                     </div>
-
-                    <div class="bg-slate-800/90 p-3 rounded-xl border border-slate-700">
-                        <label class="text-[10px] font-black text-indigo-300 block mb-1.5">💳 إجمالي المستلم فيزا / محفظة (ج.م)</label>
-                        <input type="number" id="actual-collected-wallet" value="${initialOnlineNet}" min="0" oninput="onReconSettlementInput('wallet', ${totalAllGross}, ${totalAllNetProducts})" class="w-full bg-slate-900 border-2 border-indigo-500/40 rounded-xl p-2.5 text-center font-black text-white text-base outline-none focus:border-indigo-400 transition-all">
+                    <div class="bg-slate-800/90 p-2.5 rounded-xl border border-slate-700">
+                        <label class="text-[10px] font-black text-indigo-300 block mb-1">💳 صافي التحويلات بمحفظتك (ج)</label>
+                        <input type="number" id="actual-collected-wallet" value="${expectedNetOnline}" min="0" oninput="onReconSettlementInput('wallet')" class="w-full bg-slate-900 border-2 border-indigo-500/40 rounded-xl p-2 text-center font-black text-white text-base outline-none focus:border-indigo-400">
                     </div>
-
-                    <div class="bg-slate-800/60 p-3 rounded-xl border border-slate-700/80 flex flex-col justify-between gap-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-[10px] font-black text-slate-300">حساب التقسيمة على أساس:</span>
-                            <select id="recon-target-base" onchange="onReconSettlementInput('cash', ${totalAllGross}, ${totalAllNetProducts})" class="bg-slate-900 text-amber-300 border border-slate-600 rounded-lg px-2 py-1 text-[10px] font-black outline-none">
-                                <option value="${totalAllNetProducts}" selected>الصافي بدون شحن (${totalAllNetProducts} ج)</option>
-                                <option value="${totalAllGross}">الإجمالي بالشحن (${totalAllGross} ج)</option>
-                            </select>
-                        </div>
+                    <div class="bg-slate-800/60 p-2.5 rounded-xl border border-slate-700 flex items-center justify-center h-full">
                         <label class="flex items-center gap-2 text-[11px] font-black text-amber-300 cursor-pointer select-none">
-                            <input type="checkbox" id="recon-auto-split-cb" class="w-4 h-4 accent-amber-400 rounded">
-                            حساب الباقي تلقائياً (نص ونص)
+                            <input type="checkbox" id="recon-auto-split-cb" checked class="w-4 h-4 accent-amber-400 rounded">
+                            <span>إكمال الفرق تلقائياً</span>
                         </label>
                     </div>
                 </div>
-
             </div>
             <div id="cash-diff-alert" class="mb-4 text-center text-xs font-black"></div>
             ` : ''}
 
-            <!-- قائمة أوردرات العهدة -->
             <div class="space-y-2 max-h-[48vh] overflow-y-auto custom-scroll pr-1">
                 ${ordersHtml}
             </div>
         `;
 
-        if (activeCustodyOrders.length > 0) {
-            window.checkCashDifference(totalAllGross, totalAllNetProducts);
+        if (selectedOpenOrders.length > 0) {
+            window.checkCashDifference();
             settleBtn.classList.remove('hidden');
-            settleBtn.onclick = () => window.confirmAndSettleDriverReconciliation(driverName, totalAllGross, totalAllNetProducts);
+            settleBtn.onclick = () => window.confirmAndSettleDriverReconciliation(driverName);
         } else {
             settleBtn.classList.add('hidden');
         }
     };
 
     // =====================================================================
-    // و. تأكيد استلام النقدية/المحفظة وتقفيل العهدة (تسميع مباشر 100% في الداش بورد)
+    // و. تأكيد وتقفيل العهدة (حفظ حقيقي بدون لخبطة طرق الدفع + منح النقاط + تصفير تطبيق المندوب)
     // =====================================================================
-    window.confirmAndSettleDriverReconciliation = async function (driverName, totalAllGross, totalAllNetProducts) {
-        const cashInput = document.getElementById('actual-collected-cash');
-        const walletInput = document.getElementById('actual-collected-wallet');
-        const actualCash = cashInput ? (Number(cashInput.value) || 0) : totalAllGross;
-        const actualWallet = walletInput ? (Number(walletInput.value) || 0) : 0;
+    window.confirmAndSettleDriverReconciliation = async function (driverName) {
+        const s = window._lastReconSummary;
+        if (!s) return;
 
-        // التقفيل ينطبق فقط على طلبات المندوب التي ما زالت (في الطريق - dispatched) حتى لا نعيد لمس أو تغيير حساب أي طلب مكتمل سابقاً
+        const actualCash = Math.max(0, Math.round(Number(document.getElementById('actual-collected-cash')?.value) || 0));
+        const actualWallet = Math.max(0, Math.round(Number(document.getElementById('actual-collected-wallet')?.value) || 0));
+
         const targetOrders = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o =>
-            o && o.status !== 'trash' && !o.isArchived &&
+            isOrderOpenCustody(o) &&
             isOrderForDriver(o, driverName) &&
-            o.status === 'dispatched' &&
-            !o.isReconciled && !o.isSupplied
+            window.reconSelectedOrderIds &&
+            window.reconSelectedOrderIds.has(o.id)
         );
 
-        if (targetOrders.length === 0) return alert('لا توجد طلبات مفتوحة في عهدة هذا المندوب!');
+        if (targetOrders.length === 0) return alert('اختر طلباً واحداً على الأقل لتقفيل عهدته!');
 
-        // تحديد صافي المنتجات الذي سيدخل في الداش بورد كـ (كاش) وكـ (فيزا/محفظة) حسب ما استلمه المالك فعلياً من المندوب
-        let targetNetOnline = 0;
-        let targetNetCash = 0;
-
+        const totalAllNetProducts = s.totalAllNetProducts;
+        let targetNetOnline = Math.min(totalAllNetProducts, actualWallet);
+        let targetNetCash = Math.max(0, totalAllNetProducts - targetNetOnline);
         if (actualWallet === 0 && actualCash > 0) {
-            // المندوب سلم العهدة كلها كاش
             targetNetOnline = 0;
             targetNetCash = totalAllNetProducts;
         } else if (actualCash === 0 && actualWallet > 0) {
-            // المندوب سلم العهدة كلها فيزا / محفظة
             targetNetOnline = totalAllNetProducts;
             targetNetCash = 0;
-        } else {
-            // تقسيمة نص ونص بين الكاش والفيزا/المحفظة
-            targetNetOnline = Math.min(totalAllNetProducts, Math.max(0, Math.round(actualWallet)));
-            targetNetCash = Math.max(0, totalAllNetProducts - targetNetOnline);
         }
 
-        const confirmMsg = `✅ تأكيد تصفية وتقفيل عهدة المندوب (${driverName})؟\n\n` +
-            `📦 عدد الطلبات: ${targetOrders.length} طلب\n` +
-            `💵 المستلم من المندوب كاش: ${actualCash.toLocaleString()} ج.م\n` +
-            `💳 المستلم من المندوب فيزا / محفظة: ${actualWallet.toLocaleString()} ج.م\n` +
+        const isManualGlobalOverride = (actualCash !== s.expectedCashFromDriver || actualWallet !== s.expectedNetOnline);
+        const driverCashLine = s.ownerOwesDriver > 0
+            ? `⚠️ باقي عمولة تدفعها للمندوب: ${s.ownerOwesDriver.toLocaleString()} ج.م`
+            : `💵 كاش تستلمه من المندوب: ${actualCash.toLocaleString()} ج.م`;
+
+        const confirmMsg = `✅ تأكيد تصفية وتقفيل عهدة (${driverName})؟\n\n` +
+            `📦 عدد الطلبات المقفلة: ${targetOrders.length} طلب\n` +
+            `${driverCashLine}\n` +
+            `💳 تحويلات دخلت المتجر: ${s.totalOnlineToStore.toLocaleString()} ج.م\n` +
             `────────────────────\n` +
             `📊 ما سيسمّع في لوحة القيادة (صافي المنتجات بدون الشحن):\n` +
-            `• 💵 صافي كاش الدرج: ${targetNetCash.toLocaleString()} ج.م\n` +
-            `• 💳 محفظة الأونلاين / الفيزا: ${targetNetOnline.toLocaleString()} ج.م`;
+            `• 💵 كاش الدرج: ${targetNetCash.toLocaleString()} ج.م\n` +
+            `• 💳 محفظة / إنستاباي: ${targetNetOnline.toLocaleString()} ج.م`;
 
         const okSettle = (typeof window.execConfirm === 'function')
             ? await window.execConfirm(confirmMsg, { title: 'تأكيد تصفية وتقفيل العهدة', tone: 'success', confirmText: 'تأكيد الاستلام والتقفيل' })
             : confirm(confirmMsg);
         if (!okSettle) return;
 
-
         const btn = document.getElementById('btn-settle-recon');
         const origHtml = btn.innerHTML;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري تصفية العهدة وتحديث الخزنة والداش بورد...';
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري تصفية العهدة وتحديث الخزنة وتطبيق المندوب...';
         btn.disabled = true;
 
         try {
@@ -857,50 +962,72 @@
             const timeStr = new Date().toLocaleString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
             const ptsPer100 = Number(storeSettings?.pointsPer100) || 5;
 
-            let remNetOnlineToAllocate = targetNetOnline;
+            // توزيع settledOnline / settledCash بدقة على مرحلتين مع الحفاظ على طريقة دفع كل عميل الحقيقية
+            const allocs = targetOrders.map(o => {
+                const netProd = getOwnerNetProductTotal(o);
+                const br = window.getOrderPaymentBreakdown(o);
+                const baseOnl = Math.min(netProd, br.online);
+                return { order: o, netProd, br, settledOnline: baseOnl };
+            });
 
-            for (let i = 0; i < targetOrders.length; i += 400) {
-                const chunk = targetOrders.slice(i, i + 400);
-                const batchProcess = db.batch();
+            let curSumOnl = allocs.reduce((acc, a) => acc + a.settledOnline, 0);
+            let diffOnl = targetNetOnline - curSumOnl;
 
-                chunk.forEach(o => {
-                    const ref = db.collection('orders').doc(o.id);
-                    const wasCompleted = (o.status === 'completed');
-                    const orderGross = Number(o.total) || 0;
-                    const orderDelFee = Number(o.deliveryFee) || 0;
-                    const orderNetProd = getOwnerNetProductTotal(o);
-
-                    let orderSettledOnline = 0;
-                    let orderSettledCash = 0;
-                    let finalOrderMethod = 'cash';
-                    let finalPaidCash = orderGross;
-                    let finalPaidOnline = 0;
-
-                    if (remNetOnlineToAllocate > 0 && orderNetProd > 0) {
-                        orderSettledOnline = Math.min(orderNetProd, remNetOnlineToAllocate);
-                        remNetOnlineToAllocate -= orderSettledOnline;
+            if (diffOnl > 0) {
+                for (let a of allocs) {
+                    if (diffOnl <= 0) break;
+                    const room = Math.max(0, a.netProd - a.settledOnline);
+                    if (room > 0) {
+                        const add = Math.min(room, diffOnl);
+                        a.settledOnline += add;
+                        diffOnl -= add;
                     }
-                    orderSettledCash = Math.max(0, orderNetProd - orderSettledOnline);
+                }
+            } else if (diffOnl < 0) {
+                let toTrim = Math.abs(diffOnl);
+                for (let a of allocs) {
+                    if (toTrim <= 0) break;
+                    if (a.settledOnline > 0) {
+                        const sub = Math.min(a.settledOnline, toTrim);
+                        a.settledOnline -= sub;
+                        toTrim -= sub;
+                    }
+                }
+            }
 
-                    if (orderSettledCash === 0 && orderSettledOnline > 0) {
-                        finalOrderMethod = 'online';
-                        finalPaidCash = 0;
-                        finalPaidOnline = orderGross;
-                    } else if (orderSettledOnline === 0) {
-                        finalOrderMethod = 'cash';
-                        finalPaidCash = orderGross;
+            // التقطيع بـ 200 طلب لضمان عدم تجاوز حد 500 عملية في Firestore Batch (لأن بعض الطلبات تضيف نقاط عميل أيضاً)
+            for (let i = 0; i < allocs.length; i += 200) {
+                const chunk = allocs.slice(i, i + 200);
+                const batchProcess = db.batch();
+                const settleTs = firebase.firestore.FieldValue.serverTimestamp();
+
+                chunk.forEach(a => {
+                    const o = a.order;
+                    const ref = db.collection('orders').doc(o.id);
+                    const orderSettledOnline = Math.round(a.settledOnline);
+                    const orderSettledCash = Math.max(0, a.netProd - orderSettledOnline);
+
+                    // نحافظ على طريقة دفع العميل الحقيقية إلا إذا اختار الأدمن يدوياً (الكل كاش) أو (الكل تحويل)
+                    let finalMethod = a.br.method;
+                    let finalPaidCash = a.br.cash;
+                    let finalPaidOnline = a.br.online;
+
+                    if (isManualGlobalOverride && actualWallet === 0 && actualCash > 0) {
+                        finalMethod = 'cash';
+                        finalPaidCash = a.br.total;
                         finalPaidOnline = 0;
-                    } else {
-                        finalOrderMethod = 'split';
-                        finalPaidOnline = orderSettledOnline;
-                        finalPaidCash = Math.max(0, orderGross - finalPaidOnline);
+                    } else if (isManualGlobalOverride && actualCash === 0 && actualWallet > 0) {
+                        finalMethod = 'online';
+                        finalPaidCash = 0;
+                        finalPaidOnline = a.br.total;
                     }
 
                     const settledCompMs = o.completedAtMs || Date.now();
                     const alreadyAwardedPts = Boolean(o.loyaltyPointsAwarded);
-                    batchProcess.update(ref, {
+
+                    const updatePayload = {
                         status: 'completed',
-                        paymentMethod: finalOrderMethod,
+                        paymentMethod: finalMethod,
                         paidCash: finalPaidCash,
                         paidOnline: finalPaidOnline,
                         settledCash: orderSettledCash,
@@ -908,58 +1035,59 @@
                         completedAtMs: settledCompMs,
                         completedAtStr: o.completedAtStr || nowStr,
                         completedTimeDisplay: o.completedTimeDisplay || timeStr,
-                        completedAt: o.completedAt || firebase.firestore.FieldValue.serverTimestamp(),
+                        completedAt: o.completedAt || settleTs,
                         loyaltyPointsAwarded: true,
                         isReconciled: true,
                         isSupplied: true,
-                        reconciledAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    o.completedAtMs = settledCompMs;
-                    o.loyaltyPointsAwarded = true;
+                        reconciledAt: settleTs,
+                        suppliedAt: o.suppliedAt || settleTs
+                    };
 
-                    // إضافة نقاط الولاء للعميل إن لم يكن الطلب مكتملاً من قبل
-                    if (!wasCompleted && !alreadyAwardedPts && o.customerPhone) {
-                        const sub = Number(o.subtotal) || Number(o.total) || 0;
-                        if (sub >= 100) {
-                            const earnedPts = Math.floor(sub / 100) * ptsPer100;
-                            if (earnedPts > 0) {
-                                const cleanPhone = o.customerPhone.startsWith('0') ? o.customerPhone : '0' + o.customerPhone;
-                                batchProcess.set(db.collection('customers').doc(cleanPhone), {
-                                    walletPoints: firebase.firestore.FieldValue.increment(earnedPts)
-                                }, { merge: true });
-                            }
+                    // منح نقاط الولاء + مضاعف سُلّم السمان + بونص الباكجات إذا لم تُمنح من قبل (حتى لو المندوب سلّم من التطبيق)
+                    if (!alreadyAwardedPts && o.customerPhone) {
+                        const netProductsForPts = Math.max(0, (Number(o.subtotal) || Number(o.total) || 0) - (Number(o.discount) || 0));
+                        const basePts = netProductsForPts >= 100 ? Math.floor(netProductsForPts / 100) * ptsPer100 : 0;
+                        const mult = Math.max(1, Number(o.pointsMultiplier) || 1);
+                        const bonusPts = Math.max(0, Number(o.bonusPoints) || 0);
+                        const earnedPts = Math.round(basePts * mult) + bonusPts;
+                        updatePayload.earnedPoints = earnedPts;
+                        o.earnedPoints = earnedPts;
+
+                        if (earnedPts > 0) {
+                            const cleanPhone = o.customerPhone.startsWith('0') ? o.customerPhone : '0' + o.customerPhone;
+                            batchProcess.set(db.collection('customers').doc(cleanPhone), {
+                                walletPoints: firebase.firestore.FieldValue.increment(earnedPts)
+                            }, { merge: true });
                         }
                     }
 
+                    batchProcess.update(ref, updatePayload);
+
                     // تحديث الذاكرة الحية فوراً
-                    o.status = 'completed';
-                    o.paymentMethod = finalOrderMethod;
-                    o.paidCash = finalPaidCash;
-                    o.paidOnline = finalPaidOnline;
-                    o.settledCash = orderSettledCash;
-                    o.settledOnline = orderSettledOnline;
-                    o.completedAtStr = o.completedAtStr || nowStr;
-                    o.completedTimeDisplay = o.completedTimeDisplay || timeStr;
-                    o.isReconciled = true;
-                    o.isSupplied = true;
+                    Object.assign(o, {
+                        status: 'completed',
+                        paymentMethod: finalMethod,
+                        paidCash: finalPaidCash,
+                        paidOnline: finalPaidOnline,
+                        settledCash: orderSettledCash,
+                        settledOnline: orderSettledOnline,
+                        completedAtMs: settledCompMs,
+                        completedAtStr: updatePayload.completedAtStr,
+                        completedTimeDisplay: updatePayload.completedTimeDisplay,
+                        loyaltyPointsAwarded: true,
+                        isReconciled: true,
+                        isSupplied: true
+                    });
 
                     if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[o.id]) {
-                        globalOrdersMap[o.id].status = 'completed';
-                        globalOrdersMap[o.id].paymentMethod = finalOrderMethod;
-                        globalOrdersMap[o.id].paidCash = finalPaidCash;
-                        globalOrdersMap[o.id].paidOnline = finalPaidOnline;
-                        globalOrdersMap[o.id].settledCash = orderSettledCash;
-                        globalOrdersMap[o.id].settledOnline = orderSettledOnline;
-                        globalOrdersMap[o.id].completedAtStr = o.completedAtStr;
-                        globalOrdersMap[o.id].completedTimeDisplay = o.completedTimeDisplay;
-                        globalOrdersMap[o.id].isReconciled = true;
-                        globalOrdersMap[o.id].isSupplied = true;
+                        Object.assign(globalOrdersMap[o.id], o);
                     }
                 });
 
                 await batchProcess.commit();
             }
 
+            window.reconSelectedOrderIds = null;
             window.renderReconciliationUI();
             window.calculateDriverReconciliation();
             if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
@@ -967,15 +1095,15 @@
             if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
 
             if (typeof window.showToast === 'function') {
-                window.showToast(`🎉 تم تقفيل عهدة (${driverName}) — كاش الدرج: ${targetNetCash} ج | فيزا/محفظة: ${targetNetOnline} ج`);
+                window.showToast(`🎉 تم تقفيل عهدة (${driverName}) — كاش الدرج: ${targetNetCash} ج | تحويلات: ${targetNetOnline} ج`);
             }
-            alert(`تم تقفيل عهدة المندوب (${driverName}) بنجاح! 🎉\n\n📊 ما تم تسميعه في لوحة القيادة:\n💵 صافي كاش الدرج: ${targetNetCash.toLocaleString()} ج.م\n💳 محفظة الأونلاين/الفيزا: ${targetNetOnline.toLocaleString()} ج.م`);
+            alert(`تم تقفيل عهدة المندوب (${driverName}) وتصفير محفظته بنجاح! 🎉\n\n📊 ما تم تسميعه في لوحة القيادة:\n💵 صافي كاش الدرج: ${targetNetCash.toLocaleString()} ج.م\n💳 محفظة / إنستاباي: ${targetNetOnline.toLocaleString()} ج.م`);
         } catch (e) {
             console.error(e);
             alert('حدث خطأ أثناء حفظ تصفية العهدة في قاعدة البيانات!');
+        } finally {
+            btn.innerHTML = origHtml;
+            btn.disabled = false;
         }
-
-        btn.innerHTML = origHtml;
-        btn.disabled = false;
     };
 })();
