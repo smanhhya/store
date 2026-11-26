@@ -1260,58 +1260,90 @@
     // 🪙 5. تفعيل نقاط الولاء بأثر رجعي (على الطلبات المكتملة فقط وبدون التوصيل)
     // =========================================================================
     window.calculateRetroactivePoints = async function () {
-        const ptsPer100 = parseFloat(document.getElementById('st-pts-per-100')?.value) || storeSettings.pointsPer100 || 5;
-        if (!confirm(`⚠️ سيتم حساب النقاط على (الطلبات المكتملة فقط) وبناءً على صافي قيمة المنتجات بدون التوصيل (${ptsPer100} نقطة لكل 100 ج).\n\nهل تريد المتابعة؟`)) return;
+        const rawOrders = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        const pendingOrders = rawOrders.filter(o =>
+            o && o.status === 'completed' && !o.loyaltyPointsAwarded && o.customerPhone
+        );
+
+        if (pendingOrders.length === 0) {
+            if (typeof window.showToast === 'function') window.showToast('✅ كل الطلبات المكتملة تم احتساب نقاطها بالفعل!');
+            else alert('✅ كل الطلبات المكتملة تم احتساب نقاطها بالفعل!');
+            return;
+        }
+
+        const ptsPer100 = Number(window.storeOffersConfig?.wallet?.pointsPer100) || parseFloat(document.getElementById('st-pts-per-100')?.value) || storeSettings.pointsPer100 || 5;
+        const plan = [];
+        let totalPts = 0;
+        const uniqueCusts = new Set();
+
+        pendingOrders.forEach(o => {
+            const normP = window.normalizePhone ? window.normalizePhone(o.customerPhone) : String(o.customerPhone).trim();
+            const cleanP = normP.startsWith('0') ? normP : '0' + normP;
+            if (cleanP.length < 10) return;
+
+            let earnedPts = 0;
+            if (typeof window.calcOrderEarnedPoints === 'function') {
+                earnedPts = window.calcOrderEarnedPoints(o);
+            } else {
+                const sub = Number(o.subtotal) || Math.max(0, (Number(o.total) || 0) - (Number(o.deliveryFee) || 0));
+                const net = Math.max(0, sub - (Number(o.discount) || 0));
+                const base = net >= 100 ? Math.floor(net / 100) * ptsPer100 : 0;
+                earnedPts = Math.round(base * Math.max(1, Number(o.pointsMultiplier) || 1)) + Math.max(0, Number(o.bonusPoints) || 0);
+            }
+            plan.push({ order: o, cleanP, earnedPts });
+            if (earnedPts > 0) {
+                totalPts += earnedPts;
+                uniqueCusts.add(cleanP);
+            }
+        });
+
+        const msg = `🛡️ مزامنة النقاط المعلقة بأمان (بالجمع فقط — لا يمس الرصيد القديم)\n\n` +
+            `📦 طلبات مكتملة بدون نقاط: ${plan.length} طلب\n` +
+            `👥 عملاء مستفيدون: ${uniqueCusts.size} عميل\n` +
+            `🪙 إجمالي النقاط التي ستُضاف: +${totalPts} نقطة\n\nهل تريد التنفيذ الآن؟`;
+        if (!confirm(msg)) return;
 
         const btn = document.getElementById('btn-retro-points');
         const origHtml = btn ? btn.innerHTML : '';
         if (btn) {
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري حساب الطلبات المكتملة...';
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري المزامنة الآمنة...';
             btn.disabled = true;
         }
 
         try {
-            const customerSpendingMap = {};
-            (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).forEach(o => {
-                if (!o || o.status !== 'completed' || !o.customerPhone) return;
-                const normPhone = window.normalizePhone ? window.normalizePhone(o.customerPhone) : o.customerPhone.trim();
-                if (!normPhone) return;
-                const orderSubtotal = Number(o.subtotal) || Math.max(0, (Number(o.total) || 0) - (Number(o.deliveryFee) || 0));
-                customerSpendingMap[normPhone] = (customerSpendingMap[normPhone] || 0) + orderSubtotal;
-            });
-
-            let batchesCommits = [];
-            let dbBatch = db.batch();
-            let count = 0;
-            let updatedCustomers = 0;
-
-            Object.keys(customerSpendingMap).forEach(phone => {
-                const totalSpent = customerSpendingMap[phone];
-                if (totalSpent >= 100) {
-                    const earnedPoints = Math.floor(totalSpent / 100) * ptsPer100;
-                    if (earnedPoints > 0) {
-                        const cleanPhone = phone.startsWith('0') ? phone : '0' + phone;
-                        const ref = db.collection('customers').doc(cleanPhone);
-                        dbBatch.set(ref, { totalSpent: totalSpent, walletPoints: earnedPoints }, { merge: true });
-                        count++;
-                        updatedCustomers++;
-                        if (count >= 400) {
-                            batchesCommits.push(dbBatch.commit());
-                            dbBatch = db.batch();
-                            count = 0;
-                        }
+            for (let i = 0; i < plan.length; i += 200) {
+                const chunk = plan.slice(i, i + 200);
+                const wb = db.batch();
+                const ptsByPhone = {};
+                chunk.forEach(({ order, cleanP, earnedPts }) => {
+                    wb.update(db.collection('orders').doc(order.id), {
+                        loyaltyPointsAwarded: true,
+                        earnedPoints: earnedPts
+                    });
+                    if (earnedPts > 0) {
+                        ptsByPhone[cleanP] = (ptsByPhone[cleanP] || 0) + earnedPts;
                     }
-                }
-            });
-
-            if (count > 0) batchesCommits.push(dbBatch.commit());
-            await Promise.all(batchesCommits);
+                    order.loyaltyPointsAwarded = true;
+                    order.earnedPoints = earnedPts;
+                    if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[order.id]) {
+                        globalOrdersMap[order.id].loyaltyPointsAwarded = true;
+                        globalOrdersMap[order.id].earnedPoints = earnedPts;
+                    }
+                });
+                Object.keys(ptsByPhone).forEach(pKey => {
+                    wb.set(db.collection('customers').doc(pKey), {
+                        walletPoints: firebase.firestore.FieldValue.increment(ptsByPhone[pKey])
+                    }, { merge: true });
+                });
+                await wb.commit();
+            }
 
             if (typeof window.refreshCustomersData === 'function') window.refreshCustomersData();
-            alert(`🎉 تمت العملية بنجاح! تم تحديث نقاط المحفظة لـ (${updatedCustomers}) عميل بناءً على طلباتهم المكتملة فقط.`);
+            if (typeof window.showToast === 'function') window.showToast(`🎉 تمت إضافة +${totalPts} نقطة لـ ${uniqueCusts.size} عميل بأمان!`);
+            else alert(`🎉 تمت إضافة +${totalPts} نقطة لـ ${uniqueCusts.size} عميل بأمان!`);
         } catch (e) {
             console.error(e);
-            alert('حدث خطأ أثناء حساب النقاط: ' + e.message);
+            alert('حدث خطأ أثناء مزامنة النقاط: ' + e.message);
         }
 
         if (btn) {
