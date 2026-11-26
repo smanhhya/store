@@ -280,6 +280,12 @@
                         <i class="fa-solid fa-box-archive text-slate-300"></i>
                         <span class="sb-tile-label">أرشيف الدفعات</span>
                     </button>
+                    <button type="button" onclick="switchTab('printer', this)" class="nav-btn sb-tile">
+                        <i class="fa-solid fa-print text-amber-300"></i>
+                        <span class="sb-tile-label">استوديو الطابعة</span>
+                        <span id="lc-sb-printer" class="sb-tile-badge hidden bg-emerald-400 text-slate-950">BT</span>
+                    </button>
+
                 </div>
             </div>
         </nav>
@@ -1111,6 +1117,7 @@
             <div id="view-offers" class="page-view space-y-4 max-w-6xl mx-auto pb-20"></div>
 
             <div id="view-kitchen" class="page-view space-y-4 max-w-6xl mx-auto pb-20"></div>
+            <div id="view-printer" class="page-view space-y-4 max-w-7xl mx-auto pb-20"></div>
 
 
             <div id="view-trash" class="page-view h-full flex flex-col space-y-4 max-w-4xl mx-auto">
@@ -2608,6 +2615,8 @@
                 window.renderOffersStudioUI();
             }
             if (tabId === 'kitchen' && typeof window.renderKitchenCRMUI === 'function') window.renderKitchenCRMUI();
+            if (tabId === 'printer' && typeof window.renderPrinterStudioPage === 'function') window.renderPrinterStudioPage();
+
             if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
 
             if (window.innerWidth < 768 && document.getElementById('sidebar')?.classList.contains('open')) {
