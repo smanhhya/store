@@ -1,7 +1,7 @@
 // =========================================================================
 // 🎁 استوديو العروض، الباكجات، وخزنة الهدايا الذكية (store-main/www/offers-studio.js)
 // خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM)
-// يتحكم بالكامل في: خزنة النقاط (بيض وهدايا فقط) + سُلّم أطباق السمان + صانع الباكجات
+// يتحكم بالكامل في: خزنة النقاط (هدايا البيض بقيمة أعلى 🆚 خصم كاش بقيمة أقل) + السُلّم السري + الباكجات
 // =========================================================================
 
 (function () {
@@ -12,14 +12,17 @@
             enabled: true,
             updatedAt: Date.now(),
 
-            // 1. إعدادات خزنة الهدايا والنقاط
+            // 1. إعدادات خزنة الهدايا والنقاط (تحكم مرن كامل من الإدارة)
             wallet: {
                 enabled: true,
                 pointsPer100: 5,               // 5 نقاط لكل 100 ج
-                pointValueEGP: 0.40,           // قيمة مرجعية 0.40 ج (2% ظاهر للعميل)
+                pointValueEGP: 0.40,           // قيمة مرجعية لهدايا البيض
+                cashPointValueEGP: 0.28,       // قيمة النقطة عند اختيار خصم كاش (125 نقطة = 35 ج)
+                minPointsForCash: 125,         // أقل نقاط لفتح الكاش (اكتب 0 لفتحه بدون حد أدنى)
                 eggPlateRealCost: 40,          // تكلفتك الحقيقية لطبق البيض
-                allowCashRedemption: false,    // ممنوع خصم فلوس — هدايا عينية فقط
-                minOrderForRedeemEGP: 110,     // لا هدية بدون أوردر فعلي
+                allowGiftRedemption: true,     // فتح/قفل هدايا البيض (القيمة الأعلى)
+                allowCashRedemption: true,     // فتح/قفل الخصم الكاش (القيمة الأقل)
+                minOrderForRedeemEGP: 110,     // أقل أوردر لاستخدام النقاط
                 rewards: [
                     {
                         id: 'rew_egg_1',
@@ -42,7 +45,7 @@
                 ]
             },
 
-            // 2. سُلّم هدايا أطباق السمان المذبوح فقط (quail track)
+            // 2. سُلّم هدايا أطباق السمان المذبوح فقط (يعمل في الخلفية كمفاجآت بدون إظهار القواعد للعميل)
             ladder: {
                 enabled: true,
                 showTemptationBar: true,
@@ -155,8 +158,8 @@
     // 🔄 1. التحميل والحفظ اللحظي في Firebase (inventory/loyalty_offers)
     // =========================================================================
     let offersListenerBound = false;
-    let offersServerLoaded = false;   // لا حفظ قبل أول تحميل من السيرفر (حماية من مسح الإعدادات بالافتراضي)
-    let syncedPointsSnapshot = null;  // آخر قيم نقاط متزامنة مع settings — لا نكتبها إلا لو اتغيرت فعلاً
+    let offersServerLoaded = false;
+    let syncedPointsSnapshot = null;
 
     window.bindOffersStudioFirestore = function () {
         if (offersListenerBound || typeof db === 'undefined') return;
@@ -181,11 +184,10 @@
                 const wSnap = window.storeOffersConfig.wallet || {};
                 syncedPointsSnapshot = {
                     pointsPer100: Number(wSnap.pointsPer100) || 5,
-                    pointValueEGP: Number(wSnap.pointValueEGP) || 0.40
+                    cashPointValueEGP: Number(wSnap.cashPointValueEGP) || 0.28
                 };
                 offersServerLoaded = true;
             }, () => {
-                // فشل المستمع (مثلاً قبل تسجيل دخول الأدمن أو رفض القواعد): نسمح بإعادة الربط بدل قفل الحفظ للأبد
                 offersListenerBound = false;
             });
         } catch (e) {
@@ -198,7 +200,6 @@
             if (!silent) alert('⚠️ يرجى تسجيل الدخول بحساب الأدمن أولاً ليتم الحفظ في السيرفر.');
             return;
         }
-        // حماية: ممنوع الحفظ قبل أول تحميل من السيرفر حتى لا تُكتب القيم الافتراضية فوق إعداداتك المحفوظة
         if (!offersServerLoaded || typeof db === 'undefined' || !db) {
             if (!silent) alert('⏳ لسّه بنحمّل الإعدادات الحالية من السيرفر... استنى لحظة وجرّب الحفظ تاني.');
             return;
@@ -209,11 +210,10 @@
         try {
             const w = window.storeOffersConfig.wallet;
             const curPts = Number(w.pointsPer100) || 5;
-            const curVal = Number(w.pointValueEGP) || 0.40;
-            // لا نلمس pointsPer100 / pointValueInEGP في settings إلا لو غيّرتهم فعلاً في الخانات
+            const curCashVal = Number(w.cashPointValueEGP) || 0.28;
             const pointsChanged = !syncedPointsSnapshot
                 || syncedPointsSnapshot.pointsPer100 !== curPts
-                || syncedPointsSnapshot.pointValueEGP !== curVal;
+                || syncedPointsSnapshot.cashPointValueEGP !== curCashVal;
 
             const writes = [
                 db.collection('inventory').doc('loyalty_offers').set(window.storeOffersConfig, { merge: true })
@@ -222,7 +222,7 @@
                 writes.push(
                     db.collection('inventory').doc('settings').set({
                         pointsPer100: curPts,
-                        pointValueInEGP: curVal
+                        pointValueInEGP: curCashVal
                     }, { merge: true })
                 );
             }
@@ -230,9 +230,9 @@
 
             if (pointsChanged && typeof storeSettings !== 'undefined') {
                 storeSettings.pointsPer100 = curPts;
-                storeSettings.pointValueInEGP = curVal;
+                storeSettings.pointValueInEGP = curCashVal;
             }
-            syncedPointsSnapshot = { pointsPer100: curPts, pointValueEGP: curVal };
+            syncedPointsSnapshot = { pointsPer100: curPts, cashPointValueEGP: curCashVal };
             if (!silent) notify('✅ تم حفظ ونشر نظام الهدايا والباكجات على المتجر بنجاح!');
         } catch (e) {
             console.error('Save offers config error:', e);
@@ -244,7 +244,6 @@
     // 🧩 2. حقن الشاشة وأيقونة القائمة الجانبية وزر لوحة القيادة تلقائياً
     // =========================================================================
     function ensureOffersStudioDOM() {
-        // أ) إنشاء شاشة #view-offers داخل المحتوى الرئيسي
         if (!document.getElementById('view-offers')) {
             const settingsView = document.getElementById('view-settings');
             if (settingsView && settingsView.parentElement) {
@@ -255,7 +254,6 @@
             }
         }
 
-        // ب) إضافة أيقونة "العروض والولاء" في القائمة الجانبية (مجموعة المتجر والأرشيف)
         if (!document.getElementById('sb-btn-offers-studio')) {
             const settingsSbBtn = document.querySelector(`#sidebar button[onclick*="switchTab('settings'"]`);
             if (settingsSbBtn && settingsSbBtn.parentElement) {
@@ -272,7 +270,6 @@
             }
         }
 
-        // ج) إضافة زر اختصار شيك في الشريط العلوي للوحة القيادة (لو مرسوم)
         const dashRoot = document.getElementById('smart-dashboard-root');
         if (dashRoot && !document.getElementById('dash-quick-offers-btn')) {
             const printBtn = dashRoot.querySelector('button[onclick*="printSmartDashboardReport"]');
@@ -292,7 +289,7 @@
     }
 
     // =========================================================================
-    // 🎨 3. رسم واجهة الاستوديو الكاملة (3 تبويبات + حاسبة أمان مالي حيّة)
+    // 🎨 3. رسم واجهة الاستوديو الكاملة (3 تبويبات + حاسبة مقارنة البيض والكاش)
     // =========================================================================
     window.switchOffersStudioTab = function (tabKey) {
         window.offersStudioState.activeTab = tabKey || 'wallet';
@@ -321,8 +318,8 @@
         const eggRealCost = Math.max(1, Number(w.eggPlateRealCost) || 40);
         const ptsPer100 = Math.max(0.1, Number(w.pointsPer100) || 5);
         const ptVal = Math.max(0.01, Number(w.pointValueEGP) || 0.40);
-        const perceivedCashbackPct = (ptsPer100 * ptVal).toFixed(2);
-        const realCashbackPct = ((ptsPer100 * ptVal) * (eggRealCost / Math.max(1, eggSellPrice))).toFixed(2);
+        const cashValPt = Math.max(0.01, Number(w.cashPointValueEGP) || 0.28);
+        const minPtsCash = Math.max(0, Number(w.minPointsForCash) || 0);
         const avgQuailPrice = getAverageQuailPlatePrice();
 
         const tabCls = (k) => activeTab === k
@@ -340,8 +337,15 @@
                 .map(id => `<option value="${escHtml(id)}">${escHtml(prods[id].name)} (${getProductPrice(id)} ج)</option>`)
                 .join('');
 
+            const samplePts = Number(rewards[0]?.pointsCost) || 125;
+            const cashSampleEGP = Math.floor(samplePts * cashValPt);
+            const spendForSample = Math.round((samplePts / ptsPer100) * 100);
+            const eggPctReal = spendForSample > 0 ? ((eggRealCost / spendForSample) * 100).toFixed(2) : '0';
+            const cashPctReal = spendForSample > 0 ? ((cashSampleEGP / spendForSample) * 100).toFixed(2) : '0';
+            const extraEggGain = Math.max(0, eggSellPrice - cashSampleEGP);
+
             const rewardsHtml = rewards.length === 0
-                ? `<div class="text-center py-6 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-2xl">لا توجد هدايا مضافة بعد — اضغط (+ إضافة هدية جديدة).</div>`
+                ? `<div class="text-center py-6 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-2xl">لا توجد هدايا مضافة بعد — اضغط (+ إضافة هدية).</div>`
                 : rewards.map((r, idx) => {
                     const spendNeeded = Math.round((Number(r.pointsCost) / ptsPer100) * 100);
                     const realCost = r.productId === 'eggs' ? eggRealCost * (Number(r.qty) || 1) : (Number(r.realCostEGP) || Math.round(getProductPrice(r.productId) * 0.7 * (Number(r.qty) || 1)));
@@ -368,7 +372,7 @@
                     <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
                         <div>
                             <h4 class="text-sm font-black text-slate-900"><i class="fa-solid fa-vault text-amber-500 ml-1"></i> إعدادات خزنة الهدايا والنقاط</h4>
-                            <p class="text-[11px] font-bold text-slate-400">العميل يجمع نقط على كل طلباته ويستبدلها بهدايا عينية (بيض سمان) بدون خصم كاش.</p>
+                            <p class="text-[11px] font-bold text-slate-400">تحكم كامل في فتح/قفل هدايا البيض (بقيمة أعلى) أو خصم الكاش (بقيمة أقل) وحد الكاش الأدنى.</p>
                         </div>
                         <label class="flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs font-black text-emerald-900 cursor-pointer">
                             <input type="checkbox" ${w.enabled ? 'checked' : ''} onchange="storeOffersConfig.wallet.enabled=this.checked; saveOffersStudioConfig(true);" class="w-4 h-4 accent-emerald-600 rounded">
@@ -376,35 +380,52 @@
                         </label>
                     </div>
 
-                    <!-- حاسبة الربحية الذكية -->
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <!-- خانات التحكم الخمسة المرنة -->
+                    <div class="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
                         <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
                             <label class="text-[10px] font-black text-slate-500 block mb-1">نقاط لكل 100 ج</label>
                             <input type="number" step="0.5" value="${w.pointsPer100}" onchange="storeOffersConfig.wallet.pointsPer100=parseFloat(this.value)||5; renderOffersStudioUI();" class="w-full bg-white border border-slate-200 rounded-xl p-2 text-center font-black text-sm text-slate-900 outline-none">
                         </div>
-                        <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
-                            <label class="text-[10px] font-black text-slate-500 block mb-1">قيمة النقطة المرجعية (ج)</label>
-                            <input type="number" step="0.05" value="${w.pointValueEGP}" onchange="storeOffersConfig.wallet.pointValueEGP=parseFloat(this.value)||0.40; renderOffersStudioUI();" class="w-full bg-white border border-slate-200 rounded-xl p-2 text-center font-black text-sm text-slate-900 outline-none">
+                        <div class="bg-blue-50/70 p-3 rounded-2xl border border-blue-200">
+                            <label class="text-[10px] font-black text-blue-900 block mb-1">قيمة النقطة كاش (ج)</label>
+                            <input type="number" step="0.01" min="0.05" value="${cashValPt}" onchange="storeOffersConfig.wallet.cashPointValueEGP=parseFloat(this.value)||0.28; renderOffersStudioUI();" class="w-full bg-white border border-blue-300 rounded-xl p-2 text-center font-black text-sm text-blue-950 outline-none">
+                        </div>
+                        <div class="bg-blue-50/50 p-3 rounded-2xl border border-blue-200">
+                            <label class="text-[10px] font-black text-blue-900 block mb-1">أقل نقاط للكاش (0=مفتوح)</label>
+                            <input type="number" min="0" value="${minPtsCash}" onchange="const v=parseInt(this.value,10); storeOffersConfig.wallet.minPointsForCash=isNaN(v)?0:Math.max(0,v); renderOffersStudioUI();" class="w-full bg-white border border-blue-300 rounded-xl p-2 text-center font-black text-sm text-blue-950 outline-none">
                         </div>
                         <div class="bg-amber-50/70 p-3 rounded-2xl border border-amber-200">
                             <label class="text-[10px] font-black text-amber-900 block mb-1">تكلفة طبق البيض عليك (ج)</label>
                             <input type="number" value="${w.eggPlateRealCost}" onchange="storeOffersConfig.wallet.eggPlateRealCost=parseFloat(this.value)||40; renderOffersStudioUI();" class="w-full bg-white border border-amber-300 rounded-xl p-2 text-center font-black text-sm text-amber-950 outline-none">
                         </div>
-                        <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
-                            <label class="text-[10px] font-black text-slate-500 block mb-1">أقل أوردر لاستلام هدية (ج)</label>
-                            <input type="number" value="${w.minOrderForRedeemEGP}" onchange="storeOffersConfig.wallet.minOrderForRedeemEGP=parseInt(this.value)||0;" class="w-full bg-white border border-slate-200 rounded-xl p-2 text-center font-black text-sm text-slate-900 outline-none">
+                        <div class="col-span-2 sm:col-span-1 bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
+                            <label class="text-[10px] font-black text-slate-500 block mb-1">أقل أوردر للصرف (ج)</label>
+                            <input type="number" min="0" value="${w.minOrderForRedeemEGP}" onchange="storeOffersConfig.wallet.minOrderForRedeemEGP=Math.max(0,parseInt(this.value,10)||0);" class="w-full bg-white border border-slate-200 rounded-xl p-2 text-center font-black text-sm text-slate-900 outline-none">
                         </div>
                     </div>
 
-                    <div class="bg-gradient-to-l from-slate-900 to-emerald-950 text-white p-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-xs font-black">
-                        <span>👁️ الظاهر للعميل: <strong class="text-amber-300">${perceivedCashbackPct}%</strong> (سعر البيض ${eggSellPrice} ج)</span>
-                        <span>💎 تكلفتك الحقيقية الفعلية: <strong class="text-emerald-300">${realCashbackPct}% فقط</strong> (وفرت ${Math.max(0, Math.round((1 - eggRealCost / Math.max(1, eggSellPrice)) * 100))}% من الكاش باك!)</span>
+                    <!-- حاسبة المقارنة المالية الحية -->
+                    <div class="bg-gradient-to-l from-slate-900 to-emerald-950 text-white p-3.5 rounded-2xl space-y-1.5 text-xs font-black">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <span>🥚 عند ${samplePts} نقطة (بيض): العميل ياخد <strong class="text-amber-300">${eggSellPrice} ج</strong> • تكلفتك <strong class="text-emerald-300">${eggRealCost} ج (${eggPctReal}%)</strong></span>
+                            <span>💵 عند ${samplePts} نقطة (كاش): العميل ياخد <strong class="text-sky-300">${cashSampleEGP} ج</strong> • تكلفتك <strong class="text-sky-300">${cashSampleEGP} ج (${cashPctReal}%)</strong></span>
+                        </div>
+                        <p class="text-[11px] text-amber-200/90 pt-1 border-t border-white/10">
+                            ✨ فرق القيمة الذكي: العميل بيكسب <strong>+${extraEggGain} ج زيادة</strong> لو اختار طبق البيض بمزاجه! ${minPtsCash === 0 ? '• (الكاش مفتوح بدون حد أدنى للنقاط)' : `• (الكاش يُفتح عند ${minPtsCash} نقطة)`}
+                        </p>
                     </div>
 
-                    <label class="flex items-center justify-between gap-2 bg-rose-50/70 border border-rose-200 p-3 rounded-2xl cursor-pointer">
-                        <span class="text-xs font-black text-rose-900">🚫 منع استبدال النقاط بخصم فلوس (كاش) — الاستبدال بهدايا عينية فقط</span>
-                        <input type="checkbox" ${!w.allowCashRedemption ? 'checked' : ''} onchange="storeOffersConfig.wallet.allowCashRedemption=!this.checked;" class="w-4 h-4 accent-rose-600 rounded">
-                    </label>
+                    <!-- زراير فتح وقفل الخيارين بحرية كاملة -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <label class="flex items-center justify-between gap-2 bg-emerald-50/80 border border-emerald-200 p-3 rounded-2xl cursor-pointer">
+                            <span class="text-xs font-black text-emerald-950">🥚 فتح استبدال النقاط بهدايا البيض (القيمة الأعلى)</span>
+                            <input type="checkbox" ${w.allowGiftRedemption !== false ? 'checked' : ''} onchange="storeOffersConfig.wallet.allowGiftRedemption=this.checked;" class="w-4 h-4 accent-emerald-600 rounded shrink-0">
+                        </label>
+                        <label class="flex items-center justify-between gap-2 bg-blue-50/80 border border-blue-200 p-3 rounded-2xl cursor-pointer">
+                            <span class="text-xs font-black text-blue-950">💵 فتح استبدال النقاط بخصم كاش (القيمة الأقل)</span>
+                            <input type="checkbox" ${w.allowCashRedemption === true ? 'checked' : ''} onchange="storeOffersConfig.wallet.allowCashRedemption=this.checked;" class="w-4 h-4 accent-blue-600 rounded shrink-0">
+                        </label>
+                    </div>
 
                     <!-- كتالوج هدايا النقاط -->
                     <div class="pt-2 border-t border-slate-100 space-y-3">
@@ -432,7 +453,7 @@
             `;
         }
 
-        // ==================== التبويب 2: سُلّم هدايا أطباق السمان ====================
+        // ==================== التبويب 2: سُلّم المفاجآت السري لأطباق السمان ====================
         else if (activeTab === 'ladder') {
             const tiers = (Array.isArray(l.tiers) ? l.tiers : []).slice().sort((a, b) => (Number(a.minPlates) || 0) - (Number(b.minPlates) || 0));
             const prods = getProductsMap();
@@ -443,7 +464,7 @@
 
             const tiersHtml = tiers.length === 0
                 ? `<div class="text-center py-6 text-xs font-bold text-slate-400 border border-dashed border-slate-200 rounded-2xl">لا توجد مستويات في السُلّم حالياً.</div>`
-                : tiers.map((t, idx) => {
+                : tiers.map((t) => {
                     const minP = Math.max(1, Number(t.minPlates) || 1);
                     const estOrderVal = minP * avgQuailPrice;
                     let realCostTotal = 0;
@@ -487,8 +508,8 @@
                 <div class="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/80 shadow-soft space-y-4">
                     <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
                         <div>
-                            <h4 class="text-sm font-black text-slate-900"><i class="fa-solid fa-stairs text-emerald-600 ml-1"></i> سُلّم إغراء أطباق السمان (سمان مذبوح فقط)</h4>
-                            <p class="text-[11px] font-bold text-slate-400">يحسب أطباق السمان المذبوح فقط؛ الفراخ والرومي والكتاكيت تأخذ نقاطها العادية بصمت.</p>
+                            <h4 class="text-sm font-black text-slate-900"><i class="fa-solid fa-stairs text-emerald-600 ml-1"></i> سُلّم هدايا أطباق السمان (سمان مذبوح فقط)</h4>
+                            <p class="text-[11px] font-bold text-slate-400">الهدية بتنزل لوحدها عند الوصول للعدد المحدد. تحكم تحت: تظهر للعميل شريط التقدم (فاضل كذا وتاخد…) في السلة ولا تفضل مفاجأة.</p>
                         </div>
                         <label class="flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs font-black text-emerald-900 cursor-pointer">
                             <input type="checkbox" ${l.enabled ? 'checked' : ''} onchange="storeOffersConfig.ladder.enabled=this.checked; saveOffersStudioConfig(true);" class="w-4 h-4 accent-emerald-600 rounded">
@@ -496,11 +517,10 @@
                         </label>
                     </div>
 
-                    <!-- صمامات الأمان -->
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <label class="flex items-center gap-2 bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-[11px] font-black text-slate-700 cursor-pointer">
                             <input type="checkbox" ${l.showTemptationBar ? 'checked' : ''} onchange="storeOffersConfig.ladder.showTemptationBar=this.checked;" class="w-4 h-4 accent-amber-500 rounded shrink-0">
-                            <span>✨ إظهار شريط الإغراء الحي في السلة</span>
+                            <span>✨ إظهار شريط التقدم (فاضل كذا وتاخد…) في السلة</span>
                         </label>
                         <label class="flex items-center gap-2 bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-[11px] font-black text-slate-700 cursor-pointer">
                             <input type="checkbox" ${l.blockWithPromoCode ? 'checked' : ''} onchange="storeOffersConfig.ladder.blockWithPromoCode=this.checked;" class="w-4 h-4 accent-rose-600 rounded shrink-0">
@@ -539,7 +559,7 @@
                                 <select id="os-tr-prod" class="w-full border border-emerald-300 rounded-xl p-2 text-xs font-black bg-white outline-none">${prodOpts}</select>
                             </div>
                             <div>
-                                <label class="text-[10px] font-black text-slate-600 block mb-1">النص الظاهر للعميل</label>
+                                <label class="text-[10px] font-black text-slate-600 block mb-1">وصف إداري للمستوى</label>
                                 <input type="text" id="os-tr-label" placeholder="مثال: طبق بيض هدية 🥚" class="w-full border border-emerald-300 rounded-xl p-2 text-xs font-black bg-white outline-none">
                             </div>
                         </div>
@@ -603,7 +623,7 @@
                     <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
                         <div>
                             <h4 class="text-sm font-black text-slate-900"><i class="fa-solid fa-boxes-stacked text-amber-500 ml-1"></i> صانع الباكجات والعروض المجمعة</h4>
-                            <p class="text-[11px] font-bold text-slate-400">صمّم أي باكج (أسرة، شوي، عزومة) وبيظهر للعميل في المتجر بكارت شيك يضيفه بضغطة.</p>
+                            <p class="text-[11px] font-bold text-slate-400">صمّم أي باكج (أسرة، شوي، سمان + بيض) وبيظهر للعميل في المتجر بكارت شيك يضيفه بضغطة.</p>
                         </div>
                         <button type="button" onclick="document.getElementById('os-new-bundle-form').classList.toggle('hidden')" class="bg-slate-900 hover:bg-brand-primary text-amber-300 px-3.5 py-2 rounded-xl text-xs font-black shadow-sm">+ إنشاء باكج جديد</button>
                     </div>
@@ -659,7 +679,7 @@
                     <span class="w-11 h-11 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center text-xl shadow shrink-0"><i class="fa-solid fa-gift"></i></span>
                     <div class="min-w-0">
                         <h3 class="text-base sm:text-lg font-black text-white leading-tight">استوديو العروض، الباكجات، وخزنة الهدايا</h3>
-                        <p class="text-[11px] font-bold text-emerald-200/85 mt-0.5">تحكم كامل في النقاط (بيض بدون كاش) + سُلّم أطباق السمان + الباكجات المجمعة بحاسبة ربحية آمنة.</p>
+                        <p class="text-[11px] font-bold text-emerald-200/85 mt-0.5">تحكم كامل في النقاط (هدايا بيض بقيمة أعلى 🆚 خصم كاش مرن) + السُلّم السري + الباكجات.</p>
                     </div>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
@@ -693,7 +713,7 @@
         const qty = Math.max(1, parseInt(document.getElementById('os-rw-qty')?.value, 10) || 1);
         const pointsCost = Math.max(10, parseInt(document.getElementById('os-rw-pts')?.value, 10) || 125);
         const realCostEGP = productId === 'eggs'
-            ? (Math.max(1, Number(window.storeOffersConfig.wallet.eggPlateRealCost) || 40) * qty) // هدايا البيض تتبع خانة تكلفة البيض لحظياً
+            ? (Math.max(1, Number(window.storeOffersConfig.wallet.eggPlateRealCost) || 40) * qty)
             : Math.max(1, parseFloat(document.getElementById('os-rw-cost')?.value) || 40);
         if (!title) return alert('اكتب اسم الهدية أولاً!');
 
@@ -806,7 +826,6 @@
         if (items.length === 0) return alert('اختر صنفاً واحداً على الأقل داخل الباكج!');
         if (bundlePrice <= 0) return alert('اكتب سعر الباكج!');
 
-        // حماية: سعر الباكج لازم يكون أقل من مجموع أسعار الأصناف، وتأكيد إضافي لو الخصم أكبر من 25%
         const origTotal = items.reduce((sum, it) => sum + (getProductPrice(it.id) * it.qty), 0);
         if (origTotal > 0 && bundlePrice >= origTotal) {
             return alert(`⚠️ سعر الباكج (${bundlePrice} ج) أكبر من أو يساوي السعر الأصلي للأصناف (${origTotal} ج) — كده العميل مش هيوفّر حاجة!`);
@@ -814,10 +833,7 @@
         if (origTotal > 0) {
             const discountPct = ((origTotal - bundlePrice) / origTotal) * 100;
             if (discountPct > 25) {
-                const ok = confirm(`⚠️ تنبيه: خصم الباكج ${discountPct.toFixed(1)}% (العميل هيوفّر ${origTotal - bundlePrice} ج من ${origTotal} ج).
-نسبة خصم أعلى من 25% — متأكد إنك مش هتخسر؟
-
-اضغط OK للنشر أو Cancel للتعديل.`);
+                const ok = confirm(`⚠️ تنبيه: خصم الباكج ${discountPct.toFixed(1)}% (العميل هيوفّر ${origTotal - bundlePrice} ج من ${origTotal} ج).\nنسبة خصم أعلى من 25% — متأكد إنك مش هتخسر؟\n\nاضغط OK للنشر أو Cancel للتعديل.`);
                 if (!ok) return;
             }
         }
