@@ -19,6 +19,70 @@
 
     window.ordersRenderLimit = 30;
 
+    // معادلة النقاط الموحدة في كامل الـ CRM (صافي المنتجات × مضاعف السُلّم + البونص)
+    window.calcOrderEarnedPoints = function (order) {
+        if (!order) return 0;
+        const ptsPer100 = Number(window.storeOffersConfig?.wallet?.pointsPer100) || Number(storeSettings?.pointsPer100) || 5;
+        const rawSub = Number(order.subtotal);
+        const fallbackSub = Math.max(0, (Number(order.total) || 0) - (Number(order.deliveryFee) || 0));
+        const subVal = (!isNaN(rawSub) && rawSub > 0) ? rawSub : fallbackSub;
+        const netProducts = Math.max(0, subVal - (Number(order.discount) || 0));
+        const basePts = netProducts >= 100 ? Math.floor(netProducts / 100) * ptsPer100 : 0;
+        const mult = Math.max(1, Number(order.pointsMultiplier) || 1);
+        const bonus = Math.max(0, Number(order.bonusPoints) || 0);
+        return Math.round(basePts * mult) + bonus;
+    };
+
+    window.getOrderSpentWalletPoints = function (order) {
+        if (!order) return 0;
+        if (Number(order.walletPointsUsed) > 0) return Math.round(Number(order.walletPointsUsed));
+        let pts = Number(order.walletRewardRedeemed?.pointsCost) || 0;
+        if (pts <= 0 && Array.isArray(order.items)) {
+            order.items.forEach(it => {
+                if (it && it.isGift && Number(it.pointsCost) > 0) pts += Number(it.pointsCost);
+            });
+        }
+        return Math.round(pts);
+    };
+
+    // استرداد تلقائي لنقاط العميل لو الطلب اتلغى أو اتحذف للسلة
+    window.refundOrderWalletPointsIfNeeded = async function (ord) {
+        if (!ord || !ord.id || ord.walletPointsRefunded || !ord.customerPhone) return;
+        const spentPts = window.getOrderSpentWalletPoints(ord);
+        if (spentPts <= 0) return;
+        const normP = window.normalizePhone ? window.normalizePhone(ord.customerPhone) : String(ord.customerPhone).trim();
+        const cleanP = normP.startsWith('0') ? normP : '0' + normP;
+        if (cleanP.length < 10) return;
+
+        try {
+            const dateStr = new Date().toLocaleString('ar-EG', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const logLine = `[${dateStr}] 🔄 استرداد تلقائي لـ (${spentPts} نقطة) لخزنة العميل بعد إلغاء الطلب.`;
+            const updatedNote = ord.adminNote ? `${ord.adminNote}\n---\n${logLine}` : logLine;
+
+            const wb = db.batch();
+            wb.update(db.collection('orders').doc(ord.id), {
+                walletPointsRefunded: true,
+                adminNote: updatedNote
+            });
+            wb.set(db.collection('customers').doc(cleanP), {
+                walletPoints: firebase.firestore.FieldValue.increment(spentPts)
+            }, { merge: true });
+            await wb.commit();
+
+            ord.walletPointsRefunded = true;
+            ord.adminNote = updatedNote;
+            if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[ord.id]) {
+                globalOrdersMap[ord.id].walletPointsRefunded = true;
+                globalOrdersMap[ord.id].adminNote = updatedNote;
+            }
+            if (typeof window.showToast === 'function') {
+                window.showToast(`🔄 تم استرداد (${spentPts} نقطة) لخزنة العميل تلقائياً`);
+            }
+        } catch (e) {
+            console.error('Wallet refund error:', e);
+        }
+    };
+
     // =========================================================================
     // 🎨 تلوين أزرار التبويبات (مكتمل / تجهيز / جديد...) بألوان صريحة وقوية تمنع البهتان
     // =========================================================================
@@ -1725,8 +1789,8 @@
         }
 
         const pts = Number(c.walletPoints) || 0;
-        const ptVal = Number(storeSettings?.pointValueInEGP) || 0.40;
-        const walletCash = Math.round(pts * ptVal);
+        const ptVal = Number(window.storeOffersConfig?.wallet?.cashPointValueEGP) || Number(storeSettings?.pointValueInEGP) || 0.28;
+        const walletCash = Math.floor(pts * ptVal);
         const oldDebt = Number(c.debt) || 0;
 
         helperBox.innerHTML = `
@@ -1945,9 +2009,7 @@
             let fzNewValues = { ...(typeof storeFreezer !== 'undefined' ? storeFreezer : {}) };
             let fzTouched = false;
 
-            const nowStr = new Date().toLocaleDateString('en-US');
-            const nowDisplay = new Date().toLocaleString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-            const ptsPer100 = Number(storeSettings?.pointsPer100) || 5;
+            const custPtsDeltas = {};
 
             checked.forEach(id => {
                 let o = allOrdersRaw.find(x => x.id === id);
@@ -1982,6 +2044,18 @@
                     updateData.dispatchedAtMs = Date.now();
                 }
                 if (newStatus === 'canceled') updateData.canceledAt = firebase.firestore.FieldValue.serverTimestamp();
+                if ((newStatus === 'canceled' || newStatus === 'trash') && oldStatus !== 'canceled' && oldStatus !== 'trash' && !o.walletPointsRefunded && o.customerPhone) {
+                    const spentPts = window.getOrderSpentWalletPoints(o);
+                    if (spentPts > 0) {
+                        const normP = window.normalizePhone ? window.normalizePhone(o.customerPhone) : o.customerPhone.toString().trim();
+                        const cleanPhone = normP.startsWith('0') ? normP : '0' + normP;
+                        if (cleanPhone.length >= 10) {
+                            updateData.walletPointsRefunded = true;
+                            o.walletPointsRefunded = true;
+                            custPtsDeltas[cleanPhone] = (custPtsDeltas[cleanPhone] || 0) + spentPts;
+                        }
+                    }
+                }
 
                 if (newStatus === 'completed') {
                     const compNowMs = Date.now();
@@ -1995,19 +2069,16 @@
                     o.completedTimeDisplay = nowDisplay;
 
                     if (oldStatus !== 'completed' && !o.loyaltyPointsAwarded && o.customerPhone) {
+                        const earnedPts = window.calcOrderEarnedPoints(o);
                         updateData.loyaltyPointsAwarded = true;
+                        updateData.earnedPoints = earnedPts;
                         o.loyaltyPointsAwarded = true;
-                        const orderSub = Number(o.subtotal) || Number(o.total) || 0;
-                        if (orderSub >= 100) {
-                            const earnedPts = Math.floor(orderSub / 100) * ptsPer100;
-                            if (earnedPts > 0) {
-                                const normP = window.normalizePhone ? window.normalizePhone(o.customerPhone) : o.customerPhone.toString().trim();
-                                const cleanPhone = normP.startsWith('0') ? normP : '0' + normP;
-                                if (cleanPhone.length >= 10) {
-                                    dbBatch.set(db.collection('customers').doc(cleanPhone), {
-                                        walletPoints: firebase.firestore.FieldValue.increment(earnedPts)
-                                    }, { merge: true });
-                                }
+                        o.earnedPoints = earnedPts;
+                        if (earnedPts > 0) {
+                            const normP = window.normalizePhone ? window.normalizePhone(o.customerPhone) : o.customerPhone.toString().trim();
+                            const cleanPhone = normP.startsWith('0') ? normP : '0' + normP;
+                            if (cleanPhone.length >= 10) {
+                                custPtsDeltas[cleanPhone] = (custPtsDeltas[cleanPhone] || 0) + earnedPts;
                             }
                         }
                     }
@@ -2070,6 +2141,14 @@
                 }
                 if (typeof window.syncOrderToGoogleSheet === 'function') {
                     window.syncOrderToGoogleSheet(o, newStatus === 'trash' ? 'delete' : 'update');
+                }
+            });
+
+            Object.keys(custPtsDeltas).forEach(pKey => {
+                if (custPtsDeltas[pKey] !== 0) {
+                    dbBatch.set(db.collection('customers').doc(pKey), {
+                        walletPoints: firebase.firestore.FieldValue.increment(custPtsDeltas[pKey])
+                    }, { merge: true });
                 }
             });
 
@@ -2727,6 +2806,7 @@
                     return;
                 }
                 const ord = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o && o.id === id);
+                const oldStatus = ord ? ord.status : null;
                 if (ord && ['dispatched', 'completed'].includes(newStatus) && typeof window.orderHasPendingWeight === 'function' && window.orderHasPendingWeight(ord)) {
                     if (typeof window.showToast === 'function') window.showToast('⚖️ سكّن أوزان الطلب أولاً لحساب الفاتورة النهائية قبل التسليم!');
                     window.openAssignPendingWeightsModal(id);
@@ -2739,7 +2819,44 @@
                     ord.deferredAlertDismissed = true;
                     db.collection('orders').doc(id).update({ deferredAlertDismissed: true }).catch(() => {});
                 }
+
+                // حجز حساب النقاط بالمعادلة الموحدة (بالمضاعف والبونص) ومنع المعادلة القديمة من التكرار
+                const needExactPts = Boolean(newStatus === 'completed' && ord && !ord.loyaltyPointsAwarded && ord.customerPhone);
+                if (needExactPts) {
+                    ord.loyaltyPointsAwarded = true;
+                    if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) globalOrdersMap[id].loyaltyPointsAwarded = true;
+                }
+
                 const res = await window._origUpdateOrderStatusForDeferred.apply(this, arguments);
+
+                if (needExactPts) {
+                    if (ord.status === 'completed') {
+                        const exactPts = window.calcOrderEarnedPoints(ord);
+                        const normP = window.normalizePhone ? window.normalizePhone(ord.customerPhone) : String(ord.customerPhone).trim();
+                        const cleanP = normP.startsWith('0') ? normP : '0' + normP;
+                        const wb = db.batch();
+                        wb.update(db.collection('orders').doc(id), {
+                            loyaltyPointsAwarded: true,
+                            earnedPoints: exactPts
+                        });
+                        if (exactPts > 0 && cleanP.length >= 10) {
+                            wb.set(db.collection('customers').doc(cleanP), {
+                                walletPoints: firebase.firestore.FieldValue.increment(exactPts)
+                            }, { merge: true });
+                        }
+                        await wb.commit().catch(() => {});
+                        ord.earnedPoints = exactPts;
+                        if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) globalOrdersMap[id].earnedPoints = exactPts;
+                    } else {
+                        ord.loyaltyPointsAwarded = false;
+                        if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) globalOrdersMap[id].loyaltyPointsAwarded = false;
+                    }
+                }
+
+                if (ord && (newStatus === 'canceled' || newStatus === 'trash') && oldStatus && oldStatus !== 'canceled' && oldStatus !== 'trash' && (ord.status === 'canceled' || ord.status === 'trash')) {
+                    await window.refundOrderWalletPointsIfNeeded(ord);
+                }
+
                 if (ord) {
                     window.syncWeightHoldForOrderStatus(ord, newStatus);
                 }
