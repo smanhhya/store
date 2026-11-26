@@ -90,7 +90,10 @@
     // 2. دوال الجسر الأصلي للـ APK + الأدوات المساعدة (محفوظة 100% بدون تغيير)
     // =========================================================================
     function isNativeApkBridgeAvailable() {
-        return Boolean(window.SmanNativePrinter && typeof window.SmanNativePrinter.isNativeBridgeReady === 'function');
+        return Boolean(window.SmanNativePrinter && (
+            typeof window.SmanNativePrinter.isNativeBridgeReady === 'function' ||
+            typeof window.SmanNativePrinter.printRawBase64Bluetooth === 'function'
+        ));
     }
 
     function uint8ArrayToBase64(bytes) {
@@ -395,35 +398,36 @@
         return uint8ArrayToBase64(combined);
     }
 
-    // =========================================================================
-    // 5. مضخة البلوتوث والـ USB والـ Spooler الموحدة (تخدم كل التبويبات الـ 4)
-    // =========================================================================
     window.scanAndLoadNativePairedPrinters = function (showFeedback = false) {
         const badge = document.getElementById('ps-bt-badge');
         const sel = document.getElementById('ps-bt-select');
         const sbBadge = document.getElementById('lc-sb-printer');
 
+        const setBadge = (cls, html) => {
+            if (badge) { badge.className = cls; badge.innerHTML = html; }
+        };
+
         if (!isNativeApkBridgeAvailable()) {
-            if (badge) {
-                badge.className = 'inline-flex items-center gap-1.5 bg-sky-500/20 text-sky-200 border border-sky-400/40 px-2.5 py-1 rounded-xl text-[10px] font-black';
-                badge.innerHTML = '<i class="fa-solid fa-desktop"></i> وضع المتصفح / Spooler';
-            }
-            if (showFeedback) notifyPrinterToast('💻 أنت على المتصفح — يمكنك الطباعة عبر Spooler أو حفظ صورة PNG');
+            setBadge('inline-flex items-center gap-1.5 bg-sky-500/20 text-sky-200 border border-sky-400/40 px-2.5 py-1 rounded-xl text-[10px] font-black', '<i class="fa-solid fa-desktop"></i> الجسر غير موجود (وضع متصفح)');
+            if (showFeedback) alert('⚠️ جسر الأندرويد (window.SmanNativePrinter) غير موجود في هذه الصفحة!\n\nتأكد إنك فاتح من داخل تطبيق الـ APK مش من المتصفح.');
             return [];
         }
 
         try {
-            const rawRes = window.SmanNativePrinter.getPairedDevicesJson();
+            const rawRes = String(window.SmanNativePrinter.getPairedDevicesJson() || '');
             if (rawRes === 'PERMISSION_REQUIRED') {
-                if (showFeedback) notifyPrinterToast('🔓 اضغط "سماح / Allow" لإذن البلوتوث ثم اضغط تحديث');
+                setBadge('inline-flex items-center gap-1.5 bg-amber-400 text-slate-950 px-2.5 py-1 rounded-xl text-[10px] font-black', '🔓 مطلوب إذن البلوتوث');
+                if (showFeedback) alert('🔓 التطبيق محتاج إذن البلوتوث (الأجهزة المجاورة / Nearby Devices). وافق على الإذن أو فعّله من إعدادات التطبيق ثم اضغط تحديث.');
                 return [];
             }
             if (rawRes === 'BLUETOOTH_OFF') {
-                if (showFeedback) notifyPrinterToast('🔵 شغّل البلوتوث في هاتفك ثم اضغط تحديث');
+                setBadge('inline-flex items-center gap-1.5 bg-amber-400 text-slate-950 px-2.5 py-1 rounded-xl text-[10px] font-black', '🔵 البلوتوث مغلق');
+                if (showFeedback) alert('🔵 البلوتوث مغلق في الموبايل! شغّله ثم اضغط تحديث.');
                 return [];
             }
-            if (rawRes === 'NO_BLUETOOTH' || String(rawRes).startsWith('ERROR:')) {
-                if (showFeedback) notifyPrinterToast('⚠️ تنبيه البلوتوث: ' + rawRes);
+            if (rawRes === 'NO_BLUETOOTH' || rawRes.startsWith('ERROR:')) {
+                setBadge('inline-flex items-center gap-1.5 bg-rose-500 text-white px-2.5 py-1 rounded-xl text-[10px] font-black', '❌ ' + escapeHtml(rawRes));
+                if (showFeedback) alert('❌ رد جسر البلوتوث: ' + rawRes);
                 return [];
             }
 
@@ -437,33 +441,37 @@
                 const nm = (d.name || 'طابعة بلوتوث').trim();
                 const addr = (d.address || '').trim();
                 const low = nm.toLowerCase();
-                if (!autoMac && (low.includes('deli') || low.includes('750') || low.includes('printer') || low.includes('label'))) {
+                if (!autoMac && (low.includes('deli') || low.includes('750') || low.includes('printer') || low.includes('label') || low.includes('dl-'))) {
                     autoMac = addr;
                 }
                 const isSel = (cfg.selectedMac === addr) || (cfg.selectedMac === 'AUTO' && autoMac === addr);
                 html += `<option value="${escapeHtml(addr)}" ${isSel ? 'selected' : ''}>🖨️ ${escapeHtml(nm)} (${escapeHtml(addr)})</option>`;
             });
 
+            if (!autoMac && window.deliPrinterConnection.pairedDevices.length === 1) {
+                autoMac = (window.deliPrinterConnection.pairedDevices[0].address || '').trim();
+            }
+
             if (sel) {
                 sel.innerHTML = html;
-                if (autoMac && (!cfg.selectedMac || cfg.selectedMac === 'AUTO')) sel.value = autoMac;
+                if (autoMac && (!cfg.selectedMac || cfg.selectedMac === 'AUTO')) {
+                    sel.value = autoMac;
+                    cfg.selectedMac = autoMac;
+                    persistWaybillConfig(cfg);
+                }
             }
-            if (badge) {
-                badge.className = 'inline-flex items-center gap-1.5 bg-emerald-400 text-slate-950 px-2.5 py-1 rounded-xl text-[10px] font-black shadow-sm';
-                badge.innerHTML = `<i class="fa-brands fa-bluetooth-b"></i> بلوتوث الـ APK متصل (${window.deliPrinterConnection.pairedDevices.length})`;
-            }
+
+            setBadge('inline-flex items-center gap-1.5 bg-emerald-400 text-slate-950 px-2.5 py-1 rounded-xl text-[10px] font-black shadow-sm', `<i class="fa-brands fa-bluetooth-b"></i> متصل (${window.deliPrinterConnection.pairedDevices.length} جهاز)`);
             if (sbBadge) sbBadge.classList.remove('hidden');
 
             if (showFeedback) {
-                notifyPrinterToast(
-                    window.deliPrinterConnection.pairedDevices.length
-                        ? `✅ تم العثور على (${window.deliPrinterConnection.pairedDevices.length}) طابعة مقترنة جاهزة!`
-                        : '📲 اقترن بطابعة Deli E750W من إعدادات بلوتوث الهاتف أولاً ثم اضغط تحديث.'
-                );
+                const names = window.deliPrinterConnection.pairedDevices.map(d => `${d.name} (${d.address})`).join('\n');
+                alert(names ? `✅ تم العثور على الأجهزة المقترنة:\n${names}` : '⚠️ الجسر متصل، لكن قائمة الأجهزة المقترنة فاضية (0)!');
             }
             return window.deliPrinterConnection.pairedDevices;
         } catch (e) {
-            console.error('Native BT scan error:', e);
+            setBadge('inline-flex items-center gap-1.5 bg-rose-500 text-white px-2.5 py-1 rounded-xl text-[10px] font-black', '❌ خطأ فحص');
+            if (showFeedback) alert('❌ خطأ أثناء قراءة البلوتوث: ' + e.message);
             return [];
         }
     };
@@ -2236,7 +2244,7 @@
         refreshStudioPreviewStage();
     };
 
-    function renderDesignerPropertiesBar() {
+    window.renderDesignerPropertiesBar = function () {
         const box = document.getElementById('ps-designer-props-box');
         if (!box) return;
         const el = studioState.designer.elements.find(e => e.id === studioState.designer.selectedId);
