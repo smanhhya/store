@@ -1,114 +1,96 @@
 // =========================================================================
-// 🖨️ المحرك الأصلي لطابعة البوالص الحرارية (Deli E750W - Native APK Bridge)
-
-// الملف: waybill.js | خاص بمشروع: سمان ههيا | الإدارة المركزية (CRM)
-// مربوط 100% مع الجسر الأصلي داخل الـ APK (window.SmanNativePrinter)
-// يدعم: Bluetooth SPP المباشر + USB OTG المباشر + Android System Print
-// المواصفات: 203 DPI (8 dots/mm) | TSPL BITMAP | Max Width: 108mm
+// 🖨️ استوديو الطباعة الحرارية الملكي (Deli E750W — Unified Native APK Engine)
+// الملف: waybill.js | مشروع: سمان ههيا (CRM)
+// الجسر الأصلي المحفوظ 100%: window.SmanNativePrinter (Bluetooth SPP + USB OTG + System Print)
+// الدقة: 203 DPI (8 dots/mm) | لغة الهاردوير: TSPL BITMAP | أقصى عرض: 108mm
 // =========================================================================
 
 (function () {
-    const DOTS_PER_MM = 8; // 203 DPI = 8 نقاط لكل مليمتر
+    const DOTS_PER_MM = 8; // 203 DPI = 8 dots per mm
 
-    // 1. الإعدادات الافتراضية المتوافقة مع Deli E750W (مقاس فاتورة سمان ههيا 70×130 مم)
+    // =========================================================================
+    // 1. الإعدادات الافتراضية وحالة الاستوديو
+    // =========================================================================
     const defaultDeliConfig = {
-        sizePreset: '70x130',    // '70x130' | '100x100' | '100x150' | '80x60' | '70x50' | '50x30' | 'custom'
+        sizePreset: '70x130',
         widthMm: 70,
         heightMm: 130,
         sensorType: 'gap',       // 'gap' | 'continuous' | 'bmark'
         gapMm: 2,
-        density: 13,             // غمقان مثالي لوضوح الخط العربي على Deli E750W
-        speed: 3,                // سرعة متزنة لمنع تقطيع الخطوط الحرارية
-        direction: 0,
-        fontScale: 'normal',     // 'small' | 'normal' | 'large'
-        templateMode: 'shipping',// 'shipping' | 'product_tag'
-        selectedMac: 'AUTO',     // عنوان البلوتوث للطابعة (AUTO يختار Deli 750W تلقائياً)
-        invertBitmap: false,     // خيار عكس بتات الـ Bitmap (0=أسود هو القياسي في TSPL)
-        instantPrint: false,     // لو مفعلة يطبع بالبلوتوث فوراً بمجرد الضغط على زر بوليصة في الكارت
+        density: 13,             // 1..15
+        speed: 3,                // 2..6
+        direction: 0,            // 0 | 1
+        offsetXMm: 0,
+        offsetYMm: 0,
+        paddingPct: 100,
+        fontScalePct: 100,
+        borderStyle: 'double',   // 'double' | 'solid' | 'rounded' | 'corners' | 'dashed' | 'none'
+        selectedMac: 'AUTO',
+        invertBitmap: false,
+        instantPrint: false,
         copies: 1,
         showLogo: true,
-        showBarcode: false,      // إيقاف الباركود والأكواد افتراضياً لتكون فاتورة شيك وبسيطة
+        showBarcode: false,
         showItemsPrice: true,
         showWeightInfo: true,
-        includeRouteSummary: false,
-        cleanInvoiceVersion: 2,
-        footerText: 'بالهنا والشفا من سمان ههيا 🤍 تشرفنا بخدمتكم'
+        showPromoBanner: false,
+        promoText: '',
+        alwaysShowBagBadge: false,
+        bagCustomLabel: '',
+        customStoreTitle: '',
+        customStorePhone: '',
+        footerText: 'بالهنا والشفا من سمان ههيا 🤍 تشرفنا بخدمتكم',
+        reversePrintOrder: false,
+        cleanInvoiceVersion: 3
+    };
+
+    const PAPER_PRESETS = {
+        '20x20':   { w: 20,  h: 20,  label: '2×2 سم' },
+        '40x30':   { w: 40,  h: 30,  label: '4×3 سم' },
+        '50x30':   { w: 50,  h: 30,  label: '5×3 سم' },
+        '70x50':   { w: 70,  h: 50,  label: '7×5 سم' },
+        '80x60':   { w: 80,  h: 60,  label: '8×6 سم' },
+        '70x130':  { w: 70,  h: 130, label: '7×13 فاتورة' },
+        '100x100': { w: 100, h: 100, label: '10×10 سم' },
+        '100x150': { w: 100, h: 150, label: '10×15 بوليصة' }
     };
 
     window.deliPrinterConnection = {
         pairedDevices: [],
-        btDevice: null,
-        btCharacteristic: null,
         isPrinting: false,
         lastOrdersQueue: []
     };
 
-    function isNativeApkBridgeAvailable() {
-        return Boolean(window.SmanNativePrinter && typeof window.SmanNativePrinter.isNativeBridgeReady === 'function');
-    }
-
-    window.getWaybillConfig = function () {
-        let saved = {};
-        try {
-            saved = JSON.parse(localStorage.getItem('sman_waybill_cfg') || '{}');
-        } catch (e) {}
-        const remoteCfg = (typeof storeSettings !== 'undefined' && storeSettings.waybillConfig) ? storeSettings.waybillConfig : {};
-        const merged = { ...defaultDeliConfig, ...remoteCfg, ...saved };
-
-        // ترقية تلقائية لمرة واحدة لضبط المقاس على 70×130 مم وإخفاء الباركود القديم
-        if (!merged.cleanInvoiceVersion || merged.cleanInvoiceVersion < 2) {
-            merged.sizePreset = '70x130';
-            merged.widthMm = 70;
-            merged.heightMm = 130;
-            merged.showBarcode = false;
-            merged.cleanInvoiceVersion = 2;
-            if (!merged.footerText || merged.footerText.includes('جودة تليق')) {
-                merged.footerText = 'بالهنا والشفا من سمان ههيا 🤍 تشرفنا بخدمتكم';
-            }
-            try { localStorage.setItem('sman_waybill_cfg', JSON.stringify(merged)); } catch (e) {}
+    const studioState = {
+        activeTab: 'designer', // 'designer' | 'orders' | 'poultry' | 'freezer'
+        hwDrawerOpen: false,
+        // Orders tab state
+        selectedOrderIds: new Set(),
+        orderBagsMap: {},
+        ordersPreviewMode: 'waybill', // 'waybill' | 'packing' | 'manifest'
+        previewOrderIdx: 0,
+        previewBagNum: 1,
+        // Poultry tab state
+        poultryItems: [],
+        poultryPreviewIdx: 0,
+        // Free Designer (Word/Canva) state
+        designer: {
+            elements: [],
+            selectedId: null,
+            showGrid: true,
+            copies: 1,
+            dragMode: null, // 'move' | 'resize'
+            dragStartX: 0,
+            dragStartY: 0,
+            origEl: null
         }
-        return merged;
     };
 
-    function persistWaybillConfig(newCfg) {
-        newCfg.cleanInvoiceVersion = 2;
-        try {
-            localStorage.setItem('sman_waybill_cfg', JSON.stringify(newCfg));
-        } catch (e) {}
-        if (typeof storeSettings !== 'undefined') {
-            storeSettings.waybillConfig = newCfg;
-        }
-        if (typeof db !== 'undefined') {
-            db.collection('inventory').doc('settings').set({ waybillConfig: newCfg }, { merge: true }).catch(() => {});
-        }
-    }
-
-    function resolveDimensionsMm(cfg) {
-        const presets = {
-            '70x130':  { w: 70,  h: 130 },
-            '100x100': { w: 100, h: 100 },
-            '100x150': { w: 100, h: 150 },
-            '80x60':   { w: 80,  h: 60 },
-            '70x50':   { w: 70,  h: 50 },
-            '50x30':   { w: 50,  h: 30 }
-        };
-        if (presets[cfg.sizePreset]) return presets[cfg.sizePreset];
-        return {
-            w: Math.min(108, Math.max(30, Number(cfg.widthMm) || 70)),
-            h: Math.min(250, Math.max(20, Number(cfg.heightMm) || 130))
-        };
-    }
-
-
-
-    function notifyPrinterToast(msg) {
-        if (typeof window.showToast === 'function') {
-            window.showToast(msg);
-        } else if (typeof window.showQuickAppToast === 'function') {
-            window.showQuickAppToast(msg);
-        } else {
-            alert(msg);
-        }
+    // =========================================================================
+    // 2. دوال الجسر الأصلي للـ APK + الأدوات المساعدة (محفوظة 100% بدون تغيير)
+    // =========================================================================
+    function isNativeApkBridgeAvailable() {
+        return Boolean(window.SmanNativePrinter && typeof window.SmanNativePrinter.isNativeBridgeReady === 'function');
     }
 
     function uint8ArrayToBase64(bytes) {
@@ -121,8 +103,66 @@
         return btoa(binary);
     }
 
+    function escapeHtml(val) {
+        return String(val ?? '').replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
+    }
+
+    function normalizeDigits(str) {
+        return String(str ?? '')
+            .replace(/[\u0660-\u0669]/g, c => String(c.charCodeAt(0) - 0x0660))
+            .replace(/[\u06F0-\u06F9]/g, c => String(c.charCodeAt(0) - 0x06F0));
+    }
+
+    function notifyPrinterToast(msg) {
+        if (typeof window.showQuickAppToast === 'function') {
+            window.showQuickAppToast(msg);
+        } else if (typeof window.showToast === 'function') {
+            window.showToast(msg);
+        } else {
+            let box = document.getElementById('ps-inline-toast');
+            if (!box) {
+                box = document.createElement('div');
+                box.id = 'ps-inline-toast';
+                box.className = 'fixed bottom-5 left-4 z-[300] bg-slate-900 text-amber-300 border border-amber-400/40 px-4 py-3 rounded-2xl shadow-2xl text-xs font-black max-w-xs transition-all';
+                document.body.appendChild(box);
+            }
+            box.textContent = msg;
+            box.style.opacity = '1';
+            clearTimeout(box._t);
+            box._t = setTimeout(() => { box.style.opacity = '0'; }, 3200);
+        }
+    }
+
+    window.getWaybillConfig = function () {
+        let saved = {};
+        try { saved = JSON.parse(localStorage.getItem('sman_waybill_cfg') || '{}'); } catch (e) {}
+        const remoteCfg = (typeof storeSettings !== 'undefined' && storeSettings.waybillConfig) ? storeSettings.waybillConfig : {};
+        return { ...defaultDeliConfig, ...remoteCfg, ...saved };
+    };
+
+    function persistWaybillConfig(newCfg) {
+        newCfg.cleanInvoiceVersion = 3;
+        try { localStorage.setItem('sman_waybill_cfg', JSON.stringify(newCfg)); } catch (e) {}
+        if (typeof storeSettings !== 'undefined') storeSettings.waybillConfig = newCfg;
+        if (typeof db !== 'undefined') {
+            db.collection('inventory').doc('settings').set({ waybillConfig: newCfg }, { merge: true }).catch(() => {});
+        }
+    }
+
+    function resolveDimensionsMm(cfg) {
+        if (cfg.sizePreset && PAPER_PRESETS[cfg.sizePreset]) {
+            return { w: PAPER_PRESETS[cfg.sizePreset].w, h: PAPER_PRESETS[cfg.sizePreset].h };
+        }
+        return {
+            w: Math.min(108, Math.max(15, Number(cfg.widthMm) || 70)),
+            h: Math.min(250, Math.max(15, Number(cfg.heightMm) || 130))
+        };
+    }
+
     // =========================================================================
-    // 📊 2. مولد باركود CODE128 داخلي مستقل (يرسم مباشرة على الـ Canvas)
+    // 3. مولد باركود CODE128 حاد (Vector على Canvas بدون مكتبات خارجية)
     // =========================================================================
     const CODE128_PATTERNS = [
         "11011001100","11001101100","11001100110","10010011000","10010001100","10001001100","10011001000","10011000100","10001100100","11001001000",
@@ -139,8 +179,8 @@
     ];
 
     function encodeCode128Bits(text) {
-        const clean = String(text || '100200').replace(/[^A-Za-z0-9\-]/g, '').toUpperCase().slice(0, 14) || '100200';
-        let codes = [104];
+        const clean = normalizeDigits(text || '100200').replace(/[^A-Za-z0-9\-]/g, '').toUpperCase().slice(0, 18) || '100200';
+        const codes = [104];
         let checksum = 104;
         for (let i = 0; i < clean.length; i++) {
             const c = clean.charCodeAt(i) - 32;
@@ -148,656 +188,140 @@
             codes.push(valid);
             checksum += valid * (i + 1);
         }
-        codes.push(checksum % 103);
-        codes.push(106);
+        codes.push(checksum % 103, 106);
         return codes.map(c => CODE128_PATTERNS[c]).join('');
     }
 
-    function drawBarcodeOnCanvas(ctx, text, centerX, topY, maxWidth, barHeight) {
+    function drawBarcodeOnCanvas(ctx, text, centerX, topY, maxWidth, barHeight, showLabel = false) {
         const bits = encodeCode128Bits(text);
-        const barW = Math.max(2, Math.floor(maxWidth / bits.length));
+        const barW = Math.max(1, Math.floor(maxWidth / bits.length));
         const totalW = bits.length * barW;
         const startX = Math.round(centerX - (totalW / 2));
+        const labelH = showLabel ? Math.max(14, Math.round(barHeight * 0.28)) : 0;
+        const actualBarH = Math.max(10, barHeight - labelH);
 
         ctx.fillStyle = '#000000';
         for (let i = 0; i < bits.length; i++) {
             if (bits[i] === '1') {
-                ctx.fillRect(startX + i * barW, Math.round(topY), barW, barHeight);
+                ctx.fillRect(startX + i * barW, Math.round(topY), barW, actualBarH);
             }
+        }
+        if (showLabel) {
+            ctx.save();
+            ctx.direction = 'ltr';
+            ctx.font = `900 ${Math.max(11, labelH - 2)}px monospace`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(String(text || '').slice(0, 20), Math.round(centerX), Math.round(topY + actualBarH + 2));
+            ctx.restore();
         }
     }
 
-    // =========================================================================
-    // 🖼️ 3. محرك الرسم الحراري المرن على Canvas بدقة 203 DPI (شنط + براويز + دعاية + استيكر حر)
-    // =========================================================================
-
-    // دالة تقسيم النصوص العربية الطويلة تلقائياً لعدة سطور لمنع قص الكلام في أي مقاس
-    function wrapThermalText(ctx, text, maxWidth) {
-        const rawLines = String(text || '').split('\n');
-        const finalLines = [];
-
-        rawLines.forEach(rawLine => {
-            const words = rawLine.trim().split(/\s+/);
-            let currentLine = '';
-            words.forEach(word => {
-                const testLine = currentLine ? (currentLine + ' ' + word) : word;
-                if (ctx.measureText(testLine).width > maxWidth && currentLine) {
-                    finalLines.push(currentLine);
-                    currentLine = word;
-                } else {
-                    currentLine = testLine;
-                }
-            });
-            if (currentLine) finalLines.push(currentLine);
-        });
-
-        return finalLines.length > 0 ? finalLines : [''];
+    // دوال رسم هندسية حادة للطباعة الحرارية
+    function drawSharpHLine(ctx, x, y, w, thickness = 2) {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.max(1, Math.round(thickness)));
+    }
+    function drawSharpVLine(ctx, x, y, h, thickness = 2) {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(thickness)), Math.round(h));
+    }
+    function drawSharpRectBorder(ctx, x, y, w, h, thickness = 3) {
+        const rx = Math.round(x), ry = Math.round(y), rw = Math.round(w), rh = Math.round(h);
+        const t = Math.max(1, Math.round(thickness));
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(rx, ry, rw, t);
+        ctx.fillRect(rx, ry + rh - t, rw, t);
+        ctx.fillRect(rx, ry, t, rh);
+        ctx.fillRect(rx + rw - t, ry, t, rh);
     }
 
-    // دالة رسم البرواز الخارجي حسب الشكل المختار (6 أشكال حرارية حادة)
-    function drawCustomFrameBorder(ctx, x, y, w, h, styleName) {
+    function drawFrameBorder(ctx, x, y, w, h, styleName, lineW = 4) {
         ctx.save();
         ctx.strokeStyle = '#000000';
         ctx.fillStyle = '#000000';
-
-        if (styleName === 'none') {
-            ctx.restore();
-            return;
-        }
-
+        if (styleName === 'none') { ctx.restore(); return; }
         if (styleName === 'double') {
-            ctx.lineWidth = 5;
-            ctx.strokeRect(x, y, w, h);
-            ctx.lineWidth = 2;
-            ctx.strokeRect(x + 8, y + 8, w - 16, h - 16);
+            drawSharpRectBorder(ctx, x, y, w, h, Math.max(3, lineW));
+            drawSharpRectBorder(ctx, x + 7, y + 7, w - 14, h - 14, 2);
         } else if (styleName === 'rounded') {
-            const r = Math.min(22, Math.floor(Math.min(w, h) * 0.06));
-            ctx.lineWidth = 5;
+            const r = Math.min(20, Math.floor(Math.min(w, h) * 0.12));
+            ctx.lineWidth = lineW;
             ctx.beginPath();
-            ctx.moveTo(x + r, y);
-            ctx.lineTo(x + w - r, y);
-            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-            ctx.lineTo(x + w, y + h - r);
-            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-            ctx.lineTo(x + r, y + h);
-            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-            ctx.lineTo(x, y + r);
-            ctx.quadraticCurveTo(x, y, x + r, y);
-            ctx.closePath();
+            ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+            ctx.quadraticCurveTo(x + w, y, x + w, y + r); ctx.lineTo(x + w, y + h - r);
+            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h);
+            ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
             ctx.stroke();
         } else if (styleName === 'dashed') {
-            ctx.lineWidth = 4;
-            ctx.setLineDash([14, 8]);
+            ctx.lineWidth = Math.max(2, lineW - 1);
+            ctx.setLineDash([12, 7]);
             ctx.strokeRect(x, y, w, h);
             ctx.setLineDash([]);
         } else if (styleName === 'corners') {
             const len = Math.min(w, h) * 0.14;
-            ctx.lineWidth = 7;
+            ctx.lineWidth = Math.max(5, lineW + 2);
             ctx.beginPath();
             ctx.moveTo(x + w - len, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + len);
             ctx.moveTo(x + len, y); ctx.lineTo(x, y); ctx.lineTo(x, y + len);
             ctx.moveTo(x + w - len, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - len);
             ctx.moveTo(x + len, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - len);
             ctx.stroke();
-            ctx.lineWidth = 1.5;
-            ctx.strokeRect(x + 4, y + 4, w - 8, h - 8);
+            drawSharpRectBorder(ctx, x + 4, y + 4, w - 8, h - 8, 1.5);
         } else {
-            ctx.lineWidth = 5;
-            ctx.strokeRect(x, y, w, h);
+            drawSharpRectBorder(ctx, x, y, w, h, lineW);
         }
         ctx.restore();
     }
 
-    window.renderWaybillToCanvas203DPI = function (order, cfg, indexNum = 1, totalCount = 1, bagIndex = 1, bagsTotal = 1) {
-        const dims = resolveDimensionsMm(cfg);
-        const W = Math.floor(dims.w * DOTS_PER_MM);
-        const H = Math.floor(dims.h * DOTS_PER_MM);
-
-        const canvas = document.createElement('canvas');
-        canvas.width = W;
-        canvas.height = H;
-        const ctx = canvas.getContext('2d');
-
-        // خلفية بيضاء نقية 100%
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, W, H);
-
-        // تطبيق الإزاحة الأفقية والرأسية بالمليمتر
-        const offsetX = Math.round((Number(cfg.offsetXMm) || 0) * DOTS_PER_MM);
-        const offsetY = Math.round((Number(cfg.offsetYMm) || 0) * DOTS_PER_MM);
-        ctx.save();
-        ctx.translate(offsetX, offsetY);
-
-        const padPct = (Number(cfg.paddingPct) || 100) / 100;
-        const pad = Math.max(6, Math.round(Math.min(W, H) * 0.024 * padPct));
-        const borderStyle = cfg.borderStyle || 'double';
-
-        drawCustomFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, borderStyle);
-
-        ctx.fillStyle = '#000000';
-        ctx.strokeStyle = '#000000';
-
-        const storeName = (cfg.customStoreTitle || (typeof storeSettings !== 'undefined' && storeSettings.storeName) || 'سمان ههيا').trim();
-        const storePhone = (cfg.customStorePhone || (typeof storeSettings !== 'undefined' && storeSettings.storePhone) || '01208027294').trim();
-        const orderShortId = (order.id || '000000').slice(-6).toUpperCase();
-        const barcodeCode = (cfg.customBarcodeText || orderShortId).replace(/[^A-Z0-9\-]/gi, '1') || '100200';
-        const orderDateStr = order.orderDate || new Date().toLocaleDateString('ar-EG');
-        const batchTitle = (typeof window.resolveOrderBatchName === 'function')
-            ? window.resolveOrderBatchName(order)
-            : ((order.batchName && order.batchName !== 'undefined') ? order.batchName : '');
-
-        let scaleMul = 1.0;
-        if (cfg.fontScalePct) {
-            scaleMul = Math.min(1.45, Math.max(0.65, Number(cfg.fontScalePct) / 100));
-        } else if (cfg.fontScale === 'large') {
-            scaleMul = 1.14;
-        } else if (cfg.fontScale === 'small') {
-            scaleMul = 0.86;
-        }
-
-        const innerMargin = borderStyle === 'double' ? 14 : 10;
-        const innerRight = W - pad - innerMargin;
-        const innerLeft = pad + innerMargin;
-        const innerWidth = innerRight - innerLeft;
-
-        // =====================================================================
-        // ✍️ الوضع الأول: الاستيكر الحر (يدعم الأسطر المتعددة وأي مقاس استيكر)
-        // =====================================================================
-        if (cfg.templateMode === 'free_custom') {
-            const line1 = cfg.freeLine1 !== undefined ? cfg.freeLine1 : storeName;
-            const line2 = cfg.freeLine2 !== undefined ? cfg.freeLine2 : 'سمان جامبو وملكي طازج يومياً';
-            const line3 = cfg.freeLine3 !== undefined ? cfg.freeLine3 : `للحجز والتوصيل: ${storePhone}`;
-            const badgeTxt = cfg.freeBadgeText !== undefined ? cfg.freeBadgeText : '';
-
-            let curY = pad + innerMargin + 4;
-            const refSize = Math.min(W, H);
-
-            if (line1 && line1.trim()) {
-                const f1 = Math.max(16, Math.round(refSize * 0.11 * scaleMul));
-                ctx.font = `900 ${f1}px Cairo, Tahoma, sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'top';
-                const wrapped1 = wrapThermalText(ctx, line1, innerWidth - 12);
-                wrapped1.slice(0, 2).forEach(ln => {
-                    ctx.fillText(ln, W / 2, curY);
-                    curY += f1 + 4;
-                });
-
-                curY += 4;
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.moveTo(innerLeft + 8, curY);
-                ctx.lineTo(innerRight - 8, curY);
-                ctx.stroke();
-                curY += 10;
-            }
-
-            if (line2 && line2.trim()) {
-                const f2 = Math.max(14, Math.round(refSize * 0.095 * scaleMul));
-                ctx.font = `900 ${f2}px Cairo, Tahoma, sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'top';
-                const wrapped2 = wrapThermalText(ctx, line2, innerWidth - 12);
-                wrapped2.slice(0, 3).forEach(ln => {
-                    ctx.fillText(ln, W / 2, curY);
-                    curY += f2 + 6;
-                });
-                curY += 6;
-            }
-
-            if (line3 && line3.trim()) {
-                const f3 = Math.max(12, Math.round(refSize * 0.075 * scaleMul));
-                ctx.font = `800 ${f3}px Cairo, Tahoma, sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'top';
-                const wrapped3 = wrapThermalText(ctx, line3, innerWidth - 12);
-                wrapped3.slice(0, 2).forEach(ln => {
-                    ctx.fillText(ln, W / 2, curY);
-                    curY += f3 + 4;
-                });
-                curY += 6;
-            }
-
-            if (badgeTxt && badgeTxt.trim()) {
-                const boxH = Math.max(28, Math.round(H * 0.14));
-                ctx.fillStyle = '#000000';
-                ctx.fillRect(innerLeft + 6, curY, innerWidth - 12, boxH);
-                ctx.fillStyle = '#FFFFFF';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.font = `900 ${Math.max(12, Math.round(boxH * 0.56 * scaleMul))}px Cairo, Tahoma, sans-serif`;
-                ctx.fillText(badgeTxt.trim(), W / 2, curY + boxH / 2);
-                ctx.fillStyle = '#000000';
-                curY += boxH + 8;
-            }
-
-            if (cfg.showBarcode && curY < H - pad - innerMargin - 35) {
-                const bcH = Math.min(Math.round(H * 0.16), H - pad - innerMargin - curY - 8);
-                if (bcH >= 22) {
-                    drawBarcodeOnCanvas(ctx, barcodeCode, W / 2, H - pad - innerMargin - bcH - 4, Math.round(innerWidth * 0.78), bcH);
+    function wrapThermalText(ctx, text, maxWidth) {
+        const rawLines = String(text || '').split('\n');
+        const finalLines = [];
+        rawLines.forEach(rawLine => {
+            const trimmed = rawLine.trim();
+            if (!trimmed) { finalLines.push(''); return; }
+            const words = trimmed.split(/\s+/);
+            let cur = '';
+            words.forEach(word => {
+                const test = cur ? (cur + ' ' + word) : word;
+                if (ctx.measureText(test).width > maxWidth && cur) {
+                    finalLines.push(cur);
+                    cur = word;
+                } else {
+                    cur = test;
                 }
-            }
-
-            ctx.restore();
-            return canvas;
-        }
-
-        // =====================================================================
-        // 🏷️ الوضع الثاني: استيكر أطباق السمان والفريزر (مرن لأي مقاس من 50x30 إلى 100x100)
-        // =====================================================================
-        const itemsList = Array.isArray(order.items) ? order.items : [];
-        if (cfg.templateMode === 'product_tag') {
-            const firstItem = itemsList[0] || { name: 'طبق سمان جامبو ملكي', quantity: 1, price: 145 };
-            const tagTitle = (cfg.tagProductName && cfg.tagProductName.trim()) ? cfg.tagProductName.trim() : `${firstItem.quantity}x ${firstItem.name}`;
-            const tagWeight = (cfg.tagWeightText && cfg.tagWeightText.trim()) ? cfg.tagWeightText.trim() : 'ذبح اليوم - طازج ونظيف 100%';
-            const tagDate = (cfg.tagDateText && cfg.tagDateText.trim()) ? cfg.tagDateText.trim() : `إنتاج: ${orderDateStr}`;
-            const tagPrice = (cfg.tagPriceText !== undefined && cfg.tagPriceText !== '')
-                ? cfg.tagPriceText
-                : (cfg.showItemsPrice !== false ? `${(Number(firstItem.quantity) || 1) * (Number(firstItem.price) || 0)} ج.م` : '');
-
-            let y = pad + innerMargin;
-            const hdrH = Math.max(26, Math.round(H * 0.21));
-            ctx.fillStyle = '#000000';
-            ctx.fillRect(innerLeft, y, innerWidth, hdrH);
-            ctx.fillStyle = '#FFFFFF';
-            ctx.textBaseline = 'middle';
-            ctx.textAlign = 'right';
-            ctx.font = `900 ${Math.max(12, Math.round(hdrH * 0.54 * scaleMul))}px Cairo, Tahoma, sans-serif`;
-            ctx.fillText(storeName, innerRight - 8, y + hdrH / 2);
-
-            ctx.textAlign = 'left';
-            ctx.font = `900 ${Math.max(11, Math.round(hdrH * 0.45 * scaleMul))}px Cairo, Tahoma, sans-serif`;
-            ctx.fillText(storePhone, innerLeft + 8, y + hdrH / 2);
-
-            y += hdrH + Math.round(H * 0.06);
-            ctx.fillStyle = '#000000';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'top';
-
-            const fMain = Math.max(15, Math.round(H * 0.135 * scaleMul));
-            ctx.font = `900 ${fMain}px Cairo, Tahoma, sans-serif`;
-            const titleLines = wrapThermalText(ctx, tagTitle, innerWidth - 10);
-            titleLines.slice(0, 2).forEach(ln => {
-                ctx.fillText(ln, W / 2, y);
-                y += fMain + 4;
             });
-
-            y += Math.round(H * 0.03);
-            const fW = Math.max(12, Math.round(H * 0.09 * scaleMul));
-            ctx.font = `900 ${fW}px Cairo, Tahoma, sans-serif`;
-            ctx.fillText(`الوزن/المحتوى: ${tagWeight}`, W / 2, y);
-
-            y += fW + Math.round(H * 0.04);
-            const fD = Math.max(11, Math.round(H * 0.08 * scaleMul));
-            ctx.font = `800 ${fD}px Cairo, Tahoma, sans-serif`;
-            const bagSuffix = bagsTotal > 1 ? `  |  [شنطة ${bagIndex} من ${bagsTotal}]` : '';
-            ctx.fillText(`${tagDate}${bagSuffix}`, W / 2, y);
-
-            if (tagPrice && String(tagPrice).trim() !== '') {
-                const pBoxH = Math.max(24, Math.round(H * 0.16));
-                const boxY = H - pad - innerMargin - pBoxH;
-                ctx.lineWidth = 3;
-                ctx.strokeRect(innerLeft + 14, boxY, innerWidth - 28, pBoxH);
-                ctx.textBaseline = 'middle';
-                ctx.font = `900 ${Math.max(13, Math.round(pBoxH * 0.6 * scaleMul))}px Cairo, Tahoma, sans-serif`;
-                ctx.fillText(`السعر: ${tagPrice}`, W / 2, boxY + pBoxH / 2);
-            }
-
-            ctx.restore();
-            return canvas;
-        }
-
-        // =====================================================================
-        // 📦 الوضع الثالث: بوليصة الشحن والتحصيل الكاملة (مقاسات متكيفة + شنط + دعاية)
-        // =====================================================================
-        let totalUnitsCount = 0;
-        itemsList.forEach(i => { totalUnitsCount += (Number(i.quantity) || 0); });
-
-        // ضبط أحجام الخطوط نسبياً مع الأصغر من (العرض أو الطول) لضمان عدم التداخل في المقاسات المستطيلة
-        const baseRef = Math.min(W, Math.round(H * 1.15));
-        const fTitle = Math.max(16, Math.round(baseRef * 0.040 * scaleMul));
-        const fSub = Math.max(12, Math.round(baseRef * 0.025 * scaleMul));
-        const fBody = Math.max(13, Math.round(baseRef * 0.028 * scaleMul));
-        const fSmall = Math.max(11, Math.round(baseRef * 0.022 * scaleMul));
-
-        let curY = pad + innerMargin;
-
-        // 1. الهيدر العلوي (اليمين: بيانات المتجر | اليسار: الباركود وشارة الشنطة)
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'top';
-        let rightHeaderY = curY;
-
-        if (cfg.showLogo !== false) {
-            ctx.font = `900 ${fTitle}px Cairo, Tahoma, sans-serif`;
-            ctx.fillText(storeName, innerRight, rightHeaderY);
-            rightHeaderY += fTitle + 4;
-        }
-
-        ctx.font = `900 ${fSub}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(`تليفون: ${storePhone}`, innerRight, rightHeaderY);
-        rightHeaderY += fSub + 5;
-
-        ctx.font = `800 ${fSmall}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(`التاريخ: ${orderDateStr}${batchTitle ? ' • ' + batchTitle : ''}`, innerRight, rightHeaderY);
-        rightHeaderY += fSmall + 6;
-
-        // الجانب الأيسر من الهيدر: الباركود + رقم الطلب + شارة الشنطة (1 من 2)
-        const showBagPill = (bagsTotal > 1) || cfg.alwaysShowBagBadge;
-        const bagCustomNote = (cfg.bagCustomLabel || '').trim();
-        let leftHeaderY = curY;
-        const leftBlockWidth = Math.round(innerWidth * 0.42);
-        const leftCenterX = innerLeft + (leftBlockWidth / 2);
-
-        if (cfg.showBarcode !== false) {
-            const bcHeight = showBagPill ? Math.max(26, Math.round(H * 0.052)) : Math.max(32, Math.round(H * 0.068));
-            drawBarcodeOnCanvas(ctx, barcodeCode, leftCenterX, leftHeaderY, leftBlockWidth - 8, bcHeight);
-            leftHeaderY += bcHeight + 3;
-
-            ctx.textAlign = 'center';
-            ctx.font = `900 ${Math.round(fSmall * 0.9)}px monospace`;
-            ctx.fillText(`#${orderShortId} (${indexNum}/${totalCount})`, leftCenterX, leftHeaderY);
-            leftHeaderY += fSmall + 3;
-        } else {
-            ctx.textAlign = 'left';
-            ctx.font = `900 ${fTitle}px monospace`;
-            ctx.fillText(`#${orderShortId} (${indexNum}/${totalCount})`, innerLeft, leftHeaderY + 4);
-            leftHeaderY += fTitle + 8;
-        }
-
-        if (showBagPill) {
-            const bagBoxH = Math.max(24, Math.round(H * 0.044));
-            ctx.fillStyle = '#000000';
-            ctx.fillRect(innerLeft, leftHeaderY, leftBlockWidth, bagBoxH);
-            ctx.fillStyle = '#FFFFFF';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-            const bagText = `شنطة ( ${bagIndex} من ${bagsTotal} )${bagCustomNote ? ' - ' + bagCustomNote : ''}`;
-            ctx.fillText(bagText, leftCenterX, leftHeaderY + bagBoxH / 2);
-            ctx.fillStyle = '#000000';
-            ctx.textBaseline = 'top';
-            leftHeaderY += bagBoxH + 4;
-        }
-
-        curY = Math.max(rightHeaderY, leftHeaderY) + 4;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(pad + 6, curY);
-        ctx.lineTo(W - pad - 6, curY);
-        ctx.stroke();
-
-        // 2. صندوق بيانات العميل والمنطقة والعنوان
-        curY += 8;
-        const custBoxH = Math.max(85, Math.round(H * 0.185));
-        ctx.lineWidth = 3;
-        ctx.strokeRect(innerLeft, curY, innerWidth, custBoxH);
-
-        const zoneText = `${order.zone || 'توصيل'}`;
-        ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
-        const zoneW = Math.min(Math.round(innerWidth * 0.36), Math.max(115, ctx.measureText(zoneText).width + 28));
-        const zoneH = Math.round(custBoxH * 0.42);
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(innerLeft + 8, curY + 8, zoneW, zoneH);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(zoneText, innerLeft + 8 + (zoneW / 2), curY + 8 + (zoneH / 2));
-
-        ctx.fillStyle = '#000000';
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'top';
-        ctx.font = `900 ${Math.round(fBody * 1.08)}px Cairo, Tahoma, sans-serif`;
-        const custNameClean = (order.customerName || 'عميل سمان ههيا').slice(0, 28);
-        ctx.fillText(`العميل: ${custNameClean}`, innerRight - 10, curY + 8);
-
-        const phonesLine = `موبايل: ${order.customerPhone || ''}${order.customerPhone2 ? ' | ' + order.customerPhone2 : ''}`;
-        ctx.font = `900 ${fSub}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(phonesLine, innerRight - 10, curY + 12 + Math.round(fBody * 1.15));
-
-        const addrLineY = curY + Math.round(custBoxH * 0.62);
-        ctx.lineWidth = 2;
-        ctx.setLineDash([6, 4]);
-        ctx.beginPath();
-        ctx.moveTo(innerLeft + 8, addrLineY);
-        ctx.lineTo(innerRight - 8, addrLineY);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        const addrClean = `العنوان: ${order.customerAddress || 'استلام حسب المنطقة المسجلة'}${order.driverName ? ' (المندوب: ' + order.driverName + ')' : ''}`;
-        ctx.font = `800 ${fSmall}px Cairo, Tahoma, sans-serif`;
-        const wrappedAddr = wrapThermalText(ctx, addrClean, innerWidth - 20);
-        ctx.fillText(wrappedAddr[0] || '', innerRight - 10, addrLineY + 6);
-
-        // 3. جدول الأصناف المطلوبة
-        curY += custBoxH + 8;
-        const hasPromo = Boolean(cfg.showPromoBanner && cfg.promoText && cfg.promoText.trim());
-        const promoBarH = hasPromo ? Math.max(24, Math.round(H * 0.048)) : 0;
-        const footerTextH = (cfg.footerText && cfg.footerText.trim()) ? (fSmall + 8) : 0;
-        const codBoxH = Math.max(68, Math.round(H * 0.145));
-        const bottomReservedH = codBoxH + promoBarH + footerTextH + 12;
-
-        const tableMaxH = Math.max(60, H - curY - bottomReservedH - pad - innerMargin);
-        const thH = Math.max(24, Math.round(H * 0.045));
-
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(innerLeft, curY, innerWidth, thH);
-
-        ctx.fillStyle = '#FFFFFF';
-        ctx.textBaseline = 'middle';
-        ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-        ctx.textAlign = 'right';
-        const bagHeaderSuffix = bagsTotal > 1 ? ` — [شنطة ${bagIndex} من ${bagsTotal}]` : '';
-        ctx.fillText(`الصنف المطلوب (الإجمالي: ${Number(totalUnitsCount.toFixed(1))})${bagHeaderSuffix}`, innerRight - 10, curY + thH / 2);
-
-        const qtyColW = Math.round(innerWidth * 0.18);
-        const priceColW = cfg.showItemsPrice !== false ? Math.round(innerWidth * 0.22) : 0;
-        const qtyColCenter = innerLeft + priceColW + (qtyColW / 2);
-
-        ctx.textAlign = 'center';
-        ctx.fillText('الكمية', qtyColCenter, curY + thH / 2);
-        if (cfg.showItemsPrice !== false) {
-            ctx.fillText('السعر', innerLeft + (priceColW / 2), curY + thH / 2);
-        }
-
-        let rowY = curY + thH;
-        const maxRows = Math.max(1, Math.min(itemsList.length || 1, 6));
-        const notesText = [
-            order.driverNote ? order.driverNote.split('\n---\n').pop() : '',
-            (!order.driverNote && order.adminNote) ? order.adminNote.split('\n---\n').pop() : ''
-        ].filter(Boolean).join(' | ');
-
-        const noteBoxReserve = notesText ? Math.max(24, Math.round(H * 0.046)) : 0;
-        const availableRowsH = Math.max(thH, tableMaxH - thH - noteBoxReserve);
-        const rowH = Math.min(Math.round(H * 0.054), Math.max(22, Math.floor(availableRowsH / maxRows)));
-
-        ctx.fillStyle = '#000000';
-        ctx.lineWidth = 2;
-        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
-
-        for (let idx = 0; idx < maxRows; idx++) {
-            const item = itemsList[idx];
-            if (!item) break;
-            ctx.strokeRect(innerLeft, rowY, innerWidth, rowH);
-
-            ctx.beginPath();
-            ctx.moveTo(innerLeft + priceColW + qtyColW, rowY);
-            ctx.lineTo(innerLeft + priceColW + qtyColW, rowY + rowH);
-            if (cfg.showItemsPrice !== false) {
-                ctx.moveTo(innerLeft + priceColW, rowY);
-                ctx.lineTo(innerLeft + priceColW, rowY + rowH);
-            }
-            ctx.stroke();
-
-            ctx.textAlign = 'right';
-            ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-            const pInfo = prodsObj[item.id] || {};
-            const weightBadge = (cfg.showWeightInfo !== false && pInfo.weight) ? ` (${pInfo.weight})` : '';
-            let itemLabel = (item.name || 'صنف') + weightBadge;
-            if (idx === maxRows - 1 && itemsList.length > maxRows) {
-                itemLabel += ` (+${itemsList.length - maxRows} أخرى)`;
-            }
-            ctx.fillText(itemLabel.slice(0, 38), innerRight - 8, rowY + rowH / 2);
-
-            ctx.textAlign = 'center';
-            ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
-            ctx.fillText(String(item.quantity), qtyColCenter, rowY + rowH / 2);
-
-            if (cfg.showItemsPrice !== false) {
-                const linePrice = Math.round((Number(item.quantity) || 0) * (Number(item.price) || 0));
-                ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-                ctx.fillText(`${linePrice} ج`, innerLeft + (priceColW / 2), rowY + rowH / 2);
-            }
-            rowY += rowH;
-        }
-
-        if (notesText) {
-            rowY += 4;
-            const nH = Math.max(22, noteBoxReserve - 4);
-            ctx.strokeRect(innerLeft, rowY, innerWidth, nH);
-            ctx.textAlign = 'right';
-            ctx.font = `900 ${Math.round(fSmall * 0.92)}px Cairo, Tahoma, sans-serif`;
-            ctx.fillText(`ملاحظة: ${notesText.slice(0, 56)}`, innerRight - 8, rowY + nH / 2);
-        }
-
-        // 4. الصندوق المالي السفلي + برواز الدعاية والعروض + الفوتر
-        let bottomCursorY = H - pad - innerMargin - bottomReservedH + 6;
-
-        const isOnline = order.paymentMethod === 'online';
-        const subtotal = Number(order.subtotal) || Number(order.total) || 0;
-        const delivery = Number(order.deliveryFee) || 0;
-        const discount = Number(order.discount) || 0;
-        const total = Number(order.total) || 0;
-        const debt = Number(order.debt) || 0;
-
-        ctx.lineWidth = 3.5;
-        ctx.strokeRect(innerLeft, bottomCursorY, innerWidth, codBoxH);
-
-        const codHeaderH = Math.round(codBoxH * 0.58);
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(innerLeft, bottomCursorY, innerWidth, codHeaderH);
-
-        ctx.fillStyle = '#FFFFFF';
-        ctx.textBaseline = 'middle';
-        ctx.textAlign = 'right';
-        ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(isOnline ? 'حالة الفاتورة:' : 'المطلوب تحصيله من العميل:', innerRight - 12, bottomCursorY + codHeaderH / 2);
-
-        ctx.textAlign = 'left';
-        ctx.font = `900 ${Math.round(fTitle * 1.05)}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(isOnline ? 'خالص أونلاين (0 ج)' : `${total} ج.م`, innerLeft + 12, bottomCursorY + codHeaderH / 2);
-
-        ctx.fillStyle = '#000000';
-        ctx.textAlign = 'center';
-        ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-        let breakdownStr = `المنتجات: ${subtotal} ج  •  التوصيل: ${delivery} ج`;
-        if (discount > 0) breakdownStr += `  •  خصم: ${discount} ج`;
-        if (debt > 0) breakdownStr += `  •  آجل: ${debt} ج`;
-        ctx.fillText(breakdownStr, W / 2, bottomCursorY + codHeaderH + (codBoxH - codHeaderH) / 2);
-
-        bottomCursorY += codBoxH + 5;
-
-        // شريط الدعاية والعروض الترويجي
-        if (hasPromo) {
-            const pH = promoBarH - 4;
-            ctx.lineWidth = 2;
-            ctx.setLineDash([6, 3]);
-            ctx.strokeRect(innerLeft, bottomCursorY, innerWidth, pH);
-            ctx.setLineDash([]);
-            ctx.font = `900 ${Math.round(fSmall * 0.92)}px Cairo, Tahoma, sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(cfg.promoText.trim().slice(0, 70), W / 2, bottomCursorY + pH / 2);
-        }
-
-        // سطر الفوتر السفلي
-        if (cfg.footerText && cfg.footerText.trim()) {
-            ctx.font = `900 ${Math.round(fSmall * 0.88)}px Cairo, Tahoma, sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'bottom';
-            ctx.fillText(cfg.footerText.trim(), W / 2, H - pad - Math.max(4, Math.floor(innerMargin * 0.35)));
-        }
-
-        ctx.restore();
-        return canvas;
-    };
-
-    function renderDriverSummaryToCanvas203DPI(ordersList, cfg) {
-        const dims = resolveDimensionsMm(cfg);
-        const W = Math.floor(dims.w * DOTS_PER_MM);
-        const H = Math.floor(dims.h * DOTS_PER_MM);
-        const canvas = document.createElement('canvas');
-        canvas.width = W;
-        canvas.height = H;
-        const ctx = canvas.getContext('2d');
-
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, W, H);
-        const pad = 22;
-        drawCustomFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, cfg.borderStyle || 'double');
-
-        let totalCash = 0;
-        let onlineCount = 0;
-        const itemsSum = {};
-        ordersList.forEach(o => {
-            if (o.paymentMethod === 'online') onlineCount++;
-            else totalCash += (Number(o.total) || 0);
-            if (Array.isArray(o.items)) {
-                o.items.forEach(i => {
-                    itemsSum[i.name] = (itemsSum[i.name] || 0) + (Number(i.quantity) || 0);
-                });
-            }
+            if (cur) finalLines.push(cur);
         });
-
-        ctx.fillStyle = '#000000';
-        ctx.textAlign = 'center';
-        ctx.font = '900 30px Cairo, Tahoma, sans-serif';
-        ctx.fillText('ملخص استلام خط سير المندوب', W / 2, pad + 42);
-
-        ctx.textAlign = 'right';
-        ctx.font = '900 22px Cairo, Tahoma, sans-serif';
-        ctx.fillText(`إجمالي الطلبات: ${ordersList.length} طلب (${ordersList.length - onlineCount} كاش / ${onlineCount} أونلاين)`, W - pad - 20, pad + 95);
-
-        let y = pad + 140;
-        Object.keys(itemsSum).slice(0, 10).forEach(k => {
-            ctx.fillText(`• ${itemsSum[k]}x ${k}`, W - pad - 25, y);
-            y += 34;
-        });
-
-        ctx.fillRect(pad + 16, H - pad - 85, W - (pad + 16) * 2, 68);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.textAlign = 'center';
-        ctx.font = '900 28px Cairo, Tahoma, sans-serif';
-        ctx.fillText(`إجمالي الكاش المطلوب توريده: ${totalCash.toLocaleString()} ج.م`, W / 2, H - pad - 44);
-        return canvas;
+        return finalLines.length > 0 ? finalLines : [''];
     }
 
-    function buildAllCanvasesForQueue(ordersToPrint, cfg) {
-        const copies = Math.max(1, parseInt(cfg.copies) || 1);
-        const globalBags = Math.max(1, parseInt(cfg.bagsCount) || 1);
-        const canvases = [];
-
-        ordersToPrint.forEach((o, idx) => {
-            const orderBags = Math.max(1, parseInt(o._bagsCount) || globalBags);
-            for (let c = 0; c < copies; c++) {
-                for (let b = 1; b <= orderBags; b++) {
-                    canvases.push(window.renderWaybillToCanvas203DPI(o, cfg, idx + 1, ordersToPrint.length, b, orderBags));
-                }
-            }
-        });
-
-        if (cfg.includeRouteSummary && ordersToPrint.length > 1) {
-            canvases.push(renderDriverSummaryToCanvas203DPI(ordersToPrint, cfg));
-        }
-        return canvases;
+    function drawQuailLogoVector(ctx, x, y, w, h, inverted = false) {
+        ctx.save();
+        const cx = x + w / 2, cy = y + h / 2;
+        const size = Math.min(w, h);
+        const s = size / 64;
+        ctx.fillStyle = inverted ? '#000000' : '#FFFFFF';
+        ctx.fillRect(x, y, w, h);
+        drawSharpRectBorder(ctx, x, y, w, h, Math.max(2, Math.round(size * 0.04)));
+        ctx.translate(cx - (32 * s), cy - (32 * s));
+        ctx.scale(s, s);
+        ctx.fillStyle = inverted ? '#FFFFFF' : '#000000';
+        const p1 = new Path2D("M52 18c-3.5 0-6.4 2.2-7.5 5.3-4.8-.9-9.8.6-13.3 4.1l-2.8 2.8c-2.6-1.5-5.7-2.2-8.9-1.8-6.1.8-11 5.7-11.8 11.8-.2 1.8.8 3.5 2.5 4.1 1.1.4 2.3.6 3.5.6h21.8c8.8 0 16-7.2 16-16v-2.1l4.9-2.5c1.2-.6 1.6-2.2.8-3.3-1.2-1.8-3.1-3-5.2-3zm-2 6c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2z");
+        const p2 = new Path2D("M22 47l-3 7h-4l2-7h5zm12 0l-2 7h-4l1-7h5z");
+        ctx.fill(p1);
+        ctx.fill(p2);
+        ctx.restore();
     }
 
     // =========================================================================
-    // 📡 4. تحويل الـ Canvas إلى لغة الهاردوير TSPL BITMAP لطابعة Deli E750W
+    // 4. محرك تحويل الـ Canvas إلى لغة TSPL BITMAP (203 DPI) لـ Deli E750W
     // =========================================================================
     window.generateDeliTSPLHeader = function (cfg) {
         const dims = resolveDimensionsMm(cfg);
-        const density = Math.min(15, Math.max(1, parseInt(cfg.density) || 12));
-        const speed = Math.min(6, Math.max(2, parseInt(cfg.speed) || 4));
+        const density = Math.min(15, Math.max(1, parseInt(cfg.density) || 13));
+        const speed = Math.min(6, Math.max(2, parseInt(cfg.speed) || 3));
         const dir = cfg.direction ? 1 : 0;
         const gap = Math.max(0, parseFloat(cfg.gapMm) || 2);
 
@@ -828,7 +352,9 @@
         const bitmapBytes = new Uint8Array(widthBytes * heightDots);
         bitmapBytes.fill(invert ? 0x00 : 0xFF);
 
-        const threshold = cfg.density >= 12 ? 190 : 160;
+        const density = Math.min(15, Math.max(1, parseInt(cfg.density) || 13));
+        const threshold = density >= 13 ? 195 : (density >= 10 ? 175 : 155);
+
         for (let y = 0; y < heightDots; y++) {
             for (let x = 0; x < widthDots; x++) {
                 const idx = (y * widthDots + x) * 4;
@@ -836,11 +362,8 @@
                 if (lum < threshold) {
                     const byteIdx = y * widthBytes + Math.floor(x / 8);
                     const bitPos = 7 - (x % 8);
-                    if (invert) {
-                        bitmapBytes[byteIdx] |= (1 << bitPos);
-                    } else {
-                        bitmapBytes[byteIdx] &= ~(1 << bitPos);
-                    }
+                    if (invert) bitmapBytes[byteIdx] |= (1 << bitPos);
+                    else bitmapBytes[byteIdx] &= ~(1 << bitPos);
                 }
             }
         }
@@ -850,7 +373,7 @@
             window.generateDeliTSPLHeader(cfg) +
             `BITMAP 0,0,${widthBytes},${heightDots},0,`
         );
-        const footerBytes = encoder.encode(`\r\nPRINT 1,1\r\n`);
+        const footerBytes = encoder.encode('\r\nPRINT 1,1\r\n');
 
         const packet = new Uint8Array(headerBytes.length + bitmapBytes.length + footerBytes.length);
         packet.set(headerBytes, 0);
@@ -859,1744 +382,302 @@
         return packet;
     }
 
-    function buildCombinedBase64TSPL(ordersToPrint, cfg) {
-        const canvases = buildAllCanvasesForQueue(ordersToPrint, cfg);
+    function combineCanvasesToBase64TSPL(canvases, cfg) {
         let totalLen = 0;
-        const packets = canvases.map(cnv => {
+        const pkts = canvases.map(cnv => {
             const p = convertCanvasToTSPLPacket(cnv, cfg);
             totalLen += p.length;
             return p;
         });
-
         const combined = new Uint8Array(totalLen);
         let offset = 0;
-        packets.forEach(p => {
-            combined.set(p, offset);
-            offset += p.length;
-        });
+        pkts.forEach(p => { combined.set(p, offset); offset += p.length; });
         return uint8ArrayToBase64(combined);
     }
 
     // =========================================================================
-    // 🔵 5. الربط المباشر مع جسر الـ APK الداخلي (window.SmanNativePrinter)
+    // 5. مضخة البلوتوث والـ USB والـ Spooler الموحدة (تخدم كل التبويبات الـ 4)
     // =========================================================================
+    window.scanAndLoadNativePairedPrinters = function (showFeedback = false) {
+        const badge = document.getElementById('ps-bt-badge');
+        const sel = document.getElementById('ps-bt-select');
+        const sbBadge = document.getElementById('lc-sb-printer');
 
-    // فحص وجلب طابعات البلوتوث المقترنة في الهاتف عبر جسر الـ APK الأصلي
-    window.scanAndLoadNativePairedPrinters = function (showFeedback = true) {
         if (!isNativeApkBridgeAvailable()) {
-            if (showFeedback) {
-                alert('⚠️ الجسر الأصلي (SmanNativePrinter) يعمل داخل تطبيق الأندرويد (APK) الخاص بك. إذا كنت تفتح من الكمبيوتر يمكنك استخدام زر طباعة النظام (Spooler).');
+            if (badge) {
+                badge.className = 'inline-flex items-center gap-1.5 bg-sky-500/20 text-sky-200 border border-sky-400/40 px-2.5 py-1 rounded-xl text-[10px] font-black';
+                badge.innerHTML = '<i class="fa-solid fa-desktop"></i> وضع المتصفح / Spooler';
             }
+            if (showFeedback) notifyPrinterToast('💻 أنت على المتصفح — يمكنك الطباعة عبر Spooler أو حفظ صورة PNG');
             return [];
         }
 
         try {
             const rawRes = window.SmanNativePrinter.getPairedDevicesJson();
-
             if (rawRes === 'PERMISSION_REQUIRED') {
-                if (showFeedback) {
-                    notifyPrinterToast('🔓 يرجى الضغط على "سماح / Allow" لإذن البلوتوث الذي ظهر على الشاشة الآن ثم اضغط تحديث.');
-                }
+                if (showFeedback) notifyPrinterToast('🔓 اضغط "سماح / Allow" لإذن البلوتوث ثم اضغط تحديث');
                 return [];
             }
-
             if (rawRes === 'BLUETOOTH_OFF') {
-                if (showFeedback) {
-                    notifyPrinterToast('🔵 يرجى الموافقة على تشغيل البلوتوث في هاتفك ثم اضغط تحديث.');
-                }
+                if (showFeedback) notifyPrinterToast('🔵 شغّل البلوتوث في هاتفك ثم اضغط تحديث');
                 return [];
             }
-
             if (rawRes === 'NO_BLUETOOTH' || String(rawRes).startsWith('ERROR:')) {
-                if (showFeedback) alert('تنبيه البلوتوث: ' + rawRes);
+                if (showFeedback) notifyPrinterToast('⚠️ تنبيه البلوتوث: ' + rawRes);
                 return [];
             }
 
             const list = JSON.parse(rawRes || '[]');
             window.deliPrinterConnection.pairedDevices = Array.isArray(list) ? list : [];
-            populateNativePrinterSelectDropdown();
+            const cfg = window.getWaybillConfig();
+
+            let autoMac = null;
+            let html = '<option value="AUTO">🤖 اختيار تلقائي ذكي (Deli E750W)</option>';
+            window.deliPrinterConnection.pairedDevices.forEach(d => {
+                const nm = (d.name || 'طابعة بلوتوث').trim();
+                const addr = (d.address || '').trim();
+                const low = nm.toLowerCase();
+                if (!autoMac && (low.includes('deli') || low.includes('750') || low.includes('printer') || low.includes('label'))) {
+                    autoMac = addr;
+                }
+                const isSel = (cfg.selectedMac === addr) || (cfg.selectedMac === 'AUTO' && autoMac === addr);
+                html += `<option value="${escapeHtml(addr)}" ${isSel ? 'selected' : ''}>🖨️ ${escapeHtml(nm)} (${escapeHtml(addr)})</option>`;
+            });
+
+            if (sel) {
+                sel.innerHTML = html;
+                if (autoMac && (!cfg.selectedMac || cfg.selectedMac === 'AUTO')) sel.value = autoMac;
+            }
+            if (badge) {
+                badge.className = 'inline-flex items-center gap-1.5 bg-emerald-400 text-slate-950 px-2.5 py-1 rounded-xl text-[10px] font-black shadow-sm';
+                badge.innerHTML = `<i class="fa-brands fa-bluetooth-b"></i> بلوتوث الـ APK متصل (${window.deliPrinterConnection.pairedDevices.length})`;
+            }
+            if (sbBadge) sbBadge.classList.remove('hidden');
 
             if (showFeedback) {
-                if (window.deliPrinterConnection.pairedDevices.length === 0) {
-                    alert('📲 البلوتوث جاهز ومفعل!\n\nلم يتم العثور على طابعة مقترنة في قائمة بلوتوث الهاتف حتى الآن. افتح إعدادات البلوتوث في موبايلك واقترن بطابعة (Deli E750W) لمرة واحدة فقط، ثم اضغط "تحديث الطابعات" هنا.');
-                } else {
-                    notifyPrinterToast(`✅ تم العثور على (${window.deliPrinterConnection.pairedDevices.length}) جهاز بلوتوث مقترن جاهز للطباعة!`);
-                }
+                notifyPrinterToast(
+                    window.deliPrinterConnection.pairedDevices.length
+                        ? `✅ تم العثور على (${window.deliPrinterConnection.pairedDevices.length}) طابعة مقترنة جاهزة!`
+                        : '📲 اقترن بطابعة Deli E750W من إعدادات بلوتوث الهاتف أولاً ثم اضغط تحديث.'
+                );
             }
             return window.deliPrinterConnection.pairedDevices;
         } catch (e) {
-            console.error('Native Bluetooth scan error:', e);
+            console.error('Native BT scan error:', e);
             return [];
         }
     };
 
-    function populateNativePrinterSelectDropdown() {
-        const sel = document.getElementById('dw-native-printer-select');
-        if (!sel) return;
+    window.sendDeliHardwareCommand = function (cmdType) {
         const cfg = window.getWaybillConfig();
-        const devices = window.deliPrinterConnection.pairedDevices || [];
-
-        let html = `<option value="AUTO">🤖 اختيار تلقائي ذكي (Deli E750W)</option>`;
-        let autoMatchedMac = null;
-
-        devices.forEach(d => {
-            const nm = (d.name || 'طابعة بلوتوث').trim();
-            const addr = (d.address || '').trim();
-            const lower = nm.toLowerCase();
-            if (!autoMatchedMac && (lower.includes('deli') || lower.includes('750') || lower.includes('printer') || lower.includes('label'))) {
-                autoMatchedMac = addr;
-            }
-            const isSelected = (cfg.selectedMac === addr) || (cfg.selectedMac === 'AUTO' && autoMatchedMac === addr);
-            html += `<option value="${addr}" ${isSelected ? 'selected' : ''}>🖨️ ${nm} (${addr})</option>`;
-        });
-
-        sel.innerHTML = html;
-        if (autoMatchedMac && (!cfg.selectedMac || cfg.selectedMac === 'AUTO')) {
-            sel.value = autoMatchedMac;
-        }
-        updateConnectionBadgesUI();
-    }
-
-    // الطباعة الفورية المباشرة عبر بلوتوث الـ APK الأصلي (window.SmanNativePrinter.printRawBase64Bluetooth)
-    window.printDirectViaNativeBluetooth = async function (ordersQueue = null, customCfg = null) {
-        if (window.deliPrinterConnection.isPrinting) return;
-        const cfg = customCfg || window.getWaybillConfig();
-        const queue = (ordersQueue && ordersQueue.length > 0)
-            ? ordersQueue
-            : ((window.deliPrinterConnection.lastOrdersQueue && window.deliPrinterConnection.lastOrdersQueue.length > 0)
-                ? window.deliPrinterConnection.lastOrdersQueue
-                : [getSampleOrderForPreview()]);
+        const dims = resolveDimensionsMm(cfg);
+        const tsplCmd = cmdType === 'calibrate'
+            ? `SIZE ${dims.w} mm,${dims.h} mm\r\nGAP ${cfg.gapMm || 2} mm,0 mm\r\nHOME\r\nSOUND 2,100\r\n`
+            : `SIZE ${dims.w} mm,${dims.h} mm\r\nFORMFEED\r\n`;
 
         if (!isNativeApkBridgeAvailable()) {
-            // إذا كان فاتح من الكمبيوتر يطبع بالسبولر المباشر
-            return window.printViaInPageThermalFrame(queue, cfg);
+            return notifyPrinterToast('⚡ أوامر المعايرة وسحب الورق تعمل من داخل تطبيق الـ APK');
         }
-
-        const btn = document.getElementById('dw-btn-direct-ble');
-        const origHtml = btn ? btn.innerHTML : '';
-        window.deliPrinterConnection.isPrinting = true;
-        if (btn) {
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري إرسال البوليصة بالبلوتوث للطابعة...';
-        }
-
-        await new Promise(r => setTimeout(r, 60));
-
-        try {
-            const base64Payload = buildCombinedBase64TSPL(queue, cfg);
-            const targetMac = document.getElementById('dw-native-printer-select')?.value || cfg.selectedMac || 'AUTO';
-            const res = window.SmanNativePrinter.printRawBase64Bluetooth(targetMac, base64Payload);
-
-            if (String(res).startsWith('OK:')) {
-                const printerName = String(res).slice(3);
-                notifyPrinterToast(`✅ تمت الطباعة المباشرة بنجاح على (${printerName})!`);
-            } else if (res === 'PERMISSION_REQUIRED') {
-                alert('🔓 يرجى الموافقة على صلاحية البلوتوث التي ظهرت على الشاشة الآن ثم اضغط طباعة مرة أخرى.');
-            } else if (res === 'BLUETOOTH_OFF') {
-                window.SmanNativePrinter.getPairedDevicesJson();
-                alert('🔵 البلوتوث مغلق في هاتفك! وافق على تشغيله ثم اضغط طباعة.');
-            } else if (res === 'NO_PAIRED_PRINTER') {
-                alert('⚠️ لم يتم العثور على طابعة مقترنة!\nافتح إعدادات البلوتوث في هاتفك واقترن بطابعة Deli E750W أولاً.');
-            } else {
-                alert('⚠️ تعذر الاتصال بالطابعة (' + res + ').\nتأكد أن طابعة Deli E750W مفتوحة وفي نطاق البلوتوث.');
-            }
-        } catch (err) {
-            console.error(err);
-            alert('حدث خطأ أثناء الإرسال للطابعة: ' + err.message);
-        } finally {
-            window.deliPrinterConnection.isPrinting = false;
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = origHtml;
-            }
+        const b64 = uint8ArrayToBase64(new TextEncoder().encode(tsplCmd));
+        const mac = document.getElementById('ps-bt-select')?.value || cfg.selectedMac || 'AUTO';
+        const res = window.SmanNativePrinter.printRawBase64Bluetooth(mac, b64);
+        if (String(res).startsWith('OK:')) {
+            notifyPrinterToast(cmdType === 'calibrate' ? '🎯 تمت معايرة حساس الفواصل على Deli E750W' : '⏬ تم سحب ورقة استيكر بنجاح');
+        } else {
+            notifyPrinterToast('⚠️ ' + res);
+            window.scanAndLoadNativePairedPrinters(false);
         }
     };
 
-    // الطباعة الفورية المباشرة عبر كابل الـ USB من داخل الـ APK (window.SmanNativePrinter.printRawBase64Usb)
-    window.printDirectViaNativeUSB = async function () {
-        const cfg = readStudioInputsToConfig();
-        persistWaybillConfig(cfg);
-        const queue = (window.deliPrinterConnection.lastOrdersQueue && window.deliPrinterConnection.lastOrdersQueue.length > 0)
-            ? window.deliPrinterConnection.lastOrdersQueue
-            : [getSampleOrderForPreview()];
+    // المضخة الموحدة لإرسال أي مصفوفة Canvases عبر بلوتوث الـ APK بأمان بدون تقطيع
+    async function sendCanvasesViaBluetooth(canvases, cfg) {
+        if (!canvases || canvases.length === 0) return notifyPrinterToast('⚠️ لا توجد ملصقات جاهزة للطباعة!');
+        if (window.deliPrinterConnection.isPrinting) return;
 
-        if (!isNativeApkBridgeAvailable() || typeof window.SmanNativePrinter.printRawBase64Usb !== 'function') {
-            return window.printViaInPageThermalFrame(queue, cfg);
+        if (!isNativeApkBridgeAvailable()) {
+            return sendCanvasesViaSpooler(canvases, cfg);
         }
 
+        const btn = document.getElementById('ps-btn-print-bt');
+        const origHtml = btn ? btn.innerHTML : '';
+        window.deliPrinterConnection.isPrinting = true;
+        const targetMac = document.getElementById('ps-bt-select')?.value || cfg.selectedMac || 'AUTO';
+
         try {
-            const base64Payload = buildCombinedBase64TSPL(queue, cfg);
-            const res = window.SmanNativePrinter.printRawBase64Usb(base64Payload);
+            const BATCH_STEP = 2; // إرسال 2 ملصق في كل دفعة لمنع امتلاء ذاكرة البلوتوث
+            let printedOk = 0;
+
+            for (let i = 0; i < canvases.length; i += BATCH_STEP) {
+                const endIdx = Math.min(canvases.length, i + BATCH_STEP);
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> جاري الطباعة بالبلوتوث (${endIdx} من ${canvases.length})...`;
+                }
+                await new Promise(r => setTimeout(r, 70));
+
+                const slice = canvases.slice(i, endIdx);
+                const b64 = combineCanvasesToBase64TSPL(slice, cfg);
+                const res = window.SmanNativePrinter.printRawBase64Bluetooth(targetMac, b64);
+
+                if (String(res).startsWith('OK:')) {
+                    printedOk += slice.length;
+                } else if (res === 'PERMISSION_REQUIRED') {
+                    alert('🔓 وافق على إذن البلوتوث الظاهر على الشاشة ثم اضغط طباعة مرة أخرى.');
+                    break;
+                } else if (res === 'BLUETOOTH_OFF') {
+                    window.SmanNativePrinter.getPairedDevicesJson();
+                    alert('🔵 البلوتوث مغلق! شغّله ثم اضغط طباعة.');
+                    break;
+                } else if (res === 'NO_PAIRED_PRINTER') {
+                    alert('⚠️ لم يتم العثور على طابعة مقترنة في بلوتوث الهاتف! اقترن بـ Deli E750W أولاً.');
+                    break;
+                } else {
+                    alert(`⚠️ توقفت الطباعة عند الملصق #${i + 1}: (${res})`);
+                    break;
+                }
+
+                if (endIdx < canvases.length) {
+                    await new Promise(r => setTimeout(r, 220));
+                }
+            }
+
+            if (printedOk > 0) {
+                notifyPrinterToast(`✅ تمت طباعة (${printedOk}) ملصق بالبلوتوث بنجاح!`);
+            }
+        } catch (err) {
+            console.error(err);
+            alert('خطأ أثناء الإرسال بالبلوتوث: ' + err.message);
+        } finally {
+            window.deliPrinterConnection.isPrinting = false;
+            if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
+        }
+    }
+
+    async function sendCanvasesViaUSB(canvases, cfg) {
+        if (!canvases || canvases.length === 0) return notifyPrinterToast('⚠️ لا توجد ملصقات جاهزة للطباعة!');
+        if (!isNativeApkBridgeAvailable() || typeof window.SmanNativePrinter.printRawBase64Usb !== 'function') {
+            return sendCanvasesViaSpooler(canvases, cfg);
+        }
+        try {
+            const b64 = combineCanvasesToBase64TSPL(canvases, cfg);
+            const res = window.SmanNativePrinter.printRawBase64Usb(b64);
             if (String(res).startsWith('OK:')) {
-                notifyPrinterToast('🔌 تمت الطباعة المباشرة عبر كابل الـ USB بنجاح!');
+                notifyPrinterToast(`🔌 تمت طباعة (${canvases.length}) ملصق عبر كابل الـ USB بنجاح!`);
             } else if (res === 'USB_PERMISSION_REQUESTED') {
-                notifyPrinterToast('🔓 اضغط "موافق" على نافذة إذن الـ USB التي ظهرت على الشاشة ثم اضغط زر USB مرة أخرى.');
+                notifyPrinterToast('🔓 اضغط "موافق" على إذن الـ USB ثم أعد الضغط على زر USB');
             } else if (res === 'NO_USB_DEVICE') {
-                alert('🔌 لم يتم اكتشاف طابعة متصلة بكابل الـ USB (تأكد من توصيل الكابل ووصلة الـ OTG).');
+                alert('🔌 لم يتم اكتشاف طابعة متصلة بكابل الـ USB / OTG.');
             } else {
                 alert('تنبيه USB: ' + res);
             }
         } catch (e) {
             alert('خطأ USB: ' + e.message);
         }
-    };
+    }
 
-    // أوامر معايرة الحساس وسحب الورق المباشرة عبر SmanNativePrinter
-    window.sendDeliHardwareCommand = function (cmdType) {
-        const cfg = readStudioInputsToConfig();
+    function sendCanvasesViaSpooler(canvases, cfg) {
+        if (!canvases || canvases.length === 0) return notifyPrinterToast('⚠️ لا توجد ملصقات للطباعة!');
         const dims = resolveDimensionsMm(cfg);
-        let tsplCmd = '';
-        if (cmdType === 'calibrate') {
-            tsplCmd = `SIZE ${dims.w} mm,${dims.h} mm\r\nGAP ${cfg.gapMm || 2} mm,0 mm\r\nHOME\r\nSOUND 2,100\r\n`;
-        } else if (cmdType === 'feed') {
-            tsplCmd = `SIZE ${dims.w} mm,${dims.h} mm\r\nFORMFEED\r\n`;
-        }
-        const bytes = new TextEncoder().encode(tsplCmd);
-        const base64Cmd = uint8ArrayToBase64(bytes);
+        document.getElementById('deli-direct-print-mount')?.remove();
+        document.getElementById('deli-direct-print-style')?.remove();
 
-        if (isNativeApkBridgeAvailable()) {
-            const targetMac = document.getElementById('dw-native-printer-select')?.value || cfg.selectedMac || 'AUTO';
-            const res = window.SmanNativePrinter.printRawBase64Bluetooth(targetMac, base64Cmd);
-            if (String(res).startsWith('OK:')) {
-                notifyPrinterToast('⚡ تم تنفيذ الأمر مباشرة على طابعة Deli E750W');
-            } else {
-                window.scanAndLoadNativePairedPrinters(true);
-            }
-        } else {
-            alert('أوامر الهاردوير المباشرة تعمل تلقائياً من داخل تطبيق الأندرويد (APK).');
-        }
-    };
-
-    // =========================================================================
-    // 🖨️ 6. محرك طباعة النظام (Android PrintManager & Windows Spooler)
-    // =========================================================================
-    window.printViaInPageThermalFrame = function (ordersToPrint, customCfg = null) {
-        if (!ordersToPrint || ordersToPrint.length === 0) return alert('لا توجد طلبات للطباعة!');
-        const cfg = customCfg || window.getWaybillConfig();
-        const dims = resolveDimensionsMm(cfg);
-        const canvases = buildAllCanvasesForQueue(ordersToPrint, cfg);
-
-        let printMount = document.getElementById('deli-direct-print-mount');
-        if (printMount) printMount.remove();
-
-        printMount = document.createElement('div');
-        printMount.id = 'deli-direct-print-mount';
-
-        let printStyle = document.getElementById('deli-direct-print-style');
-        if (printStyle) printStyle.remove();
-
-        printStyle = document.createElement('style');
-        printStyle.id = 'deli-direct-print-style';
-        printStyle.innerHTML = `
+        const mount = document.createElement('div');
+        mount.id = 'deli-direct-print-mount';
+        const style = document.createElement('style');
+        style.id = 'deli-direct-print-style';
+        style.innerHTML = `
             #deli-direct-print-mount { display: none; }
             @media print {
-                @page {
-                    size: ${dims.w}mm ${dims.h}mm;
-                    margin: 0mm !important;
-                }
-                html, body {
-                    margin: 0 !important;
-                    padding: 0 !important;
-                    background: #ffffff !important;
-                    overflow: visible !important;
-                    height: auto !important;
-                }
-                body > *:not(#deli-direct-print-mount) {
-                    display: none !important;
-                }
-                #deli-direct-print-mount {
-                    display: block !important;
-                    width: ${dims.w}mm !important;
-                }
-                .deli-print-page-img {
-                    width: ${dims.w}mm !important;
-                    height: ${dims.h}mm !important;
-                    display: block !important;
-                    page-break-after: always !important;
-                    break-after: page !important;
-                }
-                .deli-print-page-img:last-child {
-                    page-break-after: auto !important;
-                    break-after: auto !important;
-                }
+                @page { size: ${dims.w}mm ${dims.h}mm; margin: 0mm !important; }
+                html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; overflow: visible !important; height: auto !important; }
+                body > *:not(#deli-direct-print-mount) { display: none !important; }
+                #deli-direct-print-mount { display: block !important; width: ${dims.w}mm !important; }
+                .deli-print-page-img { width: ${dims.w}mm !important; height: ${dims.h}mm !important; display: block !important; page-break-after: always !important; break-after: page !important; }
+                .deli-print-page-img:last-child { page-break-after: auto !important; break-after: auto !important; }
             }
         `;
-        document.head.appendChild(printStyle);
-
+        document.head.appendChild(style);
         canvases.forEach(cnv => {
             const img = document.createElement('img');
             img.src = cnv.toDataURL('image/png');
             img.className = 'deli-print-page-img';
-            printMount.appendChild(img);
+            mount.appendChild(img);
         });
-
-        document.body.appendChild(printMount);
+        document.body.appendChild(mount);
 
         setTimeout(() => {
-            // إذا كنا داخل الـ APK نستدعي PrintManager الأصلي للأندرويد
             if (isNativeApkBridgeAvailable() && typeof window.SmanNativePrinter.triggerAndroidSystemPrint === 'function') {
-                window.SmanNativePrinter.triggerAndroidSystemPrint('Sman_Hehya_Waybill');
+                window.SmanNativePrinter.triggerAndroidSystemPrint('Sman_Hehya_PrintStudio');
             } else {
                 window.print();
             }
-        }, 250);
-    };
-
-    function updateConnectionBadgesUI() {
-        const btStatus = document.getElementById('deli-bt-status-badge');
-        if (!btStatus) return;
-
-        if (isNativeApkBridgeAvailable()) {
-            const count = (window.deliPrinterConnection.pairedDevices || []).length;
-            btStatus.className = 'bg-emerald-400 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black';
-            btStatus.innerText = count > 0
-                ? `🟢 جسر الـ APK الأصلي متصل (${count} طابعة مقترنة)`
-                : `🟢 جسر الـ APK الأصلي جاهز للطباعة المباشرة`;
-        } else {
-            btStatus.className = 'bg-sky-400 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black';
-            btStatus.innerText = '💻 وضع المتصفح / الكمبيوتر المباشر';
-        }
+        }, 200);
     }
 
     // =========================================================================
-    // 🎛️ 7. نافذة استوديو البوليصة الشاملة (تعديل الأصناف + الشنط + المقاسات + الاستيكر الحر + الدعاية)
+    // 6. محرك المصمم الحر بنظام الوورد / كانفا باللمس (Free Drag & Resize Canvas)
     // =========================================================================
-    window.deliStudioActiveSubTab = 'order_bags'; // 'order_bags' | 'size_design' | 'hardware'
-    window.deliPreviewOrderIndex = 0;
-    window.deliPreviewBagNumber = 1;
-
-    function ensureDeliStudioModalExists() {
-        let modal = document.getElementById('deli-waybill-studio-modal');
-        if (modal) return modal;
-
-        modal = document.createElement('div');
-        modal.id = 'deli-waybill-studio-modal';
-        modal.className = 'fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[210] hidden flex items-center justify-center p-1.5 sm:p-4';
-
-        modal.innerHTML = `
-            <div class="bg-white rounded-[1.75rem] shadow-2xl w-full max-w-6xl max-h-[95vh] flex flex-col overflow-hidden border border-slate-200">
-                <!-- الهيدر -->
-                <div class="bg-gradient-to-l from-slate-900 via-slate-800 to-emerald-950 text-white p-3.5 sm:p-4 flex flex-wrap justify-between items-center gap-2 shrink-0">
-                    <div class="flex items-center gap-2.5">
-                        <div class="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center text-amber-300 text-lg shrink-0">
-                            <i class="fa-solid fa-print"></i>
-                        </div>
-                        <div>
-                            <div class="flex flex-wrap items-center gap-2">
-                                <h3 class="font-black text-xs sm:text-base text-white">استوديو الطباعة الحرارية الذكي (Deli E750W)</h3>
-                                <span id="deli-bt-status-badge" class="bg-emerald-400 text-slate-950 px-2.5 py-0.5 rounded-lg text-[10px] font-black">🟢 جسر الـ APK متصل</span>
-                            </div>
-                            <p class="text-[10px] text-slate-300 font-bold mt-0.5">تعديل الكميات والشنط • تحكم حر في المقاسات والبراويز والدعاية • طباعة بلوتوث مباشر</p>
-                        </div>
-                    </div>
-
-                    <div class="flex items-center gap-1.5">
-                        <button type="button" onclick="const ids=(window.deliPrinterConnection.lastOrdersQueue||[]).map(o=>o.id).filter(Boolean).join(','); window.location.href='printer.html'+(ids?'?orderIds='+ids:'');" class="bg-amber-500 hover:bg-amber-400 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 shadow-sm" title="فتح صفحة الطابعة المستقلة الكاملة">
-                            <i class="fa-solid fa-up-right-from-square"></i> استوديو الطوارئ الشامل
-                        </button>
-                        <button type="button" onclick="scanAndLoadNativePairedPrinters(true)" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-xl text-[11px] font-black transition-all flex items-center gap-1 shadow-sm">
-                            <i class="fa-brands fa-bluetooth-b"></i> تحديث الطابعات
-                        </button>
-                        <button type="button" onclick="closeDeliStudioModal()" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-red-500 text-white flex items-center justify-center transition-all">
-                            <i class="fa-solid fa-xmark text-base"></i>
-                        </button>
-                    </div>
-
-                </div>
-
-                <!-- شريط اختيار نوع الاستيكر والتبويبات السريعة -->
-                <div class="bg-slate-100 px-3 sm:px-5 py-2.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
-                    <div class="flex flex-wrap items-center gap-1.5">
-                        <span class="text-[11px] font-black text-slate-500 ml-1">نوع الملصق:</span>
-                        <button type="button" onclick="switchDeliTemplateMode('shipping')" id="dw-mode-btn-shipping" class="px-3 py-1.5 rounded-xl text-xs font-black bg-brand-primary text-white shadow-sm transition-all">📦 بوليصة شحن أوردر</button>
-                        <button type="button" onclick="switchDeliTemplateMode('product_tag')" id="dw-mode-btn-product_tag" class="px-3 py-1.5 rounded-xl text-xs font-black bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 transition-all">🏷️ استيكر طبق / فريزر</button>
-                        <button type="button" onclick="switchDeliTemplateMode('free_custom')" id="dw-mode-btn-free_custom" class="px-3 py-1.5 rounded-xl text-xs font-black bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 transition-all">✍️ استيكر كتابة حرة</button>
-                        <input type="hidden" id="dw-template-mode" value="shipping">
-                    </div>
-
-                    <div class="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200">
-                        <button type="button" onclick="switchDeliStudioSubTab('order_bags')" id="dw-tab-btn-order_bags" class="px-2.5 py-1 rounded-lg text-[11px] font-black bg-slate-900 text-white transition-all">✏️ الكميات والشنط والكتابة</button>
-                        <button type="button" onclick="switchDeliStudioSubTab('size_design')" id="dw-tab-btn-size_design" class="px-2.5 py-1 rounded-lg text-[11px] font-black text-slate-600 hover:bg-slate-100 transition-all">📐 المقاسات والبراويز والدعاية</button>
-                        <button type="button" onclick="switchDeliStudioSubTab('hardware')" id="dw-tab-btn-hardware" class="px-2.5 py-1 rounded-lg text-[11px] font-black text-slate-600 hover:bg-slate-100 transition-all">⚙️ إعدادات الحبر والحساس</button>
-                    </div>
-                </div>
-
-                <!-- جسم الاستوديو -->
-                <div class="flex-1 overflow-y-auto custom-scroll p-3 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-5 bg-slate-50">
-                    
-                    <!-- العمود الأيسر: المعاينة الحية وأزرار الطباعة المباشرة (5 أعمدة) -->
-                    <div class="lg:col-span-5 lg:order-2 flex flex-col justify-between bg-slate-200/80 rounded-2xl p-3.5 border border-slate-300">
-                        <div>
-                            <div class="flex flex-wrap justify-between items-center gap-1 mb-2">
-                                <span class="text-xs font-black text-slate-800"><i class="fa-solid fa-eye text-brand-primary ml-1"></i> المعاينة الحية (إجمالي: <span id="dw-queue-count-badge">1</span> ملصق)</span>
-                                <span id="dw-dims-badge" class="bg-slate-900 text-amber-300 px-2.5 py-0.5 rounded-full text-[10px] font-black">100×100 مم (800×800px)</span>
-                            </div>
-
-                            <!-- شريط تقليب الطلبات عند تحديد أكثر من طلب للطباعة -->
-                            <div id="dw-order-queue-switcher" class="hidden mb-2 flex items-center justify-between bg-white px-2.5 py-1.5 rounded-xl border border-slate-300 text-xs font-black text-slate-800"></div>
-
-                            <!-- أزرار التبديل بين معاينة الشنطة الأولى والثانية إن وجد أكثر من شنطة -->
-                            <div id="dw-bag-preview-switcher" class="hidden mb-2 flex flex-wrap items-center justify-center gap-1 bg-slate-800 text-white p-1.5 rounded-xl text-[10px] font-black"></div>
-
-                            <div id="dw-live-preview-stage" class="bg-white rounded-2xl shadow-inner border border-slate-300 p-2 flex items-center justify-center overflow-auto min-h-[270px] max-h-[350px]"></div>
-                        </div>
-
-                        <!-- اختيار الطابعة المقترنة + أزرار الطباعة المباشرة -->
-                        <div class="space-y-2 mt-3 pt-3 border-t border-slate-300">
-                            <div class="flex items-center gap-1.5">
-                                <select id="dw-native-printer-select" onchange="onDeliStudioInputChange()" class="flex-1 border border-slate-300 rounded-xl p-2 text-xs font-black text-slate-800 bg-white outline-none">
-                                    <option value="AUTO">🤖 اختيار تلقائي ذكي (Deli E750W)</option>
-                                </select>
-                                <button type="button" onclick="scanAndLoadNativePairedPrinters(true)" class="bg-slate-800 text-white px-3 py-2 rounded-xl text-xs font-black" title="إعادة فحص بلوتوث الهاتف">
-                                    <i class="fa-solid fa-rotate"></i>
-                                </button>
-                            </div>
-
-                            <button type="button" id="dw-btn-direct-ble" onclick="triggerDirectHardwarePrintBtn()" class="w-full bg-brand-primary hover:bg-emerald-800 text-white font-black py-3 rounded-2xl text-sm shadow-lg shadow-brand-primary/25 transition-all flex items-center justify-center gap-2 active:scale-95">
-                                <i class="fa-solid fa-bolt text-amber-300 text-base"></i>
-                                <span>⚡ اطبع الآن بالبلوتوث المباشر (Deli E750W)</span>
-                            </button>
-
-                            <div class="grid grid-cols-3 gap-1.5">
-                                <button type="button" onclick="printDirectViaNativeUSB()" class="bg-cyan-700 hover:bg-cyan-800 text-white font-black py-2 px-2 rounded-xl text-[11px] shadow-sm transition-all flex items-center justify-center gap-1">
-                                    <i class="fa-brands fa-usb"></i> طباعة USB
-                                </button>
-                                <button type="button" onclick="triggerStudioMainPrint()" class="bg-slate-900 hover:bg-slate-800 text-white font-black py-2 px-2 rounded-xl text-[11px] shadow-sm transition-all flex items-center justify-center gap-1">
-                                    <i class="fa-solid fa-print text-amber-400"></i> Spooler
-                                </button>
-                                <button type="button" onclick="saveWaybillSettings()" class="bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-black py-2 px-2 rounded-xl text-[11px] shadow-sm transition-all flex items-center justify-center gap-1">
-                                    <i class="fa-solid fa-floppy-disk text-brand-primary"></i> حفظ الإعداد
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- العمود الأيمن: التبويبات الثلاثة المرنة (7 أعمدة) -->
-                    <div class="lg:col-span-7 lg:order-1 space-y-4">
-
-                        <!-- ========================================================= -->
-                        <!-- التبويب 1: تعديل الشنط والأصناف والكميات والكتابة المخصصة -->
-                        <!-- ========================================================= -->
-                        <div id="dw-subtab-order_bags" class="space-y-4">
-                            
-                            <!-- أ) صندوق ترقيم الشنط والأكياس المتعددة (شنطة 1 من 2) -->
-                            <div id="dw-bags-control-card" class="bg-gradient-to-l from-slate-900 to-slate-800 text-white p-4 rounded-2xl shadow-md space-y-3">
-                                <div class="flex flex-wrap items-center justify-between gap-2">
-                                    <div>
-                                        <h4 class="text-xs font-black text-amber-300 flex items-center gap-1.5">
-                                            <i class="fa-solid fa-bag-shopping"></i> نظام تقسيم وترقيم الشنط للأوردر
-                                        </h4>
-                                        <p class="text-[10px] text-slate-300 font-bold mt-0.5">لو العميل واخد شنطتين، خلّي العدد (2) وهيطبعلك استيكر (شنطة 1 من 2) واستيكر (شنطة 2 من 2) تلقائياً!</p>
-                                    </div>
-                                    <div class="flex items-center gap-2 bg-white/10 p-1.5 rounded-xl border border-white/15">
-                                        <button type="button" onclick="stepStudioBagsCount(-1)" class="w-8 h-8 rounded-lg bg-rose-500 hover:bg-rose-600 text-white font-black text-base">-</button>
-                                        <div class="text-center px-2">
-                                            <input type="number" id="dw-bags-count" min="1" max="20" value="1" oninput="onStudioBagsManualInput(this.value)" class="w-12 bg-transparent text-center font-black text-lg text-amber-300 outline-none">
-                                            <span class="block text-[9px] text-slate-300 font-bold">شنطة</span>
-                                        </div>
-                                        <button type="button" onclick="stepStudioBagsCount(1)" class="w-8 h-8 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-base">+</button>
-                                    </div>
-                                </div>
-
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-white/10">
-                                    <input type="text" id="dw-bag-custom-label" placeholder="وصف اختياري بجانب الشنطة (مثال: مجمد / فريش)" oninput="onDeliStudioInputChange()" class="bg-slate-800 border border-slate-600 rounded-xl px-3 py-1.5 text-xs font-bold text-white outline-none">
-                                    <label class="flex items-center gap-2 text-[11px] font-black text-emerald-300 cursor-pointer px-2">
-                                        <input type="checkbox" id="dw-always-show-bag" onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-emerald-400 rounded">
-                                        إظهار شارة (شنطة 1 من 1) حتى لو شنطة واحدة
-                                    </label>
-                                </div>
-                            </div>
-
-                            <!-- ب) محرر الأصناف والكميات والأسعار والعميل المباشر (لوضع بوليصة الشحن) -->
-                            <div id="dw-shipping-order-editor" class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-                                <div class="flex flex-wrap justify-between items-center gap-2 border-b border-slate-100 pb-2">
-                                    <h4 class="text-xs font-black text-slate-800"><i class="fa-solid fa-cart-flatbed text-brand-primary ml-1"></i> تعديل الأصناف والكميات والبيانات على البوليصة</h4>
-                                    <div class="flex gap-1.5">
-                                        <button type="button" onclick="addStudioOrderItemRow()" class="bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-200 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all">+ إضافة صنف للبوليصة</button>
-                                        <button type="button" onclick="saveStudioOrderChangesToFirebase()" class="bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1 rounded-lg text-[10px] font-black transition-all" title="حفظ هذه التعديلات في الطلب الأصلي أيضاً">💾 حفظ في الأوردر الأصلي</button>
-                                    </div>
-                                </div>
-
-                                <!-- قائمة الأصناف التفاعلية (+ / -) -->
-                                <div id="dw-live-items-editor-list" class="space-y-2 max-h-48 overflow-y-auto custom-scroll pr-1"></div>
-
-                                <!-- تعديل سريع للعميل والعنوان والمطلوب تحصيله -->
-                                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
-                                    <div class="sm:col-span-2">
-                                        <label class="text-[9px] font-black text-slate-400 block mb-0.5">اسم العميل على البوليصة</label>
-                                        <input type="text" id="dw-ord-cust-name" oninput="applyLiveOrderMetadataEdit()" class="w-full border border-slate-200 rounded-lg p-1.5 text-xs font-black bg-slate-50">
-                                    </div>
-                                    <div>
-                                        <label class="text-[9px] font-black text-slate-400 block mb-0.5">رقم الموبايل</label>
-                                        <input type="text" id="dw-ord-cust-phone" dir="ltr" oninput="applyLiveOrderMetadataEdit()" class="w-full border border-slate-200 rounded-lg p-1.5 text-xs font-black bg-slate-50 text-center">
-                                    </div>
-                                    <div>
-                                        <label class="text-[9px] font-black text-slate-400 block mb-0.5">المنطقة</label>
-                                        <input type="text" id="dw-ord-zone" oninput="applyLiveOrderMetadataEdit()" class="w-full border border-slate-200 rounded-lg p-1.5 text-xs font-black bg-slate-50 text-center">
-                                    </div>
-                                    <div class="sm:col-span-2">
-                                        <label class="text-[9px] font-black text-slate-400 block mb-0.5">العنوان التفصيلي</label>
-                                        <input type="text" id="dw-ord-address" oninput="applyLiveOrderMetadataEdit()" class="w-full border border-slate-200 rounded-lg p-1.5 text-xs font-bold bg-slate-50">
-                                    </div>
-                                    <div>
-                                        <label class="text-[9px] font-black text-emerald-700 block mb-0.5">💰 الصافي المطلوب (ج)</label>
-                                        <input type="number" id="dw-ord-total" oninput="applyLiveOrderMetadataEdit(true)" class="w-full border border-emerald-300 rounded-lg p-1.5 text-xs font-black bg-emerald-50 text-emerald-900 text-center">
-                                    </div>
-                                    <div>
-                                        <label class="text-[9px] font-black text-slate-400 block mb-0.5">حالة الدفع</label>
-                                        <select id="dw-ord-payment" onchange="applyLiveOrderMetadataEdit()" class="w-full border border-slate-200 rounded-lg p-1.5 text-xs font-black bg-slate-50">
-                                            <option value="cash">💵 تحصيل كاش</option>
-                                            <option value="online">💳 خالص أونلاين (0 ج)</option>
-                                            <option value="split">⚖️ نص ونص (كاش + محفظة)</option>
-                                        </select>
-                                    </div>
-
-                                    <div class="col-span-2 sm:col-span-4">
-                                        <label class="text-[9px] font-black text-amber-700 block mb-0.5">⚠️ ملاحظة للمندوب / على البوليصة</label>
-                                        <input type="text" id="dw-ord-note" oninput="applyLiveOrderMetadataEdit()" placeholder="اكتب أي ملاحظة تريد ظهورها على البوليصة..." class="w-full border border-amber-200 rounded-lg p-1.5 text-xs font-bold bg-amber-50/40">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- ج) محرر استيكر طبق السمان والفريزر -->
-                            <div id="dw-product-tag-editor" class="hidden bg-white p-4 rounded-2xl border border-teal-200 shadow-sm space-y-3">
-                                <h4 class="text-xs font-black text-teal-800 border-b border-teal-100 pb-2"><i class="fa-solid fa-tag ml-1"></i> تخصيص استيكر طبق السمان / الفريزر</h4>
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-500 block mb-1">اسم الصنف / الطبق</label>
-                                        <input type="text" id="dw-tag-prod-name" placeholder="مثال: 1x طبق سمان جامبو ملكي" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-500 block mb-1">الوزن أو العدد داخل الطبق</label>
-                                        <input type="text" id="dw-tag-weight" placeholder="مثال: وزن صافي 900 جرام - 4 جوز" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-500 block mb-1">تاريخ الذبح / الصلاحية</label>
-                                        <input type="text" id="dw-tag-date" placeholder="مثال: إنتاج اليوم - صالح لمدة 3 شهور" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-500 block mb-1">السعر على الطبق (اختياري - اتركه فارغاً لإخفائه)</label>
-                                        <input type="text" id="dw-tag-price" placeholder="مثال: 145 ج.م" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- د) محرر الاستيكر الحر (اكتب أي كلام على أي مقاس) -->
-                            <div id="dw-free-custom-editor" class="hidden bg-white p-4 rounded-2xl border border-indigo-200 shadow-sm space-y-3">
-                                <h4 class="text-xs font-black text-indigo-800 border-b border-indigo-100 pb-2"><i class="fa-solid fa-pen-nib ml-1"></i> كتابة استيكر حر على أي مقاس تختاره</h4>
-                                <div class="space-y-2.5">
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-500 block mb-1">السطر الأول (عنوان عريض بالأعلى)</label>
-                                        <input type="text" id="dw-free-line1" value="سمان ههيا الفريش" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-500 block mb-1">السطر الثاني (النص الرئيسي بالمنتصف - يقبل جمل طويلة)</label>
-                                        <input type="text" id="dw-free-line2" value="سمان جامبو وملكي طازج يومياً" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-500 block mb-1">السطر الثالث (تفاصيل / أرقام تليفون)</label>
-                                        <input type="text" id="dw-free-line3" value="للحجز والتوصيل: 01208027294" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-slate-50">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-500 block mb-1">شريط أسود بارز بالأسفل (اختياري)</label>
-                                        <input type="text" id="dw-free-badge" placeholder="مثال: عرض خاص لفترة محدودة!" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
-                                    </div>
-                                </div>
-                            </div>
-
-                        </div>
-
-                        <!-- ========================================================= -->
-                        <!-- التبويب 2: المقاسات الحرة، البراويز، الدعاية، والفوتر -->
-                        <!-- ========================================================= -->
-                        <div id="dw-subtab-size_design" class="hidden space-y-4">
-                            
-                            <!-- التحكم المرن في المقاسات بالمللي والخط والإزاحة -->
-                            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-                                <h4 class="text-xs font-black text-slate-800 border-b border-slate-100 pb-2"><i class="fa-solid fa-ruler-combined text-brand-primary ml-1"></i> اختر مقاساً جاهزاً أو اكتب العرض والطول بالمليمتر بحرية</h4>
-                                
-                                <div class="flex flex-wrap gap-1.5" id="dw-preset-btns-wrap">
-                                    <button type="button" data-preset="70x130" onclick="applyQuickSizePreset('70x130', 70, 130)" class="dw-preset-btn bg-slate-900 text-white px-3 py-1.5 rounded-xl text-[11px] font-black transition-all">⭐ 7×13 سم (فاتورة 70×130)</button>
-                                    <button type="button" data-preset="100x100" onclick="applyQuickSizePreset('100x100', 100, 100)" class="dw-preset-btn bg-slate-100 text-slate-700 hover:bg-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all">10×10 سم (100×100)</button>
-                                    <button type="button" data-preset="100x150" onclick="applyQuickSizePreset('100x150', 100, 150)" class="dw-preset-btn bg-slate-100 text-slate-700 hover:bg-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all">10×15 سم (100×150)</button>
-                                    <button type="button" data-preset="80x60" onclick="applyQuickSizePreset('80x60', 80, 60)" class="dw-preset-btn bg-slate-100 text-slate-700 hover:bg-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all">8×6 سم (80×60)</button>
-                                    <button type="button" data-preset="70x50" onclick="applyQuickSizePreset('70x50', 70, 50)" class="dw-preset-btn bg-slate-100 text-slate-700 hover:bg-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all">7×5 سم (70×50)</button>
-                                    <button type="button" data-preset="50x30" onclick="applyQuickSizePreset('50x30', 50, 30)" class="dw-preset-btn bg-slate-100 text-slate-700 hover:bg-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all">5×3 سم (50×30)</button>
-                                    <input type="hidden" id="dw-size-preset" value="70x130">
-                                </div>
-
-
-                                <!-- خانات العرض والطول بالمليمتر ظاهرة دائماً للتعديل الحر -->
-                                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-600 block mb-1">العرض (مم) [أقصى 108]</label>
-                                        <input type="number" id="dw-width-mm" min="30" max="108" value="100" oninput="onManualDimensionTyped()" class="w-full border-2 border-teal-500/40 rounded-xl p-2 text-center text-xs font-black bg-teal-50/30">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-600 block mb-1">الطول (مم)</label>
-                                        <input type="number" id="dw-height-mm" min="20" max="250" value="100" oninput="onManualDimensionTyped()" class="w-full border-2 border-teal-500/40 rounded-xl p-2 text-center text-xs font-black bg-teal-50/30">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-600 block mb-1">تكبير/تصغير الخط (%)</label>
-                                        <input type="number" id="dw-font-scale-pct" min="65" max="140" step="5" value="100" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-center text-xs font-black bg-slate-50">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-600 block mb-1">عدد النسخ</label>
-                                        <input type="number" id="dw-copies" min="1" max="20" value="1" oninput="onDeliStudioInputChange()" class="w-full border border-emerald-200 rounded-xl p-2 text-center text-xs font-black bg-emerald-50 text-brand-primary">
-                                    </div>
-                                </div>
-
-                                <div class="grid grid-cols-3 gap-3 pt-1">
-                                    <div>
-                                        <label class="text-[10px] font-bold text-slate-500 block mb-1">إزاحة يمين/يسار X (مم)</label>
-                                        <input type="number" id="dw-offset-x" min="-10" max="10" step="0.5" value="0" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-center text-xs font-black bg-slate-50">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-bold text-slate-500 block mb-1">إزاحة فوق/تحت Y (مم)</label>
-                                        <input type="number" id="dw-offset-y" min="-10" max="10" step="0.5" value="0" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-center text-xs font-black bg-slate-50">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-bold text-slate-500 block mb-1">الهامش الداخلي (%)</label>
-                                        <input type="number" id="dw-padding-pct" min="40" max="180" step="10" value="100" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-center text-xs font-black bg-slate-50">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- البراويز والدعاية والفوتر واسم المتجر -->
-                            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-                                <h4 class="text-xs font-black text-slate-800 border-b border-slate-100 pb-2"><i class="fa-solid fa-wand-magic-sparkles text-amber-500 ml-1"></i> شكل البرواز الخارجي، شريط الدعاية، والفوتر</h4>
-                                
-                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-500 block mb-1">شكل برواز البوليصة</label>
-                                        <select id="dw-border-style" onchange="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
-                                            <option value="double">▣ برواز ملكي مزدوج (فخم)</option>
-                                            <option value="solid">⬛ برواز سميك بارز</option>
-                                            <option value="rounded">▢ برواز دائري الحواف</option>
-                                            <option value="corners">⌜⌟ برواز أركان مودرن</option>
-                                            <option value="dashed">✂️ برواز منقط (كوبون)</option>
-                                            <option value="none">⬜ بدون برواز خارجي</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-500 block mb-1">اسم المتجر بالهيدر</label>
-                                        <input type="text" id="dw-custom-store-title" placeholder="سمان ههيا" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-500 block mb-1">رقم التواصل بالهيدر</label>
-                                        <input type="text" id="dw-custom-store-phone" dir="ltr" placeholder="01208027294" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50 text-center">
-                                    </div>
-                                </div>
-
-                                <!-- شريط الدعاية والعروض -->
-                                <div class="bg-amber-50/70 p-3 rounded-xl border border-amber-200 space-y-2">
-                                    <div class="flex flex-wrap justify-between items-center gap-2">
-                                        <label class="flex items-center gap-2 text-xs font-black text-amber-900 cursor-pointer">
-                                            <input type="checkbox" id="dw-show-promo" onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-amber-600 rounded">
-                                            تفعيل برواز الدعاية والعروض أسفل الفاتورة
-                                        </label>
-                                        <select onchange="if(this.value){document.getElementById('dw-promo-text').value=this.value; document.getElementById('dw-show-promo').checked=true; onDeliStudioInputChange(); this.value='';}" class="border border-amber-300 bg-white rounded-lg px-2 py-1 text-[10px] font-black text-amber-900 outline-none">
-                                            <option value="">✨ اختر جملة دعائية جاهزة...</option>
-                                            <option value="اسأل عن عروض السمان الجامبو وبيض السمان الطازج!">عرض السمان الجامبو والبيض</option>
-                                            <option value="احتفظ بالبوليصة! كل 100ج = نقاط كاش باك في محفظتك">دعاية نقاط الولاء والكاش باك</option>
-                                            <option value="تربية بيتي وأعلاف طبيعية 100% - ذبح وتجهيز يومي طازج">دعاية الجودة والتربية الطبيعية</option>
-                                            <option value="للحجز في الدفعة القادمة كلمنا واتساب: 01208027294">دعاية الحجز بالواتساب</option>
-                                        </select>
-                                    </div>
-                                    <input type="text" id="dw-promo-text" placeholder="اكتب جملة الدعاية أو العرض ليظهر في برواز مميز للعميل..." oninput="onDeliStudioInputChange()" class="w-full border border-amber-300 rounded-xl p-2 text-xs font-black bg-white">
-                                </div>
-
-                                <div>
-                                    <label class="text-[10px] font-bold text-slate-500 block mb-1">رسالة الفوتر الترحيبية بأسفل البوليصة</label>
-                                    <input type="text" id="dw-footer-text" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-slate-50">
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- ========================================================= -->
-                        <!-- التبويب 3: إعدادات هاردوير طابعة Deli E750W والحساس -->
-                        <!-- ========================================================= -->
-                        <div id="dw-subtab-hardware" class="hidden space-y-4">
-                            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-                                <div class="flex justify-between items-center border-b border-slate-100 pb-2">
-                                    <h4 class="text-xs font-black text-slate-800"><i class="fa-solid fa-microchip text-indigo-600 ml-1"></i> إعدادات حرارة الحبر وحساس الاستيكر (Deli E750W TSPL)</h4>
-                                    <div class="flex gap-1.5">
-                                        <button type="button" onclick="sendDeliHardwareCommand('calibrate')" class="bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all">🎯 معايرة الحساس</button>
-                                        <button type="button" onclick="sendDeliHardwareCommand('feed')" class="bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white px-2.5 py-1 rounded-lg text-[10px] font-black transition-all">⏬ سحب ورقة</button>
-                                    </div>
-                                </div>
-
-                                <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-500 block mb-1">غمقان الحبر الحراري (1-15)</label>
-                                        <input type="number" id="dw-density" min="1" max="15" value="12" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-center text-xs font-black bg-slate-50">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-500 block mb-1">مسافة الفاصل (Gap مم)</label>
-                                        <input type="number" id="dw-gap-mm" min="0" max="10" step="0.5" value="2" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-center text-xs font-black bg-slate-50">
-                                    </div>
-                                    <div>
-                                        <label class="text-[10px] font-black text-slate-500 block mb-1">اتجاه خروج الورقة</label>
-                                        <select id="dw-direction" onchange="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
-                                            <option value="0">0 (الوضع الطبيعي)</option>
-                                            <option value="1">1 (مقلوب 180 درجة)</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs font-black text-slate-700 pt-2">
-                                    <label class="flex items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200/60 cursor-pointer">
-                                        <input type="checkbox" id="dw-show-logo" checked onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-brand-primary rounded"> إظهار اسم المتجر
-                                    </label>
-                                    <label class="flex items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200/60 cursor-pointer">
-                                        <input type="checkbox" id="dw-show-barcode" checked onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-brand-primary rounded"> إظهار الباركود
-                                    </label>
-                                    <label class="flex items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200/60 cursor-pointer">
-                                        <input type="checkbox" id="dw-show-prices" checked onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-brand-primary rounded"> أسعار الأصناف
-                                    </label>
-                                    <label class="flex items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200/60 cursor-pointer">
-                                        <input type="checkbox" id="dw-show-weight" checked onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-brand-primary rounded"> أوزان الأصناف
-                                    </label>
-                                    <label class="flex items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200/60 cursor-pointer">
-                                        <input type="checkbox" id="dw-invert-bitmap" onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-indigo-600 rounded"> عكس ألوان الحبر
-                                    </label>
-                                    <label class="flex items-center gap-2 bg-amber-50 p-2.5 rounded-xl border border-amber-200 cursor-pointer text-amber-900">
-                                        <input type="checkbox" id="dw-route-summary" onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-amber-600 rounded"> ملصق إجمالي للمندوب
-                                    </label>
-                                </div>
-
-                                <label class="flex items-center gap-2 text-xs font-black text-emerald-800 bg-emerald-50 px-3 py-2.5 rounded-xl border border-emerald-200 cursor-pointer mt-2">
-                                    <input type="checkbox" id="dw-instant-print" onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-emerald-600 rounded">
-                                    ⚡ طباعة فورية بضغطة واحدة من كارت الطلب (بدون فتح نافذة المعاينة في كل مرة)
-                                </label>
-                            </div>
-                        </div>
-
-                    </div>
-                </div>
-            </div>
-        `;
-
-        document.body.appendChild(modal);
-        return modal;
-    }
-
-    // تحديث لون زر المقاس النشط
-    function highlightActivePresetButton(presetKey) {
-        document.querySelectorAll('.dw-preset-btn').forEach(btn => {
-            const p = btn.getAttribute('data-preset');
-            btn.className = (p === presetKey)
-                ? 'dw-preset-btn bg-slate-900 text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black shadow-sm transition-all'
-                : 'dw-preset-btn bg-slate-100 text-slate-700 hover:bg-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all';
-        });
-    }
-
-    window.onManualDimensionTyped = function () {
-        const pInput = document.getElementById('dw-size-preset');
-        if (pInput) pInput.value = 'custom';
-        highlightActivePresetButton('custom');
-        window.onDeliStudioInputChange();
-    };
-
-    window.switchDeliStudioSubTab = function (tabName) {
-        window.deliStudioActiveSubTab = tabName;
-        ['order_bags', 'size_design', 'hardware'].forEach(t => {
-            const panel = document.getElementById('dw-subtab-' + t);
-            const btn = document.getElementById('dw-tab-btn-' + t);
-            if (panel) {
-                if (t === tabName) panel.classList.remove('hidden');
-                else panel.classList.add('hidden');
-            }
-            if (btn) {
-                btn.className = (t === tabName)
-                    ? 'px-2.5 py-1 rounded-lg text-[11px] font-black bg-slate-900 text-white transition-all shadow-sm'
-                    : 'px-2.5 py-1 rounded-lg text-[11px] font-black text-slate-600 hover:bg-slate-100 transition-all';
-            }
-        });
-    };
-
-    window.switchDeliTemplateMode = function (mode, skipRender = false) {
-        const modeInput = document.getElementById('dw-template-mode');
-        if (modeInput) modeInput.value = mode;
-
-        ['shipping', 'product_tag', 'free_custom'].forEach(m => {
-            const btn = document.getElementById('dw-mode-btn-' + m);
-            if (btn) {
-                btn.className = (m === mode)
-                    ? 'px-3 py-1.5 rounded-xl text-xs font-black bg-brand-primary text-white shadow-sm transition-all'
-                    : 'px-3 py-1.5 rounded-xl text-xs font-black bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 transition-all';
-            }
-        });
-
-        const shipEd = document.getElementById('dw-shipping-order-editor');
-        const tagEd = document.getElementById('dw-product-tag-editor');
-        const freeEd = document.getElementById('dw-free-custom-editor');
-        const bagsCard = document.getElementById('dw-bags-control-card');
-
-        if (shipEd) shipEd.classList.toggle('hidden', mode !== 'shipping');
-        if (tagEd) tagEd.classList.toggle('hidden', mode !== 'product_tag');
-        if (freeEd) freeEd.classList.toggle('hidden', mode !== 'free_custom');
-        if (bagsCard) bagsCard.classList.toggle('hidden', mode === 'free_custom');
-
-        if (!skipRender) {
-            window.switchDeliStudioSubTab('order_bags');
-            window.onDeliStudioInputChange();
-        }
-    };
-
-    window.applyQuickSizePreset = function (presetKey, w, h) {
-        const pInput = document.getElementById('dw-size-preset');
-        const wInput = document.getElementById('dw-width-mm');
-        const hInput = document.getElementById('dw-height-mm');
-        if (pInput) pInput.value = presetKey;
-        if (wInput) wInput.value = w;
-        if (hInput) hInput.value = h;
-        highlightActivePresetButton(presetKey);
-        window.onDeliStudioInputChange();
-    };
-
-    // زيادة أو إنقاص عدد الشنط للطلب المعروض حالياً
-    window.stepStudioBagsCount = function (delta) {
-        const inp = document.getElementById('dw-bags-count');
-        if (!inp) return;
-        const nextVal = Math.max(1, Math.min(20, (parseInt(inp.value) || 1) + delta));
-        inp.value = nextVal;
-        const ord = getSampleOrderForPreview();
-        if (ord) ord._bagsCount = nextVal;
-        window.deliPreviewBagNumber = 1;
-        window.onDeliStudioInputChange();
-    };
-
-    window.onStudioBagsManualInput = function (val) {
-        const nextVal = Math.max(1, Math.min(20, parseInt(val) || 1));
-        const ord = getSampleOrderForPreview();
-        if (ord) ord._bagsCount = nextVal;
-        window.deliPreviewBagNumber = 1;
-        window.onDeliStudioInputChange();
-    };
-
-    window.setPreviewBagNumber = function (bNum) {
-        window.deliPreviewBagNumber = bNum;
-        window.onDeliStudioInputChange();
-    };
-
-    window.switchStudioPreviewOrderIndex = function (delta) {
-        const q = window.deliPrinterConnection.lastOrdersQueue || [];
-        if (q.length <= 1) return;
-        let nextIdx = (window.deliPreviewOrderIndex || 0) + delta;
-        if (nextIdx < 0) nextIdx = q.length - 1;
-        if (nextIdx >= q.length) nextIdx = 0;
-        window.deliPreviewOrderIndex = nextIdx;
-        window.deliPreviewBagNumber = 1;
-
-        const currentOrd = getSampleOrderForPreview();
-        const bagsInp = document.getElementById('dw-bags-count');
-        if (bagsInp && currentOrd) {
-            bagsInp.value = Math.max(1, parseInt(currentOrd._bagsCount) || 1);
-        }
-        renderStudioOrderItemsEditor();
-        window.onDeliStudioInputChange();
-    };
-
-    function renderStudioOrderItemsEditor() {
-        const ord = getSampleOrderForPreview();
-        if (!ord) return;
-        if (!Array.isArray(ord.items)) ord.items = [];
-
-        const listCont = document.getElementById('dw-live-items-editor-list');
-        if (listCont) {
-            if (ord.items.length === 0) {
-                listCont.innerHTML = `<div class="text-center py-3 text-xs font-bold text-slate-400">لا توجد أصناف، اضغط (+ إضافة صنف) بالأعلى</div>`;
-            } else {
-                listCont.innerHTML = ord.items.map((item, idx) => `
-                    <div class="flex items-center gap-1.5 bg-slate-50 p-2 rounded-xl border border-slate-200">
-                        <input type="text" value="${item.name || ''}" oninput="updateStudioOrderItemField(${idx}, 'name', this.value)" placeholder="اسم الصنف" class="flex-1 min-w-0 bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-black text-slate-800 outline-none">
-                        <div class="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-1 py-0.5 shrink-0">
-                            <button type="button" onclick="stepStudioOrderItemQty(${idx}, -0.5)" class="w-6 h-6 rounded bg-rose-50 text-rose-600 font-black text-xs hover:bg-rose-500 hover:text-white">-</button>
-                            <input type="number" value="${item.quantity || 1}" step="0.5" min="0.5" oninput="updateStudioOrderItemField(${idx}, 'quantity', this.value)" class="w-11 text-center font-black text-xs text-brand-primary outline-none">
-                            <button type="button" onclick="stepStudioOrderItemQty(${idx}, 0.5)" class="w-6 h-6 rounded bg-emerald-50 text-emerald-600 font-black text-xs hover:bg-emerald-500 hover:text-white">+</button>
-                        </div>
-                        <div class="flex items-center gap-0.5 shrink-0">
-                            <input type="number" value="${item.price || 0}" oninput="updateStudioOrderItemField(${idx}, 'price', this.value)" class="w-14 bg-white border border-slate-200 rounded-lg p-1 text-center font-black text-xs text-slate-700 outline-none" title="سعر الوحدة">
-                            <span class="text-[9px] font-bold text-slate-400">ج</span>
-                        </div>
-                        <button type="button" onclick="removeStudioOrderItemRow(${idx})" class="w-7 h-7 rounded-lg bg-red-50 hover:bg-red-500 text-red-500 hover:text-white text-xs flex items-center justify-center shrink-0" title="حذف الصنف"><i class="fa-solid fa-trash-can"></i></button>
-                    </div>
-                `).join('');
-            }
-        }
-
-        const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-        setVal('dw-ord-cust-name', ord.customerName || '');
-        setVal('dw-ord-cust-phone', ord.customerPhone || '');
-        setVal('dw-ord-zone', ord.zone || '');
-        setVal('dw-ord-address', ord.customerAddress || '');
-        setVal('dw-ord-total', ord.total || 0);
-        setVal('dw-ord-payment', ord.paymentMethod === 'online' ? 'online' : (ord.paymentMethod === 'split' ? 'split' : 'cash'));
-        setVal('dw-ord-note', ord.driverNote || ord.adminNote || '');
-
-        const firstItm = ord.items[0] || { name: 'طبق سمان جامبو', quantity: 1, price: 145 };
-        const tagProdInp = document.getElementById('dw-tag-prod-name');
-        if (tagProdInp && !tagProdInp.value) {
-            tagProdInp.value = `${firstItm.quantity}x ${firstItm.name}`;
-        }
-    }
-
-    function recalculateOrderTotalsFromStudioItems(ord) {
-        if (!ord || !Array.isArray(ord.items)) return;
-        const newSub = ord.items.reduce((sum, i) => sum + ((Number(i.quantity) || 0) * (Number(i.price) || 0)), 0);
-        ord.subtotal = Math.round(newSub);
-        const del = Number(ord.deliveryFee) || 0;
-        const disc = Number(ord.discount) || 0;
-        ord.total = Math.max(0, ord.subtotal + del - disc);
-        const totInp = document.getElementById('dw-ord-total');
-        if (totInp) totInp.value = ord.total;
-    }
-
-    window.stepStudioOrderItemQty = function (idx, delta) {
-        const ord = getSampleOrderForPreview();
-        if (!ord || !ord.items || !ord.items[idx]) return;
-        const cur = Number(ord.items[idx].quantity) || 1;
-        ord.items[idx].quantity = Math.max(0.5, Number((cur + delta).toFixed(2)));
-        recalculateOrderTotalsFromStudioItems(ord);
-        renderStudioOrderItemsEditor();
-        window.onDeliStudioInputChange();
-    };
-
-    window.updateStudioOrderItemField = function (idx, field, val) {
-        const ord = getSampleOrderForPreview();
-        if (!ord || !ord.items || !ord.items[idx]) return;
-        if (field === 'quantity' || field === 'price') {
-            ord.items[idx][field] = Math.max(0, parseFloat(val) || 0);
-            recalculateOrderTotalsFromStudioItems(ord);
-        } else {
-            ord.items[idx][field] = val;
-        }
-        window.onDeliStudioInputChange();
-    };
-
-    window.removeStudioOrderItemRow = function (idx) {
-        const ord = getSampleOrderForPreview();
-        if (!ord || !Array.isArray(ord.items)) return;
-        ord.items.splice(idx, 1);
-        recalculateOrderTotalsFromStudioItems(ord);
-        renderStudioOrderItemsEditor();
-        window.onDeliStudioInputChange();
-    };
-
-    window.addStudioOrderItemRow = function () {
-        const ord = getSampleOrderForPreview();
-        if (!ord) return;
-        if (!Array.isArray(ord.items)) ord.items = [];
-        ord.items.push({ id: 'custom_' + Date.now(), name: 'طبق سمان', quantity: 1, price: 140 });
-        recalculateOrderTotalsFromStudioItems(ord);
-        renderStudioOrderItemsEditor();
-        window.onDeliStudioInputChange();
-    };
-
-    window.applyLiveOrderMetadataEdit = function (manualTotalOverride = false) {
-        const ord = getSampleOrderForPreview();
-        if (!ord) return;
-        const getVal = (id) => document.getElementById(id)?.value || '';
-        ord.customerName = getVal('dw-ord-cust-name');
-        ord.customerPhone = getVal('dw-ord-cust-phone');
-        ord.zone = getVal('dw-ord-zone');
-        ord.customerAddress = getVal('dw-ord-address');
-        ord.paymentMethod = getVal('dw-ord-payment');
-        ord.driverNote = getVal('dw-ord-note');
-        if (manualTotalOverride) {
-            ord.total = Math.max(0, Number(getVal('dw-ord-total')) || 0);
-        }
-        window.onDeliStudioInputChange();
-    };
-
-    window.saveStudioOrderChangesToFirebase = async function () {
-        const ord = getSampleOrderForPreview();
-        if (!ord || !ord.id || ord.id === 'SMAN2026') {
-            return notifyPrinterToast('⚠️ هذا نموذج معاينة، التعديلات مطبقة جاهزة للطباعة الآن!');
-        }
-        if (typeof db === 'undefined') return;
+    function getSavedDesignerTemplates() {
         try {
-            await db.collection('orders').doc(ord.id).update({
-                customerName: ord.customerName || '',
-                customerPhone: ord.customerPhone || '',
-                zone: ord.zone || '',
-                customerAddress: ord.customerAddress || '',
-                paymentMethod: ord.paymentMethod || 'cash',
-                driverNote: ord.driverNote || '',
-                items: ord.items || [],
-                subtotal: Number(ord.subtotal) || 0,
-                total: Number(ord.total) || 0
-            });
-            // تحديث النسخة الأصلية في الذاكرة الحية أيضاً
-            const origOrd = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(x => x.id === ord.id);
-            if (origOrd) {
-                Object.assign(origOrd, {
-                    customerName: ord.customerName || '',
-                    customerPhone: ord.customerPhone || '',
-                    zone: ord.zone || '',
-                    customerAddress: ord.customerAddress || '',
-                    paymentMethod: ord.paymentMethod || 'cash',
-                    driverNote: ord.driverNote || '',
-                    items: ord.items.map(i => ({ ...i })),
-                    subtotal: Number(ord.subtotal) || 0,
-                    total: Number(ord.total) || 0
-                });
-            }
-            if (typeof window.renderOrdersList === 'function') window.renderOrdersList();
-            notifyPrinterToast('✅ تم حفظ تعديلات الأصناف والبيانات في الطلب الأصلي بنجاح!');
-        } catch (e) {
-            alert('خطأ أثناء حفظ التعديلات في قاعدة البيانات: ' + e.message);
-        }
-    };
-
-    function populateStudioInputsFromConfig(cfg) {
-        const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
-        const setChk = (id, val) => { const el = document.getElementById(id); if (el) el.checked = Boolean(val); };
-
-        const dims = resolveDimensionsMm(cfg);
-        const preset = cfg.sizePreset || '100x100';
-        setVal('dw-size-preset', preset);
-        highlightActivePresetButton(preset);
-
-        setVal('dw-template-mode', cfg.templateMode || 'shipping');
-        setVal('dw-width-mm', dims.w || 100);
-        setVal('dw-height-mm', dims.h || 100);
-        setVal('dw-density', cfg.density || 12);
-        setVal('dw-gap-mm', cfg.gapMm !== undefined ? cfg.gapMm : 2);
-        setVal('dw-direction', cfg.direction ? '1' : '0');
-        setVal('dw-font-scale-pct', cfg.fontScalePct || 100);
-        setVal('dw-offset-x', cfg.offsetXMm || 0);
-        setVal('dw-offset-y', cfg.offsetYMm || 0);
-        setVal('dw-padding-pct', cfg.paddingPct || 100);
-        setVal('dw-border-style', cfg.borderStyle || 'double');
-        setVal('dw-custom-store-title', cfg.customStoreTitle || '');
-        setVal('dw-custom-store-phone', cfg.customStorePhone || '');
-        setVal('dw-promo-text', cfg.promoText || '');
-        setVal('dw-copies', cfg.copies || 1);
-        setVal('dw-bags-count', cfg.bagsCount || 1);
-        setVal('dw-bag-custom-label', cfg.bagCustomLabel || '');
-        setVal('dw-footer-text', cfg.footerText || '');
-
-        // استرجاع نصوص استيكر الطبق والاستيكر الحر
-        setVal('dw-tag-prod-name', cfg.tagProductName || '');
-        setVal('dw-tag-weight', cfg.tagWeightText || '');
-        setVal('dw-tag-date', cfg.tagDateText || '');
-        setVal('dw-tag-price', cfg.tagPriceText || '');
-        if (cfg.freeLine1 !== undefined) setVal('dw-free-line1', cfg.freeLine1);
-        if (cfg.freeLine2 !== undefined) setVal('dw-free-line2', cfg.freeLine2);
-        if (cfg.freeLine3 !== undefined) setVal('dw-free-line3', cfg.freeLine3);
-        if (cfg.freeBadgeText !== undefined) setVal('dw-free-badge', cfg.freeBadgeText);
-
-        setChk('dw-show-logo', cfg.showLogo !== false);
-        setChk('dw-show-barcode', cfg.showBarcode !== false);
-        setChk('dw-show-prices', cfg.showItemsPrice !== false);
-        setChk('dw-show-weight', cfg.showWeightInfo !== false);
-        setChk('dw-show-promo', cfg.showPromoBanner === true);
-        setChk('dw-always-show-bag', cfg.alwaysShowBagBadge === true);
-        setChk('dw-invert-bitmap', cfg.invertBitmap === true);
-        setChk('dw-route-summary', cfg.includeRouteSummary === true);
-        setChk('dw-instant-print', cfg.instantPrint === true);
-
-        window.switchDeliTemplateMode(cfg.templateMode || 'shipping', true);
+            const arr = JSON.parse(localStorage.getItem('sman_free_designer_templates_v1') || '[]');
+            return Array.isArray(arr) ? arr : [];
+        } catch (e) { return []; }
     }
 
-    function readStudioInputsToConfig() {
-        const current = window.getWaybillConfig();
-        const getVal = (id, fb) => { const el = document.getElementById(id); return el ? el.value : fb; };
-        const getChk = (id, fb) => { const el = document.getElementById(id); return el ? el.checked : fb; };
-
-        const wMm = Math.min(108, Math.max(30, Number(getVal('dw-width-mm', 100)) || 100));
-        const hMm = Math.min(250, Math.max(20, Number(getVal('dw-height-mm', 100)) || 100));
-        const preset = getVal('dw-size-preset', current.sizePreset || '100x100');
-
-        return {
-            ...current,
-            sizePreset: preset,
-            templateMode: getVal('dw-template-mode', 'shipping'),
-            widthMm: wMm,
-            heightMm: hMm,
-            density: Number(getVal('dw-density', 12)) || 12,
-            gapMm: Number(getVal('dw-gap-mm', 2)) || 0,
-            direction: parseInt(getVal('dw-direction', '0')) || 0,
-            fontScalePct: Number(getVal('dw-font-scale-pct', 100)) || 100,
-            offsetXMm: Number(getVal('dw-offset-x', 0)) || 0,
-            offsetYMm: Number(getVal('dw-offset-y', 0)) || 0,
-            paddingPct: Number(getVal('dw-padding-pct', 100)) || 100,
-            borderStyle: getVal('dw-border-style', 'double'),
-            customStoreTitle: getVal('dw-custom-store-title', ''),
-            customStorePhone: getVal('dw-custom-store-phone', ''),
-            showPromoBanner: getChk('dw-show-promo', false),
-            promoText: getVal('dw-promo-text', ''),
-            copies: Math.max(1, parseInt(getVal('dw-copies', 1)) || 1),
-            bagsCount: Math.max(1, parseInt(getVal('dw-bags-count', 1)) || 1),
-            bagCustomLabel: getVal('dw-bag-custom-label', ''),
-            alwaysShowBagBadge: getChk('dw-always-show-bag', false),
-            tagProductName: getVal('dw-tag-prod-name', ''),
-            tagWeightText: getVal('dw-tag-weight', ''),
-            tagDateText: getVal('dw-tag-date', ''),
-            tagPriceText: getVal('dw-tag-price', ''),
-            freeLine1: getVal('dw-free-line1', 'سمان ههيا الفريش'),
-            freeLine2: getVal('dw-free-line2', 'سمان جامبو وملكي طازج يومياً'),
-            freeLine3: getVal('dw-free-line3', 'للحجز والتوصيل: 01208027294'),
-            freeBadgeText: getVal('dw-free-badge', ''),
-            footerText: getVal('dw-footer-text', ''),
-            selectedMac: getVal('dw-native-printer-select', current.selectedMac || 'AUTO'),
-            showLogo: getChk('dw-show-logo', true),
-            showBarcode: getChk('dw-show-barcode', true),
-            showItemsPrice: getChk('dw-show-prices', true),
-            showWeightInfo: getChk('dw-show-weight', true),
-            invertBitmap: getChk('dw-invert-bitmap', false),
-            includeRouteSummary: getChk('dw-route-summary', false),
-            instantPrint: getChk('dw-instant-print', false)
-        };
-    }
-
-    window.onDeliStudioInputChange = function () {
-        const tempCfg = readStudioInputsToConfig();
-        renderLivePreviewInsideStudio(tempCfg);
-    };
-
-    function getSampleOrderForPreview() {
-        const q = window.deliPrinterConnection.lastOrdersQueue;
-        if (Array.isArray(q) && q.length > 0) {
-            const idx = Math.min(q.length - 1, Math.max(0, window.deliPreviewOrderIndex || 0));
-            return q[idx];
-        }
-        const liveOrders = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw.filter(o => o && o.status !== 'trash') : [];
-        if (liveOrders.length > 0) return liveOrders[0];
-        if (!window._fallbackSampleOrder) {
-            window._fallbackSampleOrder = {
-                id: 'SMAN2026',
-                customerName: 'د. أحمد ماضي (نموذج معاينة)',
-                customerPhone: '01208027294',
-                zone: 'ههيا',
-                customerAddress: 'شارع الجمهورية - بجوار مجمع الأصدقاء الطبي',
-                orderDate: new Date().toLocaleDateString('ar-EG'),
-                batchName: 'دفعة السمان الملكي',
-                paymentMethod: 'cash',
-                subtotal: 410,
-                deliveryFee: 20,
-                discount: 10,
-                total: 420,
-                driverName: 'كابتن أحمد',
-                driverNote: 'الاتصال قبل الوصول بـ 10 دقائق',
-                items: [
-                    { id: 'jumbo', name: 'طبق سمان جامبو', quantity: 2, price: 145 },
-                    { id: 'super', name: 'طبق سمان سوبر', quantity: 1, price: 120 }
-                ]
-            };
-        }
-        return window._fallbackSampleOrder;
-    }
-
-    function renderLivePreviewInsideStudio(cfg) {
-        const stage = document.getElementById('dw-live-preview-stage');
-        if (!stage) return;
-        const dims = resolveDimensionsMm(cfg);
-        const sampleOrd = getSampleOrderForPreview();
-        const queue = window.deliPrinterConnection.lastOrdersQueue || [];
-        const ordersCount = queue.length || 1;
-        const currentOrdIdx = Math.min(ordersCount - 1, Math.max(0, window.deliPreviewOrderIndex || 0));
-
-        const bagsForCurrentOrd = Math.max(1, parseInt(sampleOrd?._bagsCount) || parseInt(cfg.bagsCount) || 1);
-        const copies = Math.max(1, parseInt(cfg.copies) || 1);
-
-        // حساب إجمالي الملصقات التي ستخرج من الطابعة فعلياً
-        let totalLabelsToPrint = 0;
-        if (queue.length > 0) {
-            queue.forEach(o => {
-                const b = Math.max(1, parseInt(o._bagsCount) || parseInt(cfg.bagsCount) || 1);
-                totalLabelsToPrint += (b * copies);
-            });
-        } else {
-            totalLabelsToPrint = bagsForCurrentOrd * copies;
-        }
-
-        const qBadge = document.getElementById('dw-queue-count-badge');
-        if (qBadge) qBadge.innerText = totalLabelsToPrint;
-
-        const dimsBadge = document.getElementById('dw-dims-badge');
-        if (dimsBadge) {
-            dimsBadge.innerText = `${dims.w}×${dims.h} مم (${dims.w * DOTS_PER_MM}×${dims.h * DOTS_PER_MM}px)`;
-        }
-
-        // شريط تقليب الطلبات عند وجود أكثر من طلب في طابور الطباعة
-        const ordSwitcher = document.getElementById('dw-order-queue-switcher');
-        if (ordSwitcher) {
-            if (ordersCount > 1 && cfg.templateMode === 'shipping') {
-                ordSwitcher.classList.remove('hidden');
-                ordSwitcher.innerHTML = `
-                    <button type="button" onclick="switchStudioPreviewOrderIndex(-1)" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-800 hover:text-white">◀ السابق</button>
-                    <span>الطلب (${currentOrdIdx + 1} من ${ordersCount}): <strong class="text-brand-primary">${sampleOrd.customerName || 'عميل'}</strong></span>
-                    <button type="button" onclick="switchStudioPreviewOrderIndex(1)" class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-800 hover:text-white">التالي ▶</button>
-                `;
-            } else {
-                ordSwitcher.classList.add('hidden');
-            }
-        }
-
-        // شريط التبديل بين معاينة الشنط (شنطة 1 من 2 / شنطة 2 من 2)
-        const bagSwitcher = document.getElementById('dw-bag-preview-switcher');
-        if (bagSwitcher) {
-            if (bagsForCurrentOrd > 1 && cfg.templateMode !== 'free_custom') {
-                bagSwitcher.classList.remove('hidden');
-                if (window.deliPreviewBagNumber > bagsForCurrentOrd) window.deliPreviewBagNumber = 1;
-                let btnsHtml = `<span class="text-amber-300 ml-1">معاينة الشنطة:</span>`;
-                for (let b = 1; b <= Math.min(bagsForCurrentOrd, 8); b++) {
-                    const activeCls = (b === window.deliPreviewBagNumber) ? 'bg-amber-400 text-slate-950' : 'bg-white/10 text-white hover:bg-white/20';
-                    btnsHtml += `<button type="button" onclick="setPreviewBagNumber(${b})" class="px-2 py-0.5 rounded-lg ${activeCls}">شنطة ${b}/${bagsForCurrentOrd}</button>`;
-                }
-                bagSwitcher.innerHTML = btnsHtml;
-            } else {
-                bagSwitcher.classList.add('hidden');
-                window.deliPreviewBagNumber = 1;
-            }
-        }
-
-        const cnv = window.renderWaybillToCanvas203DPI(sampleOrd, cfg, currentOrdIdx + 1, ordersCount, window.deliPreviewBagNumber || 1, bagsForCurrentOrd);
-        cnv.style.maxWidth = '100%';
-        cnv.style.maxHeight = '330px';
-        cnv.style.height = 'auto';
-        cnv.style.borderRadius = '10px';
-        cnv.style.boxShadow = '0 6px 20px rgba(0,0,0,0.14)';
-        stage.innerHTML = '';
-        stage.appendChild(cnv);
-    }
-
-    window.closeDeliStudioModal = function () {
-        document.getElementById('deli-waybill-studio-modal')?.classList.add('hidden');
-    };
-
-    // =========================================================================
-    // 🔗 8. ربط كافة أزرار الطباعة في النظام
-    // =========================================================================
-    window.openWaybillSettingsModal = function (ordersQueue = null) {
-        const modal = ensureDeliStudioModalExists();
-        window.deliPreviewOrderIndex = 0;
-        window.deliPreviewBagNumber = 1;
-
-        if (Array.isArray(ordersQueue) && ordersQueue.length > 0) {
-            window.deliPrinterConnection.lastOrdersQueue = ordersQueue.map(o => ({
-                ...o,
-                _bagsCount: 1,
-                items: Array.isArray(o.items) ? o.items.map(i => ({ ...i })) : []
-            }));
-        } else {
-            const firstLive = (typeof allOrdersRaw !== 'undefined' && allOrdersRaw.length > 0)
-                ? [{ ...allOrdersRaw[0], _bagsCount: 1, items: Array.isArray(allOrdersRaw[0].items) ? allOrdersRaw[0].items.map(i => ({ ...i })) : [] }]
-                : [getSampleOrderForPreview()];
-            window.deliPrinterConnection.lastOrdersQueue = firstLive;
-        }
-
-        const cfg = window.getWaybillConfig();
-        cfg.bagsCount = 1;
-
-        // الترتيب الصحيح: تعبئة الإعدادات -> ثم تعبئة جدول أصناف الطلب -> ثم رسم المعاينة الحية
-        populateStudioInputsFromConfig(cfg);
-        renderStudioOrderItemsEditor();
-        window.scanAndLoadNativePairedPrinters(false);
-        updateConnectionBadgesUI();
-        window.switchDeliStudioSubTab('order_bags');
-        renderLivePreviewInsideStudio(readStudioInputsToConfig());
-        modal.classList.remove('hidden');
-    };
-
-    window.saveWaybillSettings = function () {
-        const newCfg = readStudioInputsToConfig();
-        persistWaybillConfig(newCfg);
-        notifyPrinterToast('✅ تم حفظ إعدادات وتصميم طابعة Deli E750W بنجاح!');
-    };
-
-    window.triggerDirectHardwarePrintBtn = function () {
-        const newCfg = readStudioInputsToConfig();
-        persistWaybillConfig(newCfg);
-        const queue = (window.deliPrinterConnection.lastOrdersQueue && window.deliPrinterConnection.lastOrdersQueue.length > 0)
-            ? window.deliPrinterConnection.lastOrdersQueue
-            : [getSampleOrderForPreview()];
-        window.printDirectViaNativeBluetooth(queue, newCfg);
-    };
-
-    window.triggerStudioMainPrint = function () {
-        const newCfg = readStudioInputsToConfig();
-        persistWaybillConfig(newCfg);
-        const queue = (window.deliPrinterConnection.lastOrdersQueue && window.deliPrinterConnection.lastOrdersQueue.length > 0)
-            ? window.deliPrinterConnection.lastOrdersQueue
-            : [getSampleOrderForPreview()];
-        window.printViaInPageThermalFrame(queue, newCfg);
-    };
-
-    window.printSingleOrderWaybill = function (orderId) {
-        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
-        if (!order) return alert('لم يتم العثور على بيانات هذا الطلب!');
-
-        const cfg = window.getWaybillConfig();
-        const clonedOrder = { ...order, _bagsCount: 1, items: Array.isArray(order.items) ? order.items.map(i => ({ ...i })) : [] };
-        window.deliPrinterConnection.lastOrdersQueue = [clonedOrder];
-
-        if (cfg.instantPrint) {
-            window.printDirectViaNativeBluetooth([clonedOrder], cfg);
-        } else {
-            window.openWaybillSettingsModal([clonedOrder]);
-        }
-    };
-
-    window.bulkPrintWaybills = function () {
-        const checkedIds = Array.from(document.querySelectorAll('.bulk-order-cb:checked')).map(cb => cb.value);
-        if (checkedIds.length === 0) return alert('يرجى تحديد طلب واحد على الأقل لطباعة البوليصة!');
-
-        const ordersToPrint = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : [])
-            .filter(o => checkedIds.includes(o.id))
-            .map(o => ({ ...o, _bagsCount: 1, items: Array.isArray(o.items) ? o.items.map(i => ({ ...i })) : [] }));
-        if (ordersToPrint.length === 0) return;
-
-        const cfg = window.getWaybillConfig();
-        window.deliPrinterConnection.lastOrdersQueue = ordersToPrint;
-
-        if (cfg.instantPrint) {
-            window.printDirectViaNativeBluetooth(ordersToPrint, cfg);
-        } else {
-            window.openWaybillSettingsModal(ordersToPrint);
-        }
-    };
-    window.printSelectedOrdersWaybills = window.bulkPrintWaybills;
-
-    window.previewWaybillSample = function () {
-        window.openWaybillSettingsModal();
-    };
-    window.previewSampleWaybill = window.previewWaybillSample;
-
-    function injectHeaderPrinterQuickBtn() {
-        const pulseBar = document.getElementById('lc-header-pulse-bar');
-        if (pulseBar && !document.getElementById('lc-hdr-printer-btn')) {
-            const prnBtn = document.createElement('button');
-            prnBtn.id = 'lc-hdr-printer-btn';
-            prnBtn.onclick = () => window.openWaybillSettingsModal();
-            prnBtn.title = 'استوديو وإعدادات طابعة البوالص (Deli E750W)';
-            prnBtn.className = 'lc-capsule bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 px-2 sm:px-2.5 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0';
-            prnBtn.innerHTML = '<i class="fa-solid fa-print text-amber-600"></i> <span class="hidden md:inline">Deli 750W</span>';
-            pulseBar.appendChild(prnBtn);
+    function saveDesignerTemplatesList(list) {
+        try { localStorage.setItem('sman_free_designer_templates_v1', JSON.stringify(list.slice(0, 30))); } catch (e) {}
+        if (typeof db !== 'undefined') {
+            db.collection('inventory').doc('settings').set({ freeDesignerTemplatesV1: list.slice(0, 30) }, { merge: true }).catch(() => {});
         }
     }
 
-    if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', () => setTimeout(injectHeaderPrinterQuickBtn, 700));
-    } else {
-        setTimeout(injectHeaderPrinterQuickBtn, 700);
-    }
-    // =========================================================================
-    // =========================================================================
-    // 🐔🎛️ 9. محرك تكت ميزان الفراخ والترتيب الصارم + التحكم الحر في المربعات
-    // يعمل على: البوليصة + تكت الفراخ + استيكر الأطباق + الاستيكر الحر (203 DPI)
-    // =========================================================================
+    function createStarterDesignerElements(presetKey, W, H) {
+        const storeName = (typeof storeSettings !== 'undefined' && storeSettings.storeName) || 'سمان ههيا';
+        const storePhone = (typeof storeSettings !== 'undefined' && storeSettings.storePhone) || '01208027294';
 
-    const defaultBoxCustomizations = {
-        reversePrintOrder: false,
-        // ترتيب وإعدادات مربعات بوليصة الشحن
-        shippingOrder: ['header', 'customer', 'items', 'cod', 'footer'],
-        // ترتيب وإعدادات مربعات تكت ميزان الفراخ
-        poultryOrder: ['pb_header', 'pb_title', 'pb_metrics', 'pb_barcode'],
-        boxes: {
-            // مربعات بوليصة الشحن
-            header:   { visible: true, hScale: 100, wScale: 100, fScale: 100, style: 'solid', label: '' },
-            customer: { visible: true, hScale: 100, wScale: 100, fScale: 100, style: 'solid', zoneRatio: 35, label: 'العميل:' },
-            items:    { visible: true, hScale: 100, wScale: 100, fScale: 100, style: 'solid', label: 'الصنف المطلوب' },
-            cod:      { visible: true, hScale: 100, wScale: 100, fScale: 100, style: 'inverted', label: 'المطلوب تحصيله من العميل:' },
-            footer:   { visible: true, hScale: 100, wScale: 100, fScale: 100, style: 'dashed', label: '' },
-            // مربعات تكت ميزان الفراخ
-            pb_header:  { visible: true, hScale: 100, wScale: 100, fScale: 100, style: 'inverted', label: '' },
-            pb_title:   { visible: true, hScale: 100, wScale: 100, fScale: 100, style: 'none', label: '' },
-            pb_metrics: { visible: true, hScale: 100, wScale: 100, fScale: 100, style: 'solid', label: '' },
-            pb_weight:  { visible: true, hScale: 100, wScale: 33,  fScale: 100, style: 'solid', label: 'الوزن الصافي' },
-            pb_rate:    { visible: true, hScale: 100, wScale: 25,  fScale: 100, style: 'solid', label: 'سعر الكيلو' },
-            pb_price:   { visible: true, hScale: 100, wScale: 42,  fScale: 100, style: 'inverted', label: 'السعر المطلوب' },
-            pb_barcode: { visible: true, hScale: 100, wScale: 100, fScale: 100, style: 'none', label: '' }
+        if (presetKey === '20x20') {
+            return [
+                { id: 'el_1', type: 'box', x: 6, y: 6, w: W - 12, h: H - 12, text: '', fontSize: 18, bold: true, align: 'center', inverted: false, border: 'solid', borderWidth: 3 },
+                { id: 'el_2', type: 'badge', x: 14, y: 14, w: W - 28, h: 36, text: storeName, fontSize: 20, bold: true, align: 'center', inverted: true, border: 'none', borderWidth: 0 },
+                { id: 'el_3', type: 'text', x: 14, y: 58, w: W - 28, h: 48, text: '150 ج.م', fontSize: 30, bold: true, align: 'center', inverted: false, border: 'none', borderWidth: 0 },
+                { id: 'el_4', type: 'text', x: 14, y: 112, w: W - 28, h: 32, text: 'طازج اليوم', fontSize: 18, bold: true, align: 'center', inverted: false, border: 'none', borderWidth: 0 }
+            ];
         }
-    };
-
-    window.poultryBatchState = {
-        previewIdx: 0,
-        parsedItems: [],
-        activeBoxKey: 'cod',
-        hitRegions: [],
-        selectionSequenceIds: []
-    };
-
-    // تتبع ترتيب الضغط على الطلبات في الموقع لضمان سحبها بنفس تسلسل اختيار المستخدم
-    document.addEventListener('change', function (e) {
-        if (e.target && e.target.classList && e.target.classList.contains('bulk-order-cb')) {
-            const id = e.target.value;
-            const seq = window.poultryBatchState.selectionSequenceIds;
-            const idx = seq.indexOf(id);
-            if (e.target.checked && idx === -1) seq.push(id);
-            else if (!e.target.checked && idx !== -1) seq.splice(idx, 1);
+        if (presetKey === '50x30') {
+            return [
+                { id: 'el_1', type: 'box', x: 8, y: 8, w: W - 16, h: H - 16, text: '', fontSize: 20, bold: true, align: 'center', inverted: false, border: 'double', borderWidth: 3 },
+                { id: 'el_2', type: 'badge', x: 20, y: 18, w: W - 40, h: 46, text: `${storeName} • ${storePhone}`, fontSize: 22, bold: true, align: 'center', inverted: true, border: 'none', borderWidth: 0 },
+                { id: 'el_3', type: 'text', x: 20, y: 74, w: W - 40, h: 64, text: 'سمان جامبو طازج يومياً\nالوزن صافي: 400 جم', fontSize: 24, bold: true, align: 'center', inverted: false, border: 'none', borderWidth: 0 },
+                { id: 'el_4', type: 'barcode', x: 44, y: 148, w: W - 88, h: 72, text: storePhone, fontSize: 16, bold: true, align: 'center', inverted: false, border: 'none', borderWidth: 0 }
+            ];
         }
-    });
-
-    function getBoxCustomConfig() {
-        const cfg = window.getWaybillConfig();
-        if (!cfg.boxCustom || !cfg.boxCustom.boxes) {
-            return JSON.parse(JSON.stringify(defaultBoxCustomizations));
+        if (presetKey === 'blank') {
+            return [
+                { id: 'el_1', type: 'text', x: Math.round(W * 0.1), y: Math.round(H * 0.35), w: Math.round(W * 0.8), h: Math.round(H * 0.25), text: 'اضغط هنا للكتابة...\nواسحبني بإيدك لأي مكان', fontSize: Math.max(20, Math.round(Math.min(W, H) * 0.08)), bold: true, align: 'center', inverted: false, border: 'dashed', borderWidth: 2 }
+            ];
         }
-        return {
-            reversePrintOrder: Boolean(cfg.boxCustom.reversePrintOrder),
-            shippingOrder: Array.isArray(cfg.boxCustom.shippingOrder) ? cfg.boxCustom.shippingOrder : [...defaultBoxCustomizations.shippingOrder],
-            poultryOrder: Array.isArray(cfg.boxCustom.poultryOrder) ? cfg.boxCustom.poultryOrder : [...defaultBoxCustomizations.poultryOrder],
-            boxes: Object.assign({}, JSON.parse(JSON.stringify(defaultBoxCustomizations.boxes)), cfg.boxCustom.boxes)
-        };
-    }
-
-    function saveBoxCustomConfig(boxCustomObj) {
-        const cfg = window.getWaybillConfig();
-        cfg.boxCustom = boxCustomObj;
-        persistWaybillConfig(cfg);
-    }
-
-    function normalizeScaleDigits(str) {
-        return String(str ?? '')
-            .replace(/[\u0660-\u0669]/g, c => String(c.charCodeAt(0) - 0x0660))
-            .replace(/[\u06F0-\u06F9]/g, c => String(c.charCodeAt(0) - 0x06F0));
-    }
-
-    // =========================================================================
-    // 📋 قارئ الأوزان والكوبي-بيست الصارم (يحافظ على ترتيب الـ 10+ عناصر بالمللي)
-    // =========================================================================
-    window.parsePoultryWeightsList = function () {
-        const rawText = normalizeScaleDigits(document.getElementById('dw-pb-weights-raw')?.value || '');
-        const kiloPrice = Math.max(0, parseFloat(normalizeScaleDigits(document.getElementById('dw-pb-kilo-price')?.value || '110')) || 0);
-        const tareGrams = Math.max(0, parseFloat(normalizeScaleDigits(document.getElementById('dw-pb-tare')?.value || '0')) || 0);
-        const roundMode = document.getElementById('dw-pb-rounding')?.value || 'nearest_1';
-
-        const extractedNumbers = [];
-        const rawLines = rawText.split(/\r?\n/);
-
-        rawLines.forEach(line => {
-            let cleanLine = line.trim();
-            if (!cleanLine) return;
-            // إزالة الترقيم الجانبي في بداية السطر إن وجد مثل: "1- 1389" أو "2) 1400" أو "#3: 1500"
-            cleanLine = cleanLine.replace(/^(?:#?\d+\s*[\-\)\.\:]\s*)/, '');
-            const matches = cleanLine.match(/\d+(?:\.\d+)?/g);
-            if (matches) {
-                matches.forEach(m => extractedNumbers.push(m));
-            }
-        });
-
-        const items = [];
-        extractedNumbers.forEach((tok, idx) => {
-            const num = parseFloat(tok);
-            if (!Number.isFinite(num) || num <= 0) return;
-
-            const grossGrams = num < 25 ? Math.round(num * 1000) : Math.round(num);
-            const netGrams = Math.max(1, grossGrams - tareGrams);
-            const rawPrice = (netGrams / 1000) * kiloPrice;
-
-            let finalPrice = rawPrice;
-            if (roundMode === 'nearest_1') finalPrice = Math.round(rawPrice);
-            else if (roundMode === 'floor_1') finalPrice = Math.floor(rawPrice);
-            else if (roundMode === 'ceil_1') finalPrice = Math.ceil(rawPrice);
-            else if (roundMode === 'nearest_5') finalPrice = Math.round(rawPrice / 5) * 5;
-            else finalPrice = Number(rawPrice.toFixed(1));
-
-            items.push({
-                index: items.length + 1,
-                rawTokenIndex: idx,
-                grossGrams,
-                netGrams,
-                kiloPrice,
-                price: finalPrice,
-                isAnomaly: (netGrams < 350 || netGrams > 4500)
-            });
-        });
-
-        window.poultryBatchState.parsedItems = items;
-        if (window.poultryBatchState.previewIdx >= items.length) {
-            window.poultryBatchState.previewIdx = Math.max(0, items.length - 1);
-        }
-        renderPoultryBatchChipsAndStats();
-        return items;
-    };
-
-    function renderPoultryBatchChipsAndStats() {
-        const items = window.poultryBatchState.parsedItems || [];
-        const chipsCont = document.getElementById('dw-pb-chips-list');
-        const summaryBar = document.getElementById('dw-pb-summary-bar');
-        const switcherBar = document.getElementById('dw-pb-preview-switcher');
-
-        const totalCount = items.length;
-        const totalGrams = items.reduce((s, i) => s + i.netGrams, 0);
-        const totalKg = (totalGrams / 1000).toFixed(3);
-        const avgGrams = totalCount > 0 ? Math.round(totalGrams / totalCount) : 0;
-        const totalCash = items.reduce((s, i) => s + i.price, 0);
-
-        if (summaryBar) {
-            summaryBar.innerHTML = `
-                <div class="grid grid-cols-4 gap-1.5 text-center">
-                    <div class="bg-slate-900 text-white p-1.5 rounded-xl">
-                        <span class="block text-[9px] text-slate-400">العدد بالترتيب</span>
-                        <span class="text-xs font-black text-amber-300">${totalCount} تكت</span>
-                    </div>
-                    <div class="bg-slate-900 text-white p-1.5 rounded-xl">
-                        <span class="block text-[9px] text-slate-400">إجمالي الوزن</span>
-                        <span class="text-xs font-black text-emerald-300">${totalKg} كجم</span>
-                    </div>
-                    <div class="bg-slate-900 text-white p-1.5 rounded-xl">
-                        <span class="block text-[9px] text-slate-400">متوسط الفرخة</span>
-                        <span class="text-xs font-black text-cyan-300">${avgGrams} جم</span>
-                    </div>
-                    <div class="bg-emerald-700 text-white p-1.5 rounded-xl">
-                        <span class="block text-[9px] text-emerald-200">إجمالي المبلغ</span>
-                        <span class="text-xs font-black">${totalCash.toLocaleString()} ج.م</span>
-                    </div>
-                </div>
-            `;
-        }
-
-        if (chipsCont) {
-            if (items.length === 0) {
-                chipsCont.innerHTML = `<div class="col-span-2 text-center py-3 text-[11px] font-bold text-slate-400">ارص الأوزان أو الصقها هنا وستترتب تلقائياً (#1، #2، #3...)</div>`;
-            } else {
-                chipsCont.innerHTML = items.map((it, idx) => {
-                    const active = idx === window.poultryBatchState.previewIdx;
-                    const baseCls = it.isAnomaly
-                        ? 'bg-amber-50 border-amber-400 text-amber-950'
-                        : (active ? 'bg-emerald-50 border-brand-primary text-emerald-950' : 'bg-white border-slate-200 text-slate-700');
-                    return `
-                        <div onclick="selectPoultryPreviewIdx(${idx})" class="flex items-center justify-between gap-1 px-2 py-1.5 rounded-xl border-2 text-[11px] font-black cursor-pointer transition-all ${baseCls}">
-                            <div class="flex items-center gap-1">
-                                <span class="bg-slate-900 text-amber-300 px-1.5 py-0.5 rounded text-[9px]">#${it.index}</span>
-                                <span>${it.netGrams} جم</span>
-                                ${it.isAnomaly ? `<button type="button" onclick="event.stopPropagation(); fixAnomalyWeightX10(${idx})" class="bg-amber-500 text-slate-950 px-1 py-0.5 rounded text-[8px]">⚠️ ${it.grossGrams * 10}؟</button>` : ''}
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <span class="text-brand-primary font-black">${it.price} ج</span>
-                                <button type="button" onclick="event.stopPropagation(); movePoultryWeightItem(${idx}, -1)" class="text-slate-400 hover:text-slate-900 px-0.5" title="تحريك لأعلى">▲</button>
-                                <button type="button" onclick="event.stopPropagation(); movePoultryWeightItem(${idx}, 1)" class="text-slate-400 hover:text-slate-900 px-0.5" title="تحريك لأسفل">▼</button>
-                                <button type="button" onclick="event.stopPropagation(); removeSinglePoultryWeight(${idx})" class="text-rose-500 hover:text-rose-700 px-0.5">×</button>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-            }
-        }
-
-        if (switcherBar) {
-            if (items.length > 1) {
-                const cur = window.poultryBatchState.previewIdx + 1;
-                switcherBar.classList.remove('hidden');
-                switcherBar.innerHTML = `
-                    <button type="button" onclick="stepPoultryPreviewIdx(-1)" class="px-2.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-white">◀ السابق</button>
-                    <span class="text-amber-300">تكت بالترتيب (#${cur} من ${items.length}) — ${items[cur - 1]?.netGrams || 0} جم</span>
-                    <button type="button" onclick="stepPoultryPreviewIdx(1)" class="px-2.5 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-white">التالي ▶</button>
-                `;
-            } else {
-                switcherBar.classList.add('hidden');
-            }
-        }
-    }
-
-    window.movePoultryWeightItem = function (idx, delta) {
-        const items = window.poultryBatchState.parsedItems || [];
-        const targetIdx = idx + delta;
-        if (targetIdx < 0 || targetIdx >= items.length) return;
-        const rawList = items.map(i => i.grossGrams);
-        const temp = rawList[idx];
-        rawList[idx] = rawList[targetIdx];
-        rawList[targetIdx] = temp;
-        const el = document.getElementById('dw-pb-weights-raw');
-        if (el) el.value = rawList.join('\n');
-        window.poultryBatchState.previewIdx = targetIdx;
-        window.parsePoultryWeightsList();
-        window.onDeliStudioInputChange();
-    };
-
-    window.selectPoultryPreviewIdx = function (idx) {
-        window.poultryBatchState.previewIdx = idx;
-        renderPoultryBatchChipsAndStats();
-        window.onDeliStudioInputChange();
-    };
-
-    window.stepPoultryPreviewIdx = function (delta) {
-        const len = (window.poultryBatchState.parsedItems || []).length;
-        if (len <= 1) return;
-        let next = (window.poultryBatchState.previewIdx || 0) + delta;
-        if (next < 0) next = len - 1;
-        if (next >= len) next = 0;
-        window.selectPoultryPreviewIdx(next);
-    };
-
-    window.fixAnomalyWeightX10 = function (idx) {
-        const items = window.poultryBatchState.parsedItems || [];
-        if (!items[idx]) return;
-        const rawList = items.map((it, i) => i === idx ? it.grossGrams * 10 : it.grossGrams);
-        const el = document.getElementById('dw-pb-weights-raw');
-        if (el) el.value = rawList.join('\n');
-        window.parsePoultryWeightsList();
-        window.onDeliStudioInputChange();
-    };
-
-    window.removeSinglePoultryWeight = function (idx) {
-        const items = window.poultryBatchState.parsedItems || [];
-        const rawList = items.filter((_, i) => i !== idx).map(it => it.grossGrams);
-        const el = document.getElementById('dw-pb-weights-raw');
-        if (el) el.value = rawList.join('\n');
-        window.parsePoultryWeightsList();
-        window.onDeliStudioInputChange();
-    };
-
-    window.quickAddSingleScaleWeight = function () {
-        const quickInp = document.getElementById('dw-pb-quick-weight');
-        const rawArea = document.getElementById('dw-pb-weights-raw');
-        if (!quickInp || !rawArea) return;
-        const val = normalizeScaleDigits(quickInp.value).trim();
-        if (!val || isNaN(parseFloat(val))) return;
-        rawArea.value = (rawArea.value.trim() ? rawArea.value.trim() + '\n' : '') + val;
-        quickInp.value = '';
-        quickInp.focus();
-        window.parsePoultryWeightsList();
-        window.poultryBatchState.previewIdx = Math.max(0, window.poultryBatchState.parsedItems.length - 1);
-        window.onDeliStudioInputChange();
-    };
-
-    // سحب الأوزان أو البيانات من الموقع بنفس الترتيب بالمللي أو لصقها من الحافظة
-    window.pullWeightsFromLiveSystemOrClipboard = async function (sourceMode = 'auto') {
-        const rawArea = document.getElementById('dw-pb-weights-raw');
-        if (!rawArea) return;
-
-        // 1. إذا طلب سحب من الموقع مباشرة: يفحص أي خانات أوزان في الصفحة بنفس ترتيب ظهورها من فوق لتحت
-        if (sourceMode === 'site_dom' || sourceMode === 'auto') {
-            const domInputs = Array.from(document.querySelectorAll('[data-scale-weight], .scale-weight-item, input[name*="weight" i]'))
-                .map(el => normalizeScaleDigits(el.value || el.getAttribute('data-scale-weight') || el.innerText || '').trim())
-                .filter(v => /^\d+(?:\.\d+)?$/.test(v) && Number(v) > 0);
-
-            if (domInputs.length > 0) {
-                rawArea.value = domInputs.join('\n');
-                window.parsePoultryWeightsList();
-                window.onDeliStudioInputChange();
-                return notifyPrinterToast(`✅ تم سحب (${domInputs.length}) وزن من شاشة الموقع بنفس الترتيب!`);
-            }
-
-            if (Array.isArray(window.liveScaleWeights) && window.liveScaleWeights.length > 0) {
-                rawArea.value = window.liveScaleWeights.join('\n');
-                window.parsePoultryWeightsList();
-                window.onDeliStudioInputChange();
-                return notifyPrinterToast(`✅ تم سحب (${window.liveScaleWeights.length}) وزن من السيستم الحي بنفس الترتيب!`);
-            }
-
-            if (typeof db !== 'undefined' && sourceMode === 'site_dom') {
-                try {
-                    const snap = await db.collection('inventory').doc('live_scale').get();
-                    if (snap.exists && Array.isArray(snap.data()?.weights) && snap.data().weights.length > 0) {
-                        rawArea.value = snap.data().weights.join('\n');
-                        if (snap.data().kiloPrice) document.getElementById('dw-pb-kilo-price').value = snap.data().kiloPrice;
-                        if (snap.data().productName) document.getElementById('dw-pb-name').value = snap.data().productName;
-                        window.parsePoultryWeightsList();
-                        window.onDeliStudioInputChange();
-                        return notifyPrinterToast(`✅ تم سحب (${snap.data().weights.length}) وزن من قاعدة البيانات بنفس الترتيب!`);
-                    }
-                } catch (e) {}
-            }
-        }
-
-        // 2. اللصق الذكي من الحافظة (Clipboard) بنفس ترتيب السطور
-        if (navigator.clipboard && navigator.clipboard.readText) {
-            try {
-                const clipTxt = await navigator.clipboard.readText();
-                if (clipTxt && clipTxt.trim()) {
-                    rawArea.value = clipTxt.trim();
-                    const parsed = window.parsePoultryWeightsList();
-                    window.onDeliStudioInputChange();
-                    if (parsed.length > 0) {
-                        return notifyPrinterToast(`📋 تم لصق وترتيب (${parsed.length}) وزن بنفس التسلسل (#1 إلى #${parsed.length})!`);
-                    }
-                }
-            } catch (e) {}
-        }
-
-        notifyPrinterToast('💡 الصق الأوزان مباشرة في المربع أو انسخها من أي شيت/رسالة ثم اضغط هنا.');
-    };
-
-    window.copyPoultryBatchToWhatsApp = function () {
-        const items = window.parsePoultryWeightsList();
-        if (items.length === 0) return alert('أدخل الأوزان أولاً لنسخ الكشف!');
-        const prodName = document.getElementById('dw-pb-name')?.value || 'فراخ طازجة';
-        const kiloPrice = document.getElementById('dw-pb-kilo-price')?.value || '110';
-        const totalGrams = items.reduce((s, i) => s + i.netGrams, 0);
-        const totalCash = items.reduce((s, i) => s + i.price, 0);
-
-        let lines = [
-            `🐔 *بيان أوزان وتسعير: ${prodName}*`,
-            `📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')} | سعر الكيلو: ${kiloPrice} ج`,
-            `--------------------------------`
+        // Default 70x50 / general
+        return [
+            { id: 'el_1', type: 'box', x: 12, y: 12, w: W - 24, h: H - 24, text: '', fontSize: 22, bold: true, align: 'center', inverted: false, border: 'double', borderWidth: 4 },
+            { id: 'el_2', type: 'badge', x: 26, y: 26, w: W - 52, h: Math.max(46, Math.round(H * 0.16)), text: storeName, fontSize: Math.max(24, Math.round(W * 0.065)), bold: true, align: 'center', inverted: true, border: 'none', borderWidth: 0 },
+            { id: 'el_3', type: 'text', x: 28, y: Math.round(H * 0.28), w: W - 56, h: Math.round(H * 0.38), text: 'أصل الطعم يبدأ من التربية\nيُحفظ مجمداً في الفريزر فور الاستلام', fontSize: Math.max(20, Math.round(W * 0.05)), bold: true, align: 'center', inverted: false, border: 'none', borderWidth: 0 },
+            { id: 'el_4', type: 'line', x: 30, y: Math.round(H * 0.72), w: W - 60, h: 12, text: '', fontSize: 18, bold: true, align: 'center', inverted: false, border: 'solid', borderWidth: 3 },
+            { id: 'el_5', type: 'text', x: 26, y: Math.round(H * 0.76), w: W - 52, h: Math.round(H * 0.16), text: `واتساب: ${storePhone} — بالهنا والشفا 🤍`, fontSize: Math.max(16, Math.round(W * 0.038)), bold: true, align: 'center', inverted: false, border: 'none', borderWidth: 0 }
         ];
-        items.forEach(it => {
-            lines.push(`#${it.index} ⬅️ الوزن: *${it.netGrams} جم* = *${it.price} ج.م*`);
-        });
-        lines.push(`--------------------------------`);
-        lines.push(`📦 *إجمالي العدد:* ${items.length} قطعة`);
-        lines.push(`⚖️ *إجمالي الوزن الصافي:* ${(totalGrams / 1000).toFixed(3)} كجم`);
-        lines.push(`💰 *الإجمالي المطلوب:* ${totalCash.toLocaleString()} ج.م`);
-
-        const text = lines.join('\n');
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text).then(() => notifyPrinterToast('📲 تم نسخ كشف الأوزان بالترتيب للواتساب!'));
-        } else {
-            prompt('انسخ الكشف التالي:', text);
-        }
-    };
-
-    // =========================================================================
-    // 🎨 دوال رسم المربعات المرنة (تطبق إعدادات الارتفاع والعرض والاستايل لكل مربع)
-    // =========================================================================
-    function drawStyledBoxOnCanvas(ctx, x, y, w, h, styleMode) {
-        ctx.save();
-        ctx.strokeStyle = '#000000';
-        ctx.fillStyle = '#000000';
-
-        if (styleMode === 'inverted') {
-            ctx.fillRect(x, y, w, h);
-            ctx.restore();
-            return { textColor: '#FFFFFF', bgFilled: true };
-        }
-        if (styleMode === 'double') {
-            ctx.lineWidth = 4;
-            ctx.strokeRect(x, y, w, h);
-            ctx.lineWidth = 1.5;
-            ctx.strokeRect(x + 5, y + 5, w - 10, h - 10);
-        } else if (styleMode === 'rounded') {
-            const r = Math.min(16, Math.floor(Math.min(w, h) * 0.18));
-            ctx.lineWidth = 3.5;
-            ctx.beginPath();
-            ctx.moveTo(x + r, y);
-            ctx.lineTo(x + w - r, y);
-            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-            ctx.lineTo(x + w, y + h - r);
-            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-            ctx.lineTo(x + r, y + h);
-            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-            ctx.lineTo(x, y + r);
-            ctx.quadraticCurveTo(x, y, x + r, y);
-            ctx.closePath();
-            ctx.stroke();
-        } else if (styleMode === 'dashed') {
-            ctx.lineWidth = 3;
-            ctx.setLineDash([8, 5]);
-            ctx.strokeRect(x, y, w, h);
-            ctx.setLineDash([]);
-        } else if (styleMode === 'solid') {
-            ctx.lineWidth = 3.5;
-            ctx.strokeRect(x, y, w, h);
-        }
-        ctx.restore();
-        return { textColor: '#000000', bgFilled: false };
     }
 
-    // رسم تكت الفراخ المرن (يدعم التحكم في كل مربع: إخفاء/إظهار، تكبير، ترتيب، استايل)
-    window.renderSinglePoultryScaleTag203DPI = function (itemObj, totalItemsCount, cfg) {
+    function ensureDesignerInitialized() {
+        if (studioState.designer.elements.length > 0) return;
+        const cfg = window.getWaybillConfig();
+        const dims = resolveDimensionsMm(cfg);
+        studioState.designer.elements = createStarterDesignerElements(cfg.sizePreset, dims.w * DOTS_PER_MM, dims.h * DOTS_PER_MM);
+        studioState.designer.selectedId = studioState.designer.elements[1]?.id || studioState.designer.elements[0]?.id || null;
+    }
+
+    function renderFreeDesignerToCanvas203DPI(cfg, showEditorOverlay = false) {
         const dims = resolveDimensionsMm(cfg);
         const W = Math.floor(dims.w * DOTS_PER_MM);
         const H = Math.floor(dims.h * DOTS_PER_MM);
-        const bcCfg = getBoxCustomConfig();
-        const boxes = bcCfg.boxes;
 
         const canvas = document.createElement('canvas');
         canvas.width = W;
@@ -2606,232 +687,270 @@
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, W, H);
 
-        const offsetX = Math.round((Number(cfg.offsetXMm) || 0) * DOTS_PER_MM);
-        const offsetY = Math.round((Number(cfg.offsetYMm) || 0) * DOTS_PER_MM);
+        // شبكة خفيفة للمساعدة في المحاذاة أثناء التصميم فقط (لا تطبع أبداً!)
+        if (showEditorOverlay && studioState.designer.showGrid) {
+            ctx.save();
+            ctx.strokeStyle = '#e2e8f0';
+            ctx.lineWidth = 1;
+            const step = 40; // 5mm
+            for (let gx = step; gx < W; gx += step) {
+                ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
+            }
+            for (let gy = step; gy < H; gy += step) {
+                ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke();
+            }
+            // خط المنتصف الأفقي والرأسي
+            ctx.strokeStyle = '#cbd5e1';
+            ctx.setLineDash([6, 6]);
+            ctx.beginPath(); ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+            ctx.restore();
+        }
+
+        const offsetX = showEditorOverlay ? 0 : Math.round((Number(cfg.offsetXMm) || 0) * DOTS_PER_MM);
+        const offsetY = showEditorOverlay ? 0 : Math.round((Number(cfg.offsetYMm) || 0) * DOTS_PER_MM);
+
         ctx.save();
         ctx.translate(offsetX, offsetY);
+        ctx.direction = 'rtl';
 
-        const padPct = (Number(cfg.paddingPct) || 100) / 100;
-        const pad = Math.max(6, Math.round(Math.min(W, H) * 0.025 * padPct));
-        const borderStyle = cfg.borderStyle || 'double';
-        drawCustomFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, borderStyle);
+        studioState.designer.elements.forEach(el => {
+            const x = Math.round(el.x), y = Math.round(el.y);
+            const w = Math.max(16, Math.round(el.w)), h = Math.max(10, Math.round(el.h));
 
-        const globalScale = Math.min(1.45, Math.max(0.65, (Number(cfg.fontScalePct) || 100) / 100));
-        const innerMargin = borderStyle === 'double' ? 12 : 8;
-        const innerLeft = pad + innerMargin;
-        const innerRight = W - pad - innerMargin;
-        const innerWidth = innerRight - innerLeft;
+            ctx.save();
+            if (el.type === 'line') {
+                ctx.strokeStyle = '#000000';
+                ctx.fillStyle = '#000000';
+                const lw = Math.max(2, Number(el.borderWidth) || 3);
+                if (el.border === 'dashed') {
+                    ctx.lineWidth = lw;
+                    ctx.setLineDash([12, 8]);
+                    ctx.beginPath();
+                    ctx.moveTo(x, y + Math.round(h / 2));
+                    ctx.lineTo(x + w, y + Math.round(h / 2));
+                    ctx.stroke();
+                } else {
+                    ctx.fillRect(x, y + Math.round((h - lw) / 2), w, lw);
+                }
+            } else if (el.type === 'barcode') {
+                if (el.border && el.border !== 'none') drawFrameBorder(ctx, x, y, w, h, el.border, el.borderWidth || 2);
+                drawBarcodeOnCanvas(ctx, el.text || '01208027294', x + w / 2, y + 4, Math.max(40, w - 12), Math.max(20, h - 8), true);
+            } else if (el.type === 'logo') {
+                drawQuailLogoVector(ctx, x, y, w, h, Boolean(el.inverted));
+            } else {
+                // text | box | badge
+                if (el.inverted) {
+                    ctx.fillStyle = '#000000';
+                    ctx.fillRect(x, y, w, h);
+                } else if (el.border && el.border !== 'none') {
+                    drawFrameBorder(ctx, x, y, w, h, el.border, el.borderWidth || 3);
+                }
 
-        const storeName = (cfg.customStoreTitle || (typeof storeSettings !== 'undefined' && storeSettings.storeName) || 'سمان ههيا').trim();
-        const storePhone = (cfg.customStorePhone || (typeof storeSettings !== 'undefined' && storeSettings.storePhone) || '01208027294').trim();
-        const prodName = (document.getElementById('dw-pb-name')?.value || 'فراخ تسمين طازجة - ذبح اليوم').trim();
-        const dateNote = (document.getElementById('dw-pb-date-note')?.value || `ذبح: ${new Date().toLocaleDateString('ar-EG')} • طازج 100%`).trim();
+                if (el.text && String(el.text).trim() !== '') {
+                    const fs = Math.max(10, Number(el.fontSize) || 24);
+                    ctx.fillStyle = el.inverted ? '#FFFFFF' : '#000000';
+                    ctx.font = `${el.bold !== false ? '900' : '700'} ${fs}px Cairo, Tahoma, sans-serif`;
+                    ctx.textBaseline = 'middle';
+                    const padX = Math.max(6, Math.round(w * 0.04));
+                    const lines = wrapThermalText(ctx, el.text, Math.max(20, w - padX * 2));
+                    const lineHeight = Math.round(fs * 1.28);
+                    const totalTextH = lines.length * lineHeight;
+                    let startY = y + Math.round((h - totalTextH) / 2) + Math.round(lineHeight / 2);
 
-        let curY = pad + innerMargin;
-        const hitRegions = [];
+                    let drawX = x + Math.round(w / 2);
+                    ctx.textAlign = 'center';
+                    if (el.align === 'right') { ctx.textAlign = 'right'; drawX = x + w - padX; }
+                    else if (el.align === 'left') { ctx.textAlign = 'left'; drawX = x + padX; }
 
-        const sectionOrder = bcCfg.poultryOrder || ['pb_header', 'pb_title', 'pb_metrics', 'pb_barcode'];
-
-        sectionOrder.forEach(secKey => {
-            // 1. مربع الهيدر
-            if (secKey === 'pb_header' && boxes.pb_header?.visible !== false) {
-                const b = boxes.pb_header;
-                const hMul = (Number(b.hScale) || 100) / 100;
-                const fMul = ((Number(b.fScale) || 100) / 100) * globalScale;
-                const boxW = Math.round(innerWidth * ((Number(b.wScale) || 100) / 100));
-                const boxX = innerLeft + Math.round((innerWidth - boxW) / 2);
-                const hdrH = Math.max(22, Math.round(H * 0.155 * hMul));
-
-                const st = drawStyledBoxOnCanvas(ctx, boxX, curY, boxW, hdrH, b.style || 'inverted');
-                ctx.fillStyle = st.textColor;
-                ctx.textBaseline = 'middle';
-
-                ctx.textAlign = 'right';
-                ctx.font = `900 ${Math.max(11, Math.round(hdrH * 0.50 * fMul))}px Cairo, Tahoma, sans-serif`;
-                const hdrText = (b.label && b.label.trim()) ? b.label.trim() : `${storeName} (${storePhone})`;
-                ctx.fillText(hdrText, boxX + boxW - 8, curY + hdrH / 2);
-
-                ctx.textAlign = 'left';
-                ctx.font = `900 ${Math.max(11, Math.round(hdrH * 0.48 * fMul))}px monospace`;
-                ctx.fillText(`#${itemObj.index}/${totalItemsCount}`, boxX + 8, curY + hdrH / 2);
-
-                hitRegions.push({ key: 'pb_header', x: boxX, y: curY, w: boxW, h: hdrH });
-                curY += hdrH + Math.max(4, Math.round(H * 0.025));
+                    lines.forEach(ln => {
+                        ctx.fillText(ln, drawX, startY);
+                        startY += lineHeight;
+                    });
+                }
             }
+            ctx.restore();
 
-            // 2. مربع اسم الصنف والتاريخ
-            if (secKey === 'pb_title' && boxes.pb_title?.visible !== false) {
-                const b = boxes.pb_title;
-                const hMul = (Number(b.hScale) || 100) / 100;
-                const fMul = ((Number(b.fScale) || 100) / 100) * globalScale;
-                const boxW = Math.round(innerWidth * ((Number(b.wScale) || 100) / 100));
-                const boxX = innerLeft + Math.round((innerWidth - boxW) / 2);
-                const titleBoxH = Math.max(30, Math.round(H * 0.19 * hMul));
+            // إطار التحديد ومقبض التكبير والتصغير باللمس (أثناء التحرير فقط)
+            if (showEditorOverlay && el.id === studioState.designer.selectedId) {
+                ctx.save();
+                ctx.strokeStyle = '#10b981';
+                ctx.lineWidth = Math.max(2, Math.round(W * 0.005));
+                ctx.setLineDash([8, 5]);
+                ctx.strokeRect(x - 2, y - 2, w + 4, h + 4);
+                ctx.setLineDash([]);
 
-                const st = drawStyledBoxOnCanvas(ctx, boxX, curY, boxW, titleBoxH, b.style || 'none');
-                ctx.fillStyle = st.textColor;
+                // مقبض التكبير والتصغير في الزاوية السفلى اليمنى/اليسرى (نقطة دائرية واضحة للإصبع)
+                const handleR = Math.max(9, Math.round(Math.min(W, H) * 0.035));
+                ctx.fillStyle = '#10b981';
+                ctx.beginPath();
+                ctx.arc(x + w, y + h, handleR, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2.5;
+                ctx.stroke();
+
+                // سهم صغير داخل مقبض التكبير
+                ctx.fillStyle = '#ffffff';
+                ctx.font = `900 ${Math.max(10, Math.round(handleR * 1.1))}px sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-
-                const fProd = Math.max(13, Math.round(H * 0.10 * fMul));
-                ctx.font = `900 ${fProd}px Cairo, Tahoma, sans-serif`;
-                ctx.fillText((b.label && b.label.trim()) ? b.label.trim() : prodName.slice(0, 38), W / 2, curY + Math.round(titleBoxH * 0.36));
-
-                const fDate = Math.max(9, Math.round(H * 0.06 * fMul));
-                ctx.font = `800 ${fDate}px Cairo, Tahoma, sans-serif`;
-                ctx.fillText(dateNote.slice(0, 48), W / 2, curY + Math.round(titleBoxH * 0.76));
-
-                hitRegions.push({ key: 'pb_title', x: boxX, y: curY, w: boxW, h: titleBoxH });
-                curY += titleBoxH + Math.max(4, Math.round(H * 0.025));
-            }
-
-            // 3. مربعات الميزان والتسعير (الوزن | سعر الكيلو | السعر المطلوب)
-            if (secKey === 'pb_metrics') {
-                const activeCols = [];
-                if (boxes.pb_price?.visible !== false) activeCols.push({ key: 'pb_price', cfg: boxes.pb_price, title: boxes.pb_price?.label || 'السعر المطلوب', val: `${itemObj.price} ج.م`, defaultW: 42, isMain: true });
-                if (boxes.pb_rate?.visible !== false) activeCols.push({ key: 'pb_rate', cfg: boxes.pb_rate, title: boxes.pb_rate?.label || 'سعر الكيلو', val: `${itemObj.kiloPrice} ج`, defaultW: 25, isMain: false });
-                if (boxes.pb_weight?.visible !== false) activeCols.push({ key: 'pb_weight', cfg: boxes.pb_weight, title: boxes.pb_weight?.label || 'الوزن الصافي', val: `${itemObj.netGrams} جم`, defaultW: 33, isMain: false });
-
-                if (activeCols.length > 0) {
-                    const maxHMul = Math.max(...activeCols.map(c => (Number(c.cfg?.hScale) || 100) / 100));
-                    const boxesH = Math.max(42, Math.round(H * 0.30 * maxHMul));
-                    const gapX = activeCols.length > 1 ? Math.max(6, Math.round(innerWidth * 0.02)) : 0;
-                    const totalGap = gapX * (activeCols.length - 1);
-                    const availW = innerWidth - totalGap;
-                    const totalWeightRatio = activeCols.reduce((s, c) => s + (Number(c.cfg?.wScale) || c.defaultW), 0) || 100;
-
-                    let curX = innerLeft;
-                    activeCols.forEach((col, cIdx) => {
-                        const colW = (cIdx === activeCols.length - 1)
-                            ? (innerRight - curX)
-                            : Math.round(availW * ((Number(col.cfg?.wScale) || col.defaultW) / totalWeightRatio));
-                        const fMul = ((Number(col.cfg?.fScale) || 100) / 100) * globalScale;
-                        const st = drawStyledBoxOnCanvas(ctx, curX, curY, colW, boxesH, col.cfg?.style || (col.isMain ? 'inverted' : 'solid'));
-
-                        ctx.fillStyle = st.textColor;
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'top';
-                        ctx.font = `900 ${Math.max(9, Math.round(boxesH * 0.22 * fMul))}px Cairo, Tahoma, sans-serif`;
-                        ctx.fillText(col.title, curX + colW / 2, curY + 5);
-
-                        ctx.textBaseline = 'middle';
-                        ctx.font = `900 ${Math.max(13, Math.round(boxesH * (col.isMain ? 0.44 : 0.38) * fMul))}px Cairo, Tahoma, sans-serif`;
-                        ctx.fillText(col.val, curX + colW / 2, curY + Math.round(boxesH * 0.67));
-
-                        hitRegions.push({ key: col.key, x: curX, y: curY, w: colW, h: boxesH });
-                        curX += colW + gapX;
-                    });
-
-                    curY += boxesH + Math.max(4, Math.round(H * 0.025));
-                }
-            }
-
-            // 4. مربع الباركود والفوتر
-            if (secKey === 'pb_barcode' && boxes.pb_barcode?.visible !== false) {
-                const b = boxes.pb_barcode;
-                const hMul = (Number(b.hScale) || 100) / 100;
-                const fMul = ((Number(b.fScale) || 100) / 100) * globalScale;
-                const remainingH = Math.max(24, H - pad - innerMargin - curY);
-                const bcBoxH = Math.min(remainingH, Math.round(H * 0.22 * hMul));
-
-                drawStyledBoxOnCanvas(ctx, innerLeft, curY, innerWidth, bcBoxH, b.style || 'none');
-                ctx.fillStyle = '#000000';
-
-                if (cfg.showBarcode !== false && bcBoxH >= 20) {
-                    const bcText = `P${itemObj.index}-${itemObj.netGrams}-${Math.round(itemObj.price)}`;
-                    const barH = Math.max(14, Math.min(Math.round(H * 0.13 * hMul), bcBoxH - 14));
-                    drawBarcodeOnCanvas(ctx, bcText, W / 2, curY + 2, Math.round(innerWidth * 0.82), barH);
-                }
-                if (cfg.footerText) {
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'bottom';
-                    ctx.font = `900 ${Math.max(9, Math.round(H * 0.052 * fMul))}px Cairo, Tahoma, sans-serif`;
-                    ctx.fillText(cfg.footerText.trim().slice(0, 52), W / 2, H - pad - Math.max(3, Math.floor(innerMargin * 0.3)));
-                }
-                hitRegions.push({ key: 'pb_barcode', x: innerLeft, y: curY, w: innerWidth, h: bcBoxH });
-                curY += bcBoxH;
+                ctx.fillText('⤡', x + w, y + h + 1);
+                ctx.restore();
             }
         });
 
-        window.poultryBatchState.hitRegions = hitRegions;
         ctx.restore();
         return canvas;
-    };
-
-    // دوال مساعدة لرسم خطوط ومربعات حادة 100% بدون أي تشويش رمادي في الطابعة الحرارية
-    function drawSharpHLine(ctx, x, y, w, thickness = 2) {
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.max(1, Math.round(thickness)));
     }
 
-    function drawSharpVLine(ctx, x, y, h, thickness = 2) {
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(thickness)), Math.round(h));
+    function bindInteractiveCanvasPointerEvents(cnv) {
+        cnv.style.touchAction = 'none';
+        cnv.style.cursor = 'move';
+
+        const getCanvasPos = (ev) => {
+            const rect = cnv.getBoundingClientRect();
+            const sx = cnv.width / rect.width;
+            const sy = cnv.height / rect.height;
+            return {
+                x: (ev.clientX - rect.left) * sx,
+                y: (ev.clientY - rect.top) * sy,
+                sx
+            };
+        };
+
+        cnv.addEventListener('pointerdown', (ev) => {
+            ev.preventDefault();
+            cnv.setPointerCapture(ev.pointerId);
+            const pt = getCanvasPos(ev);
+            const els = studioState.designer.elements;
+
+            // 1. فحص هل لمس مقبض التكبير والتصغير للعنصر المحدد حالياً
+            const selEl = els.find(e => e.id === studioState.designer.selectedId);
+            if (selEl) {
+                const hitRadius = Math.max(24, 24 * pt.sx); // مساحة لمس مريحة للإصبع على الموبايل
+                const dx = pt.x - (selEl.x + selEl.w);
+                const dy = pt.y - (selEl.y + selEl.h);
+                if (Math.hypot(dx, dy) <= hitRadius) {
+                    studioState.designer.dragMode = 'resize';
+                    studioState.designer.dragStartX = pt.x;
+                    studioState.designer.dragStartY = pt.y;
+                    studioState.designer.origEl = { ...selEl };
+                    return;
+                }
+            }
+
+            // 2. فحص هل لمس أي عنصر (نبحث من الأعلى للأسفل — آخر عنصر مرسوم أولاً)
+            let hitEl = null;
+            for (let i = els.length - 1; i >= 0; i--) {
+                const e = els[i];
+                const pad = 10;
+                if (pt.x >= e.x - pad && pt.x <= e.x + e.w + pad && pt.y >= e.y - pad && pt.y <= e.y + e.h + pad) {
+                    hitEl = e;
+                    break;
+                }
+            }
+
+            if (hitEl) {
+                studioState.designer.selectedId = hitEl.id;
+                studioState.designer.dragMode = 'move';
+                studioState.designer.dragStartX = pt.x;
+                studioState.designer.dragStartY = pt.y;
+                studioState.designer.origEl = { ...hitEl };
+                renderDesignerPropertiesBar();
+                refreshStudioPreviewStage();
+            } else {
+                studioState.designer.selectedId = null;
+                studioState.designer.dragMode = null;
+                renderDesignerPropertiesBar();
+                refreshStudioPreviewStage();
+            }
+        });
+
+        cnv.addEventListener('pointermove', (ev) => {
+            if (!studioState.designer.dragMode || !studioState.designer.origEl) return;
+            ev.preventDefault();
+            const pt = getCanvasPos(ev);
+            const selEl = studioState.designer.elements.find(e => e.id === studioState.designer.selectedId);
+            if (!selEl) return;
+
+            const dx = pt.x - studioState.designer.dragStartX;
+            const dy = pt.y - studioState.designer.dragStartY;
+            const orig = studioState.designer.origEl;
+
+            if (studioState.designer.dragMode === 'move') {
+                let nx = Math.round(orig.x + dx);
+                let ny = Math.round(orig.y + dy);
+                // مغناطيس توسيط ذكي عند الاقتراب من منتصف الورقة
+                const centerX = Math.round((cnv.width - selEl.w) / 2);
+                if (Math.abs(nx - centerX) < 10) nx = centerX;
+                selEl.x = Math.max(-selEl.w + 24, Math.min(cnv.width - 24, nx));
+                selEl.y = Math.max(-selEl.h + 20, Math.min(cnv.height - 20, ny));
+            } else if (studioState.designer.dragMode === 'resize') {
+                selEl.w = Math.max(28, Math.min(cnv.width - selEl.x + 20, Math.round(orig.w + dx)));
+                selEl.h = Math.max(14, Math.min(cnv.height - selEl.y + 20, Math.round(orig.h + dy)));
+                // تكبير الخط نسبياً عند تكبير صندوق النص أو الشارة
+                if ((selEl.type === 'text' || selEl.type === 'badge') && orig.h > 0) {
+                    const ratio = selEl.h / orig.h;
+                    selEl.fontSize = Math.max(10, Math.min(120, Math.round((orig.fontSize || 24) * Math.sqrt(ratio))));
+                }
+            }
+
+            // إعادة رسم سريعة 60FPS على نفس الـ Canvas مباشرة
+            const cfg = window.getWaybillConfig();
+            const updated = renderFreeDesignerToCanvas203DPI(cfg, true);
+            const ctx = cnv.getContext('2d');
+            ctx.clearRect(0, 0, cnv.width, cnv.height);
+            ctx.drawImage(updated, 0, 0);
+        });
+
+        const endDrag = () => {
+            if (studioState.designer.dragMode) {
+                studioState.designer.dragMode = null;
+                studioState.designer.origEl = null;
+                renderDesignerPropertiesBar();
+            }
+        };
+        cnv.addEventListener('pointerup', endDrag);
+        cnv.addEventListener('pointercancel', endDrag);
     }
 
-    function drawSharpRectBorder(ctx, x, y, w, h, thickness = 3) {
-        const rx = Math.round(x);
-        const ry = Math.round(y);
-        const rw = Math.round(w);
-        const rh = Math.round(h);
-        const t = Math.max(1, Math.round(thickness));
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(rx, ry, rw, t);               // أعلى
-        ctx.fillRect(rx, ry + rh - t, rw, t);      // أسفل
-        ctx.fillRect(rx, ry, t, rh);               // يسار
-        ctx.fillRect(rx + rw - t, ry, t, rh);      // يمين
-    }
-
-    // تنظيف اسم الصنف وتفاصيل الأوزان ليظهر في الفاتورة بشكل شيك بدون أقواس معقدة أو رموز
+    // =========================================================================
+    // 7. محرك رسم بوالص الطلبات الشيك + ملخص التجهيز + خط سير المندوب
+    // =========================================================================
     function formatCleanInvoiceItem(item, prodsObj, showWeightInfo) {
         let rawName = String(item.name || 'صنف').trim();
         let subDetail = '';
-
-        // إذا كان الصنف مباعاً بالميزان ويحتوي على تفاصيل مثل: فراخ [2 فرخة = 2.8 كجم] (1400 + 1400 جم)
         const bracketMatch = rawName.match(/^(.*?)\s*\[(.*?)\]\s*(?:\((.*?)\))?$/);
         if (bracketMatch) {
             rawName = bracketMatch[1].trim();
-            const summaryPart = bracketMatch[2].replace('=', '•').trim();
-            subDetail = summaryPart;
+            subDetail = bracketMatch[2].replace('=', '•').trim();
         } else {
             const pInfo = prodsObj[item.id] || {};
-            if (showWeightInfo !== false && pInfo.weight) {
-                subDetail = pInfo.weight;
-            }
+            if (showWeightInfo !== false && pInfo.weight) subDetail = pInfo.weight;
         }
-
-        // تنسيق الكمية بدون حرف x
         const rawQty = Number(item.quantity) || 1;
         let qtyText = Number.isInteger(rawQty) ? String(rawQty) : String(Number(rawQty.toFixed(2)));
-        if (bracketMatch && item.birdsCount) {
-            qtyText = `${item.birdsCount} (${qtyText} ك)`;
-        }
-
+        if (bracketMatch && item.birdsCount) qtyText = `${item.birdsCount} (${qtyText} ك)`;
         return {
             title: rawName,
-            subDetail: subDetail,
-            qtyText: qtyText,
+            subDetail,
+            qtyText,
             lineTotal: Math.round(rawQty * (Number(item.price) || 0))
         };
     }
 
-    // رسم فاتورة سمان ههيا الشيك والواضحة جداً (مصممة لمقاس 70×130 مم وتتكيف مع أي مقاس)
-    function renderFlexibleShippingWaybill203DPI(order, cfg, indexNum = 1, totalCount = 1, bagIndex = 1, bagsTotal = 1) {
+    window.renderWaybillToCanvas203DPI = function (order, cfg, indexNum = 1, totalCount = 1, bagIndex = 1, bagsTotal = 1) {
+        cfg = cfg || window.getWaybillConfig();
         const dims = resolveDimensionsMm(cfg);
         const W = Math.floor(dims.w * DOTS_PER_MM);
         const H = Math.floor(dims.h * DOTS_PER_MM);
-        const bcCfg = getBoxCustomConfig();
-        const boxes = bcCfg.boxes;
 
         const canvas = document.createElement('canvas');
         canvas.width = W;
         canvas.height = H;
         const ctx = canvas.getContext('2d');
-
-        // تفعيل الاتجاه العربي الصحيح لمنع تداخل الأرقام والأقواس
         ctx.direction = 'rtl';
-
-        // خلفية بيضاء نقية 100%
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, W, H);
 
@@ -2843,920 +962,1914 @@
         const padPct = (Number(cfg.paddingPct) || 100) / 100;
         const pad = Math.max(8, Math.round(Math.min(W, H) * 0.022 * padPct));
         const borderStyle = cfg.borderStyle || 'double';
-
-        // رسم الإطار الخارجي بخطوط هندسية حادة لا تقطع في الطابعة الحرارية
-        if (borderStyle === 'double') {
-            drawSharpRectBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, 4);
-            drawSharpRectBorder(ctx, pad + 7, pad + 7, W - (pad + 7) * 2, H - (pad + 7) * 2, 2);
-        } else if (borderStyle !== 'none') {
-            drawSharpRectBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, 4);
-        }
+        drawFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, borderStyle, 4);
 
         const storeName = (cfg.customStoreTitle || (typeof storeSettings !== 'undefined' && storeSettings.storeName) || 'سمان ههيا').trim();
         const storePhone = (cfg.customStorePhone || (typeof storeSettings !== 'undefined' && storeSettings.storePhone) || '01208027294').trim();
-        const storeSlogan = (typeof storeSettings !== 'undefined' && storeSettings.waybillSlogan)
-            ? storeSettings.waybillSlogan
-            : 'أصل الطعم يبدأ من التربية 🤍 طازج لمائدتك';
+        const storeSlogan = (typeof storeSettings !== 'undefined' && storeSettings.waybillSlogan) || 'أصل الطعم يبدأ من التربية 🤍 طازج لمائدتك';
         const orderDateStr = order.orderDate || new Date().toLocaleDateString('ar-EG');
 
-        const globalScale = Math.min(1.35, Math.max(0.75, (Number(cfg.fontScalePct) || 100) / 100));
+        const globalScale = Math.min(1.35, Math.max(0.70, (Number(cfg.fontScalePct) || 100) / 100));
         const innerMargin = borderStyle === 'double' ? 16 : 12;
         const innerLeft = pad + innerMargin;
         const innerRight = W - pad - innerMargin;
         const innerWidth = innerRight - innerLeft;
 
-        // أحجام خطوط موزونة بدقة لمقاس 70×130 مم (عرض 560 نقطة × طول 1040 نقطة)
-        const fBrand = Math.max(24, Math.round(W * 0.068 * globalScale));
-        const fSlogan = Math.max(14, Math.round(W * 0.033 * globalScale));
-        const fSecTitle = Math.max(17, Math.round(W * 0.041 * globalScale));
-        const fBody = Math.max(16, Math.round(W * 0.038 * globalScale));
-        const fSmall = Math.max(13, Math.round(W * 0.031 * globalScale));
-        const fTotalVal = Math.max(24, Math.round(W * 0.062 * globalScale));
+        const baseW = Math.min(W, Math.round(H * 0.95));
+        const fBrand = Math.max(20, Math.round(baseW * 0.068 * globalScale));
+        const fSlogan = Math.max(12, Math.round(baseW * 0.032 * globalScale));
+        const fSecTitle = Math.max(15, Math.round(baseW * 0.041 * globalScale));
+        const fBody = Math.max(14, Math.round(baseW * 0.038 * globalScale));
+        const fSmall = Math.max(11, Math.round(baseW * 0.031 * globalScale));
+        const fTotalVal = Math.max(20, Math.round(baseW * 0.062 * globalScale));
 
         let curY = pad + innerMargin + 4;
-        const hitRegions = [];
 
-        // =====================================================================
-        // 1. الهيدر الأنيق (اسم البراند + الجملة الترحيبية + التليفون والتاريخ بدون أكواد شحن)
-        // =====================================================================
-        if (boxes.header?.visible !== false) {
-            const startHeaderY = curY;
-            ctx.fillStyle = '#000000';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'top';
-
-            if (cfg.showLogo !== false) {
-                ctx.font = `900 ${fBrand}px Cairo, Tahoma, sans-serif`;
-                const titleTxt = (boxes.header?.label && boxes.header.label.trim()) ? boxes.header.label.trim() : storeName;
-                ctx.fillText(titleTxt, Math.round(W / 2), curY);
-                curY += fBrand + 6;
-
-                ctx.font = `800 ${fSlogan}px Cairo, Tahoma, sans-serif`;
-                ctx.fillText(storeSlogan, Math.round(W / 2), curY);
-                curY += fSlogan + 10;
-            }
-
-            // شريط رفيع أنيق للتليفون والتاريخ
-            drawSharpHLine(ctx, innerLeft, curY, innerWidth, 2);
-            curY += 7;
-
-            ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-            ctx.textAlign = 'right';
-            ctx.fillText(`للتواصل: ${storePhone}`, innerRight - 4, curY);
-
-            ctx.textAlign = 'left';
-            const showBagPill = (bagsTotal > 1) || cfg.alwaysShowBagBadge;
-            const dateAndBagTxt = showBagPill
-                ? `شنطة ${bagIndex}/${bagsTotal} • ${orderDateStr}`
-                : `التاريخ: ${orderDateStr}`;
-            ctx.fillText(dateAndBagTxt, innerLeft + 4, curY);
-
-            curY += fSmall + 8;
-            drawSharpHLine(ctx, innerLeft, curY, innerWidth, 3);
-
-            // إذا طلب المستخدم صراحة إظهار الباركود من الإعدادات فقط
-            if (cfg.showBarcode === true) {
-                curY += 6;
-                const orderShortId = (order.id || '100200').slice(-6).toUpperCase();
-                drawBarcodeOnCanvas(ctx, orderShortId, Math.round(W / 2), curY, Math.round(innerWidth * 0.7), 32);
-                curY += 36;
-                drawSharpHLine(ctx, innerLeft, curY, innerWidth, 2);
-            }
-
-            hitRegions.push({ key: 'header', x: innerLeft, y: startHeaderY, w: innerWidth, h: curY - startHeaderY });
-            curY += 12;
-        }
-
-        // =====================================================================
-        // 2. بطاقة العميل الشيك (بدون ملاحظات الدليفري ولا ملاحظات الإدارة)
-        // =====================================================================
-        if (boxes.customer?.visible !== false) {
-            const startCustY = curY;
-            const custPrefix = (boxes.customer?.label && boxes.customer.label.trim()) ? boxes.customer.label.trim() : 'عميلنا العزيز:';
-            const custNameClean = (order.customerName || 'عميل سمان ههيا').trim();
-            const phonesLine = `${order.customerPhone || ''}${order.customerPhone2 ? ' - ' + order.customerPhone2 : ''}`;
-            const zoneClean = (order.zone || '').trim();
-            const addrClean = (order.customerAddress || '').trim();
-            const fullLocation = [zoneClean, addrClean].filter(Boolean).join(' - ') || 'استلام حسب المنطقة';
-
-            ctx.font = `800 ${fSmall}px Cairo, Tahoma, sans-serif`;
-            const addrLines = wrapThermalText(ctx, `العنوان: ${fullLocation}`, innerWidth - 24).slice(0, 2);
-
-            const custBoxH = Math.round(18 + (fSecTitle + 8) + (fBody + 8) + (addrLines.length * (fSmall + 6)) + 10);
-            drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, custBoxH, 3);
-
-            let cy = curY + 10;
-
-            // شارة المنطقة في اليسار داخل برواز أبيض نظيف لا يسحب حبر أسود ثقيل
-            if (zoneClean) {
-                ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-                const zW = Math.min(Math.round(innerWidth * 0.36), Math.max(90, Math.round(ctx.measureText(zoneClean).width + 24)));
-                const zH = fSecTitle + 10;
-                drawSharpRectBorder(ctx, innerLeft + 10, cy - 2, zW, zH, 2);
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(zoneClean, innerLeft + 10 + Math.round(zW / 2), cy - 2 + Math.round(zH / 2));
-            }
-
-            // اسم العميل
-            ctx.fillStyle = '#000000';
-            ctx.textAlign = 'right';
-            ctx.textBaseline = 'top';
-            ctx.font = `900 ${fSecTitle}px Cairo, Tahoma, sans-serif`;
-            ctx.fillText(`${custPrefix} ${custNameClean.slice(0, 24)}`, innerRight - 12, cy);
-            cy += fSecTitle + 8;
-
-            // رقم الموبايل
-            ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
-            ctx.fillText(`موبايل: ${phonesLine}`, innerRight - 12, cy);
-            cy += fBody + 6;
-
-            // خط فاصل رفيع داخل كارت العميل ثم العنوان
-            drawSharpHLine(ctx, innerLeft + 10, cy, innerWidth - 20, 1);
-            cy += 6;
-
-            ctx.font = `800 ${fSmall}px Cairo, Tahoma, sans-serif`;
-            addrLines.forEach(line => {
-                ctx.fillText(line, innerRight - 12, cy);
-                cy += fSmall + 5;
-            });
-
-            hitRegions.push({ key: 'customer', x: innerLeft, y: startCustY, w: innerWidth, h: custBoxH });
-            curY += custBoxH + 12;
-        }
-
-        // =====================================================================
-        // 3. جدول تفاصيل الطلب (فاتورة أنيقة بدون حرف x وبدون تكديس)
-        // =====================================================================
-        const itemsList = Array.isArray(order.items) ? order.items : [];
-        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
-
-        if (boxes.items?.visible !== false) {
-            const startItemsY = curY;
-            const thH = Math.max(32, fBody + 14);
-
-            // رأس الجدول بخلفية بيضاء نظيفة وإطار علوي وسفلي سميك لطباعة حرارية فائقة الوضوح
-            drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, thH, 3);
-
-            const showPrices = cfg.showItemsPrice !== false;
-            const priceColW = showPrices ? Math.round(innerWidth * 0.24) : 0;
-            const qtyColW = Math.round(innerWidth * 0.22);
-            const itemColRight = innerRight - 10;
-            const qtyColCenter = innerLeft + priceColW + Math.round(qtyColW / 2);
-            const priceColCenter = innerLeft + Math.round(priceColW / 2);
-
-            ctx.fillStyle = '#000000';
-            ctx.textBaseline = 'middle';
-            ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-
-            ctx.textAlign = 'right';
-            const tblTitle = (boxes.items?.label && boxes.items.label.trim()) ? boxes.items.label.trim() : 'الصنف';
-            ctx.fillText(tblTitle, itemColRight, curY + Math.round(thH / 2));
-
-            ctx.textAlign = 'center';
-            ctx.fillText('الكمية', qtyColCenter, curY + Math.round(thH / 2));
-            if (showPrices) {
-                ctx.fillText('الإجمالي', priceColCenter, curY + Math.round(thH / 2));
-            }
-
-            // خطوط رأسية فاصلة في الهيدر
-            drawSharpVLine(ctx, innerLeft + priceColW + qtyColW, curY, thH, 2);
-            if (showPrices) {
-                drawSharpVLine(ctx, innerLeft + priceColW, curY, thH, 2);
-            }
-
-            curY += thH;
-
-            const maxRows = Math.max(1, Math.min(itemsList.length || 1, 7));
-            for (let idx = 0; idx < maxRows; idx++) {
-                const rawItem = itemsList[idx];
-                if (!rawItem) break;
-
-                const formatted = formatCleanInvoiceItem(rawItem, prodsObj, cfg.showWeightInfo);
-                const nameColMaxW = innerWidth - priceColW - qtyColW - 20;
-
-                ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
-                const titleLines = wrapThermalText(ctx, formatted.title, nameColMaxW).slice(0, 2);
-                const hasSub = Boolean(formatted.subDetail);
-
-                const rowH = Math.max(
-                    38,
-                    Math.round((titleLines.length * (fBody + 4)) + (hasSub ? (fSmall + 4) : 0) + 14)
-                );
-
-                // إطار الصف والخطوط الرأسية
-                drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, rowH, 2);
-                drawSharpVLine(ctx, innerLeft + priceColW + qtyColW, curY, rowH, 2);
-                if (showPrices) {
-                    drawSharpVLine(ctx, innerLeft + priceColW, curY, rowH, 2);
-                }
-
-                // كتابة اسم الصنف (وتفاصيل الوزن تحته بهدوء إن وجد)
-                ctx.fillStyle = '#000000';
-                ctx.textAlign = 'right';
-                ctx.textBaseline = 'top';
-                let textY = curY + 7;
-                ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
-                titleLines.forEach(ln => {
-                    ctx.fillText(ln, itemColRight, textY);
-                    textY += fBody + 3;
-                });
-
-                if (hasSub) {
-                    ctx.font = `800 ${Math.max(11, fSmall - 1)}px Cairo, Tahoma, sans-serif`;
-                    ctx.fillText(formatted.subDetail, itemColRight, textY);
-                }
-
-                // الكمية في المنتصف بدون علامة x
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
-                ctx.fillText(formatted.qtyText, qtyColCenter, curY + Math.round(rowH / 2));
-
-                // الإجمالي للسطر
-                if (showPrices) {
-                    ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
-                    ctx.fillText(`${formatted.lineTotal} ج`, priceColCenter, curY + Math.round(rowH / 2));
-                }
-
-                curY += rowH;
-            }
-
-            if (itemsList.length > maxRows) {
-                const moreH = fSmall + 12;
-                drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, moreH, 2);
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-                ctx.fillText(`+ ${itemsList.length - maxRows} أصناف إضافية ضمن الطلب`, Math.round(W / 2), curY + Math.round(moreH / 2));
-                curY += moreH;
-            }
-
-            hitRegions.push({ key: 'items', x: innerLeft, y: startItemsY, w: innerWidth, h: curY - startItemsY });
-            curY += 12;
-        }
-
-        // =====================================================================
-        // =====================================================================
-        // 4. ملخص الحساب المالي والصافي المطلوب (متوافق 100% مع الكاش والأونلاين والنص ونص)
-        // =====================================================================
-        if (boxes.cod?.visible !== false) {
-            const startCodY = curY;
-            const br = (typeof window.getOrderPaymentBreakdown === 'function')
-                ? window.getOrderPaymentBreakdown(order)
-                : {
-                    method: order.paymentMethod || 'cash',
-                    cash: order.paymentMethod === 'online' ? 0 : (order.paymentMethod === 'split' ? (Number(order.paidCash) || 0) : (Number(order.total) || 0)),
-                    online: order.paymentMethod === 'online' ? (Number(order.total) || 0) : (order.paymentMethod === 'split' ? (Number(order.paidOnline) || 0) : 0),
-                    total: Number(order.total) || 0
-                };
-
-            const isOnline = br.method === 'online';
-            const isSplit = br.method === 'split';
-            const subtotal = Number(order.subtotal) || Number(order.total) || 0;
-            const delivery = Number(order.deliveryFee) || 0;
-            const discount = Number(order.discount) || 0;
-            const total = Number(order.total) || 0;
-            const debt = Number(order.debt) || 0;
-
-            // سطر تفصيل الحساب (المنتجات + التوصيل + الخصم + المدفوع محفظة إن وجد)
-            const breakdownH = fSmall + 16;
-            drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, breakdownH, 2);
-            ctx.fillStyle = '#000000';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-
-            let breakdownParts = [`المنتجات: ${subtotal} ج`];
-            breakdownParts.push(delivery > 0 ? `التوصيل: ${delivery} ج` : `التوصيل: مجاني`);
-            if (discount > 0) breakdownParts.push(`خصم: -${discount} ج`);
-            if (isSplit && br.online > 0) breakdownParts.push(`مدفوع محفظة: ${br.online} ج`);
-            if (debt > 0) breakdownParts.push(`باقي حساب: ${debt} ج`);
-
-            ctx.fillText(breakdownParts.join('  •  '), Math.round(W / 2), curY + Math.round(breakdownH / 2));
-            curY += breakdownH + 6;
-
-            // الصندوق الرئيسي للإجمالي النهائي المطلوب تحصيله
-            const totalBoxH = Math.max(54, fTotalVal + 24);
-            drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, totalBoxH, 4);
-            drawSharpRectBorder(ctx, innerLeft + 5, curY + 5, innerWidth - 10, totalBoxH - 10, 1);
-
-            const codTitle = (boxes.cod?.label && boxes.cod.label.trim())
-                ? boxes.cod.label.trim()
-                : (isOnline ? 'حالة الفاتورة:' : (isSplit ? 'المتبقي كاش عند الاستلام:' : 'الإجمالي المطلوب:'));
-
-            ctx.textBaseline = 'middle';
-            ctx.textAlign = 'right';
-            ctx.font = `900 ${fSecTitle}px Cairo, Tahoma, sans-serif`;
-            ctx.fillText(codTitle, innerRight - 14, curY + Math.round(totalBoxH / 2));
-
-            ctx.textAlign = 'left';
-            ctx.font = `900 ${fTotalVal}px Cairo, Tahoma, sans-serif`;
-            ctx.fillText(isOnline ? 'خالص أونلاين' : `${isSplit ? br.cash : total} ج.م`, innerLeft + 14, curY + Math.round(totalBoxH / 2));
-
-            curY += totalBoxH;
-            hitRegions.push({ key: 'cod', x: innerLeft, y: startCodY, w: innerWidth, h: curY - startCodY });
-            curY += 10;
-        }
-
-
-        // =====================================================================
-        // 5. رسالة الختام الدافئة للعميل (توصل بحب وشياكة)
-        // =====================================================================
-        if (boxes.footer?.visible !== false) {
-            const startFooterY = curY;
-
-            if (cfg.showPromoBanner && cfg.promoText && cfg.promoText.trim()) {
-                const pH = fSmall + 14;
-                drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, pH, 2);
-                ctx.fillStyle = '#000000';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-                ctx.fillText(cfg.promoText.trim().slice(0, 58), Math.round(W / 2), curY + Math.round(pH / 2));
-                curY += pH + 8;
-            }
-
-            const footerMsg = (cfg.footerText && cfg.footerText.trim())
-                ? cfg.footerText.trim()
-                : 'بالهنا والشفا من سمان ههيا 🤍 تشرفنا بخدمتكم';
-
-            const footerY = Math.max(curY + fSmall, H - pad - innerMargin - 4);
-            ctx.fillStyle = '#000000';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'bottom';
-            ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
-            ctx.fillText(footerMsg, Math.round(W / 2), footerY);
-
-            hitRegions.push({ key: 'footer', x: innerLeft, y: startFooterY, w: innerWidth, h: Math.max(24, H - startFooterY - pad) });
-        }
-
-        window.poultryBatchState.hitRegions = hitRegions;
-        ctx.restore();
-        return canvas;
-    }
-
-    function renderPoultryBatchMasterSummaryCanvas(itemsList, cfg) {
-        const dims = resolveDimensionsMm(cfg);
-        const W = Math.floor(dims.w * DOTS_PER_MM);
-        const H = Math.floor(dims.h * DOTS_PER_MM);
-        const canvas = document.createElement('canvas');
-        canvas.width = W;
-        canvas.height = H;
-        const ctx = canvas.getContext('2d');
-
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, W, H);
-        const pad = Math.max(8, Math.round(Math.min(W, H) * 0.03));
-        drawCustomFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, cfg.borderStyle || 'double');
-
-        const prodName = (document.getElementById('dw-pb-name')?.value || 'دفعة فراخ طازجة').trim();
-        const totalGrams = itemsList.reduce((s, i) => s + i.netGrams, 0);
-        const totalCash = itemsList.reduce((s, i) => s + i.price, 0);
-        const avgGrams = itemsList.length > 0 ? Math.round(totalGrams / itemsList.length) : 0;
-
+        // 1. الهيدر
         ctx.fillStyle = '#000000';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
+        if (cfg.showLogo !== false) {
+            ctx.font = `900 ${fBrand}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(storeName, Math.round(W / 2), curY);
+            curY += fBrand + 5;
+            ctx.font = `800 ${fSlogan}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(storeSlogan, Math.round(W / 2), curY);
+            curY += fSlogan + 8;
+        }
+
+        drawSharpHLine(ctx, innerLeft, curY, innerWidth, 2);
+        curY += 6;
+        ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
+        ctx.textAlign = 'right';
+        ctx.fillText(`للتواصل: ${storePhone}`, innerRight - 4, curY);
+        ctx.textAlign = 'left';
+        const showBagPill = (bagsTotal > 1) || cfg.alwaysShowBagBadge;
+        const bagLabelNote = cfg.bagCustomLabel ? ` (${cfg.bagCustomLabel})` : '';
+        ctx.fillText(showBagPill ? `شنطة ${bagIndex}/${bagsTotal}${bagLabelNote} • ${orderDateStr}` : `التاريخ: ${orderDateStr}`, innerLeft + 4, curY);
+        curY += fSmall + 7;
+        drawSharpHLine(ctx, innerLeft, curY, innerWidth, 3);
+
+        if (cfg.showBarcode === true) {
+            curY += 6;
+            const shortId = (order.id || '100200').slice(-6).toUpperCase();
+            drawBarcodeOnCanvas(ctx, shortId, Math.round(W / 2), curY, Math.round(innerWidth * 0.72), 34, false);
+            curY += 38;
+            drawSharpHLine(ctx, innerLeft, curY, innerWidth, 2);
+        }
+        curY += 10;
+
+        // 2. بطاقة العميل
+        const custNameClean = (order.customerName || 'عميل سمان ههيا').trim();
+        const phonesLine = `${order.customerPhone || ''}${order.customerPhone2 ? ' - ' + order.customerPhone2 : ''}`;
+        const zoneClean = (order.zone || '').trim();
+        const addrClean = (order.customerAddress || '').trim();
+        const fullLocation = [zoneClean, addrClean].filter(Boolean).join(' - ') || 'استلام حسب المنطقة';
+
+        ctx.font = `800 ${fSmall}px Cairo, Tahoma, sans-serif`;
+        const addrLines = wrapThermalText(ctx, `العنوان: ${fullLocation}`, innerWidth - 22).slice(0, 2);
+        const custBoxH = Math.round(16 + (fSecTitle + 7) + (fBody + 7) + (addrLines.length * (fSmall + 5)) + 8);
+        drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, custBoxH, 3);
+
+        let cy = curY + 9;
+        if (zoneClean) {
+            ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
+            const zW = Math.min(Math.round(innerWidth * 0.36), Math.max(85, Math.round(ctx.measureText(zoneClean).width + 22)));
+            const zH = fSecTitle + 8;
+            drawSharpRectBorder(ctx, innerLeft + 9, cy - 2, zW, zH, 2);
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(zoneClean, innerLeft + 9 + Math.round(zW / 2), cy - 2 + Math.round(zH / 2));
+        }
+
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+        ctx.font = `900 ${fSecTitle}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`عميلنا: ${custNameClean.slice(0, 24)}`, innerRight - 10, cy);
+        cy += fSecTitle + 7;
+        ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`موبايل: ${phonesLine}`, innerRight - 10, cy);
+        cy += fBody + 5;
+        drawSharpHLine(ctx, innerLeft + 10, cy, innerWidth - 20, 1);
+        cy += 5;
+        ctx.font = `800 ${fSmall}px Cairo, Tahoma, sans-serif`;
+        addrLines.forEach(line => { ctx.fillText(line, innerRight - 10, cy); cy += fSmall + 4; });
+        curY += custBoxH + 10;
+
+        // 3. جدول الأصناف
+        const itemsList = Array.isArray(order.items) ? order.items : [];
+        const prodsObj = (typeof storeProducts !== 'undefined' && storeProducts) ? storeProducts : {};
+        const thH = Math.max(28, fBody + 12);
+        drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, thH, 3);
+
+        const showPrices = cfg.showItemsPrice !== false;
+        const priceColW = showPrices ? Math.round(innerWidth * 0.24) : 0;
+        const qtyColW = Math.round(innerWidth * 0.22);
+        const itemColRight = innerRight - 9;
+        const qtyColCenter = innerLeft + priceColW + Math.round(qtyColW / 2);
+        const priceColCenter = innerLeft + Math.round(priceColW / 2);
+
+        ctx.fillStyle = '#000000'; ctx.textBaseline = 'middle';
+        ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
+        ctx.textAlign = 'right'; ctx.fillText('الصنف', itemColRight, curY + Math.round(thH / 2));
+        ctx.textAlign = 'center'; ctx.fillText('الكمية', qtyColCenter, curY + Math.round(thH / 2));
+        if (showPrices) ctx.fillText('الإجمالي', priceColCenter, curY + Math.round(thH / 2));
+
+        drawSharpVLine(ctx, innerLeft + priceColW + qtyColW, curY, thH, 2);
+        if (showPrices) drawSharpVLine(ctx, innerLeft + priceColW, curY, thH, 2);
+        curY += thH;
+
+        const maxRows = Math.max(1, Math.min(itemsList.length || 1, 7));
+        for (let idx = 0; idx < maxRows; idx++) {
+            const rawItem = itemsList[idx];
+            if (!rawItem) break;
+            const formatted = formatCleanInvoiceItem(rawItem, prodsObj, cfg.showWeightInfo);
+            const nameColMaxW = innerWidth - priceColW - qtyColW - 18;
+            ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
+            const titleLines = wrapThermalText(ctx, formatted.title, nameColMaxW).slice(0, 2);
+            const hasSub = Boolean(formatted.subDetail);
+            const rowH = Math.max(34, Math.round((titleLines.length * (fBody + 4)) + (hasSub ? (fSmall + 4) : 0) + 12));
+
+            drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, rowH, 2);
+            drawSharpVLine(ctx, innerLeft + priceColW + qtyColW, curY, rowH, 2);
+            if (showPrices) drawSharpVLine(ctx, innerLeft + priceColW, curY, rowH, 2);
+
+            ctx.fillStyle = '#000000'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+            let textY = curY + 6;
+            ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
+            titleLines.forEach(ln => { ctx.fillText(ln, itemColRight, textY); textY += fBody + 3; });
+            if (hasSub) {
+                ctx.font = `800 ${Math.max(10, fSmall - 1)}px Cairo, Tahoma, sans-serif`;
+                ctx.fillText(formatted.subDetail, itemColRight, textY);
+            }
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.font = `900 ${fBody}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(formatted.qtyText, qtyColCenter, curY + Math.round(rowH / 2));
+            if (showPrices) ctx.fillText(`${formatted.lineTotal} ج`, priceColCenter, curY + Math.round(rowH / 2));
+            curY += rowH;
+        }
+        curY += 10;
+
+        // 4. الصندوق المالي (كاش / أونلاين / نص ونص)
+        const br = (typeof window.getOrderPaymentBreakdown === 'function')
+            ? window.getOrderPaymentBreakdown(order)
+            : {
+                method: order.paymentMethod || 'cash',
+                cash: order.paymentMethod === 'online' ? 0 : (order.paymentMethod === 'split' ? (Number(order.paidCash) || 0) : (Number(order.total) || 0)),
+                online: order.paymentMethod === 'online' ? (Number(order.total) || 0) : (order.paymentMethod === 'split' ? (Number(order.paidOnline) || 0) : 0),
+                total: Number(order.total) || 0
+            };
+
+        const isOnline = br.method === 'online';
+        const isSplit = br.method === 'split';
+        const subtotal = Number(order.subtotal) || Number(order.total) || 0;
+        const delivery = Number(order.deliveryFee) || 0;
+        const discount = Number(order.discount) || 0;
+        const total = Number(order.total) || 0;
+        const debt = Number(order.debt) || 0;
+
+        const breakdownH = fSmall + 14;
+        drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, breakdownH, 2);
+        ctx.fillStyle = '#000000'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
+        const parts = [`المنتجات: ${subtotal} ج`, delivery > 0 ? `التوصيل: ${delivery} ج` : 'التوصيل: مجاني'];
+        if (discount > 0) parts.push(`خصم: -${discount} ج`);
+        if (isSplit && br.online > 0) parts.push(`مدفوع محفظة: ${br.online} ج`);
+        if (debt > 0) parts.push(`باقي حساب: ${debt} ج`);
+        ctx.fillText(parts.join('  •  '), Math.round(W / 2), curY + Math.round(breakdownH / 2));
+        curY += breakdownH + 6;
+
+        const totalBoxH = Math.max(48, fTotalVal + 20);
+        drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, totalBoxH, 4);
+        drawSharpRectBorder(ctx, innerLeft + 5, curY + 5, innerWidth - 10, totalBoxH - 10, 1);
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'right'; ctx.font = `900 ${fSecTitle}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(isOnline ? 'حالة الفاتورة:' : (isSplit ? 'المتبقي كاش:' : 'الإجمالي المطلوب:'), innerRight - 14, curY + Math.round(totalBoxH / 2));
+        ctx.textAlign = 'left'; ctx.font = `900 ${fTotalVal}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(isOnline ? 'خالص أونلاين' : `${isSplit ? br.cash : total} ج.م`, innerLeft + 14, curY + Math.round(totalBoxH / 2));
+        curY += totalBoxH + 8;
+
+        // 5. الدعاية والفوتر
+        if (cfg.showPromoBanner && cfg.promoText && cfg.promoText.trim()) {
+            const pH = fSmall + 12;
+            drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, pH, 2);
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(cfg.promoText.trim().slice(0, 58), Math.round(W / 2), curY + Math.round(pH / 2));
+            curY += pH + 6;
+        }
+        const footerMsg = (cfg.footerText && cfg.footerText.trim()) || 'بالهنا والشفا من سمان ههيا 🤍 تشرفنا بخدمتكم';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(footerMsg, Math.round(W / 2), Math.max(curY + fSmall, H - pad - innerMargin - 2));
+
+        ctx.restore();
+        return canvas;
+    };
+
+    function renderPackingSummaryCanvas203DPI(ordersList, cfg) {
+        const dims = resolveDimensionsMm(cfg);
+        const W = Math.floor(dims.w * DOTS_PER_MM), H = Math.floor(dims.h * DOTS_PER_MM);
+        const canvas = document.createElement('canvas');
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext('2d');
+        ctx.direction = 'rtl'; ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
+        const pad = 16;
+        drawFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, 'double', 4);
+
+        const totals = new Map();
+        let totalQty = 0;
+        ordersList.forEach(o => {
+            (Array.isArray(o.items) ? o.items : []).forEach(i => {
+                const nm = String(i.name || 'صنف').trim();
+                const q = Number(i.quantity) || 1;
+                totalQty += q;
+                totals.set(nm, (totals.get(nm) || 0) + q);
+            });
+        });
+
+        let y = pad + 20;
+        const fH = Math.max(20, Math.round(W * 0.055));
+        const fRow = Math.max(15, Math.round(W * 0.038));
+        ctx.fillStyle = '#000000'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.font = `900 ${fH}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText('📦 ملخص تجميع وتجهيز المطبخ', W / 2, y);
+        y += fH + 8;
+        ctx.font = `800 ${Math.round(fRow * 0.85)}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`${new Date().toLocaleDateString('ar-EG')} • إجمالي الطلبات: ${ordersList.length} طلب`, W / 2, y);
+        y += fRow + 10;
+        drawSharpHLine(ctx, pad + 14, y, W - (pad + 14) * 2, 3);
+        y += 12;
+
+        ctx.textAlign = 'right';
+        ctx.font = `900 ${fRow}px Cairo, Tahoma, sans-serif`;
+        let idx = 1;
+        for (const [nm, q] of totals.entries()) {
+            if (y > H - pad - 80) break;
+            ctx.fillText(`${idx++}. ${nm.slice(0, 30)}`, W - pad - 20, y);
+            ctx.textAlign = 'left';
+            ctx.fillText(`${Number(q.toFixed(2))}`, pad + 24, y);
+            ctx.textAlign = 'right';
+            y += fRow + 12;
+            drawSharpHLine(ctx, pad + 18, y - 5, W - (pad + 18) * 2, 1);
+        }
+
+        const boxH = 54;
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(pad + 14, H - pad - boxH - 12, W - (pad + 14) * 2, boxH);
+        ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = `900 ${Math.max(18, Math.round(W * 0.045))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`إجمالي القطع / الأطباق: ${Number(totalQty.toFixed(1))} وحدة`, W / 2, H - pad - 12 - boxH / 2);
+        return canvas;
+    }
+
+    function renderDriverManifestCanvas203DPI(ordersList, cfg) {
+        const dims = resolveDimensionsMm(cfg);
+        const W = Math.floor(dims.w * DOTS_PER_MM), H = Math.floor(dims.h * DOTS_PER_MM);
+        const canvas = document.createElement('canvas');
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext('2d');
+        ctx.direction = 'rtl'; ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
+        const pad = 16;
+        drawFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, 'double', 4);
+
+        let totalCash = 0;
+        ordersList.forEach(o => {
+            if (o.paymentMethod === 'split') totalCash += (Number(o.paidCash) || 0);
+            else if (o.paymentMethod !== 'online') totalCash += (Number(o.total) || 0);
+        });
+
+        let y = pad + 18;
+        const fH = Math.max(20, Math.round(W * 0.055));
+        const fRow = Math.max(14, Math.round(W * 0.036));
+        ctx.fillStyle = '#000000'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.font = `900 ${fH}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText('🛵 كشف خط سير وتحصيل المندوب', W / 2, y);
+        y += fH + 6;
+        ctx.font = `800 ${Math.round(fRow * 0.85)}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`${new Date().toLocaleDateString('ar-EG')} • عدد الطلبات: ${ordersList.length}`, W / 2, y);
+        y += fRow + 10;
+        drawSharpHLine(ctx, pad + 14, y, W - (pad + 14) * 2, 3);
+        y += 10;
+
+        ctx.font = `900 ${fRow}px Cairo, Tahoma, sans-serif`;
+        ordersList.forEach((o, i) => {
+            if (y > H - pad - 85) return;
+            const cash = o.paymentMethod === 'online' ? 0 : (o.paymentMethod === 'split' ? (Number(o.paidCash) || 0) : (Number(o.total) || 0));
+            ctx.textAlign = 'right';
+            ctx.fillText(`${i + 1}. ${(o.customerName || 'عميل').slice(0, 18)} (${(o.zone || '').slice(0, 10)})`, W - pad - 18, y);
+            ctx.textAlign = 'left';
+            ctx.fillText(cash === 0 ? 'خالص' : `${cash} ج`, pad + 18, y);
+            y += fRow + 10;
+            drawSharpHLine(ctx, pad + 18, y - 4, W - (pad + 18) * 2, 1);
+        });
+
+        const boxH = 56;
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(pad + 14, H - pad - boxH - 12, W - (pad + 14) * 2, boxH);
+        ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = `900 ${Math.max(18, Math.round(W * 0.044))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`إجمالي الكاش المطلوب: ${totalCash.toLocaleString()} ج.م`, W / 2, H - pad - 12 - boxH / 2);
+        return canvas;
+    }
+
+    // =========================================================================
+    // 8. محرك رسم تكت ميزان الفراخ + تكت ملخص البرنيكة (203 DPI)
+    // =========================================================================
+    window.parsePoultryWeightsList = function () {
+        const rawText = normalizeDigits(document.getElementById('ps-pb-weights')?.value || '');
+        const kiloPrice = Math.max(0, parseFloat(normalizeDigits(document.getElementById('ps-pb-kilo')?.value || '110')) || 0);
+        const tareGrams = Math.max(0, parseFloat(normalizeDigits(document.getElementById('ps-pb-tare')?.value || '0')) || 0);
+        const roundMode = document.getElementById('ps-pb-round')?.value || 'nearest_1';
+
+        const tokens = [];
+        rawText.split(/\r?\n/).forEach(line => {
+            let clean = line.trim().replace(/^(?:#?\d+\s*[\-\)\.\:]\s*)/, '');
+            const matches = clean.match(/\d+(?:\.\d+)?/g);
+            if (matches) matches.forEach(m => tokens.push(m));
+        });
+
+        const items = [];
+        tokens.forEach(tok => {
+            const num = parseFloat(tok);
+            if (!Number.isFinite(num) || num <= 0) return;
+            const grossGrams = num < 25 ? Math.round(num * 1000) : Math.round(num);
+            const netGrams = Math.max(1, grossGrams - tareGrams);
+            const rawPrice = (netGrams / 1000) * kiloPrice;
+            let finalPrice = rawPrice;
+            if (roundMode === 'nearest_1') finalPrice = Math.round(rawPrice);
+            else if (roundMode === 'floor_1') finalPrice = Math.floor(rawPrice);
+            else if (roundMode === 'ceil_1') finalPrice = Math.ceil(rawPrice);
+            else if (roundMode === 'nearest_5') finalPrice = Math.round(rawPrice / 5) * 5;
+            else finalPrice = Number(rawPrice.toFixed(1));
+
+            items.push({
+                index: items.length + 1,
+                grossGrams,
+                netGrams,
+                kiloPrice,
+                price: finalPrice,
+                isAnomaly: netGrams < 350 || netGrams > 4500
+            });
+        });
+
+        studioState.poultryItems = items;
+        if (studioState.poultryPreviewIdx >= items.length) {
+            studioState.poultryPreviewIdx = Math.max(0, items.length - 1);
+        }
+        renderPoultryChipsAndStats();
+        return items;
+    };
+
+    window.renderSinglePoultryScaleTag203DPI = function (itemObj, totalItemsCount, cfg) {
+        const dims = resolveDimensionsMm(cfg);
+        const W = Math.floor(dims.w * DOTS_PER_MM), H = Math.floor(dims.h * DOTS_PER_MM);
+        const canvas = document.createElement('canvas');
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext('2d');
+        ctx.direction = 'rtl'; ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
+
+        const offsetX = Math.round((Number(cfg.offsetXMm) || 0) * DOTS_PER_MM);
+        const offsetY = Math.round((Number(cfg.offsetYMm) || 0) * DOTS_PER_MM);
+        ctx.save(); ctx.translate(offsetX, offsetY);
+
+        const pad = Math.max(6, Math.round(Math.min(W, H) * 0.028));
+        drawFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, cfg.borderStyle || 'double', 3);
+
+        const innerMargin = (cfg.borderStyle || 'double') === 'double' ? 12 : 8;
+        const innerL = pad + innerMargin, innerR = W - pad - innerMargin, innerW = innerR - innerL;
+        const storeName = (cfg.customStoreTitle || (typeof storeSettings !== 'undefined' && storeSettings.storeName) || 'سمان ههيا').trim();
+        const storePhone = (cfg.customStorePhone || (typeof storeSettings !== 'undefined' && storeSettings.storePhone) || '01208027294').trim();
+        const prodName = (document.getElementById('ps-pb-name')?.value || 'فراخ تسمين طازجة - ذبح اليوم').trim();
+        const dateNote = (document.getElementById('ps-pb-date')?.value || `ذبح: ${new Date().toLocaleDateString('ar-EG')} • طازج 100%`).trim();
+        const fScale = Math.min(1.4, Math.max(0.7, (Number(cfg.fontScalePct) || 100) / 100));
+
+        let y = pad + innerMargin;
+        const hdrH = Math.max(24, Math.round(H * 0.16));
+        ctx.fillStyle = '#000000'; ctx.fillRect(innerL, y, innerW, hdrH);
+        ctx.fillStyle = '#FFFFFF'; ctx.textBaseline = 'middle';
+        ctx.textAlign = 'right';
+        ctx.font = `900 ${Math.max(11, Math.round(hdrH * 0.48 * fScale))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`${storeName} (${storePhone})`, innerR - 8, y + hdrH / 2);
+        ctx.textAlign = 'left';
+        ctx.font = `900 ${Math.max(11, Math.round(hdrH * 0.48 * fScale))}px monospace`;
+        ctx.fillText(`#${itemObj.index}/${totalItemsCount}`, innerL + 8, y + hdrH / 2);
+        y += hdrH + Math.max(4, Math.round(H * 0.03));
+
+        // اسم الصنف والتاريخ
+        ctx.fillStyle = '#000000'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        const fProd = Math.max(13, Math.round(H * 0.095 * fScale));
+        ctx.font = `900 ${fProd}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(prodName.slice(0, 36), W / 2, y);
+        y += fProd + 4;
+        const fDate = Math.max(10, Math.round(H * 0.058 * fScale));
+        ctx.font = `800 ${fDate}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(dateNote.slice(0, 44), W / 2, y);
+        y += fDate + Math.max(6, Math.round(H * 0.04));
+
+        // مربعات الوزن | سعر الكيلو | السعر المطلوب
+        const boxH = Math.max(46, Math.round(H * 0.32));
+        const gapX = Math.max(6, Math.round(innerW * 0.02));
+        const colPriceW = Math.round((innerW - gapX * 2) * 0.42);
+        const colRateW = Math.round((innerW - gapX * 2) * 0.25);
+        const colWeightW = innerW - gapX * 2 - colPriceW - colRateW;
+
+        // السعر (أسود معكوس)
+        ctx.fillStyle = '#000000'; ctx.fillRect(innerL, y, colPriceW, boxH);
+        ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.font = `900 ${Math.max(9, Math.round(boxH * 0.22 * fScale))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText('السعر المطلوب', innerL + colPriceW / 2, y + 5);
+        ctx.textBaseline = 'middle';
+        ctx.font = `900 ${Math.max(14, Math.round(boxH * 0.44 * fScale))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`${itemObj.price} ج.م`, innerL + colPriceW / 2, y + Math.round(boxH * 0.67));
+
+        // سعر الكيلو
+        const rateX = innerL + colPriceW + gapX;
+        drawSharpRectBorder(ctx, rateX, y, colRateW, boxH, 3);
+        ctx.fillStyle = '#000000'; ctx.textBaseline = 'top';
+        ctx.font = `900 ${Math.max(9, Math.round(boxH * 0.21 * fScale))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText('سعر الكيلو', rateX + colRateW / 2, y + 5);
+        ctx.textBaseline = 'middle';
+        ctx.font = `900 ${Math.max(12, Math.round(boxH * 0.36 * fScale))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`${itemObj.kiloPrice} ج`, rateX + colRateW / 2, y + Math.round(boxH * 0.67));
+
+        // الوزن الصافي
+        const weightX = rateX + colRateW + gapX;
+        drawSharpRectBorder(ctx, weightX, y, colWeightW, boxH, 3);
+        ctx.fillStyle = '#000000'; ctx.textBaseline = 'top';
+        ctx.font = `900 ${Math.max(9, Math.round(boxH * 0.21 * fScale))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText('الوزن الصافي', weightX + colWeightW / 2, y + 5);
+        ctx.textBaseline = 'middle';
+        ctx.font = `900 ${Math.max(13, Math.round(boxH * 0.38 * fScale))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`${itemObj.netGrams} جم`, weightX + colWeightW / 2, y + Math.round(boxH * 0.67));
+        y += boxH + Math.max(5, Math.round(H * 0.03));
+
+        const remH = H - pad - innerMargin - y;
+        if (cfg.showBarcode && remH >= 24) {
+            const bcText = `P${itemObj.index}-${itemObj.netGrams}-${Math.round(itemObj.price)}`;
+            drawBarcodeOnCanvas(ctx, bcText, W / 2, y, Math.round(innerW * 0.8), Math.min(44, remH - 14), false);
+        }
+        if (cfg.footerText) {
+            ctx.fillStyle = '#000000'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+            ctx.font = `900 ${Math.max(9, Math.round(H * 0.052 * fScale))}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(cfg.footerText.trim().slice(0, 50), W / 2, H - pad - Math.max(3, Math.floor(innerMargin * 0.3)));
+        }
+
+        ctx.restore();
+        return canvas;
+    };
+
+    function renderPoultrySummaryCanvas203DPI(itemsList, cfg) {
+        const dims = resolveDimensionsMm(cfg);
+        const W = Math.floor(dims.w * DOTS_PER_MM), H = Math.floor(dims.h * DOTS_PER_MM);
+        const canvas = document.createElement('canvas');
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext('2d');
+        ctx.direction = 'rtl'; ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
+        const pad = Math.max(8, Math.round(Math.min(W, H) * 0.03));
+        drawFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, 'double', 3);
+
+        const prodName = (document.getElementById('ps-pb-name')?.value || 'دفعة فراخ طازجة').trim();
+        const totalGrams = itemsList.reduce((s, i) => s + i.netGrams, 0);
+        const totalCash = itemsList.reduce((s, i) => s + i.price, 0);
+        const avgGrams = itemsList.length ? Math.round(totalGrams / itemsList.length) : 0;
+
+        ctx.fillStyle = '#000000'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
         const fH = Math.max(14, Math.round(H * 0.11));
         ctx.font = `900 ${fH}px Cairo, Tahoma, sans-serif`;
         ctx.fillText('📦 ملصق إجمالي الدفعة والبرنيكة', W / 2, pad + 10);
-
-        const fSub = Math.max(12, Math.round(H * 0.085));
+        const fSub = Math.max(12, Math.round(H * 0.08));
         ctx.font = `900 ${fSub}px Cairo, Tahoma, sans-serif`;
         ctx.fillText(`${prodName} (${new Date().toLocaleDateString('ar-EG')})`, W / 2, pad + 16 + fH);
 
         let curY = pad + 26 + fH + fSub;
         ctx.textAlign = 'right';
-        ctx.font = `900 ${Math.max(11, Math.round(H * 0.08))}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(`• إجمالي العدد بالدفعة: ${itemsList.length} فرخة / عبوة`, W - pad - 16, curY);
-        curY += Math.round(H * 0.11);
-        ctx.fillText(`• إجمالي الوزن الصافي: ${(totalGrams / 1000).toFixed(3)} كجم (${totalGrams} جم)`, W - pad - 16, curY);
-        curY += Math.round(H * 0.11);
-        ctx.fillText(`• متوسط وزن القطعة: ${avgGrams} جم | الكيلو: ${itemsList[0]?.kiloPrice || 0} ج`, W - pad - 16, curY);
+        ctx.font = `900 ${Math.max(11, Math.round(H * 0.078))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`• العدد الإجمالي: ${itemsList.length} فرخة / عبوة`, W - pad - 16, curY); curY += Math.round(H * 0.11);
+        ctx.fillText(`• إجمالي الوزن الصافي: ${(totalGrams / 1000).toFixed(3)} كجم`, W - pad - 16, curY); curY += Math.round(H * 0.11);
+        ctx.fillText(`• متوسط القطعة: ${avgGrams} جم | الكيلو: ${itemsList[0]?.kiloPrice || 0} ج`, W - pad - 16, curY);
 
-        const boxH = Math.max(30, Math.round(H * 0.20));
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(pad + 12, H - pad - boxH - 10, W - (pad + 12) * 2, boxH);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
+        const boxH = Math.max(30, Math.round(H * 0.2));
+        ctx.fillStyle = '#000000'; ctx.fillRect(pad + 12, H - pad - boxH - 10, W - (pad + 12) * 2, boxH);
+        ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.font = `900 ${Math.max(14, Math.round(boxH * 0.52))}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(`إجمالي قيمة الدفعة: ${totalCash.toLocaleString()} ج.م`, W / 2, H - pad - 10 - boxH / 2);
-
+        ctx.fillText(`إجمالي الدفعة: ${totalCash.toLocaleString()} ج.م`, W / 2, H - pad - 10 - boxH / 2);
         return canvas;
     }
 
     // =========================================================================
-    // 🎛️ واجهة التحكم الحر في المربعات باللمس والمساطر داخل استوديو waybill.js
+    // 9. محرك رسم استيكر أطباق السمان والفريزر (203 DPI)
     // =========================================================================
-    const BOX_META_CATALOG = {
-        shipping: [
-            { key: 'header',   name: '1. مربع الهيدر والباركود' },
-            { key: 'customer', name: '2. مربع العميل والمنطقة' },
-            { key: 'items',    name: '3. جدول الأصناف' },
-            { key: 'cod',      name: '4. مربع المطلوب تحصيله' },
-            { key: 'footer',   name: '5. الملاحظات والدعاية' }
-        ],
-        poultry_batch: [
-            { key: 'pb_header',  name: '1. هيدر المتجر ورقم التكت' },
-            { key: 'pb_title',   name: '2. مربع اسم الصنف والتاريخ' },
-            { key: 'pb_weight',  name: '3. مربع الوزن الصافي' },
-            { key: 'pb_rate',    name: '4. مربع سعر الكيلو' },
-            { key: 'pb_price',   name: '5. مربع السعر المطلوب' },
-            { key: 'pb_barcode', name: '6. مربع الباركود السفلي' }
-        ]
-    };
+    function renderFreezerTagCanvas203DPI(cfg) {
+        const dims = resolveDimensionsMm(cfg);
+        const W = Math.floor(dims.w * DOTS_PER_MM), H = Math.floor(dims.h * DOTS_PER_MM);
+        const canvas = document.createElement('canvas');
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext('2d');
+        ctx.direction = 'rtl'; ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
 
-    window.selectInteractiveStudioBox = function (boxKey) {
-        window.poultryBatchState.activeBoxKey = boxKey;
-        const bcCfg = getBoxCustomConfig();
-        const b = bcCfg.boxes[boxKey] || { visible: true, hScale: 100, wScale: 100, fScale: 100, style: 'solid', label: '' };
+        const pad = Math.max(6, Math.round(Math.min(W, H) * 0.028));
+        drawFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, cfg.borderStyle || 'double', 3);
 
-        document.querySelectorAll('.dw-interactive-box-pill').forEach(btn => {
-            const k = btn.getAttribute('data-box-key');
-            btn.className = (k === boxKey)
-                ? 'dw-interactive-box-pill px-2.5 py-1 rounded-lg text-[10px] font-black bg-amber-400 text-slate-950 shadow-sm transition-all'
-                : 'dw-interactive-box-pill px-2.5 py-1 rounded-lg text-[10px] font-black bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all';
-        });
+        const innerMargin = (cfg.borderStyle || 'double') === 'double' ? 12 : 8;
+        const innerL = pad + innerMargin, innerR = W - pad - innerMargin, innerW = innerR - innerL;
+        const storeName = (cfg.customStoreTitle || (typeof storeSettings !== 'undefined' && storeSettings.storeName) || 'سمان ههيا').trim();
+        const storePhone = (cfg.customStorePhone || (typeof storeSettings !== 'undefined' && storeSettings.storePhone) || '01208027294').trim();
 
-        const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-        const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
-        const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = Boolean(v); };
+        const pName = (document.getElementById('ps-fz-name')?.value || 'طبق سمان جامبو ملكي').trim();
+        const pWeight = (document.getElementById('ps-fz-weight')?.value || '350 - 400 جم صافي').trim();
+        const pPrice = document.getElementById('ps-fz-price')?.value || '';
+        const showPrice = document.getElementById('ps-fz-show-price')?.checked;
+        const prodDateRaw = document.getElementById('ps-fz-prod-date')?.value || new Date().toISOString().slice(0, 10);
+        const expMode = document.getElementById('ps-fz-expiry')?.value || '3months';
+        const lotNum = (document.getElementById('ps-fz-lot')?.value || '').trim();
+        const bcVal = (document.getElementById('ps-fz-barcode')?.value || '').trim();
 
-        setChk('dw-bx-visible', b.visible !== false);
-        setVal('dw-bx-hscale', b.hScale || 100);
-        setTxt('dw-bx-hscale-lbl', (b.hScale || 100) + '%');
-        setVal('dw-bx-wscale', b.wScale || 100);
-        setTxt('dw-bx-wscale-lbl', (b.wScale || 100) + '%');
-        setVal('dw-bx-fscale', b.fScale || 100);
-        setTxt('dw-bx-fscale-lbl', (b.fScale || 100) + '%');
-        setVal('dw-bx-style', b.style || 'solid');
-        setVal('dw-bx-label', b.label || '');
-    };
+        const dProd = new Date(prodDateRaw + 'T00:00:00');
+        const dExp = new Date(dProd.getTime());
+        let note = '❄️ يُحفظ مجمداً في الفريزر (-18°)';
+        if (expMode === '6months') { dExp.setMonth(dExp.getMonth() + 6); note = '❄️ يُحفظ مجمداً في الفريزر'; }
+        else if (expMode === '3days') { dExp.setDate(dExp.getDate() + 3); note = '🌡️ يُحفظ مبرداً بالثلاجة (طازج)'; }
+        else if (expMode === '15days') { dExp.setDate(dExp.getDate() + 15); note = '🥚 يُحفظ في مكان بارد وجاف'; }
+        else { dExp.setMonth(dExp.getMonth() + 3); }
 
-    window.onInteractiveBoxControlChange = function (field, value) {
-        const boxKey = window.poultryBatchState.activeBoxKey;
-        if (!boxKey) return;
-        const bcCfg = getBoxCustomConfig();
-        if (!bcCfg.boxes[boxKey]) bcCfg.boxes[boxKey] = { visible: true, hScale: 100, wScale: 100, fScale: 100, style: 'solid', label: '' };
+        const fmtDate = (d) => `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+        const fScale = Math.min(1.35, Math.max(0.7, (Number(cfg.fontScalePct) || 100) / 100));
 
-        if (field === 'visible') bcCfg.boxes[boxKey].visible = Boolean(value);
-        else if (field === 'hScale') {
-            bcCfg.boxes[boxKey].hScale = Number(value) || 100;
-            const lbl = document.getElementById('dw-bx-hscale-lbl');
-            if (lbl) lbl.innerText = bcCfg.boxes[boxKey].hScale + '%';
-        } else if (field === 'wScale') {
-            bcCfg.boxes[boxKey].wScale = Number(value) || 100;
-            const lbl = document.getElementById('dw-bx-wscale-lbl');
-            if (lbl) lbl.innerText = bcCfg.boxes[boxKey].wScale + '%';
-        } else if (field === 'fScale') {
-            bcCfg.boxes[boxKey].fScale = Number(value) || 100;
-            const lbl = document.getElementById('dw-bx-fscale-lbl');
-            if (lbl) lbl.innerText = bcCfg.boxes[boxKey].fScale + '%';
-        } else if (field === 'style') {
-            bcCfg.boxes[boxKey].style = value;
-        } else if (field === 'label') {
-            bcCfg.boxes[boxKey].label = value;
+        let y = pad + innerMargin;
+        const hdrH = Math.max(24, Math.round(H * 0.17));
+        ctx.fillStyle = '#000000'; ctx.fillRect(innerL, y, innerW, hdrH);
+        ctx.fillStyle = '#FFFFFF'; ctx.textBaseline = 'middle';
+        ctx.textAlign = 'right';
+        ctx.font = `900 ${Math.max(12, Math.round(hdrH * 0.52 * fScale))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(storeName, innerR - 8, y + hdrH / 2);
+        ctx.textAlign = 'left';
+        ctx.font = `900 ${Math.max(11, Math.round(hdrH * 0.44 * fScale))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(storePhone, innerL + 8, y + hdrH / 2);
+        y += hdrH + Math.max(6, Math.round(H * 0.03));
+
+        // بطاقة المنتج
+        const cardH = Math.max(46, Math.round(H * 0.30));
+        drawSharpRectBorder(ctx, innerL, y, innerW, cardH, 3);
+        ctx.fillStyle = '#000000'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        const fTitle = Math.max(14, Math.round(cardH * 0.30 * fScale));
+        ctx.font = `900 ${fTitle}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(pName.slice(0, 32), W / 2, y + 6);
+
+        ctx.font = `900 ${Math.max(11, Math.round(cardH * 0.22 * fScale))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`الوزن: ${pWeight}${lotNum ? ' • تشغيلة: ' + lotNum : ''}`, W / 2, y + 10 + fTitle);
+
+        if (showPrice && pPrice) {
+            const pillH = Math.max(20, Math.round(cardH * 0.26));
+            const pillW = Math.round(innerW * 0.52);
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(Math.round((W - pillW) / 2), y + cardH - pillH - 5, pillW, pillH);
+            ctx.fillStyle = '#FFFFFF'; ctx.textBaseline = 'middle';
+            ctx.font = `900 ${Math.max(11, Math.round(pillH * 0.65))}px Cairo, Tahoma, sans-serif`;
+            ctx.fillText(`السعر: ${pPrice} ج.م`, W / 2, y + cardH - pillH / 2 - 5);
         }
+        y += cardH + Math.max(5, Math.round(H * 0.025));
 
-        saveBoxCustomConfig(bcCfg);
-        window.onDeliStudioInputChange();
-    };
+        // تاريخ الإنتاج والصلاحية
+        const dateBoxH = Math.max(32, Math.round(H * 0.17));
+        const halfW = Math.round((innerW - 8) / 2);
+        drawSharpRectBorder(ctx, innerL, y, halfW, dateBoxH, 2);
+        drawSharpRectBorder(ctx, innerL + halfW + 8, y, innerW - halfW - 8, dateBoxH, 2);
+        ctx.fillStyle = '#000000'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.font = `800 ${Math.max(9, Math.round(dateBoxH * 0.32))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText('انتهاء الصلاحية', innerL + halfW / 2, y + 4);
+        ctx.fillText('تاريخ الذبح / الإنتاج', innerL + halfW + 8 + halfW / 2, y + 4);
+        ctx.textBaseline = 'bottom';
+        ctx.font = `900 ${Math.max(11, Math.round(dateBoxH * 0.44))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(fmtDate(dExp), innerL + halfW / 2, y + dateBoxH - 4);
+        ctx.fillText(fmtDate(dProd), innerL + halfW + 8 + halfW / 2, y + dateBoxH - 4);
+        y += dateBoxH + Math.max(4, Math.round(H * 0.02));
 
-    window.moveInteractiveStudioBoxOrder = function (delta) {
-        const mode = document.getElementById('dw-template-mode')?.value || 'shipping';
-        const bcCfg = getBoxCustomConfig();
-        let activeKey = window.poultryBatchState.activeBoxKey;
-
-        if (mode === 'poultry_batch' && ['pb_weight', 'pb_rate', 'pb_price'].includes(activeKey)) {
-            activeKey = 'pb_metrics';
+        const remH = H - pad - innerMargin - y;
+        if (bcVal && remH >= 24) {
+            drawBarcodeOnCanvas(ctx, bcVal, W / 2, y, Math.round(innerW * 0.78), Math.min(40, remH - 16), false);
         }
-
-        const arrKey = mode === 'poultry_batch' ? 'poultryOrder' : 'shippingOrder';
-        const orderArr = bcCfg[arrKey] || [];
-        const idx = orderArr.indexOf(activeKey);
-        if (idx === -1) return;
-        const nextIdx = idx + delta;
-        if (nextIdx < 0 || nextIdx >= orderArr.length) return;
-
-        const tmp = orderArr[idx];
-        orderArr[idx] = orderArr[nextIdx];
-        orderArr[nextIdx] = tmp;
-
-        saveBoxCustomConfig(bcCfg);
-        window.onDeliStudioInputChange();
-        notifyPrinterToast('✨ تم تحريك المربع وحفظ ترتيبه الجديد!');
-    };
-
-    window.resetInteractiveStudioBoxes = function () {
-        if (!confirm('هل تريد استعادة أبعاد وترتيب المربعات الافتراضي؟')) return;
-        saveBoxCustomConfig(JSON.parse(JSON.stringify(defaultBoxCustomizations)));
-        refreshBoxControllerPillsForMode(document.getElementById('dw-template-mode')?.value || 'shipping');
-        window.onDeliStudioInputChange();
-        notifyPrinterToast('↺ تمت استعادة ضبط المربعات الأصلي');
-    };
-
-    window.togglePrintSequenceOrder = function (checked) {
-        const bcCfg = getBoxCustomConfig();
-        bcCfg.reversePrintOrder = Boolean(checked);
-        saveBoxCustomConfig(bcCfg);
-        notifyPrinterToast(checked ? '🔄 سيتم إخراج التكت الأخير أولاً ليكون التكت #1 على وجه الرول!' : '🔢 سيتم الطباعة بالترتيب الطبيعي (#1 ثم #2 ثم #3...)');
-    };
-
-    function refreshBoxControllerPillsForMode(mode) {
-        const pillsWrap = document.getElementById('dw-bx-pills-container');
-        if (!pillsWrap) return;
-        const list = BOX_META_CATALOG[mode] || BOX_META_CATALOG.shipping;
-        pillsWrap.innerHTML = list.map(item => `
-            <button type="button" data-box-key="${item.key}" onclick="selectInteractiveStudioBox('${item.key}')" class="dw-interactive-box-pill px-2.5 py-1 rounded-lg text-[10px] font-black bg-slate-800 text-slate-200 hover:bg-slate-700 transition-all">
-                ${item.name}
-            </button>
-        `).join('');
-        const firstKey = list[0]?.key || 'cod';
-        window.selectInteractiveStudioBox(firstKey);
+        ctx.fillStyle = '#000000'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        ctx.font = `900 ${Math.max(9, Math.round(H * 0.055 * fScale))}px Cairo, Tahoma, sans-serif`;
+        ctx.fillText(`${note} — بالهنا والشفا 🤍`, W / 2, H - pad - Math.max(3, Math.floor(innerMargin * 0.3)));
+        return canvas;
     }
 
-    function injectPoultryBatchUIInsideWaybillModal() {
-        const modeBtnFree = document.getElementById('dw-mode-btn-free_custom');
-        if (modeBtnFree && !document.getElementById('dw-mode-btn-poultry_batch')) {
-            const pbBtn = document.createElement('button');
-            pbBtn.type = 'button';
-            pbBtn.id = 'dw-mode-btn-poultry_batch';
-            pbBtn.onclick = () => window.switchDeliTemplateMode('poultry_batch');
-            pbBtn.className = 'px-3 py-1.5 rounded-xl text-xs font-black bg-amber-100 text-amber-950 border border-amber-300 hover:bg-amber-200 transition-all';
-            pbBtn.innerHTML = '🐔 تكت ميزان فراخ (دفعة أوزان)';
-            modeBtnFree.after(pbBtn);
+    // =========================================================================
+    // 10. تجميع ملصقات التبويب النشط حالياً للطباعة (بلوتوث / USB / Spooler)
+    // =========================================================================
+    function getActiveOrdersForPrinting() {
+        const liveList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        let list = liveList.filter(o => o && studioState.selectedOrderIds.has(o.id) && o.status !== 'trash' && !o.isArchived);
+        if (list.length === 0 && window.deliPrinterConnection.lastOrdersQueue.length > 0) {
+            list = window.deliPrinterConnection.lastOrdersQueue;
+        }
+        return list;
+    }
+
+    function buildActiveTabCanvases(cfg) {
+        const copies = Math.max(1, parseInt(cfg.copies) || 1);
+        const canvases = [];
+
+        if (studioState.activeTab === 'designer') {
+            ensureDesignerInitialized();
+            const dCopies = Math.max(1, parseInt(document.getElementById('ps-des-copies')?.value) || studioState.designer.copies || 1);
+            const single = renderFreeDesignerToCanvas203DPI(cfg, false);
+            for (let i = 0; i < dCopies; i++) canvases.push(single);
+            return canvases;
         }
 
-        // حقن لوحة التحكم الحر في المربعات أسفل المعاينة مباشرة لسهولة التحكم بالموبايل
-        const previewStage = document.getElementById('dw-live-preview-stage');
-        if (previewStage && !document.getElementById('dw-interactive-box-controller')) {
-            const sw = document.createElement('div');
-            sw.id = 'dw-pb-preview-switcher';
-            sw.className = 'hidden mb-2 flex items-center justify-between bg-slate-900 text-white px-2.5 py-1.5 rounded-xl text-[10px] font-black';
-            previewStage.before(sw);
-
-            const toggleAdvBtn = document.createElement('button');
-            toggleAdvBtn.type = 'button';
-            toggleAdvBtn.onclick = () => document.getElementById('dw-interactive-box-controller')?.classList.toggle('hidden');
-            toggleAdvBtn.className = 'mt-2 w-full bg-white hover:bg-slate-100 text-slate-600 border border-slate-300 py-1.5 rounded-xl text-[10px] font-black transition-all flex items-center justify-center gap-1';
-            toggleAdvBtn.innerHTML = '<i class="fa-solid fa-sliders"></i> تخصيص متقدم للمربعات (اختياري)';
-            previewStage.after(toggleAdvBtn);
-
-            const boxCtrl = document.createElement('div');
-            boxCtrl.id = 'dw-interactive-box-controller';
-            boxCtrl.className = 'hidden mt-2 bg-slate-900 text-white p-3 rounded-2xl border border-slate-700 space-y-2.5 text-[11px] font-black';
-            const bcCfg = getBoxCustomConfig();
-
-            boxCtrl.innerHTML = `
-                <div class="flex flex-wrap items-center justify-between gap-1 border-b border-slate-700 pb-1.5">
-                    <span class="text-amber-300 text-[11px]"><i class="fa-solid fa-wand-magic-sparkles ml-1"></i> المس أي مربع في المعاينة أو اختره لتعديله:</span>
-                    <div class="flex items-center gap-1">
-                        <button type="button" onclick="moveInteractiveStudioBoxOrder(-1)" class="bg-slate-700 hover:bg-slate-600 px-2 py-0.5 rounded text-[10px]" title="تحريك المربع لأعلى">⬆️ فوق</button>
-                        <button type="button" onclick="moveInteractiveStudioBoxOrder(1)" class="bg-slate-700 hover:bg-slate-600 px-2 py-0.5 rounded text-[10px]" title="تحريك المربع لأسفل">⬇️ تحت</button>
-                        <button type="button" onclick="resetInteractiveStudioBoxes()" class="bg-rose-900/70 hover:bg-rose-600 text-rose-200 hover:text-white px-2 py-0.5 rounded text-[10px]" title="استعادة ضبط المربعات">↺ أصلي</button>
-                    </div>
-                </div>
-
-                <!-- أزرار اختيار المربع -->
-                <div id="dw-bx-pills-container" class="flex flex-wrap gap-1"></div>
-
-                <!-- مساطر التحكم الحر في المربع المحدد -->
-                <div class="grid grid-cols-3 gap-2 bg-slate-950/80 p-2 rounded-xl border border-slate-800">
-                    <div>
-                        <div class="flex justify-between text-[9px] text-cyan-300 mb-0.5">
-                            <span>↕️ ارتفاع المربع</span>
-                            <span id="dw-bx-hscale-lbl">100%</span>
-                        </div>
-                        <input type="range" id="dw-bx-hscale" min="55" max="165" step="5" value="100" oninput="onInteractiveBoxControlChange('hScale', this.value)" class="w-full accent-cyan-400 h-1.5 cursor-pointer">
-                    </div>
-                    <div>
-                        <div class="flex justify-between text-[9px] text-emerald-300 mb-0.5">
-                            <span>↔️ عرض المربع</span>
-                            <span id="dw-bx-wscale-lbl">100%</span>
-                        </div>
-                        <input type="range" id="dw-bx-wscale" min="20" max="100" step="5" value="100" oninput="onInteractiveBoxControlChange('wScale', this.value)" class="w-full accent-emerald-400 h-1.5 cursor-pointer">
-                    </div>
-                    <div>
-                        <div class="flex justify-between text-[9px] text-amber-300 mb-0.5">
-                            <span>🔤 حجم الخط</span>
-                            <span id="dw-bx-fscale-lbl">100%</span>
-                        </div>
-                        <input type="range" id="dw-bx-fscale" min="65" max="170" step="5" value="100" oninput="onInteractiveBoxControlChange('fScale', this.value)" class="w-full accent-amber-400 h-1.5 cursor-pointer">
-                    </div>
-                </div>
-
-                <!-- إظهار/إخفاء + شكل البرواز + عنوان مخصص للمربع -->
-                <div class="grid grid-cols-12 gap-1.5 items-center">
-                    <label class="col-span-4 flex items-center gap-1.5 bg-slate-800 px-2 py-1.5 rounded-lg cursor-pointer text-[10px] text-emerald-300">
-                        <input type="checkbox" id="dw-bx-visible" checked onchange="onInteractiveBoxControlChange('visible', this.checked)" class="w-3.5 h-3.5 accent-emerald-400 rounded">
-                        <span>👁️ إظهار المربع</span>
-                    </label>
-                    <select id="dw-bx-style" onchange="onInteractiveBoxControlChange('style', this.value)" class="col-span-4 bg-slate-800 border border-slate-700 text-white rounded-lg p-1.5 text-[10px] font-black outline-none">
-                        <option value="solid">⬛ برواز سميك</option>
-                        <option value="inverted">🌓 أسود بارز (عكس)</option>
-                        <option value="double">▣ برواز مزدوج</option>
-                        <option value="rounded">▢ حواف دائرية</option>
-                        <option value="dashed">✂️ برواز منقط</option>
-                        <option value="none">🚫 بدون برواز</option>
-                    </select>
-                    <input type="text" id="dw-bx-label" placeholder="تغيير عنوان المربع..." oninput="onInteractiveBoxControlChange('label', this.value)" class="col-span-4 bg-slate-800 border border-slate-700 text-white rounded-lg p-1.5 text-[10px] font-bold outline-none">
-                </div>
-
-                <!-- خيار اتجاه ترتيب الرول عند طباعة 10+ عناصر -->
-                <label class="flex items-center justify-between bg-slate-800/70 px-2.5 py-1.5 rounded-lg cursor-pointer text-[10px] text-slate-300 border border-slate-700">
-                    <span>🔢 طباعة بالترتيب الصارم (فعّل لعكس الرول 10⬅️1 ليكون #1 بالأعلى)</span>
-                    <input type="checkbox" id="dw-reverse-roll-order" ${bcCfg.reversePrintOrder ? 'checked' : ''} onchange="togglePrintSequenceOrder(this.checked)" class="w-3.5 h-3.5 accent-amber-400 rounded">
-                </label>
-            `;
-            previewStage.after(boxCtrl);
-
-            // تفعيل اللمس المباشر على صورة المعاينة (Canvas) لاختيار المربع فوراً بالموبايل
-            previewStage.addEventListener('click', function (ev) {
-                const cnv = previewStage.querySelector('canvas');
-                if (!cnv) return;
-                const rect = cnv.getBoundingClientRect();
-                const scaleX = cnv.width / rect.width;
-                const scaleY = cnv.height / rect.height;
-                const clickX = (ev.clientX - rect.left) * scaleX;
-                const clickY = (ev.clientY - rect.top) * scaleY;
-
-                const hit = (window.poultryBatchState.hitRegions || []).find(r =>
-                    clickX >= r.x && clickX <= (r.x + r.w) && clickY >= r.y && clickY <= (r.y + r.h)
-                );
-                if (hit && hit.key) {
-                    window.selectInteractiveStudioBox(hit.key);
-                    notifyPrinterToast(`🎯 تم تحديد (${hit.key}) — عدّل أبعاده من المساطر بالأسفل`);
+        if (studioState.activeTab === 'poultry') {
+            const items = window.parsePoultryWeightsList();
+            if (items.length === 0) return [];
+            const ordered = cfg.reversePrintOrder ? items.slice().reverse() : items;
+            const pCopies = Math.max(1, parseInt(document.getElementById('ps-pb-copies')?.value) || 1);
+            ordered.forEach(it => {
+                for (let c = 0; c < pCopies; c++) {
+                    canvases.push(window.renderSinglePoultryScaleTag203DPI(it, items.length, cfg));
                 }
             });
+            if (document.getElementById('ps-pb-master-summary')?.checked && items.length > 1) {
+                canvases.push(renderPoultrySummaryCanvas203DPI(items, cfg));
+            }
+            return canvases;
         }
 
-        const subtabOrderBags = document.getElementById('dw-subtab-order_bags');
-        if (subtabOrderBags && !document.getElementById('dw-poultry-batch-editor')) {
-            const editorDiv = document.createElement('div');
-            editorDiv.id = 'dw-poultry-batch-editor';
-            editorDiv.className = 'hidden bg-white p-4 rounded-2xl border-2 border-amber-300 shadow-sm space-y-3';
-            editorDiv.innerHTML = `
-                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-amber-100 pb-2">
-                    <div>
-                        <h4 class="text-xs font-black text-slate-900 flex items-center gap-1.5">
-                            <i class="fa-solid fa-scale-balanced text-amber-600"></i> منظومة تكت أوزان وتسعير الفراخ والطيور بالترتيب الصارم
-                        </h4>
-                        <p class="text-[10px] font-bold text-slate-500">اكتب أو الصق 10 أوزان أو 50 وزناً وستخرج من الطابعة بنفس الترتيب والتسلسل بالمللي</p>
-                    </div>
-                    <div class="flex flex-wrap gap-1">
-                        <button type="button" onclick="pullWeightsFromLiveSystemOrClipboard('site_dom')" class="bg-amber-500 hover:bg-amber-400 text-slate-950 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all">📥 سحب من الموقع بالترتيب</button>
-                        <button type="button" onclick="pullWeightsFromLiveSystemOrClipboard('clipboard')" class="bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all">📋 لصق ذكي بالترتيب</button>
-                        <button type="button" onclick="copyPoultryBatchToWhatsApp()" class="bg-emerald-50 hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-200 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all">📲 كشف واتساب</button>
-                    </div>
-                </div>
+        if (studioState.activeTab === 'freezer') {
+            const fCopies = Math.max(1, parseInt(document.getElementById('ps-fz-copies')?.value) || 1);
+            const single = renderFreezerTagCanvas203DPI(cfg);
+            for (let c = 0; c < fCopies; c++) canvases.push(single);
+            return canvases;
+        }
 
-                <!-- إعدادات الصنف وسعر الكيلو والتقريب -->
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                    <div class="col-span-2">
-                        <label class="text-[10px] font-black text-slate-600 block mb-1">اسم الصنف على التكت</label>
-                        <input type="text" id="dw-pb-name" value="فراخ تسمين طازجة - ذبح اليوم" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
+        // Orders tab
+        let orders = getActiveOrdersForPrinting();
+        if (orders.length === 0) return [];
+        if (cfg.reversePrintOrder && orders.length > 1) orders = orders.slice().reverse();
+
+        if (studioState.ordersPreviewMode === 'packing') {
+            canvases.push(renderPackingSummaryCanvas203DPI(orders, cfg));
+            return canvases;
+        }
+        if (studioState.ordersPreviewMode === 'manifest') {
+            canvases.push(renderDriverManifestCanvas203DPI(orders, cfg));
+            return canvases;
+        }
+
+        orders.forEach((ord, idx) => {
+            const bags = Math.max(1, Math.min(20, parseInt(studioState.orderBagsMap[ord.id]) || parseInt(ord._bagsCount) || 1));
+            for (let c = 0; c < copies; c++) {
+                for (let b = 1; b <= bags; b++) {
+                    canvases.push(window.renderWaybillToCanvas203DPI(ord, cfg, idx + 1, orders.length, b, bags));
+                }
+            }
+        });
+        return canvases;
+    }
+
+    // =========================================================================
+    // 11. واجهة صفحة «استوديو الطابعة» الملكية داخل #view-printer
+    // =========================================================================
+    window.renderPrinterStudioPage = function () {
+        const container = document.getElementById('view-printer');
+        if (!container) return;
+
+        if (!container.dataset.built) {
+            buildPrinterStudioShellHTML(container);
+            container.dataset.built = '1';
+        }
+
+        syncInputsFromConfig();
+        ensureDesignerInitialized();
+        window.scanAndLoadNativePairedPrinters(false);
+        populateFreezerProductsSelect();
+        renderSavedDesignerTemplatesUI();
+        renderOrdersTabQueue();
+        window.parsePoultryWeightsList();
+        switchPrinterStudioSubTab(studioState.activeTab, true);
+        refreshStudioPreviewStage();
+    };
+
+    function buildPrinterStudioShellHTML(container) {
+        const presetBtnsHtml = Object.keys(PAPER_PRESETS).map(k => {
+            const p = PAPER_PRESETS[k];
+            return `<button type="button" data-preset="${k}" onclick="psSelectPaperPreset('${k}')" class="ps-preset-btn px-2.5 py-1.5 rounded-xl text-[11px] font-black bg-white/10 hover:bg-amber-400 hover:text-slate-950 text-emerald-100 border border-white/15 transition-all whitespace-nowrap">${p.label}</button>`;
+        }).join('');
+
+        container.innerHTML = `
+            <!-- 1. شريط القيادة والبلوتوث والمقاسات العلوي (Royal Emerald & Gold) -->
+            <div class="bg-gradient-to-l from-[#042f2e] via-[#064e3b] to-slate-900 text-white p-4 rounded-[1.5rem] shadow-soft border border-amber-400/25 space-y-3">
+                <div class="flex flex-wrap items-center justify-between gap-2.5">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-300 to-amber-500 text-slate-950 flex items-center justify-center text-xl shadow-lg shadow-amber-500/20 shrink-0">
+                            <i class="fa-solid fa-print"></i>
+                        </div>
+                        <div>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <h2 class="text-base sm:text-lg font-black text-white">استوديو الطباعة الحرارية (Deli E750W)</h2>
+                                <span id="ps-bt-badge" class="inline-flex items-center gap-1.5 bg-emerald-400 text-slate-950 px-2.5 py-0.5 rounded-xl text-[10px] font-black">فحص البلوتوث...</span>
+                            </div>
+                            <p class="text-[11px] font-bold text-emerald-200/80">مصمم حر باللمس (وورد) • بوالص الطلبات والشنط • ميزان الفراخ • استيكرات الفريزر</p>
+                        </div>
                     </div>
-                    <div>
-                        <label class="text-[10px] font-black text-emerald-700 block mb-1">💰 سعر الكيلو (ج.م)</label>
-                        <input type="number" id="dw-pb-kilo-price" value="110" min="1" step="0.5" oninput="parsePoultryWeightsList(); onDeliStudioInputChange()" class="w-full border-2 border-emerald-400 rounded-xl p-2 text-center text-xs font-black bg-emerald-50 text-emerald-950">
-                    </div>
-                    <div>
-                        <label class="text-[10px] font-black text-slate-600 block mb-1">تقريب السعر التجاري</label>
-                        <select id="dw-pb-rounding" onchange="parsePoultryWeightsList(); onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
-                            <option value="nearest_1" selected>أقرب جنيه صحيح</option>
-                            <option value="floor_1">جبر الكسر لصالح العميل</option>
-                            <option value="nearest_5">أقرب 5 جنيه</option>
-                            <option value="exact">بالقروش (بدون تقريب)</option>
+
+                    <!-- اختيار طابعة البلوتوث وأوامر المعايرة -->
+                    <div class="flex flex-wrap items-center gap-1.5 w-full lg:w-auto">
+                        <select id="ps-bt-select" onchange="psUpdateCfgField('selectedMac', this.value)" class="flex-1 lg:w-56 bg-slate-900/90 border border-white/20 text-white rounded-xl px-3 py-2 text-xs font-black outline-none">
+                            <option value="AUTO">🤖 اختيار تلقائي (Deli E750W)</option>
                         </select>
+                        <button type="button" onclick="scanAndLoadNativePairedPrinters(true)" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-black transition-all active:scale-95" title="تحديث طابعات البلوتوث"><i class="fa-brands fa-bluetooth-b"></i></button>
+                        <button type="button" onclick="sendDeliHardwareCommand('calibrate')" class="bg-white/10 hover:bg-indigo-500 text-white px-2.5 py-2 rounded-xl text-[11px] font-black border border-white/15 transition-all" title="معايرة حساس الورق">🎯 معايرة</button>
+                        <button type="button" onclick="sendDeliHardwareCommand('feed')" class="bg-white/10 hover:bg-slate-700 text-white px-2.5 py-2 rounded-xl text-[11px] font-black border border-white/15 transition-all" title="سحب ورقة">⏬ ورقة</button>
+                        <button type="button" onclick="psToggleHwDrawer()" class="bg-amber-400/20 hover:bg-amber-400 text-amber-200 hover:text-slate-950 px-2.5 py-2 rounded-xl text-[11px] font-black border border-amber-400/35 transition-all"><i class="fa-solid fa-sliders"></i> إعدادات</button>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    <div class="sm:col-span-2">
-                        <label class="text-[10px] font-black text-slate-600 block mb-1">بيان التاريخ والصلاحية أعلى التكت</label>
-                        <input type="text" id="dw-pb-date-note" value="ذبح اليوم - طازج ونظيف 100%" oninput="onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-slate-50">
+                <!-- شريط المقاسات السريعة + إدخال حر بالملليمتر -->
+                <div class="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-white/10">
+                    <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5 max-w-full" style="scrollbar-width:none;">
+                        <span class="text-[10px] font-black text-amber-300 shrink-0 ml-1">📐 المقاس:</span>
+                        ${presetBtnsHtml}
                     </div>
-                    <div>
-                        <label class="text-[10px] font-black text-slate-600 block mb-1">خصم وزن الطبق/الكيس (جم)</label>
-                        <input type="number" id="dw-pb-tare" value="0" min="0" max="200" oninput="parsePoultryWeightsList(); onDeliStudioInputChange()" class="w-full border border-slate-200 rounded-xl p-2 text-center text-xs font-black bg-slate-50">
+                    <div class="flex items-center gap-1.5 bg-black/30 px-2.5 py-1 rounded-xl border border-white/15 shrink-0">
+                        <span class="text-[10px] font-bold text-emerald-200">عرض(مم):</span>
+                        <input type="number" id="ps-w-mm" min="15" max="108" oninput="psManualDimChanged()" class="w-14 bg-slate-900 border border-white/20 rounded-lg py-1 text-center text-xs font-black text-amber-300 outline-none">
+                        <span class="text-[10px] font-bold text-emerald-200">× طول:</span>
+                        <input type="number" id="ps-h-mm" min="15" max="250" oninput="psManualDimChanged()" class="w-14 bg-slate-900 border border-white/20 rounded-lg py-1 text-center text-xs font-black text-amber-300 outline-none">
                     </div>
                 </div>
 
-                <!-- إدخال الأوزان بالترتيب -->
-                <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
-                    <div class="sm:col-span-5 space-y-2">
-                        <label class="text-[10px] font-black text-slate-700 block">1. رص الأوزان أو الصقها (تُطبع بنفس الترتيب #1، #2...):</label>
-                        <div class="flex gap-1">
-                            <input type="number" id="dw-pb-quick-weight" placeholder="اكتب الوزن بالجرام ثم Enter" onkeydown="if(event.key==='Enter'){event.preventDefault(); quickAddSingleScaleWeight();}" class="flex-1 border border-amber-300 rounded-xl px-2.5 py-1.5 text-xs font-black bg-amber-50/40 outline-none">
-                            <button type="button" onclick="quickAddSingleScaleWeight()" class="bg-slate-900 text-amber-300 px-3 py-1.5 rounded-xl text-xs font-black">+ أضف</button>
+                <!-- درج إعدادات الهاردوير المتقدمة (مطوي افتراضياً لنظافة الشاشة) -->
+                <div id="ps-hw-drawer" class="hidden bg-slate-950/85 border border-amber-400/25 rounded-2xl p-3.5 space-y-3 text-xs">
+                    <div class="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 block mb-1">غمقان الحبر (1-15)</label>
+                            <input type="number" id="ps-cfg-density" min="1" max="15" oninput="psUpdateCfgField('density', Number(this.value))" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-center font-black text-amber-300">
                         </div>
-                        <textarea id="dw-pb-weights-raw" rows="5" oninput="parsePoultryWeightsList(); onDeliStudioInputChange()" placeholder="1389&#10;1389&#10;1700&#10;638" class="w-full border border-slate-300 rounded-xl p-2.5 text-xs font-black bg-slate-50 font-mono leading-relaxed outline-none focus:border-brand-primary">1389
-1389
-1700
-638</textarea>
-                    </div>
-
-                    <div class="sm:col-span-7 flex flex-col justify-between space-y-2">
-                        <div class="flex items-center justify-between">
-                            <label class="text-[10px] font-black text-slate-700">2. طابور الطباعة المرتب (يمكنك تقديم/تأخير أي فرخة بأسهم ▲▼):</label>
-                            <button type="button" onclick="document.getElementById('dw-pb-weights-raw').value=''; parsePoultryWeightsList(); onDeliStudioInputChange();" class="text-[10px] font-black text-rose-600 hover:underline">🗑️ مسح الكل</button>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 block mb-1">الفاصل Gap (مم)</label>
+                            <input type="number" id="ps-cfg-gap" min="0" max="10" step="0.5" oninput="psUpdateCfgField('gapMm', Number(this.value))" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-center font-black text-white">
                         </div>
-                        <div id="dw-pb-chips-list" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto custom-scroll p-1 bg-slate-100 rounded-xl border border-slate-200"></div>
-                        <div id="dw-pb-summary-bar"></div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 block mb-1">إزاحة X (مم)</label>
+                            <input type="number" id="ps-cfg-ox" min="-10" max="10" step="0.5" oninput="psUpdateCfgField('offsetXMm', Number(this.value))" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-center font-black text-white">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 block mb-1">إزاحة Y (مم)</label>
+                            <input type="number" id="ps-cfg-oy" min="-10" max="10" step="0.5" oninput="psUpdateCfgField('offsetYMm', Number(this.value))" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-center font-black text-white">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 block mb-1">اتجاه الورق</label>
+                            <select id="ps-cfg-dir" onchange="psUpdateCfgField('direction', Number(this.value))" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 font-black text-white">
+                                <option value="0">طبيعي (0°)</option>
+                                <option value="1">مقلوب (180°)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 block mb-1">شكل البرواز</label>
+                            <select id="ps-cfg-border" onchange="psUpdateCfgField('borderStyle', this.value)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 font-black text-white">
+                                <option value="double">مزدوج ملكي</option>
+                                <option value="solid">سميك عادي</option>
+                                <option value="rounded">دائري الحواف</option>
+                                <option value="corners">أركان مودرن</option>
+                                <option value="dashed">منقط</option>
+                                <option value="none">بدون برواز</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        <input type="text" id="ps-cfg-store-title" placeholder="اسم البراند بالبوليصة (افتراضي: سمان ههيا)" oninput="psUpdateCfgField('customStoreTitle', this.value)" class="bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs font-bold text-white">
+                        <input type="text" id="ps-cfg-store-phone" dir="ltr" placeholder="رقم التليفون بالبوليصة" oninput="psUpdateCfgField('customStorePhone', this.value)" class="bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs font-bold text-white text-center">
+                        <input type="text" id="ps-cfg-footer" placeholder="رسالة الفوتر بالأسفل" oninput="psUpdateCfgField('footerText', this.value)" class="bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs font-bold text-white">
+                    </div>
+                    <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+                        <div class="flex flex-wrap gap-3 text-[11px] font-black text-slate-200">
+                            <label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" id="ps-cfg-barcode" onchange="psUpdateCfgField('showBarcode', this.checked)" class="w-4 h-4 accent-amber-400"> باركود</label>
+                            <label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" id="ps-cfg-prices" onchange="psUpdateCfgField('showItemsPrice', this.checked)" class="w-4 h-4 accent-amber-400"> أسعار</label>
+                            <label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" id="ps-cfg-invert" onchange="psUpdateCfgField('invertBitmap', this.checked)" class="w-4 h-4 accent-amber-400"> عكس الحبر</label>
+                            <label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" id="ps-cfg-reverse" onchange="psUpdateCfgField('reversePrintOrder', this.checked)" class="w-4 h-4 accent-amber-400"> عكس ترتيب الرول (10⬅️1)</label>
+                            <label class="flex items-center gap-1.5 cursor-pointer text-emerald-300"><input type="checkbox" id="ps-cfg-instant" onchange="psUpdateCfgField('instantPrint', this.checked)" class="w-4 h-4 accent-emerald-400"> طباعة فورية من الكارت</label>
+                        </div>
+                        <button type="button" onclick="saveWaybillSettings()" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-4 py-2 rounded-xl text-xs font-black shadow">💾 حفظ الإعدادات نهائياً</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. شريط التبويبات الـ 4 الرئيسية للاستوديو -->
+            <div class="bg-white p-1.5 rounded-2xl border border-slate-200/80 shadow-soft grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                <button type="button" id="ps-tab-btn-designer" onclick="switchPrinterStudioSubTab('designer')" class="ps-subtab-btn py-2.5 px-3 rounded-xl text-xs font-black bg-slate-900 text-white shadow-sm transition-all flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-pen-ruler text-amber-400"></i> <span>المصمم الحر (وورد)</span>
+                </button>
+                <button type="button" id="ps-tab-btn-orders" onclick="switchPrinterStudioSubTab('orders')" class="ps-subtab-btn py-2.5 px-3 rounded-xl text-xs font-black bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-receipt text-emerald-600"></i> <span>بوالص الطلبات والشنط</span>
+                </button>
+                <button type="button" id="ps-tab-btn-poultry" onclick="switchPrinterStudioSubTab('poultry')" class="ps-subtab-btn py-2.5 px-3 rounded-xl text-xs font-black bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-scale-balanced text-amber-600"></i> <span>ميزان وتكت الفراخ</span>
+                </button>
+                <button type="button" id="ps-tab-btn-freezer" onclick="switchPrinterStudioSubTab('freezer')" class="ps-subtab-btn py-2.5 px-3 rounded-xl text-xs font-black bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-snowflake text-cyan-600"></i> <span>أطباق السمان والفريزر</span>
+                </button>
+            </div>
+
+            <!-- 3. مساحة العمل الموحدة: أدوات التحكم يميناً (7 أعمدة) + منصة المعاينة والطباعة يساراً (5 أعمدة) -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+
+                <!-- ====== العمود الأيسر: منصة المعاينة الحية + أزرار الطباعة الثابتة (تظهر أولاً في الموبايل لسهولة اللمس) ====== -->
+                <div class="lg:col-span-5 lg:order-2 lg:sticky lg:top-4 space-y-3">
+                    <div class="bg-slate-900 text-white p-3.5 rounded-[1.5rem] shadow-lg border border-slate-700 space-y-3">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                                <i class="fa-solid fa-eye"></i> المعاينة الحية
+                                <span id="ps-preview-count" class="bg-white/15 text-white px-2 py-0.5 rounded-lg text-[10px]">1 ملصق</span>
+                            </span>
+                            <span id="ps-dims-label" class="text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2 py-0.5 rounded-lg" dir="ltr">70×130mm</span>
+                        </div>
+
+                        <!-- شريط التنقل بين الملصقات في حالة تعدد الطلبات أو تكتات الفراخ -->
+                        <div id="ps-preview-nav" class="hidden flex items-center justify-between bg-slate-800 px-2.5 py-1.5 rounded-xl text-[11px] font-black border border-slate-700"></div>
+
+                        <!-- مسرح الرسم الحراري 203 DPI (تفاعلي باللمس في المصمم الحر) -->
+                        <div id="ps-stage-wrap" class="bg-slate-200 rounded-2xl p-3 flex flex-col items-center justify-center min-h-[260px] max-h-[420px] overflow-auto border-2 border-dashed border-slate-500">
+                            <div id="ps-canvas-stage" class="flex items-center justify-center w-full"></div>
+                        </div>
+
+                        <!-- أزرار الطباعة الموحدة لجميع الأنظمة الـ 4 -->
+                        <div class="space-y-2">
+                            <button type="button" id="ps-btn-print-bt" onclick="psExecutePrint('bluetooth')" class="w-full bg-gradient-to-l from-emerald-500 to-emerald-400 hover:from-emerald-400 hover:to-emerald-300 text-slate-950 font-black py-3.5 rounded-2xl text-sm shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 active:scale-95 transition-all">
+                                <i class="fa-solid fa-bolt text-base"></i>
+                                <span>طباعة بلوتوث مباشرة (Deli E750W)</span>
+                            </button>
+                            <div class="grid grid-cols-3 gap-1.5">
+                                <button type="button" onclick="psExecutePrint('usb')" class="bg-cyan-700 hover:bg-cyan-600 text-white font-black py-2.5 rounded-xl text-[11px] flex items-center justify-center gap-1 transition-all active:scale-95">
+                                    <i class="fa-brands fa-usb"></i> USB
+                                </button>
+                                <button type="button" onclick="psExecutePrint('spooler')" class="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-black py-2.5 rounded-xl text-[11px] flex items-center justify-center gap-1 transition-all active:scale-95">
+                                    <i class="fa-solid fa-print"></i> Spooler/PDF
+                                </button>
+                                <button type="button" onclick="psDownloadCurrentPNG()" class="bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 font-black py-2.5 rounded-xl text-[11px] flex items-center justify-center gap-1 transition-all active:scale-95">
+                                    <i class="fa-solid fa-image"></i> صورة PNG
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <label class="flex items-center gap-2 text-xs font-black text-amber-950 bg-amber-50 px-3 py-2 rounded-xl border border-amber-200 cursor-pointer">
-                    <input type="checkbox" id="dw-pb-master-summary" checked onchange="onDeliStudioInputChange()" class="w-4 h-4 accent-amber-600 rounded">
-                    📦 طباعة «تكت ملخص الدفعة والبرنيكة» تلقائياً بعد انتهاء تكتات الفراخ
-                </label>
+                <!-- ====== العمود الأيمن: أدوات التبويب النشط (7 أعمدة) ====== -->
+                <div class="lg:col-span-7 lg:order-1 space-y-4">
+
+                    <!-- 1️⃣ تبويب المصمم الحر (وورد / كانفا باللمس) -->
+                    <div id="ps-panel-designer" class="space-y-3.5">
+                        <!-- شريط إضافة العناصر -->
+                        <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-soft space-y-3">
+                            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                                <div>
+                                    <h3 class="text-sm font-black text-slate-800"><i class="fa-solid fa-wand-magic-sparkles text-amber-500 ml-1"></i> لوحة التصميم الحر (اسحب وكبّر بإيدك)</h3>
+                                    <p class="text-[11px] font-bold text-slate-400">المس أي عنصر في الورقة وحرّكه بإيدك، وامسك الدائرة الخضراء لتكبيره وتصغيره</p>
+                                </div>
+                                <div class="flex items-center gap-1.5">
+                                    <label class="flex items-center gap-1 text-[11px] font-black text-slate-600 bg-slate-100 px-2.5 py-1.5 rounded-xl cursor-pointer">
+                                        <input type="checkbox" id="ps-des-grid" checked onchange="psToggleDesignerGrid(this.checked)" class="w-3.5 h-3.5 accent-emerald-600"> شبكة
+                                    </label>
+                                    <div class="flex items-center gap-1 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-xl">
+                                        <span class="text-[10px] font-black text-emerald-800">نسخ:</span>
+                                        <input type="number" id="ps-des-copies" value="1" min="1" max="50" onchange="psUpdateDesignerCopies(this.value)" class="w-11 bg-white border border-emerald-200 rounded-lg text-center text-xs font-black text-emerald-900">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- أزرار إضافة العناصر -->
+                            <div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                                <button type="button" onclick="psAddDesignerEl('text')" class="bg-slate-900 hover:bg-emerald-700 text-white py-2.5 px-2 rounded-xl text-[11px] font-black flex flex-col items-center gap-1 transition-all active:scale-95">
+                                    <i class="fa-solid fa-font text-amber-400 text-sm"></i><span>+ نص حر</span>
+                                </button>
+                                <button type="button" onclick="psAddDesignerEl('box')" class="bg-slate-100 hover:bg-slate-800 hover:text-white text-slate-800 border border-slate-200 py-2.5 px-2 rounded-xl text-[11px] font-black flex flex-col items-center gap-1 transition-all active:scale-95">
+                                    <i class="fa-regular fa-square text-indigo-500 text-sm"></i><span>+ مربع</span>
+                                </button>
+                                <button type="button" onclick="psAddDesignerEl('badge')" class="bg-slate-100 hover:bg-slate-800 hover:text-white text-slate-800 border border-slate-200 py-2.5 px-2 rounded-xl text-[11px] font-black flex flex-col items-center gap-1 transition-all active:scale-95">
+                                    <i class="fa-solid fa-square text-slate-900 text-sm"></i><span>+ شارة سوداء</span>
+                                </button>
+                                <button type="button" onclick="psAddDesignerEl('line')" class="bg-slate-100 hover:bg-slate-800 hover:text-white text-slate-800 border border-slate-200 py-2.5 px-2 rounded-xl text-[11px] font-black flex flex-col items-center gap-1 transition-all active:scale-95">
+                                    <i class="fa-solid fa-minus text-emerald-600 text-sm"></i><span>+ خط فاصل</span>
+                                </button>
+                                <button type="button" onclick="psAddDesignerEl('barcode')" class="bg-slate-100 hover:bg-slate-800 hover:text-white text-slate-800 border border-slate-200 py-2.5 px-2 rounded-xl text-[11px] font-black flex flex-col items-center gap-1 transition-all active:scale-95">
+                                    <i class="fa-solid fa-barcode text-amber-600 text-sm"></i><span>+ باركود</span>
+                                </button>
+                                <button type="button" onclick="psAddDesignerEl('logo')" class="bg-slate-100 hover:bg-slate-800 hover:text-white text-slate-800 border border-slate-200 py-2.5 px-2 rounded-xl text-[11px] font-black flex flex-col items-center gap-1 transition-all active:scale-95">
+                                    <i class="fa-solid fa-kiwi-bird text-emerald-700 text-sm"></i><span>+ لوجو</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- لوحة خصائص العنصر المحدد حالياً -->
+                        <div id="ps-designer-props-box" class="bg-white p-4 rounded-2xl border-2 border-emerald-200/80 shadow-soft space-y-3"></div>
+
+                        <!-- شريط القوالب الجاهزة والمحفوظة -->
+                        <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-soft space-y-2.5">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <span class="text-xs font-black text-slate-700"><i class="fa-solid fa-bookmark text-amber-500 ml-1"></i> قوالب جاهزة وقوالبك المحفوظة:</span>
+                                <div class="flex gap-1.5">
+                                    <button type="button" onclick="psSaveCurrentDesignerTemplate()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm">💾 حفظ تصميمي كقالب</button>
+                                    <button type="button" onclick="psClearDesignerCanvas()" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 px-3 py-1.5 rounded-xl text-[11px] font-black">🧹 ورقة بيضاء</button>
+                                </div>
+                            </div>
+                            <div id="ps-designer-templates-list" class="flex flex-wrap gap-1.5"></div>
+                        </div>
+                    </div>
+
+                    <!-- 2️⃣ تبويب بوالص الطلبات الحية والشنط -->
+                    <div id="ps-panel-orders" class="hidden space-y-3.5">
+                        <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-soft space-y-3">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <h3 class="text-sm font-black text-slate-800"><i class="fa-solid fa-truck-fast text-emerald-600 ml-1"></i> طابور الطلبات الحية للطباعة</h3>
+                                <div class="flex flex-wrap gap-1.5">
+                                    <button type="button" onclick="psSelectAllFilteredOrders()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-xl text-[11px] font-black">☑️ تحديد الكل</button>
+                                    <button type="button" onclick="psClearSelectedOrders()" class="bg-rose-50 hover:bg-rose-100 text-rose-700 px-2.5 py-1.5 rounded-xl text-[11px] font-black">✕ إلغاء</button>
+                                    <button type="button" onclick="psSetOrdersPrintMode('waybill')" id="ps-omode-waybill" class="bg-slate-900 text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black">🧾 البوالص</button>
+                                    <button type="button" onclick="psSetOrdersPrintMode('packing')" id="ps-omode-packing" class="bg-amber-50 text-amber-900 border border-amber-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black">📦 تجهيز</button>
+                                    <button type="button" onclick="psSetOrdersPrintMode('manifest')" id="ps-omode-manifest" class="bg-indigo-50 text-indigo-800 border border-indigo-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black">🛵 مندوب</button>
+                                    <button type="button" onclick="psMarkSelectedOrdersPrinted()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black" title="تسجيل أن الطلبات المحددة تم طباعتها">✅ تسجيل كمطبوع</button>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                <select id="ps-ord-status" onchange="renderOrdersTabQueue()" class="border border-slate-200 bg-slate-50 rounded-xl p-2 text-xs font-black text-slate-700 outline-none">
+                                    <option value="active">🔥 كل النشط (جديد + تجهيز + بالطريق)</option>
+                                    <option value="unprinted">🖨️ لم يُطبع بعد فقط</option>
+                                    <option value="new">🆕 جديد</option>
+                                    <option value="processing">⏳ تجهيز</option>
+                                    <option value="for_driver">📦 للمندوب</option>
+                                    <option value="dispatched">🛵 بالطريق</option>
+                                    <option value="completed">✅ مكتمل</option>
+                                </select>
+                                <input type="search" id="ps-ord-search" oninput="renderOrdersTabQueue()" placeholder="بحث بالاسم أو الرقم أو المنطقة..." class="col-span-1 sm:col-span-2 border border-slate-200 bg-slate-50 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:bg-white">
+                            </div>
+
+                            <div id="ps-orders-queue-list" class="space-y-2 max-h-[55vh] overflow-y-auto custom-scroll pr-0.5"></div>
+                        </div>
+                    </div>
+
+                    <!-- 3️⃣ تبويب ميزان وتكت الفراخ (مربوط بالبلوتوث 100%) -->
+                    <div id="ps-panel-poultry" class="hidden space-y-3.5">
+                        <div class="bg-white p-4 rounded-2xl border-2 border-amber-300/80 shadow-soft space-y-3">
+                            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-amber-100 pb-2.5">
+                                <div>
+                                    <h3 class="text-sm font-black text-slate-900"><i class="fa-solid fa-scale-balanced text-amber-600 ml-1"></i> منظومة ميزان وتكت الفراخ (بالترتيب الصارم)</h3>
+                                    <p class="text-[11px] font-bold text-slate-500">مربوطة مباشرة بالبلوتوث والـ USB — رص الأوزان وستخرج من الطابعة بنفس التسلسل</p>
+                                </div>
+                                <div class="flex flex-wrap gap-1.5">
+                                    <button type="button" onclick="psPasteWeightsFromClipboard()" class="bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all">📋 لصق الأوزان</button>
+                                    <button type="button" onclick="psCopyPoultryWhatsApp()" class="bg-emerald-50 hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all">📲 كشف واتساب</button>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                                <div class="col-span-2">
+                                    <label class="text-[10px] font-black text-slate-600 block mb-1">اسم الصنف على التكت</label>
+                                    <input type="text" id="ps-pb-name" value="فراخ تسمين طازجة - ذبح اليوم" oninput="refreshStudioPreviewStage()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-black text-emerald-700 block mb-1">💰 سعر الكيلو (ج)</label>
+                                    <input type="number" id="ps-pb-kilo" value="110" min="1" step="0.5" oninput="parsePoultryWeightsList(); refreshStudioPreviewStage()" class="w-full border-2 border-emerald-400 rounded-xl p-2 text-center text-xs font-black bg-emerald-50 text-emerald-950">
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-black text-slate-600 block mb-1">التقريب</label>
+                                    <select id="ps-pb-round" onchange="parsePoultryWeightsList(); refreshStudioPreviewStage()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-black bg-slate-50">
+                                        <option value="nearest_1" selected>أقرب جنيه</option>
+                                        <option value="floor_1">لصالح العميل</option>
+                                        <option value="nearest_5">أقرب 5 ج</option>
+                                        <option value="exact">بدون تقريب</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-3 gap-2.5">
+                                <div>
+                                    <label class="text-[10px] font-black text-slate-600 block mb-1">بيان التاريخ</label>
+                                    <input type="text" id="ps-pb-date" value="ذبح اليوم • طازج 100%" oninput="refreshStudioPreviewStage()" class="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-slate-50">
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-black text-slate-600 block mb-1">خصم الطبق (جم)</label>
+                                    <input type="number" id="ps-pb-tare" value="0" min="0" max="200" oninput="parsePoultryWeightsList(); refreshStudioPreviewStage()" class="w-full border border-slate-200 rounded-xl p-2 text-center text-xs font-black bg-slate-50">
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-black text-slate-600 block mb-1">نسخ لكل فرخة</label>
+                                    <input type="number" id="ps-pb-copies" value="1" min="1" max="10" oninput="refreshStudioPreviewStage()" class="w-full border border-slate-200 rounded-xl p-2 text-center text-xs font-black bg-slate-50">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                                <div class="sm:col-span-5 space-y-2">
+                                    <div class="flex gap-1">
+                                        <input type="number" id="ps-pb-quick-w" placeholder="اكتب الوزن بالجرام ثم Enter" onkeydown="if(event.key==='Enter'){event.preventDefault(); psQuickAddPoultryWeight();}" class="flex-1 border border-amber-300 rounded-xl px-2.5 py-2 text-xs font-black bg-amber-50/40 outline-none">
+                                        <button type="button" onclick="psQuickAddPoultryWeight()" class="bg-slate-900 text-amber-300 px-3 py-2 rounded-xl text-xs font-black">+ أضف</button>
+                                    </div>
+                                    <textarea id="ps-pb-weights" rows="5" oninput="parsePoultryWeightsList(); refreshStudioPreviewStage()" placeholder="1389&#10;1450&#10;1700" class="w-full border border-slate-300 rounded-xl p-2.5 text-xs font-black bg-slate-50 font-mono leading-relaxed outline-none focus:border-emerald-600">1389
+1450
+1700</textarea>
+                                </div>
+                                <div class="sm:col-span-7 flex flex-col justify-between space-y-2">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-[10px] font-black text-slate-600">طابور الطباعة المرتب (اضغط على أي تكت لمعاينته):</span>
+                                        <button type="button" onclick="document.getElementById('ps-pb-weights').value=''; parsePoultryWeightsList(); refreshStudioPreviewStage();" class="text-[10px] font-black text-rose-600 hover:underline">🗑️ مسح</button>
+                                    </div>
+                                    <div id="ps-pb-chips" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto custom-scroll p-1.5 bg-slate-100 rounded-xl border border-slate-200"></div>
+                                    <div id="ps-pb-stats"></div>
+                                </div>
+                            </div>
+
+                            <label class="flex items-center gap-2 text-xs font-black text-amber-950 bg-amber-50 px-3 py-2.5 rounded-xl border border-amber-200 cursor-pointer">
+                                <input type="checkbox" id="ps-pb-master-summary" checked onchange="refreshStudioPreviewStage()" class="w-4 h-4 accent-amber-600">
+                                <span>📦 طباعة «تكت ملخص الدفعة والبرنيكة» تلقائياً بعد انتهاء تكتات الفراخ</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 4️⃣ تبويب استيكرات أطباق السمان والفريزر -->
+                    <div id="ps-panel-freezer" class="hidden space-y-3.5">
+                        <div class="bg-white p-4 rounded-2xl border border-cyan-200 shadow-soft space-y-3.5">
+                            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                                <div>
+                                    <h3 class="text-sm font-black text-slate-800"><i class="fa-solid fa-snowflake text-cyan-600 ml-1"></i> استيكرات أطباق السمان والفريزر</h3>
+                                    <p class="text-[11px] font-bold text-slate-400">اختر الصنف من الكتالوج وتُحسب الصلاحية والوزن وتُطبع بالبلوتوث فوراً</p>
+                                </div>
+                                <button type="button" onclick="psAutoGenFreezerLot()" class="bg-cyan-50 hover:bg-cyan-600 text-cyan-800 hover:text-white border border-cyan-200 px-3 py-1.5 rounded-xl text-xs font-black transition-all">🔖 تشغيلة وباركود تلقائي</button>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="text-[11px] font-black text-slate-600 block mb-1">اختر الصنف من الكتالوج</label>
+                                    <select id="ps-fz-select" onchange="psOnFreezerProductSelect()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50"></select>
+                                </div>
+                                <div>
+                                    <label class="text-[11px] font-black text-slate-600 block mb-1">اسم الصنف على الاستيكر</label>
+                                    <input type="text" id="ps-fz-name" value="طبق سمان جامبو" oninput="refreshStudioPreviewStage()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50">
+                                </div>
+                                <div>
+                                    <label class="text-[11px] font-black text-slate-600 block mb-1">الوزن الصافي / الوصف</label>
+                                    <input type="text" id="ps-fz-weight" value="350 - 400 جم صافي" oninput="refreshStudioPreviewStage()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50">
+                                </div>
+                                <div>
+                                    <label class="text-[11px] font-black text-slate-600 block mb-1">السعر (اختياري)</label>
+                                    <div class="flex items-center gap-2">
+                                        <input type="number" id="ps-fz-price" oninput="refreshStudioPreviewStage()" class="flex-1 border border-slate-200 rounded-xl p-2 text-center text-xs font-black bg-slate-50">
+                                        <label class="flex items-center gap-1 text-[11px] font-black cursor-pointer shrink-0">
+                                            <input type="checkbox" id="ps-fz-show-price" onchange="refreshStudioPreviewStage()" class="w-4 h-4 accent-emerald-600"> إظهار
+                                        </label>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-[11px] font-black text-slate-600 block mb-1">تاريخ الذبح / الإنتاج</label>
+                                    <input type="date" id="ps-fz-prod-date" value="${new Date().toISOString().slice(0, 10)}" onchange="refreshStudioPreviewStage()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50">
+                                </div>
+                                <div>
+                                    <label class="text-[11px] font-black text-slate-600 block mb-1">الصلاحية وطريقة الحفظ</label>
+                                    <select id="ps-fz-expiry" onchange="refreshStudioPreviewStage()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50">
+                                        <option value="3months">3 شهور (مجمد بالفريزر -18°)</option>
+                                        <option value="6months">6 شهور (مجمد بالفريزر)</option>
+                                        <option value="3days">3 أيام (طازج بالثلاجة)</option>
+                                        <option value="15days">15 يوم (أطباق بيض سمان)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-[11px] font-black text-slate-600 block mb-1">رقم التشغيلة (اختياري)</label>
+                                    <input type="text" id="ps-fz-lot" dir="ltr" placeholder="SH-1126-01" oninput="refreshStudioPreviewStage()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50">
+                                </div>
+                                <div>
+                                    <label class="text-[11px] font-black text-slate-600 block mb-1">باركود (اختياري)</label>
+                                    <input type="text" id="ps-fz-barcode" dir="ltr" placeholder="622..." oninput="refreshStudioPreviewStage()" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-slate-50">
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between pt-2 border-t border-slate-100">
+                                <span class="text-xs font-bold text-slate-500">عدد استيكرات الأطباق المطلوبة:</span>
+                                <input type="number" id="ps-fz-copies" value="1" min="1" max="100" oninput="refreshStudioPreviewStage()" class="w-24 border-2 border-emerald-600 rounded-xl p-2 text-center text-sm font-black text-emerald-800">
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        `;
+    }
+
+    // =========================================================================
+    // 12. دوال التفاعل وتحديث واجهة المصمم الحر والطلبات والفراخ
+    // =========================================================================
+    function syncInputsFromConfig() {
+        const cfg = window.getWaybillConfig();
+        const dims = resolveDimensionsMm(cfg);
+        const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+        const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = Boolean(v); };
+
+        setVal('ps-w-mm', dims.w);
+        setVal('ps-h-mm', dims.h);
+        setVal('ps-cfg-density', cfg.density || 13);
+        setVal('ps-cfg-gap', cfg.gapMm !== undefined ? cfg.gapMm : 2);
+        setVal('ps-cfg-ox', cfg.offsetXMm || 0);
+        setVal('ps-cfg-oy', cfg.offsetYMm || 0);
+        setVal('ps-cfg-dir', String(cfg.direction ? 1 : 0));
+        setVal('ps-cfg-border', cfg.borderStyle || 'double');
+        setVal('ps-cfg-store-title', cfg.customStoreTitle || '');
+        setVal('ps-cfg-store-phone', cfg.customStorePhone || '');
+        setVal('ps-cfg-footer', cfg.footerText || '');
+        setChk('ps-cfg-barcode', cfg.showBarcode === true);
+        setChk('ps-cfg-prices', cfg.showItemsPrice !== false);
+        setChk('ps-cfg-invert', cfg.invertBitmap === true);
+        setChk('ps-cfg-reverse', cfg.reversePrintOrder === true);
+        setChk('ps-cfg-instant', cfg.instantPrint === true);
+
+        document.querySelectorAll('.ps-preset-btn').forEach(btn => {
+            const active = btn.getAttribute('data-preset') === cfg.sizePreset;
+            btn.className = active
+                ? 'ps-preset-btn px-2.5 py-1.5 rounded-xl text-[11px] font-black bg-amber-400 text-slate-950 shadow-sm transition-all whitespace-nowrap'
+                : 'ps-preset-btn px-2.5 py-1.5 rounded-xl text-[11px] font-black bg-white/10 hover:bg-amber-400 hover:text-slate-950 text-emerald-100 border border-white/15 transition-all whitespace-nowrap';
+        });
+    }
+
+    window.psToggleHwDrawer = function () {
+        studioState.hwDrawerOpen = !studioState.hwDrawerOpen;
+        document.getElementById('ps-hw-drawer')?.classList.toggle('hidden', !studioState.hwDrawerOpen);
+    };
+
+    window.psUpdateCfgField = function (field, value) {
+        const cfg = window.getWaybillConfig();
+        cfg[field] = value;
+        persistWaybillConfig(cfg);
+        refreshStudioPreviewStage();
+    };
+
+    window.psSelectPaperPreset = function (presetKey) {
+        const p = PAPER_PRESETS[presetKey];
+        if (!p) return;
+        const cfg = window.getWaybillConfig();
+        const oldDims = resolveDimensionsMm(cfg);
+        cfg.sizePreset = presetKey;
+        cfg.widthMm = p.w;
+        cfg.heightMm = p.h;
+        persistWaybillConfig(cfg);
+
+        // تحجيم عناصر المصمم الحر بذكاء لتتناسب مع المقاس الجديد
+        scaleDesignerElementsToNewPaper(oldDims.w * DOTS_PER_MM, oldDims.h * DOTS_PER_MM, p.w * DOTS_PER_MM, p.h * DOTS_PER_MM);
+        syncInputsFromConfig();
+        refreshStudioPreviewStage();
+    };
+
+    window.psManualDimChanged = function () {
+        const w = Math.min(108, Math.max(15, Number(document.getElementById('ps-w-mm')?.value) || 70));
+        const h = Math.min(250, Math.max(15, Number(document.getElementById('ps-h-mm')?.value) || 130));
+        const cfg = window.getWaybillConfig();
+        const oldDims = resolveDimensionsMm(cfg);
+        cfg.sizePreset = 'custom';
+        cfg.widthMm = w;
+        cfg.heightMm = h;
+        persistWaybillConfig(cfg);
+
+        scaleDesignerElementsToNewPaper(oldDims.w * DOTS_PER_MM, oldDims.h * DOTS_PER_MM, w * DOTS_PER_MM, h * DOTS_PER_MM);
+        syncInputsFromConfig();
+        refreshStudioPreviewStage();
+    };
+
+    function scaleDesignerElementsToNewPaper(oldW, oldH, newW, newH) {
+        if (!oldW || !oldH || (oldW === newW && oldH === newH)) return;
+        const rx = newW / oldW, ry = newH / oldH;
+        const rf = Math.min(rx, ry);
+        studioState.designer.elements.forEach(el => {
+            el.x = Math.round(el.x * rx);
+            el.y = Math.round(el.y * ry);
+            el.w = Math.max(24, Math.round(el.w * rx));
+            el.h = Math.max(12, Math.round(el.h * ry));
+            if (el.fontSize) el.fontSize = Math.max(10, Math.min(120, Math.round(el.fontSize * rf)));
+        });
+    }
+
+    window.switchPrinterStudioSubTab = function (tabId, skipPreview = false) {
+        studioState.activeTab = tabId;
+        ['designer', 'orders', 'poultry', 'freezer'].forEach(t => {
+            document.getElementById('ps-panel-' + t)?.classList.toggle('hidden', t !== tabId);
+            const btn = document.getElementById('ps-tab-btn-' + t);
+            if (btn) {
+                btn.className = (t === tabId)
+                    ? 'ps-subtab-btn py-2.5 px-3 rounded-xl text-xs font-black bg-slate-900 text-white shadow-sm transition-all flex items-center justify-center gap-1.5'
+                    : 'ps-subtab-btn py-2.5 px-3 rounded-xl text-xs font-black bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5';
+            }
+        });
+        if (tabId === 'designer') renderDesignerPropertiesBar();
+        if (tabId === 'orders') renderOrdersTabQueue();
+        if (tabId === 'poultry') window.parsePoultryWeightsList();
+        if (!skipPreview) refreshStudioPreviewStage();
+    };
+
+    // --- أدوات المصمم الحر ---
+    window.psToggleDesignerGrid = function (checked) {
+        studioState.designer.showGrid = Boolean(checked);
+        refreshStudioPreviewStage();
+    };
+    window.psUpdateDesignerCopies = function (val) {
+        studioState.designer.copies = Math.max(1, Math.min(50, parseInt(val) || 1));
+        refreshStudioPreviewStage();
+    };
+
+    window.psAddDesignerEl = function (type) {
+        const cfg = window.getWaybillConfig();
+        const dims = resolveDimensionsMm(cfg);
+        const W = dims.w * DOTS_PER_MM, H = dims.h * DOTS_PER_MM;
+        const id = 'el_' + Date.now() + '_' + Math.floor(Math.random() * 999);
+        const baseFont = Math.max(14, Math.round(Math.min(W, H) * 0.08));
+
+        let el = { id, type, x: Math.round(W * 0.12), y: Math.round(H * 0.35), w: Math.round(W * 0.76), h: Math.max(36, Math.round(H * 0.22)), text: 'اكتب النص هنا', fontSize: baseFont, bold: true, align: 'center', inverted: false, border: 'none', borderWidth: 3 };
+        if (type === 'box') { el.text = ''; el.border = 'solid'; el.h = Math.round(H * 0.3); }
+        else if (type === 'badge') { el.text = 'سمان ههيا'; el.inverted = true; el.h = Math.max(34, Math.round(H * 0.18)); }
+        else if (type === 'line') { el.text = ''; el.h = 14; el.border = 'solid'; el.borderWidth = 3; }
+        else if (type === 'barcode') { el.text = '01208027294'; el.h = Math.max(54, Math.round(H * 0.24)); }
+        else if (type === 'logo') { const s = Math.max(44, Math.round(Math.min(W, H) * 0.25)); el.w = s; el.h = s; el.text = ''; }
+
+        studioState.designer.elements.push(el);
+        studioState.designer.selectedId = id;
+        renderDesignerPropertiesBar();
+        refreshStudioPreviewStage();
+    };
+
+    window.psUpdateSelectedEl = function (field, value) {
+        const el = studioState.designer.elements.find(e => e.id === studioState.designer.selectedId);
+        if (!el) return;
+        el[field] = value;
+        if (field === 'fontSize') {
+            const lbl = document.getElementById('ps-el-fs-lbl');
+            if (lbl) lbl.textContent = value + 'px';
+        }
+        refreshStudioPreviewStage();
+    };
+
+    window.psNudgeSelectedEl = function (dx, dy) {
+        const el = studioState.designer.elements.find(e => e.id === studioState.designer.selectedId);
+        if (!el) return;
+        el.x += dx; el.y += dy;
+        refreshStudioPreviewStage();
+    };
+
+    window.psActionSelectedEl = function (act) {
+        const els = studioState.designer.elements;
+        const idx = els.findIndex(e => e.id === studioState.designer.selectedId);
+        if (idx === -1) return;
+        const el = els[idx];
+        const dims = resolveDimensionsMm(window.getWaybillConfig());
+        const W = dims.w * DOTS_PER_MM, H = dims.h * DOTS_PER_MM;
+
+        if (act === 'delete') {
+            els.splice(idx, 1);
+            studioState.designer.selectedId = els[els.length - 1]?.id || null;
+        } else if (act === 'dup') {
+            const copy = { ...el, id: 'el_' + Date.now(), x: Math.min(W - 30, el.x + 16), y: Math.min(H - 30, el.y + 16) };
+            els.push(copy);
+            studioState.designer.selectedId = copy.id;
+        } else if (act === 'center_x') {
+            el.x = Math.round((W - el.w) / 2);
+        } else if (act === 'center_y') {
+            el.y = Math.round((H - el.h) / 2);
+        } else if (act === 'front' && idx < els.length - 1) {
+            els.splice(idx, 1); els.push(el);
+        } else if (act === 'back' && idx > 0) {
+            els.splice(idx, 1); els.unshift(el);
+        } else if (act === 'invert') {
+            el.inverted = !el.inverted;
+        }
+        renderDesignerPropertiesBar();
+        refreshStudioPreviewStage();
+    };
+
+    function renderDesignerPropertiesBar() {
+        const box = document.getElementById('ps-designer-props-box');
+        if (!box) return;
+        const el = studioState.designer.elements.find(e => e.id === studioState.designer.selectedId);
+
+        if (!el) {
+            box.innerHTML = `<div class="text-center py-4 text-xs font-bold text-slate-400">👆 المس أي عنصر في المعاينة (أو أضف عنصراً جديداً بالأعلى) للتحكم في نصّه وحجمه وشكله</div>`;
+            return;
+        }
+
+        const typeNames = { text: 'نص حر', box: 'مربع / برواز', badge: 'شارة سوداء', line: 'خط فاصل', barcode: 'باركود', logo: 'لوجو' };
+        const showTextEditor = ['text', 'box', 'badge', 'barcode'].includes(el.type);
+
+        box.innerHTML = `
+            <div class="flex flex-wrap items-center justify-between gap-1.5 border-b border-slate-100 pb-2">
+                <span class="text-xs font-black text-emerald-800 flex items-center gap-1.5">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                    تعديل العنصر المحدد: (${typeNames[el.type] || el.type})
+                </span>
+                <div class="flex flex-wrap gap-1">
+                    <button type="button" onclick="psActionSelectedEl('center_x')" class="bg-slate-100 hover:bg-slate-800 hover:text-white px-2 py-1 rounded-lg text-[10px] font-black" title="توسيط أفقي">↔️ وسط</button>
+                    <button type="button" onclick="psActionSelectedEl('center_y')" class="bg-slate-100 hover:bg-slate-800 hover:text-white px-2 py-1 rounded-lg text-[10px] font-black" title="توسيط رأسي">↕️ وسط</button>
+                    <button type="button" onclick="psActionSelectedEl('front')" class="bg-slate-100 hover:bg-slate-800 hover:text-white px-2 py-1 rounded-lg text-[10px] font-black">⬆️ أمام</button>
+                    <button type="button" onclick="psActionSelectedEl('back')" class="bg-slate-100 hover:bg-slate-800 hover:text-white px-2 py-1 rounded-lg text-[10px] font-black">⬇️ خلف</button>
+                    <button type="button" onclick="psActionSelectedEl('dup')" class="bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white px-2 py-1 rounded-lg text-[10px] font-black">📋 تكرار</button>
+                    <button type="button" onclick="psActionSelectedEl('delete')" class="bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white px-2 py-1 rounded-lg text-[10px] font-black">🗑️ حذف</button>
+                </div>
+            </div>
+
+            ${showTextEditor ? `
+                <div>
+                    <label class="text-[10px] font-black text-slate-500 block mb-1">${el.type === 'barcode' ? 'رقم أو كود الباركود (إنجليزي/أرقام):' : 'النص داخل العنصر (يقبل أكثر من سطر):'}</label>
+                    <textarea rows="2" ${el.type === 'barcode' ? 'dir="ltr"' : ''} oninput="psUpdateSelectedEl('text', this.value)" class="w-full border border-slate-300 rounded-xl p-2.5 text-sm font-black bg-slate-50 focus:bg-white outline-none">${escapeHtml(el.text || '')}</textarea>
+                </div>
+            ` : ''}
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+                ${['text', 'box', 'badge'].includes(el.type) ? `
+                    <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                        <div class="flex justify-between text-[10px] font-black text-slate-700 mb-1">
+                            <span>🔤 حجم الخط</span>
+                            <span id="ps-el-fs-lbl" class="text-emerald-700">${el.fontSize || 24}px</span>
+                        </div>
+                        <input type="range" min="10" max="110" step="1" value="${el.fontSize || 24}" oninput="psUpdateSelectedEl('fontSize', Number(this.value))" class="w-full accent-emerald-600 cursor-pointer">
+                    </div>
+                ` : ''}
+
+                <div class="flex flex-wrap items-center gap-1.5">
+                    ${['text', 'box', 'badge'].includes(el.type) ? `
+                        <button type="button" onclick="psUpdateSelectedEl('align', 'right'); renderDesignerPropertiesBar()" class="px-2.5 py-1.5 rounded-lg text-xs font-black ${el.align === 'right' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}"><i class="fa-solid fa-align-right"></i></button>
+                        <button type="button" onclick="psUpdateSelectedEl('align', 'center'); renderDesignerPropertiesBar()" class="px-2.5 py-1.5 rounded-lg text-xs font-black ${(!el.align || el.align === 'center') ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}"><i class="fa-solid fa-align-center"></i></button>
+                        <button type="button" onclick="psUpdateSelectedEl('align', 'left'); renderDesignerPropertiesBar()" class="px-2.5 py-1.5 rounded-lg text-xs font-black ${el.align === 'left' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}"><i class="fa-solid fa-align-left"></i></button>
+                    ` : ''}
+                    ${el.type !== 'line' && el.type !== 'barcode' ? `
+                        <button type="button" onclick="psActionSelectedEl('invert')" class="px-2.5 py-1.5 rounded-lg text-[11px] font-black ${el.inverted ? 'bg-slate-950 text-amber-300' : 'bg-slate-100 text-slate-700 border border-slate-200'}">🌓 عكس اللون</button>
+                    ` : ''}
+                    <select onchange="psUpdateSelectedEl('border', this.value)" class="border border-slate-200 bg-slate-50 rounded-lg px-2 py-1.5 text-[11px] font-black text-slate-700 outline-none">
+                        <option value="none" ${el.border === 'none' ? 'selected' : ''}>بدون برواز</option>
+                        <option value="solid" ${el.border === 'solid' ? 'selected' : ''}>برواز عادي</option>
+                        <option value="double" ${el.border === 'double' ? 'selected' : ''}>برواز مزدوج</option>
+                        <option value="rounded" ${el.border === 'rounded' ? 'selected' : ''}>حواف دائرية</option>
+                        <option value="dashed" ${el.border === 'dashed' ? 'selected' : ''}>برواز منقط</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- تحريك دقيق بالمللي (مفيد جداً في مقاس 2×2 سم) -->
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-[10px] font-black text-slate-500">
+                <span>🎯 تحريك دقيق بالبكسل:</span>
+                <div class="flex items-center gap-1">
+                    <button type="button" onclick="psNudgeSelectedEl(0, -6)" class="w-8 h-7 bg-slate-100 hover:bg-slate-800 hover:text-white rounded-lg">⬆️</button>
+                    <button type="button" onclick="psNudgeSelectedEl(0, 6)" class="w-8 h-7 bg-slate-100 hover:bg-slate-800 hover:text-white rounded-lg">⬇️</button>
+                    <button type="button" onclick="psNudgeSelectedEl(6, 0)" class="w-8 h-7 bg-slate-100 hover:bg-slate-800 hover:text-white rounded-lg">➡️</button>
+                    <button type="button" onclick="psNudgeSelectedEl(-6, 0)" class="w-8 h-7 bg-slate-100 hover:bg-slate-800 hover:text-white rounded-lg">⬅️</button>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderSavedDesignerTemplatesUI() {
+        const cont = document.getElementById('ps-designer-templates-list');
+        if (!cont) return;
+        const builtins = [
+            { key: '20x20', label: '🔖 قالب 2×2 سم سعر' },
+            { key: '50x30', label: '🏷️ قالب 5×3 سم منتج' },
+            { key: '70x50', label: '❄️ قالب 7×5 سم فريزر' }
+        ];
+        const custom = getSavedDesignerTemplates();
+
+        let html = builtins.map(b => `
+            <button type="button" onclick="psLoadBuiltinDesignerTemplate('${b.key}')" class="bg-slate-100 hover:bg-slate-900 hover:text-white text-slate-700 px-3 py-1.5 rounded-xl text-[11px] font-black border border-slate-200 transition-all">${b.label}</button>
+        `).join('');
+
+        html += custom.map((t, i) => `
+            <div class="inline-flex items-center bg-emerald-50 border border-emerald-200 rounded-xl overflow-hidden">
+                <button type="button" onclick="psLoadCustomDesignerTemplate(${i})" class="hover:bg-emerald-600 hover:text-white text-emerald-900 px-2.5 py-1.5 text-[11px] font-black transition-all">📌 ${escapeHtml(t.name)}</button>
+                <button type="button" onclick="psDeleteCustomDesignerTemplate(${i})" class="px-2 py-1.5 text-rose-600 hover:bg-rose-600 hover:text-white text-xs font-black border-r border-emerald-200">×</button>
+            </div>
+        `).join('');
+        cont.innerHTML = html;
+    }
+
+    window.psLoadBuiltinDesignerTemplate = function (presetKey) {
+        const p = PAPER_PRESETS[presetKey] || PAPER_PRESETS['70x50'];
+        const cfg = window.getWaybillConfig();
+        cfg.sizePreset = presetKey; cfg.widthMm = p.w; cfg.heightMm = p.h;
+        persistWaybillConfig(cfg);
+        studioState.designer.elements = createStarterDesignerElements(presetKey, p.w * DOTS_PER_MM, p.h * DOTS_PER_MM);
+        studioState.designer.selectedId = studioState.designer.elements[1]?.id || null;
+        syncInputsFromConfig();
+        renderDesignerPropertiesBar();
+        refreshStudioPreviewStage();
+    };
+
+    window.psClearDesignerCanvas = function () {
+        const dims = resolveDimensionsMm(window.getWaybillConfig());
+        studioState.designer.elements = createStarterDesignerElements('blank', dims.w * DOTS_PER_MM, dims.h * DOTS_PER_MM);
+        studioState.designer.selectedId = studioState.designer.elements[0]?.id || null;
+        renderDesignerPropertiesBar();
+        refreshStudioPreviewStage();
+    };
+
+    window.psSaveCurrentDesignerTemplate = function () {
+        const name = prompt('اكتب اسماً للقالب لحفظه (مثال: استيكر بيض 5×3):');
+        if (!name || !name.trim()) return;
+        const cfg = window.getWaybillConfig();
+        const dims = resolveDimensionsMm(cfg);
+        const list = getSavedDesignerTemplates();
+        list.push({
+            name: name.trim().slice(0, 40),
+            w: dims.w,
+            h: dims.h,
+            sizePreset: cfg.sizePreset,
+            elements: JSON.parse(JSON.stringify(studioState.designer.elements))
+        });
+        saveDesignerTemplatesList(list);
+        renderSavedDesignerTemplatesUI();
+        notifyPrinterToast(`💾 تم حفظ القالب "${name.trim()}" بنجاح!`);
+    };
+
+    window.psLoadCustomDesignerTemplate = function (idx) {
+        const list = getSavedDesignerTemplates();
+        const tpl = list[idx];
+        if (!tpl) return;
+        const cfg = window.getWaybillConfig();
+        cfg.widthMm = tpl.w; cfg.heightMm = tpl.h; cfg.sizePreset = tpl.sizePreset || 'custom';
+        persistWaybillConfig(cfg);
+        studioState.designer.elements = JSON.parse(JSON.stringify(tpl.elements || []));
+        studioState.designer.selectedId = studioState.designer.elements[0]?.id || null;
+        syncInputsFromConfig();
+        renderDesignerPropertiesBar();
+        refreshStudioPreviewStage();
+    };
+
+    window.psDeleteCustomDesignerTemplate = function (idx) {
+        const list = getSavedDesignerTemplates();
+        list.splice(idx, 1);
+        saveDesignerTemplatesList(list);
+        renderSavedDesignerTemplatesUI();
+        notifyPrinterToast('تم حذف القالب');
+    };
+
+    // --- أدوات تبويب الطلبات ---
+    function getFilteredStudioOrders() {
+        const st = document.getElementById('ps-ord-status')?.value || 'active';
+        const q = normalizeDigits(document.getElementById('ps-ord-search')?.value || '').toLowerCase().trim();
+        const raw = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
+        return raw.filter(o => {
+            if (!o || o.status === 'trash' || o.status === 'canceled' || o.isArchived) return false;
+            if (st === 'active' && !['new', 'processing', 'for_driver', 'dispatched'].includes(o.status)) return false;
+            if (st === 'unprinted' && ((Number(o.printedCount) || 0) > 0 || !['new', 'processing', 'for_driver', 'dispatched'].includes(o.status))) return false;
+            if (['new', 'processing', 'for_driver', 'dispatched', 'completed'].includes(st) && o.status !== st) return false;
+            if (q) {
+                const hay = normalizeDigits(`${o.customerName || ''} ${o.customerPhone || ''} ${o.zone || ''} ${o.customerAddress || ''}`).toLowerCase();
+                if (!hay.includes(q)) return false;
+            }
+            return true;
+        });
+    }
+
+    window.renderOrdersTabQueue = function () {
+        const listEl = document.getElementById('ps-orders-queue-list');
+        if (!listEl) return;
+        const list = getFilteredStudioOrders();
+        if (list.length === 0) {
+            listEl.innerHTML = `<div class="text-center py-8 text-xs font-bold text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">لا توجد طلبات مطابقة للفلتر الحالي.</div>`;
+            return;
+        }
+        listEl.innerHTML = list.slice(0, 60).map(o => {
+            const sel = studioState.selectedOrderIds.has(o.id);
+            const bags = Math.max(1, parseInt(studioState.orderBagsMap[o.id]) || 1);
+            const itemsTxt = (Array.isArray(o.items) ? o.items : []).map(i => `${i.quantity}× ${i.name}`).join(' ، ');
+            const pBadge = (Number(o.printedCount) || 0) > 0
+                ? `<span class="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[9px] font-black">طُبع (${o.printedCount})</span>`
+                : `<span class="bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded text-[9px] font-black">لم يُطبع</span>`;
+            return `
+                <div onclick="psToggleOrderSelect('${o.id}')" class="p-3 rounded-2xl border-2 cursor-pointer transition-all flex justify-between items-center gap-2 ${sel ? 'bg-emerald-50/70 border-emerald-600 shadow-sm' : 'bg-slate-50/60 border-slate-200/80 hover:border-slate-300'}">
+                    <div class="flex items-start gap-2.5 min-w-0">
+                        <input type="checkbox" ${sel ? 'checked' : ''} onclick="event.stopPropagation(); psToggleOrderSelect('${o.id}')" class="mt-1 w-4 h-4 accent-emerald-600">
+                        <div class="min-w-0">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <span class="font-black text-xs sm:text-sm text-slate-800">${escapeHtml(o.customerName || 'عميل')}</span>
+                                <span class="text-[10px] font-bold text-slate-500" dir="ltr">${escapeHtml(o.customerPhone || '')}</span>
+                                ${pBadge}
+                            </div>
+                            <p class="text-[10px] font-bold text-slate-500 truncate">📍 ${escapeHtml(o.zone || '')} ${o.customerAddress ? '- ' + escapeHtml(o.customerAddress) : ''}</p>
+                            <p class="text-[10px] font-black text-emerald-800 truncate mt-0.5">🛒 ${escapeHtml(itemsTxt || 'بدون أصناف')}</p>
+                        </div>
+                    </div>
+                    <div class="flex flex-col items-end gap-1 shrink-0" onclick="event.stopPropagation()">
+                        <span class="font-black text-sm text-slate-900">${o.paymentMethod === 'online' ? 'خالص' : (o.total || 0) + ' ج'}</span>
+                        <div class="flex items-center gap-1 bg-white px-1.5 py-0.5 rounded-lg border border-slate-200">
+                            <span class="text-[9px] font-black text-slate-500">شنط:</span>
+                            <button type="button" onclick="psStepOrderBag('${o.id}', -1)" class="w-5 h-5 bg-rose-50 text-rose-600 rounded text-xs font-black">-</button>
+                            <span class="text-xs font-black px-1">${bags}</span>
+                            <button type="button" onclick="psStepOrderBag('${o.id}', 1)" class="w-5 h-5 bg-emerald-50 text-emerald-700 rounded text-xs font-black">+</button>
+                        </div>
+                    </div>
+                </div>
             `;
-            subtabOrderBags.appendChild(editorDiv);
+        }).join('');
+    };
+
+    window.psToggleOrderSelect = function (orderId) {
+        if (studioState.selectedOrderIds.has(orderId)) studioState.selectedOrderIds.delete(orderId);
+        else studioState.selectedOrderIds.add(orderId);
+        studioState.previewOrderIdx = 0;
+        renderOrdersTabQueue();
+        refreshStudioPreviewStage();
+    };
+    window.psSelectAllFilteredOrders = function () {
+        const list = getFilteredStudioOrders();
+        list.forEach(o => studioState.selectedOrderIds.add(o.id));
+        renderOrdersTabQueue();
+        refreshStudioPreviewStage();
+    };
+    window.psClearSelectedOrders = function () {
+        studioState.selectedOrderIds.clear();
+        window.deliPrinterConnection.lastOrdersQueue = [];
+        renderOrdersTabQueue();
+        refreshStudioPreviewStage();
+    };
+    window.psStepOrderBag = function (orderId, delta) {
+        const cur = Math.max(1, parseInt(studioState.orderBagsMap[orderId]) || 1);
+        studioState.orderBagsMap[orderId] = Math.max(1, Math.min(20, cur + delta));
+        studioState.selectedOrderIds.add(orderId);
+        renderOrdersTabQueue();
+        refreshStudioPreviewStage();
+    };
+    window.psSetOrdersPrintMode = function (mode) {
+        studioState.ordersPreviewMode = mode;
+        ['waybill', 'packing', 'manifest'].forEach(m => {
+            const btn = document.getElementById('ps-omode-' + m);
+            if (btn) btn.className = m === mode
+                ? 'bg-slate-900 text-white px-2.5 py-1.5 rounded-xl text-[11px] font-black'
+                : 'bg-slate-100 text-slate-700 border border-slate-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black';
+        });
+        refreshStudioPreviewStage();
+    };
+    window.psMarkSelectedOrdersPrinted = async function () {
+        const orders = getActiveOrdersForPrinting();
+        if (!orders.length || typeof db === 'undefined') return notifyPrinterToast('حدد طلبات أولاً');
+        try {
+            const batch = db.batch();
+            orders.forEach(o => {
+                if (o.id && o.id !== 'SMAN2026') {
+                    batch.update(db.collection('orders').doc(o.id), {
+                        printedCount: firebase.firestore.FieldValue.increment(1),
+                        lastPrintedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+            });
+            await batch.commit();
+            notifyPrinterToast(`✅ تم تسجيل طباعة (${orders.length}) طلب بالنظام`);
+            setTimeout(renderOrdersTabQueue, 200);
+        } catch (e) { notifyPrinterToast('تعذر تحديث عداد الطباعة'); }
+    };
+
+    // --- أدوات تبويب الفراخ ---
+    function renderPoultryChipsAndStats() {
+        const items = studioState.poultryItems || [];
+        const chips = document.getElementById('ps-pb-chips');
+        const stats = document.getElementById('ps-pb-stats');
+        const totalGrams = items.reduce((s, i) => s + i.netGrams, 0);
+        const totalCash = items.reduce((s, i) => s + i.price, 0);
+        const avg = items.length ? Math.round(totalGrams / items.length) : 0;
+
+        if (stats) {
+            stats.innerHTML = `
+                <div class="grid grid-cols-4 gap-1.5 text-center">
+                    <div class="bg-slate-900 text-white p-1.5 rounded-xl"><span class="block text-[9px] text-slate-400">العدد</span><span class="text-xs font-black text-amber-300">${items.length} تكت</span></div>
+                    <div class="bg-slate-900 text-white p-1.5 rounded-xl"><span class="block text-[9px] text-slate-400">الوزن</span><span class="text-xs font-black text-emerald-300">${(totalGrams / 1000).toFixed(2)} كجم</span></div>
+                    <div class="bg-slate-900 text-white p-1.5 rounded-xl"><span class="block text-[9px] text-slate-400">المتوسط</span><span class="text-xs font-black text-cyan-300">${avg} جم</span></div>
+                    <div class="bg-emerald-700 text-white p-1.5 rounded-xl"><span class="block text-[9px] text-emerald-200">الإجمالي</span><span class="text-xs font-black">${totalCash.toLocaleString()} ج</span></div>
+                </div>
+            `;
+        }
+        if (chips) {
+            chips.innerHTML = items.length === 0
+                ? `<div class="col-span-2 text-center py-3 text-[11px] font-bold text-slate-400">اكتب الأوزان بالجرام على اليمين</div>`
+                : items.map((it, idx) => `
+                    <div onclick="psSelectPoultryIdx(${idx})" class="flex items-center justify-between gap-1 px-2 py-1.5 rounded-xl border-2 text-[11px] font-black cursor-pointer ${idx === studioState.poultryPreviewIdx ? 'bg-emerald-50 border-emerald-600' : (it.isAnomaly ? 'bg-amber-50 border-amber-400' : 'bg-white border-slate-200')}">
+                        <span class="truncate"><span class="bg-slate-900 text-amber-300 px-1 rounded text-[9px]">#${it.index}</span> ${it.netGrams} جم</span>
+                        <div class="flex items-center gap-1 shrink-0">
+                            <span class="text-emerald-700">${it.price}ج</span>
+                            <button type="button" onclick="event.stopPropagation(); psMovePoultryItem(${idx}, -1)" class="text-slate-400 hover:text-slate-900">▲</button>
+                            <button type="button" onclick="event.stopPropagation(); psMovePoultryItem(${idx}, 1)" class="text-slate-400 hover:text-slate-900">▼</button>
+                            <button type="button" onclick="event.stopPropagation(); psRemovePoultryItem(${idx})" class="text-rose-500">×</button>
+                        </div>
+                    </div>
+                `).join('');
         }
     }
 
-    // ترقية دالة تبديل القوالب لتحديث شريط المربعات التفاعلي حسب القالب النشط
-    const _origSwitchDeliTemplateMode = window.switchDeliTemplateMode;
-    window.switchDeliTemplateMode = function (mode, skipRender = false) {
-        injectPoultryBatchUIInsideWaybillModal();
-        _origSwitchDeliTemplateMode(mode, true);
-
-        const pbBtn = document.getElementById('dw-mode-btn-poultry_batch');
-        if (pbBtn) {
-            pbBtn.className = (mode === 'poultry_batch')
-                ? 'px-3 py-1.5 rounded-xl text-xs font-black bg-amber-500 text-slate-950 shadow-sm transition-all'
-                : 'px-3 py-1.5 rounded-xl text-xs font-black bg-amber-100 text-amber-950 border border-amber-300 hover:bg-amber-200 transition-all';
-        }
-
-        const pbEditor = document.getElementById('dw-poultry-batch-editor');
-        const bagsCard = document.getElementById('dw-bags-control-card');
-        const pbSwitcher = document.getElementById('dw-pb-preview-switcher');
-
-        if (pbEditor) pbEditor.classList.toggle('hidden', mode !== 'poultry_batch');
-        if (mode === 'poultry_batch') {
-            if (bagsCard) bagsCard.classList.add('hidden');
-            window.parsePoultryWeightsList();
-        } else if (pbSwitcher) {
-            pbSwitcher.classList.add('hidden');
-        }
-
-        refreshBoxControllerPillsForMode(mode);
-
-        if (!skipRender) {
-            window.switchDeliStudioSubTab('order_bags');
-            window.onDeliStudioInputChange();
-        }
+    window.psSelectPoultryIdx = function (idx) {
+        studioState.poultryPreviewIdx = idx;
+        renderPoultryChipsAndStats();
+        refreshStudioPreviewStage();
     };
-
-    // ربط الرسم الحراري بمحرك المربعات المرن للبوليصة وتكت الفراخ
-    const _origRenderWaybillToCanvas = window.renderWaybillToCanvas203DPI;
-    window.renderWaybillToCanvas203DPI = function (order, cfg, indexNum = 1, totalCount = 1, bagIndex = 1, bagsTotal = 1) {
-        if (cfg && cfg.templateMode === 'poultry_batch') {
-            const items = window.poultryBatchState.parsedItems.length > 0
-                ? window.poultryBatchState.parsedItems
-                : window.parsePoultryWeightsList();
-            const safeList = items.length > 0 ? items : [{ index: 1, netGrams: 1389, kiloPrice: 110, price: 153 }];
-            const targetItem = order && order._poultryItem
-                ? order._poultryItem
-                : (safeList[window.poultryBatchState.previewIdx] || safeList[0]);
-
-            const cnv = window.renderSinglePoultryScaleTag203DPI(targetItem, safeList.length, cfg);
-            const qBadge = document.getElementById('dw-queue-count-badge');
-            if (qBadge) {
-                const includeMaster = document.getElementById('dw-pb-master-summary')?.checked;
-                qBadge.innerText = safeList.length + (includeMaster && safeList.length > 1 ? 1 : 0);
+    window.psMovePoultryItem = function (idx, delta) {
+        const items = studioState.poultryItems;
+        const target = idx + delta;
+        if (target < 0 || target >= items.length) return;
+        const raw = items.map(i => i.grossGrams);
+        [raw[idx], raw[target]] = [raw[target], raw[idx]];
+        document.getElementById('ps-pb-weights').value = raw.join('\n');
+        studioState.poultryPreviewIdx = target;
+        window.parsePoultryWeightsList();
+        refreshStudioPreviewStage();
+    };
+    window.psRemovePoultryItem = function (idx) {
+        const raw = studioState.poultryItems.filter((_, i) => i !== idx).map(i => i.grossGrams);
+        document.getElementById('ps-pb-weights').value = raw.join('\n');
+        window.parsePoultryWeightsList();
+        refreshStudioPreviewStage();
+    };
+    window.psQuickAddPoultryWeight = function () {
+        const inp = document.getElementById('ps-pb-quick-w');
+        const area = document.getElementById('ps-pb-weights');
+        const v = normalizeDigits(inp?.value || '').trim();
+        if (!v || isNaN(parseFloat(v))) return;
+        area.value = (area.value.trim() ? area.value.trim() + '\n' : '') + v;
+        inp.value = ''; inp.focus();
+        window.parsePoultryWeightsList();
+        studioState.poultryPreviewIdx = Math.max(0, studioState.poultryItems.length - 1);
+        refreshStudioPreviewStage();
+    };
+    window.psPasteWeightsFromClipboard = async function () {
+        try {
+            const txt = await navigator.clipboard.readText();
+            if (txt && txt.trim()) {
+                document.getElementById('ps-pb-weights').value = txt.trim();
+                const parsed = window.parsePoultryWeightsList();
+                refreshStudioPreviewStage();
+                notifyPrinterToast(`📋 تم لصق وترتيب (${parsed.length}) وزن بنجاح!`);
             }
-            return cnv;
-        }
-        if (!cfg || cfg.templateMode === 'shipping') {
-            return renderFlexibleShippingWaybill203DPI(order, cfg || window.getWaybillConfig(), indexNum, totalCount, bagIndex, bagsTotal);
-        }
-        return _origRenderWaybillToCanvas(order, cfg, indexNum, totalCount, bagIndex, bagsTotal);
+        } catch (e) { notifyPrinterToast('الصق الأوزان مباشرة داخل المربع'); }
+    };
+    window.psCopyPoultryWhatsApp = function () {
+        const items = window.parsePoultryWeightsList();
+        if (!items.length) return notifyPrinterToast('أدخل الأوزان أولاً');
+        const prod = document.getElementById('ps-pb-name')?.value || 'فراخ طازجة';
+        const kilo = document.getElementById('ps-pb-kilo')?.value || '110';
+        const totalG = items.reduce((s, i) => s + i.netGrams, 0);
+        const totalC = items.reduce((s, i) => s + i.price, 0);
+        const msg = [
+            `🐔 *بيان أوزان وتسعير: ${prod}*`,
+            `📅 ${new Date().toLocaleDateString('ar-EG')} | الكيلو: ${kilo} ج`,
+            '----------------',
+            ...items.map(i => `#${i.index} ⬅️ *${i.netGrams} جم* = *${i.price} ج.م*`),
+            '----------------',
+            `📦 العدد: ${items.length} | ⚖️ الصافي: ${(totalG / 1000).toFixed(3)} كجم`,
+            `💰 *الإجمالي: ${totalC.toLocaleString()} ج.م*`
+        ].join('\n');
+        navigator.clipboard?.writeText(msg).then(() => notifyPrinterToast('📲 تم نسخ كشف الأوزان للواتساب!'));
     };
 
-    // إصلاح سحب الطلبات المحددة من الموقع لتخرج بنفس الترتيب المحدد على الشاشة بالضبط
+    // --- أدوات تبويب الفريزر ---
+    function populateFreezerProductsSelect() {
+        const sel = document.getElementById('ps-fz-select');
+        if (!sel || typeof storeProducts === 'undefined') return;
+        const keys = Object.keys(storeProducts || {});
+        if (!keys.length) return;
+        sel.innerHTML = keys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(storeProducts[k]?.name || k)}</option>`).join('');
+        window.psOnFreezerProductSelect();
+    }
+    window.psOnFreezerProductSelect = function () {
+        const k = document.getElementById('ps-fz-select')?.value;
+        const p = (typeof storeProducts !== 'undefined') ? storeProducts[k] : null;
+        if (p) {
+            document.getElementById('ps-fz-name').value = p.name || '';
+            document.getElementById('ps-fz-weight').value = p.weight || '350 - 400 جم';
+            document.getElementById('ps-fz-price').value = (typeof storePrices !== 'undefined' && storePrices[k]) || p.basePrice || '';
+        }
+        refreshStudioPreviewStage();
+    };
+    window.psAutoGenFreezerLot = function () {
+        const d = new Date();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        const r = Math.floor(10 + Math.random() * 90);
+        document.getElementById('ps-fz-lot').value = `SH-${mm}${dd}-${r}`;
+        document.getElementById('ps-fz-barcode').value = `622${mm}${dd}${r}01`;
+        refreshStudioPreviewStage();
+    };
+
+    // =========================================================================
+    // 13. تحديث مسرح المعاينة وتنفيذ الطباعة
+    // =========================================================================
+    window.refreshStudioPreviewStage = function () {
+        const stage = document.getElementById('ps-canvas-stage');
+        if (!stage) return;
+        const cfg = window.getWaybillConfig();
+        const dims = resolveDimensionsMm(cfg);
+
+        const dimsLbl = document.getElementById('ps-dims-label');
+        if (dimsLbl) dimsLbl.textContent = `${dims.w}×${dims.h}mm (${dims.w * DOTS_PER_MM}×${dims.h * DOTS_PER_MM}px)`;
+
+        const nav = document.getElementById('ps-preview-nav');
+        const cntLbl = document.getElementById('ps-preview-count');
+        let cnv = null;
+
+        if (studioState.activeTab === 'designer') {
+            ensureDesignerInitialized();
+            cnv = renderFreeDesignerToCanvas203DPI(cfg, true);
+            bindInteractiveCanvasPointerEvents(cnv);
+            if (nav) nav.classList.add('hidden');
+            const dCopies = Math.max(1, parseInt(document.getElementById('ps-des-copies')?.value) || 1);
+            if (cntLbl) cntLbl.textContent = `${dCopies} ملصق حر`;
+        } else if (studioState.activeTab === 'poultry') {
+            const items = studioState.poultryItems.length ? studioState.poultryItems : [{ index: 1, netGrams: 1389, kiloPrice: 110, price: 153 }];
+            const idx = Math.min(items.length - 1, Math.max(0, studioState.poultryPreviewIdx));
+            cnv = window.renderSinglePoultryScaleTag203DPI(items[idx], items.length, cfg);
+            const includeMaster = document.getElementById('ps-pb-master-summary')?.checked && items.length > 1;
+            const totalCnt = (items.length * (parseInt(document.getElementById('ps-pb-copies')?.value) || 1)) + (includeMaster ? 1 : 0);
+            if (cntLbl) cntLbl.textContent = `${totalCnt} تكت`;
+            if (nav) {
+                if (items.length > 1) {
+                    nav.classList.remove('hidden');
+                    nav.innerHTML = `
+                        <button type="button" onclick="psStepPoultryPreview(-1)" class="px-2 py-0.5 bg-slate-700 rounded">◀ السابق</button>
+                        <span class="text-amber-300">تكت #${idx + 1} من ${items.length} (${items[idx].netGrams} جم)</span>
+                        <button type="button" onclick="psStepPoultryPreview(1)" class="px-2 py-0.5 bg-slate-700 rounded">التالي ▶</button>
+                    `;
+                } else nav.classList.add('hidden');
+            }
+        } else if (studioState.activeTab === 'freezer') {
+            cnv = renderFreezerTagCanvas203DPI(cfg);
+            const fCopies = Math.max(1, parseInt(document.getElementById('ps-fz-copies')?.value) || 1);
+            if (cntLbl) cntLbl.textContent = `${fCopies} استيكر`;
+            if (nav) nav.classList.add('hidden');
+        } else {
+            const orders = getActiveOrdersForPrinting();
+            const sample = orders.length ? orders : [{
+                id: 'SMAN2026', customerName: 'عميل سمان ههيا (نموذج)', customerPhone: '01208027294',
+                zone: 'ههيا', customerAddress: 'شارع الجمهورية', orderDate: new Date().toLocaleDateString('ar-EG'),
+                paymentMethod: 'cash', subtotal: 290, deliveryFee: 20, discount: 0, total: 310,
+                items: [{ id: 'jumbo', name: 'طبق سمان جامبو', quantity: 2, price: 145 }]
+            }];
+            const idx = Math.min(sample.length - 1, Math.max(0, studioState.previewOrderIdx));
+            const ord = sample[idx];
+            const bags = Math.max(1, parseInt(studioState.orderBagsMap[ord.id]) || parseInt(ord._bagsCount) || 1);
+
+            if (studioState.ordersPreviewMode === 'packing') {
+                cnv = renderPackingSummaryCanvas203DPI(sample, cfg);
+                if (cntLbl) cntLbl.textContent = '1 ملصق تجهيز';
+                if (nav) nav.classList.add('hidden');
+            } else if (studioState.ordersPreviewMode === 'manifest') {
+                cnv = renderDriverManifestCanvas203DPI(sample, cfg);
+                if (cntLbl) cntLbl.textContent = '1 كشف مندوب';
+                if (nav) nav.classList.add('hidden');
+            } else {
+                cnv = window.renderWaybillToCanvas203DPI(ord, cfg, idx + 1, sample.length, 1, bags);
+                const totalStickers = sample.reduce((s, o) => s + (parseInt(studioState.orderBagsMap[o.id]) || parseInt(o._bagsCount) || 1), 0);
+                if (cntLbl) cntLbl.textContent = `${totalStickers} بوليصة`;
+                if (nav) {
+                    if (sample.length > 1) {
+                        nav.classList.remove('hidden');
+                        nav.innerHTML = `
+                            <button type="button" onclick="psStepOrderPreview(-1)" class="px-2 py-0.5 bg-slate-700 rounded">◀ السابق</button>
+                            <span class="text-amber-300">طلب ${idx + 1}/${sample.length}: ${escapeHtml(ord.customerName || '')}</span>
+                            <button type="button" onclick="psStepOrderPreview(1)" class="px-2 py-0.5 bg-slate-700 rounded">التالي ▶</button>
+                        `;
+                    } else nav.classList.add('hidden');
+                }
+            }
+        }
+
+        if (cnv) {
+            cnv.style.maxWidth = '100%';
+            cnv.style.maxHeight = '380px';
+            cnv.style.width = 'auto';
+            cnv.style.height = 'auto';
+            cnv.style.borderRadius = '8px';
+            cnv.style.boxShadow = '0 10px 25px rgba(0,0,0,0.28)';
+            stage.innerHTML = '';
+            stage.appendChild(cnv);
+        }
+    };
+
+    window.psStepPoultryPreview = function (delta) {
+        const len = studioState.poultryItems.length;
+        if (len <= 1) return;
+        studioState.poultryPreviewIdx = (studioState.poultryPreviewIdx + delta + len) % len;
+        renderPoultryChipsAndStats();
+        refreshStudioPreviewStage();
+    };
+    window.psStepOrderPreview = function (delta) {
+        const len = getActiveOrdersForPrinting().length;
+        if (len <= 1) return;
+        studioState.previewOrderIdx = (studioState.previewOrderIdx + delta + len) % len;
+        refreshStudioPreviewStage();
+    };
+
+    window.psExecutePrint = async function (channel) {
+        const cfg = window.getWaybillConfig();
+        const canvases = buildActiveTabCanvases(cfg);
+        if (!canvases.length) {
+            return notifyPrinterToast(studioState.activeTab === 'orders' ? 'اختر طلباً واحداً على الأقل من القائمة!' : 'لا توجد ملصقات جاهزة للطباعة!');
+        }
+        if (channel === 'bluetooth') return sendCanvasesViaBluetooth(canvases, cfg);
+        if (channel === 'usb') return sendCanvasesViaUSB(canvases, cfg);
+        return sendCanvasesViaSpooler(canvases, cfg);
+    };
+
+    window.psDownloadCurrentPNG = function () {
+        const cfg = window.getWaybillConfig();
+        const canvases = buildActiveTabCanvases(cfg);
+        if (!canvases.length) return notifyPrinterToast('لا يوجد ملصق لتحميله');
+        const link = document.createElement('a');
+        link.download = `sman-hehya-label-${Date.now()}.png`;
+        link.href = canvases[0].toDataURL('image/png');
+        link.click();
+        notifyPrinterToast('🖼️ تم حفظ صورة الملصق بجودة 203 DPI');
+    };
+
+    // =========================================================================
+    // 14. ربط وتوافق كامل 100% مع كل أزرار الطباعة في الـ CRM القديم
+    // =========================================================================
+    function openPrinterPageWithTab(subTab, ordersQueue = null) {
+        studioState.activeTab = subTab || 'designer';
+        if (Array.isArray(ordersQueue) && ordersQueue.length > 0) {
+            studioState.selectedOrderIds.clear();
+            window.deliPrinterConnection.lastOrdersQueue = ordersQueue.map(o => ({ ...o }));
+            ordersQueue.forEach(o => { if (o && o.id) studioState.selectedOrderIds.add(o.id); });
+            studioState.previewOrderIdx = 0;
+            studioState.ordersPreviewMode = 'waybill';
+        }
+        if (typeof window.switchTab === 'function') {
+            const btn = document.querySelector(`#sidebar button[onclick*="switchTab('printer'"]`);
+            window.switchTab('printer', btn);
+        } else {
+            window.renderPrinterStudioPage();
+        }
+    }
+
+    window.openWaybillSettingsModal = function (ordersQueue = null) {
+        openPrinterPageWithTab(Array.isArray(ordersQueue) && ordersQueue.length ? 'orders' : 'designer', ordersQueue);
+    };
+    window.previewWaybillSample = () => openPrinterPageWithTab('orders');
+    window.previewSampleWaybill = window.previewWaybillSample;
+
+    window.saveWaybillSettings = function () {
+        persistWaybillConfig(window.getWaybillConfig());
+        notifyPrinterToast('✅ تم حفظ إعدادات طابعة Deli E750W بنجاح!');
+    };
+
+    window.printDirectViaNativeBluetooth = async function (ordersQueue = null, customCfg = null) {
+        const cfg = customCfg || window.getWaybillConfig();
+        if (Array.isArray(ordersQueue) && ordersQueue.length > 0) {
+            const canvases = [];
+            ordersQueue.forEach((o, i) => {
+                const bags = Math.max(1, parseInt(o._bagsCount) || parseInt(studioState.orderBagsMap[o.id]) || 1);
+                for (let b = 1; b <= bags; b++) {
+                    canvases.push(window.renderWaybillToCanvas203DPI(o, cfg, i + 1, ordersQueue.length, b, bags));
+                }
+            });
+            return sendCanvasesViaBluetooth(canvases, cfg);
+        }
+        return window.psExecutePrint('bluetooth');
+    };
+
+    window.printDirectViaNativeUSB = () => window.psExecutePrint('usb');
+    window.printViaInPageThermalFrame = function (ordersToPrint, customCfg = null) {
+        const cfg = customCfg || window.getWaybillConfig();
+        if (Array.isArray(ordersToPrint) && ordersToPrint.length > 0) {
+            const canvases = ordersToPrint.map((o, i) => window.renderWaybillToCanvas203DPI(o, cfg, i + 1, ordersToPrint.length, 1, 1));
+            return sendCanvasesViaSpooler(canvases, cfg);
+        }
+        return window.psExecutePrint('spooler');
+    };
+
+    window.printSingleOrderWaybill = function (orderId) {
+        const order = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).find(o => o.id === orderId);
+        if (!order) return notifyPrinterToast('⚠️ لم يتم العثور على الطلب!');
+        const cfg = window.getWaybillConfig();
+        if (cfg.instantPrint) {
+            return window.printDirectViaNativeBluetooth([order], cfg);
+        }
+        openPrinterPageWithTab('orders', [order]);
+    };
+
     window.bulkPrintWaybills = function () {
         const checkedBoxes = Array.from(document.querySelectorAll('.bulk-order-cb:checked'));
-        if (checkedBoxes.length === 0) return alert('يرجى تحديد طلب واحد على الأقل لطباعة البوليصة!');
-
-        // ترتيب الصناديق المحددة حسب ظهورها على الشاشة من الأول للعاشر بالمللي
-        const domOrderedIds = checkedBoxes.map(cb => cb.value);
+        if (!checkedBoxes.length) return alert('يرجى تحديد طلب واحد على الأقل لطباعة البوليصة!');
         const rawList = (typeof allOrdersRaw !== 'undefined' && Array.isArray(allOrdersRaw)) ? allOrdersRaw : [];
-
-        let ordersToPrint = domOrderedIds
-            .map(id => rawList.find(o => o && o.id === id))
-            .filter(Boolean)
-            .map(o => ({ ...o, _bagsCount: 1, items: Array.isArray(o.items) ? o.items.map(i => ({ ...i })) : [] }));
-
-        if (ordersToPrint.length === 0) return;
-
-        const bcCfg = getBoxCustomConfig();
-        if (bcCfg.reversePrintOrder && ordersToPrint.length > 1) {
-            ordersToPrint = ordersToPrint.slice().reverse();
-        }
+        let ordersToPrint = checkedBoxes.map(cb => rawList.find(o => o && o.id === cb.value)).filter(Boolean);
+        if (!ordersToPrint.length) return;
 
         const cfg = window.getWaybillConfig();
-        window.deliPrinterConnection.lastOrdersQueue = ordersToPrint;
-
-        if (cfg.instantPrint) {
-            window.printDirectViaNativeBluetooth(ordersToPrint, cfg);
-        } else {
-            window.openWaybillSettingsModal(ordersToPrint);
-        }
+        if (cfg.reversePrintOrder && ordersToPrint.length > 1) ordersToPrint = ordersToPrint.slice().reverse();
+        if (cfg.instantPrint) return window.printDirectViaNativeBluetooth(ordersToPrint, cfg);
+        openPrinterPageWithTab('orders', ordersToPrint);
     };
     window.printSelectedOrdersWaybills = window.bulkPrintWaybills;
+    window.printPoultryBatchSequentiallyBluetooth = () => window.psExecutePrint('bluetooth');
 
-    // مضخة الطباعة المتتابعة بالترتيب الدقيق (1 -> 10 أو 10 -> 1 حسب إعداد الرول)
-    window.printPoultryBatchSequentiallyBluetooth = async function (cfg) {
-        if (window.deliPrinterConnection.isPrinting) return;
-        const items = window.parsePoultryWeightsList();
-        if (items.length === 0) return alert('يرجى كتابة أو لصق وزن واحد على الأقل!');
-
-        const bcCfg = getBoxCustomConfig();
-        const orderedItems = bcCfg.reversePrintOrder ? items.slice().reverse() : items;
-
-        const copies = Math.max(1, parseInt(cfg.copies) || 1);
-        const includeMaster = document.getElementById('dw-pb-master-summary')?.checked;
-        const allCanvases = [];
-
-        orderedItems.forEach(it => {
-            for (let c = 0; c < copies; c++) {
-                allCanvases.push(window.renderSinglePoultryScaleTag203DPI(it, items.length, cfg));
-            }
-        });
-        if (includeMaster && items.length > 1) {
-            allCanvases.push(renderPoultryBatchMasterSummaryCanvas(items, cfg));
+    // زر الطابعة السريع في الهيدر
+    function injectHeaderPrinterQuickBtn() {
+        const pulseBar = document.getElementById('lc-header-pulse-bar');
+        if (pulseBar && !document.getElementById('lc-hdr-printer-btn')) {
+            const prnBtn = document.createElement('button');
+            prnBtn.id = 'lc-hdr-printer-btn';
+            prnBtn.onclick = () => openPrinterPageWithTab(studioState.activeTab || 'designer');
+            prnBtn.title = 'استوديو الطباعة الحرارية (Deli E750W)';
+            prnBtn.className = 'lc-capsule bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 px-2 sm:px-2.5 py-1.5 rounded-xl text-[10px] sm:text-[11px] font-black flex items-center gap-1 shadow-sm shrink-0';
+            prnBtn.innerHTML = '<i class="fa-solid fa-print text-amber-600"></i> <span class="hidden md:inline">Deli 750W</span>';
+            pulseBar.appendChild(prnBtn);
         }
+    }
 
-        if (!isNativeApkBridgeAvailable()) {
-            const fakeOrders = orderedItems.map(it => ({ _poultryItem: it, _bagsCount: 1 }));
-            return window.printViaInPageThermalFrame(fakeOrders, cfg);
-        }
-
-        const btn = document.getElementById('dw-btn-direct-ble');
-        const origHtml = btn ? btn.innerHTML : '';
-        window.deliPrinterConnection.isPrinting = true;
-        const targetMac = document.getElementById('dw-native-printer-select')?.value || cfg.selectedMac || 'AUTO';
-
-        try {
-            const BATCH_STEP = 2;
-            for (let i = 0; i < allCanvases.length; i += BATCH_STEP) {
-                if (btn) {
-                    btn.disabled = true;
-                    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> جاري طباعة التكت بالترتيب (${Math.min(allCanvases.length, i + BATCH_STEP)} من ${allCanvases.length})...`;
-                }
-                await new Promise(r => setTimeout(r, 90));
-
-                const slice = allCanvases.slice(i, i + BATCH_STEP);
-                let sliceLen = 0;
-                const pkts = slice.map(cnv => {
-                    const p = convertCanvasToTSPLPacket(cnv, cfg);
-                    sliceLen += p.length;
-                    return p;
-                });
-                const combined = new Uint8Array(sliceLen);
-                let off = 0;
-                pkts.forEach(p => { combined.set(p, off); off += p.length; });
-
-                const b64 = uint8ArrayToBase64(combined);
-                const res = window.SmanNativePrinter.printRawBase64Bluetooth(targetMac, b64);
-                if (!String(res).startsWith('OK:')) {
-                    alert(`⚠️ توقفت الطباعة عند التكت رقم ${i + 1}: (${res})`);
-                    break;
-                }
-                if (i + BATCH_STEP < allCanvases.length) {
-                    await new Promise(r => setTimeout(r, 220));
-                }
-            }
-            notifyPrinterToast(`✅ تمت طباعة (${allCanvases.length}) تكت بنفس الترتيب بنجاح!`);
-        } catch (err) {
-            alert('حدث خطأ أثناء طباعة الدفعة: ' + err.message);
-        } finally {
-            window.deliPrinterConnection.isPrinting = false;
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = origHtml;
-            }
-        }
-    };
-
-    const _origTriggerDirectHardwarePrintBtn = window.triggerDirectHardwarePrintBtn;
-    window.triggerDirectHardwarePrintBtn = function () {
-        const cfg = readStudioInputsToConfig();
-        if (cfg.templateMode === 'poultry_batch') {
-            persistWaybillConfig(cfg);
-            return window.printPoultryBatchSequentiallyBluetooth(cfg);
-        }
-        return _origTriggerDirectHardwarePrintBtn();
-    };
-
-    const _origOpenWaybillSettingsModal = window.openWaybillSettingsModal;
-    window.openWaybillSettingsModal = function (ordersQueue = null) {
-        _origOpenWaybillSettingsModal(ordersQueue);
-        injectPoultryBatchUIInsideWaybillModal();
-        refreshBoxControllerPillsForMode(document.getElementById('dw-template-mode')?.value || 'shipping');
-    };
-
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', () => setTimeout(injectHeaderPrinterQuickBtn, 700));
+    } else {
+        setTimeout(injectHeaderPrinterQuickBtn, 700);
+    }
 })();
