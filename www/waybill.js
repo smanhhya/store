@@ -1328,7 +1328,298 @@
         return items;
     };
 
+    // دالة ضبط الخط تلقائياً لمنع خروج أو تداخل أي كلمة داخل المربعات في أي مقاس
+    function drawFitText(ctx, text, x, y, maxW, maxFs, minFs = 9, weight = '900', align = 'center', baseline = 'middle', family = 'Cairo, Tahoma, sans-serif') {
+        const str = String(text ?? '');
+        let fs = Math.max(minFs, Math.round(maxFs));
+        ctx.font = `${weight} ${fs}px ${family}`;
+        while (fs > minFs && ctx.measureText(str).width > maxW) {
+            fs -= 1;
+            ctx.font = `${weight} ${fs}px ${family}`;
+        }
+        ctx.textAlign = align;
+        ctx.textBaseline = baseline;
+        ctx.fillText(str, Math.round(x), Math.round(y), Math.max(16, Math.round(maxW)));
+        return fs;
+    }
+
+    const defaultPoultryDesign = {
+        layout: '2_cols',   // '2_cols' | '3_cols' | 'custom'
+        showHeader: true,
+        showTitle: true,
+        showDate: true,
+        showIndex: true,
+        invertPrice: true,
+        fontScale: 100,
+        customTpl: null     // { w, h, elements: [...] }
+    };
+
+    function getPoultryDesignCfg() {
+        const cfg = window.getWaybillConfig();
+        return { ...defaultPoultryDesign, ...(cfg.poultryDesign || {}) };
+    }
+
+    function savePoultryDesignCfg(pCfg) {
+        const cfg = window.getWaybillConfig();
+        cfg.poultryDesign = { ...defaultPoultryDesign, ...pCfg };
+        persistWaybillConfig(cfg);
+    }
+
+    function syncPoultryDesignControlsUI() {
+        const pCfg = getPoultryDesignCfg();
+        const cfg = window.getWaybillConfig();
+        ['2_cols', '3_cols', 'custom'].forEach(mode => {
+            const btn = document.getElementById('ps-pbl-' + mode);
+            if (!btn) return;
+            const active = pCfg.layout === mode;
+            btn.className = active
+                ? 'px-2.5 py-1.5 rounded-xl text-[11px] font-black bg-slate-900 text-amber-300 shadow-sm transition-all'
+                : 'px-2.5 py-1.5 rounded-xl text-[11px] font-black bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all';
+        });
+        const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = Boolean(v); };
+        setChk('ps-pbd-header', pCfg.showHeader);
+        setChk('ps-pbd-title', pCfg.showTitle);
+        setChk('ps-pbd-date', pCfg.showDate);
+        setChk('ps-pbd-index', pCfg.showIndex);
+        setChk('ps-pbd-invert', pCfg.invertPrice);
+        setChk('ps-pbd-reverse', cfg.reversePrintOrder);
+        const fsInp = document.getElementById('ps-pbd-fscale');
+        const fsLbl = document.getElementById('ps-pbd-fscale-lbl');
+        if (fsInp) fsInp.value = pCfg.fontScale || 100;
+        if (fsLbl) fsLbl.textContent = (pCfg.fontScale || 100) + '%';
+    }
+
+    window.psUpdatePoultryDesign = function (field, val) {
+        if (field === 'reversePrintOrder') {
+            window.psUpdateCfgField('reversePrintOrder', Boolean(val));
+            syncPoultryDesignControlsUI();
+            return;
+        }
+        const pCfg = getPoultryDesignCfg();
+        if (field === 'layout' && val === 'custom' && (!pCfg.customTpl || !pCfg.customTpl.elements?.length)) {
+            return window.psOpenPoultryInWordDesigner();
+        }
+        pCfg[field] = val;
+        savePoultryDesignCfg(pCfg);
+        syncPoultryDesignControlsUI();
+        refreshStudioPreviewStage();
+    };
+
+    function resolvePoultryPlaceholders(text, itemObj, totalItemsCount, cfg) {
+        const storeName = (cfg.customStoreTitle || (typeof storeSettings !== 'undefined' && storeSettings.storeName) || 'سمان ههيا').trim();
+        const storePhone = (cfg.customStorePhone || (typeof storeSettings !== 'undefined' && storeSettings.storePhone) || '01208027294').trim();
+        const prodName = (document.getElementById('ps-pb-name')?.value || 'فراخ تسمين طازجة').trim();
+        const dateNote = (document.getElementById('ps-pb-date')?.value || `ذبح اليوم • طازج 100%`).trim();
+        return String(text ?? '')
+            .replace(/\{الوزن\}/g, `${itemObj.netGrams} جم`)
+            .replace(/\{الوزن_كيلو\}/g, `${(itemObj.netGrams / 1000).toFixed(3)} كجم`)
+            .replace(/\{السعر\}/g, `${itemObj.price} ج.م`)
+            .replace(/\{الكيلو\}/g, `${itemObj.kiloPrice} ج`)
+            .replace(/\{الصنف\}/g, prodName)
+            .replace(/\{التاريخ\}/g, dateNote)
+            .replace(/\{الرقم\}/g, `#${itemObj.index}/${totalItemsCount}`)
+            .replace(/\{المتجر\}/g, storeName)
+            .replace(/\{التليفون\}/g, storePhone);
+    }
+
+    function buildStarterPoultryDesignerElements(W, H) {
+        const pad = Math.max(6, Math.round(Math.min(W, H) * 0.03));
+        const inW = W - pad * 2;
+        const hdrH = Math.max(26, Math.round(H * 0.16));
+        const titleH = Math.max(22, Math.round(H * 0.15));
+        const boxY = pad + hdrH + titleH + 10;
+        const boxH = Math.max(46, H - boxY - pad - 4);
+        const halfW = Math.round((inW - 8) / 2);
+        return [
+            { id: 'pb_frame', type: 'box', x: 4, y: 4, w: W - 8, h: H - 8, text: '', fontSize: 16, bold: true, align: 'center', inverted: false, border: 'solid', borderWidth: 3 },
+            { id: 'pb_hdr', type: 'badge', x: pad + 4, y: pad + 4, w: inW - 8, h: hdrH, text: '{المتجر}  •  {الرقم}', fontSize: Math.max(13, Math.round(hdrH * 0.54)), bold: true, align: 'center', inverted: true, border: 'none', borderWidth: 0 },
+            { id: 'pb_title', type: 'text', x: pad + 4, y: pad + hdrH + 6, w: inW - 8, h: titleH, text: '{الصنف}', fontSize: Math.max(13, Math.round(titleH * 0.65)), bold: true, align: 'center', inverted: false, border: 'none', borderWidth: 0 },
+            { id: 'pb_weight', type: 'box', x: pad + halfW + 8, y: boxY, w: inW - halfW - 12, h: boxH, text: 'الوزن\n{الوزن}', fontSize: Math.max(14, Math.round(boxH * 0.28)), bold: true, align: 'center', inverted: false, border: 'solid', borderWidth: 3 },
+            { id: 'pb_price', type: 'badge', x: pad + 4, y: boxY, w: halfW - 4, h: boxH, text: 'السعر\n{السعر}', fontSize: Math.max(15, Math.round(boxH * 0.30)), bold: true, align: 'center', inverted: true, border: 'none', borderWidth: 0 }
+        ];
+    }
+
+    function showOrHidePoultryDesignerBanner(show) {
+        const panel = document.getElementById('ps-panel-designer');
+        if (!panel) return;
+        let banner = document.getElementById('ps-poultry-word-banner');
+        if (!show) {
+            if (banner) banner.remove();
+            return;
+        }
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'ps-poultry-word-banner';
+            banner.className = 'bg-gradient-to-l from-amber-500 to-amber-400 text-slate-950 p-3.5 rounded-2xl shadow-md border-2 border-amber-600/40 space-y-2.5';
+            banner.innerHTML = `
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="text-xs font-black">🐔 وضع تصميم قالب تكت الفراخ (اسحب وكبّر المربعات بإيدك ثم اضغط اعتماد)</div>
+                    <div class="flex gap-1.5">
+                        <button type="button" onclick="psSavePoultryFromWordDesigner()" class="bg-slate-950 hover:bg-emerald-900 text-amber-300 px-3 py-1.5 rounded-xl text-xs font-black shadow">✅ اعتماد القالب لكل الأوزان</button>
+                        <button type="button" onclick="psCancelPoultryWordDesigner()" class="bg-white/70 hover:bg-white text-slate-900 px-2.5 py-1.5 rounded-xl text-xs font-black">✕ إلغاء</button>
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-1 text-[10px] font-black">
+                    <span class="ml-1">إدراج متغير تلقائي:</span>
+                    ${['{الوزن}', '{السعر}', '{الكيلو}', '{الصنف}', '{الرقم}', '{التاريخ}', '{المتجر}', '{التليفون}'].map(v =>
+                        `<button type="button" onclick="psInsertPoultryVar('${v}')" class="bg-white/90 hover:bg-slate-900 hover:text-white px-2 py-1 rounded-lg border border-amber-700/20 transition-all">${v}</button>`
+                    ).join('')}
+                </div>
+            `;
+            panel.insertBefore(banner, panel.firstChild);
+        }
+    }
+
+    window.psOpenPoultryInWordDesigner = function () {
+        const cfg = window.getWaybillConfig();
+        const dims = resolveDimensionsMm(cfg);
+        const W = dims.w * DOTS_PER_MM, H = dims.h * DOTS_PER_MM;
+        const pCfg = getPoultryDesignCfg();
+
+        if (!studioState.editingPoultryTemplate) {
+            studioState._backupNormalDesignerEls = JSON.parse(JSON.stringify(studioState.designer.elements || []));
+        }
+        studioState.editingPoultryTemplate = true;
+
+        if (pCfg.customTpl && Array.isArray(pCfg.customTpl.elements) && pCfg.customTpl.elements.length) {
+            studioState.designer.elements = JSON.parse(JSON.stringify(pCfg.customTpl.elements));
+            const oldW = (pCfg.customTpl.w || dims.w) * DOTS_PER_MM;
+            const oldH = (pCfg.customTpl.h || dims.h) * DOTS_PER_MM;
+            if (oldW !== W || oldH !== H) scaleDesignerElementsToNewPaper(oldW, oldH, W, H);
+        } else {
+            studioState.designer.elements = buildStarterPoultryDesignerElements(W, H);
+        }
+
+        studioState.designer.selectedId = studioState.designer.elements[studioState.designer.elements.length - 1]?.id || null;
+        window.switchPrinterStudioSubTab('designer');
+        showOrHidePoultryDesignerBanner(true);
+        if (typeof window.renderDesignerPropertiesBar === 'function') window.renderDesignerPropertiesBar();
+        refreshStudioPreviewStage();
+        notifyPrinterToast('🎨 عدّل مربعات تكت الفراخ بإيدك واضغط «اعتماد القالب» فوق!');
+    };
+
+    window.psInsertPoultryVar = function (varToken) {
+        const sel = studioState.designer.elements.find(e => e.id === studioState.designer.selectedId);
+        if (sel && ['text', 'box', 'badge'].includes(sel.type)) {
+            sel.text = (sel.text ? sel.text + ' ' : '') + varToken;
+        } else {
+            window.psAddDesignerEl('text');
+            const newest = studioState.designer.elements[studioState.designer.elements.length - 1];
+            if (newest) newest.text = varToken;
+        }
+        if (typeof window.renderDesignerPropertiesBar === 'function') window.renderDesignerPropertiesBar();
+        refreshStudioPreviewStage();
+    };
+
+    window.psSavePoultryFromWordDesigner = function () {
+        const cfg = window.getWaybillConfig();
+        const dims = resolveDimensionsMm(cfg);
+        const pCfg = getPoultryDesignCfg();
+        pCfg.layout = 'custom';
+        pCfg.customTpl = {
+            w: dims.w,
+            h: dims.h,
+            elements: JSON.parse(JSON.stringify(studioState.designer.elements || []))
+        };
+        savePoultryDesignCfg(pCfg);
+
+        studioState.editingPoultryTemplate = false;
+        showOrHidePoultryDesignerBanner(false);
+        if (Array.isArray(studioState._backupNormalDesignerEls)) {
+            studioState.designer.elements = studioState._backupNormalDesignerEls;
+            studioState._backupNormalDesignerEls = null;
+        }
+        window.switchPrinterStudioSubTab('poultry');
+        syncPoultryDesignControlsUI();
+        refreshStudioPreviewStage();
+        notifyPrinterToast('✅ تم اعتماد تصميمك الخاص لتكت الفراخ! كل الأوزان هتطبع بيه بالترتيب.');
+    };
+
+    window.psCancelPoultryWordDesigner = function () {
+        studioState.editingPoultryTemplate = false;
+        showOrHidePoultryDesignerBanner(false);
+        if (Array.isArray(studioState._backupNormalDesignerEls)) {
+            studioState.designer.elements = studioState._backupNormalDesignerEls;
+            studioState._backupNormalDesignerEls = null;
+        }
+        window.switchPrinterStudioSubTab('poultry');
+    };
+
+    function renderPoultryCustomTemplate203DPI(itemObj, totalItemsCount, cfg, pCfg) {
+        const dims = resolveDimensionsMm(cfg);
+        const W = Math.floor(dims.w * DOTS_PER_MM), H = Math.floor(dims.h * DOTS_PER_MM);
+        const canvas = document.createElement('canvas');
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
+
+        const tpl = pCfg.customTpl;
+        const sx = W / ((tpl.w || dims.w) * DOTS_PER_MM);
+        const sy = H / ((tpl.h || dims.h) * DOTS_PER_MM);
+        const sf = Math.min(sx, sy);
+
+        const offsetX = Math.round((Number(cfg.offsetXMm) || 0) * DOTS_PER_MM);
+        const offsetY = Math.round((Number(cfg.offsetYMm) || 0) * DOTS_PER_MM);
+        ctx.save(); ctx.translate(offsetX, offsetY); ctx.direction = 'rtl';
+
+        (tpl.elements || []).forEach(rawEl => {
+            const x = Math.round(rawEl.x * sx), y = Math.round(rawEl.y * sy);
+            const w = Math.max(16, Math.round(rawEl.w * sx)), h = Math.max(10, Math.round(rawEl.h * sy));
+            const resolvedText = resolvePoultryPlaceholders(rawEl.text || '', itemObj, totalItemsCount, cfg);
+
+            ctx.save();
+            if (rawEl.type === 'line') {
+                const lw = Math.max(2, Number(rawEl.borderWidth) || 3);
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(x, y + Math.round((h - lw) / 2), w, lw);
+            } else if (rawEl.type === 'barcode') {
+                if (rawEl.border && rawEl.border !== 'none') drawFrameBorder(ctx, x, y, w, h, rawEl.border, rawEl.borderWidth || 2);
+                drawBarcodeOnCanvas(ctx, resolvedText || `P${itemObj.index}-${itemObj.netGrams}`, x + w / 2, y + 3, Math.max(36, w - 10), Math.max(18, h - 6), true);
+            } else if (rawEl.type === 'logo') {
+                drawQuailLogoVector(ctx, x, y, w, h, Boolean(rawEl.inverted));
+            } else {
+                if (rawEl.inverted) {
+                    ctx.fillStyle = '#000000'; ctx.fillRect(x, y, w, h);
+                } else if (rawEl.border && rawEl.border !== 'none') {
+                    drawFrameBorder(ctx, x, y, w, h, rawEl.border, rawEl.borderWidth || 3);
+                }
+                if (resolvedText.trim()) {
+                    const padX = Math.max(4, Math.round(w * 0.05));
+                    const maxW = Math.max(18, w - padX * 2);
+                    const lines = resolvedText.split('\n').filter(l => l.trim() !== '');
+                    let fs = Math.max(10, Math.round((Number(rawEl.fontSize) || 22) * sf));
+                    ctx.fillStyle = rawEl.inverted ? '#FFFFFF' : '#000000';
+
+                    // تقليل الخط تلقائياً لو أطول سطر أكبر من عرض المربع أو مجموع الأسطر أكبر من ارتفاعه
+                    while (fs > 9) {
+                        ctx.font = `${rawEl.bold !== false ? '900' : '700'} ${fs}px Cairo, Tahoma, sans-serif`;
+                        const widest = Math.max(...lines.map(l => ctx.measureText(l).width));
+                        if (widest <= maxW && (lines.length * fs * 1.25) <= (h - 6)) break;
+                        fs -= 1;
+                    }
+                    const lh = Math.round(fs * 1.22);
+                    let curY = y + Math.round((h - lines.length * lh) / 2) + Math.round(lh / 2);
+                    let drawX = x + Math.round(w / 2);
+                    ctx.textAlign = 'center';
+                    if (rawEl.align === 'right') { ctx.textAlign = 'right'; drawX = x + w - padX; }
+                    else if (rawEl.align === 'left') { ctx.textAlign = 'left'; drawX = x + padX; }
+                    ctx.textBaseline = 'middle';
+                    lines.forEach(ln => { ctx.fillText(ln, drawX, curY, maxW); curY += lh; });
+                }
+            }
+            ctx.restore();
+        });
+
+        ctx.restore();
+        return canvas;
+    }
+
     window.renderSinglePoultryScaleTag203DPI = function (itemObj, totalItemsCount, cfg) {
+        const pCfg = getPoultryDesignCfg();
+        if (pCfg.layout === 'custom' && pCfg.customTpl && Array.isArray(pCfg.customTpl.elements) && pCfg.customTpl.elements.length) {
+            return renderPoultryCustomTemplate203DPI(itemObj, totalItemsCount, cfg, pCfg);
+        }
+
         const dims = resolveDimensionsMm(cfg);
         const W = Math.floor(dims.w * DOTS_PER_MM), H = Math.floor(dims.h * DOTS_PER_MM);
         const canvas = document.createElement('canvas');
@@ -1340,86 +1631,115 @@
         const offsetY = Math.round((Number(cfg.offsetYMm) || 0) * DOTS_PER_MM);
         ctx.save(); ctx.translate(offsetX, offsetY);
 
-        const pad = Math.max(6, Math.round(Math.min(W, H) * 0.028));
-        drawFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, cfg.borderStyle || 'double', 3);
+        const pad = Math.max(5, Math.round(Math.min(W, H) * 0.025));
+        const bStyle = cfg.borderStyle || 'solid';
+        drawFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, bStyle, bStyle === 'double' ? 3 : 2.5);
 
-        const innerMargin = (cfg.borderStyle || 'double') === 'double' ? 12 : 8;
-        const innerL = pad + innerMargin, innerR = W - pad - innerMargin, innerW = innerR - innerL;
+        const innerMargin = bStyle === 'double' ? 10 : 6;
+        const innerL = pad + innerMargin;
+        const innerR = W - pad - innerMargin;
+        const innerT = pad + innerMargin;
+        const innerB = H - pad - innerMargin;
+        const innerW = innerR - innerL;
+        const innerH = innerB - innerT;
+
         const storeName = (cfg.customStoreTitle || (typeof storeSettings !== 'undefined' && storeSettings.storeName) || 'سمان ههيا').trim();
         const storePhone = (cfg.customStorePhone || (typeof storeSettings !== 'undefined' && storeSettings.storePhone) || '01208027294').trim();
         const prodName = (document.getElementById('ps-pb-name')?.value || 'فراخ تسمين طازجة - ذبح اليوم').trim();
-        const dateNote = (document.getElementById('ps-pb-date')?.value || `ذبح: ${new Date().toLocaleDateString('ar-EG')} • طازج 100%`).trim();
-        const fScale = Math.min(1.4, Math.max(0.7, (Number(cfg.fontScalePct) || 100) / 100));
+        const dateNote = (document.getElementById('ps-pb-date')?.value || `ذبح اليوم • طازج 100%`).trim();
+        const fScale = Math.min(1.3, Math.max(0.7, (Number(pCfg.fontScale) || 100) / 100));
 
-        let y = pad + innerMargin;
-        const hdrH = Math.max(24, Math.round(H * 0.16));
-        ctx.fillStyle = '#000000'; ctx.fillRect(innerL, y, innerW, hdrH);
-        ctx.fillStyle = '#FFFFFF'; ctx.textBaseline = 'middle';
-        ctx.textAlign = 'right';
-        ctx.font = `900 ${Math.max(11, Math.round(hdrH * 0.48 * fScale))}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(`${storeName} (${storePhone})`, innerR - 8, y + hdrH / 2);
-        ctx.textAlign = 'left';
-        ctx.font = `900 ${Math.max(11, Math.round(hdrH * 0.48 * fScale))}px monospace`;
-        ctx.fillText(`#${itemObj.index}/${totalItemsCount}`, innerL + 8, y + hdrH / 2);
-        y += hdrH + Math.max(4, Math.round(H * 0.03));
+        let y = innerT;
 
-        // اسم الصنف والتاريخ
-        ctx.fillStyle = '#000000'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-        const fProd = Math.max(13, Math.round(H * 0.095 * fScale));
-        ctx.font = `900 ${fProd}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(prodName.slice(0, 36), W / 2, y);
-        y += fProd + 4;
-        const fDate = Math.max(10, Math.round(H * 0.058 * fScale));
-        ctx.font = `800 ${fDate}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(dateNote.slice(0, 44), W / 2, y);
-        y += fDate + Math.max(6, Math.round(H * 0.04));
-
-        // مربعات الوزن | سعر الكيلو | السعر المطلوب
-        const boxH = Math.max(46, Math.round(H * 0.32));
-        const gapX = Math.max(6, Math.round(innerW * 0.02));
-        const colPriceW = Math.round((innerW - gapX * 2) * 0.42);
-        const colRateW = Math.round((innerW - gapX * 2) * 0.25);
-        const colWeightW = innerW - gapX * 2 - colPriceW - colRateW;
-
-        // السعر (أسود معكوس)
-        ctx.fillStyle = '#000000'; ctx.fillRect(innerL, y, colPriceW, boxH);
-        ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-        ctx.font = `900 ${Math.max(9, Math.round(boxH * 0.22 * fScale))}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText('السعر المطلوب', innerL + colPriceW / 2, y + 5);
-        ctx.textBaseline = 'middle';
-        ctx.font = `900 ${Math.max(14, Math.round(boxH * 0.44 * fScale))}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(`${itemObj.price} ج.م`, innerL + colPriceW / 2, y + Math.round(boxH * 0.67));
-
-        // سعر الكيلو
-        const rateX = innerL + colPriceW + gapX;
-        drawSharpRectBorder(ctx, rateX, y, colRateW, boxH, 3);
-        ctx.fillStyle = '#000000'; ctx.textBaseline = 'top';
-        ctx.font = `900 ${Math.max(9, Math.round(boxH * 0.21 * fScale))}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText('سعر الكيلو', rateX + colRateW / 2, y + 5);
-        ctx.textBaseline = 'middle';
-        ctx.font = `900 ${Math.max(12, Math.round(boxH * 0.36 * fScale))}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(`${itemObj.kiloPrice} ج`, rateX + colRateW / 2, y + Math.round(boxH * 0.67));
-
-        // الوزن الصافي
-        const weightX = rateX + colRateW + gapX;
-        drawSharpRectBorder(ctx, weightX, y, colWeightW, boxH, 3);
-        ctx.fillStyle = '#000000'; ctx.textBaseline = 'top';
-        ctx.font = `900 ${Math.max(9, Math.round(boxH * 0.21 * fScale))}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText('الوزن الصافي', weightX + colWeightW / 2, y + 5);
-        ctx.textBaseline = 'middle';
-        ctx.font = `900 ${Math.max(13, Math.round(boxH * 0.38 * fScale))}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(`${itemObj.netGrams} جم`, weightX + colWeightW / 2, y + Math.round(boxH * 0.67));
-        y += boxH + Math.max(5, Math.round(H * 0.03));
-
-        const remH = H - pad - innerMargin - y;
-        if (cfg.showBarcode && remH >= 24) {
-            const bcText = `P${itemObj.index}-${itemObj.netGrams}-${Math.round(itemObj.price)}`;
-            drawBarcodeOnCanvas(ctx, bcText, W / 2, y, Math.round(innerW * 0.8), Math.min(44, remH - 14), false);
+        // 1. الهيدر العلوي (البراند + رقم الترتيب #1/N)
+        if (pCfg.showHeader !== false) {
+            const hdrH = Math.max(22, Math.round(innerH * 0.17));
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(innerL, y, innerW, hdrH);
+            ctx.fillStyle = '#FFFFFF';
+            const hdrTitle = W >= 300 ? `${storeName} • ${storePhone}` : storeName;
+            if (pCfg.showIndex !== false) {
+                drawFitText(ctx, hdrTitle, innerR - 6, y + hdrH / 2, Math.round(innerW * 0.70), Math.round(hdrH * 0.56 * fScale), 9, '900', 'right', 'middle');
+                drawFitText(ctx, `#${itemObj.index}/${totalItemsCount}`, innerL + 6, y + hdrH / 2, Math.round(innerW * 0.24), Math.round(hdrH * 0.56 * fScale), 9, '900', 'left', 'middle', 'monospace');
+            } else {
+                drawFitText(ctx, hdrTitle, W / 2, y + hdrH / 2, innerW - 12, Math.round(hdrH * 0.56 * fScale), 9, '900', 'center', 'middle');
+            }
+            y += hdrH + Math.max(4, Math.round(innerH * 0.025));
+        } else if (pCfg.showIndex !== false) {
+            const idxH = Math.max(16, Math.round(innerH * 0.10));
+            ctx.fillStyle = '#000000';
+            drawFitText(ctx, `تكت رقم #${itemObj.index} من ${totalItemsCount}`, W / 2, y + idxH / 2, innerW - 8, Math.round(idxH * 0.85), 9, '900', 'center', 'middle');
+            y += idxH + 3;
         }
-        if (cfg.footerText) {
-            ctx.fillStyle = '#000000'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-            ctx.font = `900 ${Math.max(9, Math.round(H * 0.052 * fScale))}px Cairo, Tahoma, sans-serif`;
-            ctx.fillText(cfg.footerText.trim().slice(0, 50), W / 2, H - pad - Math.max(3, Math.floor(innerMargin * 0.3)));
+
+        // 2. اسم الصنف (Auto-Fit مستحيل يخرج بره البرواز)
+        if (pCfg.showTitle !== false && prodName) {
+            const titleH = Math.max(18, Math.round(innerH * 0.145));
+            ctx.fillStyle = '#000000';
+            drawFitText(ctx, prodName, W / 2, y + titleH / 2, innerW - 8, Math.round(titleH * 0.86 * fScale), 10, '900', 'center', 'middle');
+            y += titleH + 2;
+        }
+
+        // 3. التاريخ والوصف
+        if (pCfg.showDate !== false && dateNote) {
+            const dateH = Math.max(13, Math.round(innerH * 0.095));
+            ctx.fillStyle = '#000000';
+            drawFitText(ctx, dateNote, W / 2, y + dateH / 2, innerW - 8, Math.round(dateH * 0.82 * fScale), 9, '800', 'center', 'middle');
+            y += dateH + Math.max(4, Math.round(innerH * 0.025));
+        }
+
+        // 4. مساحة الباركود السفلي (فقط لو مفعّل والمقاس يكفي)
+        const showBc = cfg.showBarcode && (innerB - y > 115);
+        const bcReserveH = showBc ? Math.min(46, Math.round(innerH * 0.21)) : 0;
+
+        // 5. مربعات الوزن والتسعير (متكيفة 100% مع أي مقاس بدون أي تداخل)
+        const boxesH = Math.max(46, innerB - bcReserveH - y - 2);
+        const gapX = Math.max(5, Math.round(innerW * 0.022));
+        const isTwoCols = pCfg.layout === '2_cols';
+        const cols = isTwoCols
+            ? [
+                { label: 'السعر المطلوب', val: `${itemObj.price} ج.م`, ratio: 0.50, inv: pCfg.invertPrice !== false },
+                { label: 'الوزن الصافي', val: `${itemObj.netGrams} جم`, ratio: 0.50, inv: false }
+            ]
+            : [
+                { label: W < 360 ? 'السعر' : 'السعر المطلوب', val: `${itemObj.price} ج.م`, ratio: 0.37, inv: pCfg.invertPrice !== false },
+                { label: W < 360 ? 'الكيلو' : 'سعر الكيلو', val: `${itemObj.kiloPrice} ج`, ratio: 0.26, inv: false },
+                { label: W < 360 ? 'الوزن' : 'الوزن الصافي', val: `${itemObj.netGrams} جم`, ratio: 0.37, inv: false }
+            ];
+
+        const availW = innerW - gapX * (cols.length - 1);
+        let curX = innerL;
+
+        cols.forEach((col, cIdx) => {
+            const colW = (cIdx === cols.length - 1) ? (innerR - curX) : Math.round(availW * col.ratio);
+            if (col.inv) {
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(curX, y, colW, boxesH);
+            } else {
+                drawSharpRectBorder(ctx, curX, y, colW, boxesH, 2.5);
+            }
+
+            const padX = Math.max(5, Math.round(colW * 0.06));
+            const maxTextW = Math.max(20, colW - padX * 2);
+            const lblY = y + Math.round(boxesH * 0.23);
+            const valY = y + Math.round(boxesH * 0.67);
+
+            // خط فاصل رفيع بين العنوان والرقم في المربعات البيضاء
+            if (!col.inv && boxesH >= 64) {
+                drawSharpHLine(ctx, curX + padX, y + Math.round(boxesH * 0.41), maxTextW, 1);
+            }
+
+            ctx.fillStyle = col.inv ? '#FFFFFF' : '#000000';
+            drawFitText(ctx, col.label, curX + colW / 2, lblY, maxTextW, Math.round(boxesH * 0.21 * fScale), 9, '800', 'center', 'middle');
+            drawFitText(ctx, col.val, curX + colW / 2, valY, maxTextW, Math.round(boxesH * 0.38 * fScale), 11, '900', 'center', 'middle');
+
+            curX += colW + gapX;
+        });
+
+        y += boxesH + 4;
+        if (showBc) {
+            const bcText = `P${itemObj.index}-${itemObj.netGrams}-${Math.round(itemObj.price)}`;
+            drawBarcodeOnCanvas(ctx, bcText, W / 2, y, Math.round(innerW * 0.8), Math.max(20, bcReserveH - 6), false);
         }
 
         ctx.restore();
@@ -1926,6 +2246,35 @@
                                 <div class="flex flex-wrap gap-1.5">
                                     <button type="button" onclick="psPasteWeightsFromClipboard()" class="bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all">📋 لصق الأوزان</button>
                                     <button type="button" onclick="psCopyPoultryWhatsApp()" class="bg-emerald-50 hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all">📲 كشف واتساب</button>
+                                </div>
+                            </div>
+
+                            <!-- لوحة التحكم في شكل تكت الفراخ + التصميم الحر باللمس -->
+                            <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2.5">
+                                <div class="flex flex-wrap items-center justify-between gap-1.5">
+                                    <div class="flex flex-wrap items-center gap-1">
+                                        <span class="text-[10px] font-black text-slate-500 ml-1">شكل التكت:</span>
+                                        <button type="button" id="ps-pbl-2_cols" onclick="psUpdatePoultryDesign('layout', '2_cols')" class="px-2.5 py-1.5 rounded-xl text-[11px] font-black bg-slate-900 text-amber-300 shadow-sm">💰 وزن + سعر كبير</button>
+                                        <button type="button" id="ps-pbl-3_cols" onclick="psUpdatePoultryDesign('layout', '3_cols')" class="px-2.5 py-1.5 rounded-xl text-[11px] font-black bg-slate-100 text-slate-700">⚖️ 3 خانات</button>
+                                        <button type="button" id="ps-pbl-custom" onclick="psUpdatePoultryDesign('layout', 'custom')" class="px-2.5 py-1.5 rounded-xl text-[11px] font-black bg-slate-100 text-slate-700">🎨 تصميمي الحر</button>
+                                    </div>
+                                    <button type="button" onclick="psOpenPoultryInWordDesigner()" class="bg-amber-400 hover:bg-amber-300 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm flex items-center gap-1 active:scale-95 transition-all">
+                                        <i class="fa-solid fa-pen-ruler"></i> صمّم التكت بإيدك (وورد)
+                                    </button>
+                                </div>
+
+                                <div class="flex flex-wrap items-center gap-2.5 text-[11px] font-black text-slate-700 pt-1 border-t border-slate-200/70">
+                                    <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="ps-pbd-header" checked onchange="psUpdatePoultryDesign('showHeader', this.checked)" class="w-3.5 h-3.5 accent-emerald-600"> الهيدر</label>
+                                    <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="ps-pbd-title" checked onchange="psUpdatePoultryDesign('showTitle', this.checked)" class="w-3.5 h-3.5 accent-emerald-600"> الصنف</label>
+                                    <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="ps-pbd-date" checked onchange="psUpdatePoultryDesign('showDate', this.checked)" class="w-3.5 h-3.5 accent-emerald-600"> التاريخ</label>
+                                    <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="ps-pbd-index" checked onchange="psUpdatePoultryDesign('showIndex', this.checked)" class="w-3.5 h-3.5 accent-emerald-600"> رقم #1</label>
+                                    <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" id="ps-pbd-invert" checked onchange="psUpdatePoultryDesign('invertPrice', this.checked)" class="w-3.5 h-3.5 accent-slate-900"> سعر أسود</label>
+                                    <label class="flex items-center gap-1 cursor-pointer text-indigo-700"><input type="checkbox" id="ps-pbd-reverse" onchange="psUpdatePoultryDesign('reversePrintOrder', this.checked)" class="w-3.5 h-3.5 accent-indigo-600"> عكس الرول (10⬅️1)</label>
+                                    <div class="flex items-center gap-1.5 mr-auto bg-white px-2 py-1 rounded-lg border border-slate-200">
+                                        <span class="text-[10px] text-slate-500">الخط:</span>
+                                        <input type="range" id="ps-pbd-fscale" min="70" max="130" step="5" value="100" oninput="psUpdatePoultryDesign('fontScale', Number(this.value))" class="w-20 accent-emerald-600 cursor-pointer">
+                                        <span id="ps-pbd-fscale-lbl" class="text-[10px] text-emerald-700">100%</span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -2524,6 +2873,7 @@
 
     // --- أدوات تبويب الفراخ ---
     function renderPoultryChipsAndStats() {
+        syncPoultryDesignControlsUI();
         const items = studioState.poultryItems || [];
         const chips = document.getElementById('ps-pb-chips');
         const stats = document.getElementById('ps-pb-stats');
