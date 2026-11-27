@@ -17,7 +17,7 @@
         heightMm: 130,
         sensorType: 'gap',       // 'gap' | 'continuous' | 'bmark'
         gapMm: 2,
-        density: 10,             // 1..15 (10 متوازن لحدة الكتابة بدون تقطيع حراري)
+        density: 11,             // 1..15 (11 يعطي سواداً متصلاً وواضحاً على Deli E750W)
         speed: 2,                // 2..6 (2 = أعلى وضوح للخط العربي والباركود)
         safeMarginMm: 2.5,       // هامش أمان داخلي بالملليمتر لمنع قص الأطراف
         direction: 0,            // 0 | 1
@@ -41,8 +41,15 @@
         customStoreTitle: '',
         customStorePhone: '',
         footerText: 'بالهنا والشفا من سمان ههيا 🤍 تشرفنا بخدمتكم',
+        waybillQrMode: 'track',  // 'track' | 'dual' | 'store' | 'whatsapp' | 'custom' | 'hide'
+        waybillQrTitle: 'رأيك يهمنا — سمان ههيا',
+        waybillQrSubtitle: `امسح الكود بكاميرا موبايلك
+لمتابعة طلبك وتقييم التجربة
+أو الطلب السريع في ثواني`,
+
+        waybillQrCustomUrl: '',
         reversePrintOrder: false,
-        cleanInvoiceVersion: 4
+        cleanInvoiceVersion: 5
     };
 
     const PAPER_PRESETS = {
@@ -146,18 +153,19 @@
         try { saved = JSON.parse(localStorage.getItem('sman_waybill_cfg') || '{}'); } catch (e) {}
         const remoteCfg = (typeof storeSettings !== 'undefined' && storeSettings.waybillConfig) ? storeSettings.waybillConfig : {};
         const merged = { ...defaultDeliConfig, ...remoteCfg, ...saved };
-        if (!merged.cleanInvoiceVersion || merged.cleanInvoiceVersion < 4) {
-            merged.density = 10;
+        if (!merged.cleanInvoiceVersion || merged.cleanInvoiceVersion < 5) {
+            merged.density = 11;
             merged.speed = 2;
-            merged.safeMarginMm = 2.5;
-            merged.cleanInvoiceVersion = 4;
+            merged.safeMarginMm = merged.safeMarginMm ?? 2.5;
+            merged.waybillQrMode = merged.waybillQrMode || 'track';
+            merged.cleanInvoiceVersion = 5;
             try { localStorage.setItem('sman_waybill_cfg', JSON.stringify(merged)); } catch (e) {}
         }
         return merged;
     };
 
     function persistWaybillConfig(newCfg) {
-        newCfg.cleanInvoiceVersion = 4;
+        newCfg.cleanInvoiceVersion = 5;
         try { localStorage.setItem('sman_waybill_cfg', JSON.stringify(newCfg)); } catch (e) {}
         if (typeof storeSettings !== 'undefined') storeSettings.waybillConfig = newCfg;
         if (typeof db !== 'undefined') {
@@ -230,6 +238,84 @@
             ctx.restore();
         }
     }
+
+    let _qrLibLoading = false;
+    function ensureQrCodeLibLoaded(onReady) {
+        if (typeof window.QRCode === 'function') return true;
+        if (_qrLibLoading) return false;
+        _qrLibLoading = true;
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+        s.onload = () => { _qrLibLoading = false; if (typeof onReady === 'function') onReady(); };
+        s.onerror = () => { _qrLibLoading = false; };
+        document.head.appendChild(s);
+        return false;
+    }
+
+    function drawSharpQROnCanvas(ctx, url, x, y, boxSize) {
+        const size = Math.max(64, Math.floor(boxSize));
+        const rx = Math.round(x), ry = Math.round(y);
+        ctx.save();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(rx, ry, size, size);
+
+        if (typeof window.QRCode !== 'function') {
+            ensureQrCodeLibLoaded(() => {
+                if (typeof window.refreshStudioPreviewStage === 'function') window.refreshStudioPreviewStage();
+            });
+            drawSharpRectBorder(ctx, rx, ry, size, size, 2);
+            ctx.fillStyle = '#000000';
+            ctx.font = '900 14px Cairo, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('QR', rx + size / 2, ry + size / 2);
+            ctx.restore();
+            return;
+        }
+
+        try {
+            const tmp = document.createElement('div');
+            tmp.style.cssText = 'position:fixed;left:-9999px;top:-9999px;visibility:hidden;';
+            document.body.appendChild(tmp);
+            const qr = new window.QRCode(tmp, {
+                text: String(url || 'https://smanhhya.github.io/'),
+                width: size,
+                height: size,
+                colorDark: '#000000',
+                colorLight: '#ffffff',
+                correctLevel: window.QRCode.CorrectLevel.M
+            });
+
+            const model = qr && qr._oQRCode;
+            if (model && typeof model.getModuleCount === 'function') {
+                const count = model.getModuleCount();
+                const quiet = 2; // هامش أبيض لسرعة القراءة بالكاميرا
+                const cell = Math.max(2, Math.floor(size / (count + quiet * 2)));
+                const qrPx = cell * count;
+                const startX = rx + Math.floor((size - qrPx) / 2);
+                const startY = ry + Math.floor((size - qrPx) / 2);
+                ctx.fillStyle = '#000000';
+                for (let r = 0; r < count; r++) {
+                    for (let c = 0; c < count; c++) {
+                        if (model.isDark(r, c)) {
+                            ctx.fillRect(startX + c * cell, startY + r * cell, cell, cell);
+                        }
+                    }
+                }
+            } else {
+                const qrCnv = tmp.querySelector('canvas');
+                if (qrCnv) {
+                    ctx.imageSmoothingEnabled = false;
+                    ctx.drawImage(qrCnv, rx + 4, ry + 4, size - 8, size - 8);
+                }
+            }
+            tmp.remove();
+        } catch (e) {
+            drawSharpRectBorder(ctx, rx, ry, size, size, 2);
+        }
+        ctx.restore();
+    }
+
 
     // دوال رسم هندسية حادة للطباعة الحرارية
     function drawSharpHLine(ctx, x, y, w, thickness = 2) {
@@ -1171,16 +1257,110 @@
         ctx.fillText(isOnline ? 'خالص أونلاين' : `${isSplit ? br.cash : total} ج.م`, innerLeft + 14, curY + Math.round(totalBoxH / 2));
         curY += totalBoxH + 8;
 
-        // 5. الدعاية والفوتر
+        // 5. الدعاية + كارت الـ QR الذكي + الفوتر
         if (cfg.showPromoBanner && cfg.promoText && cfg.promoText.trim()) {
             const pH = fSmall + 12;
             drawSharpRectBorder(ctx, innerLeft, curY, innerWidth, pH, 2);
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
             ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
             ctx.fillText(cfg.promoText.trim().slice(0, 58), Math.round(W / 2), curY + Math.round(pH / 2));
-            curY += pH + 6;
+            curY += pH + 8;
         }
+
+        const qrMode = cfg.waybillQrMode || 'track';
+        const footerReserve = fSmall + 16;
+        const availQrH = (H - pad - innerMargin - footerReserve) - curY;
+
+        if (qrMode !== 'hide' && availQrH >= 115 && innerWidth >= 260) {
+            const cleanCustPhone = normalizeDigits(order.customerPhone || '').replace(/\D/g, '');
+            const cleanStorePhone = normalizeDigits(storePhone).replace(/\D/g, '');
+            const waStore = cleanStorePhone.startsWith('0') ? ('20' + cleanStorePhone.slice(1)) : (cleanStorePhone || '201208027294');
+            const trackUrl = cleanCustPhone.length >= 10
+                ? `https://smanhhya.github.io/track.html?phone=${cleanCustPhone}`
+                : 'https://smanhhya.github.io/track.html';
+            const kitchenUrl = 'https://smanhhya.github.io/kitchen/';
+            const storeUrl = 'https://smanhhya.github.io/';
+            const waUrl = `https://wa.me/${waStore}`;
+
+            if (qrMode === 'dual') {
+                // الكارت المزدوج: تتبع وتقييم + مطبخ سمان ههيا
+                const cardH = Math.min(205, Math.max(130, availQrH - 12));
+                const cardY = curY + Math.min(26, Math.max(6, Math.floor((availQrH - cardH) / 2)));
+                const gapX = 12;
+                const colW = Math.floor((innerWidth - gapX) / 2);
+                const lblH = Math.max(28, fSmall + 14);
+                const qrSz = Math.min(colW - 16, cardH - lblH - 14);
+
+                const dualItems = [
+                    { x: innerLeft + colW + gapX, url: trackUrl, label: 'تتبع وتقييم الطلب' },
+                    { x: innerLeft, url: kitchenUrl, label: 'مطبخ ووصفات السمان' }
+                ];
+
+                dualItems.forEach(item => {
+                    drawSharpRectBorder(ctx, item.x, cardY, colW, cardH, 2.5);
+                    drawSharpQROnCanvas(ctx, item.url, item.x + Math.floor((colW - qrSz) / 2), cardY + 7, qrSz);
+                    drawSharpHLine(ctx, item.x + 8, cardY + cardH - lblH, colW - 16, 1.5);
+                    ctx.fillStyle = '#000000';
+                    drawFitText(ctx, item.label, item.x + colW / 2, cardY + cardH - Math.round(lblH / 2), colW - 12, fSmall, 10, '900', 'center', 'middle');
+                });
+                curY = cardY + cardH + 6;
+            } else {
+                // كارت واحد شيك: QR واضح على الشمال + رسالة بسيطة على اليمين
+                let targetUrl = trackUrl;
+                let defaultTitle = 'رأيك يهمنا — سمان ههيا';
+                let defaultSub = 'امسح الكود بكاميرا موبايلك\nلمتابعة طلبك وتقييم التجربة\nأو الطلب السريع في ثواني';
+
+                if (qrMode === 'store') {
+                    targetUrl = storeUrl;
+                    defaultTitle = 'اطلب أونلاين بسهولة';
+                    defaultSub = 'امسح الكود لتصفح الأصناف\nوالأسعار والدفعات الجديدة\nعلى موقع سمان ههيا';
+                } else if (qrMode === 'whatsapp') {
+                    targetUrl = waUrl;
+                    defaultTitle = 'تواصل معنا على واتساب';
+                    defaultSub = 'امسح الكود لفتح محادثة\nمباشرة للطلب أو الاستفسار\nفي ثواني';
+                } else if (qrMode === 'custom') {
+                    targetUrl = (cfg.waybillQrCustomUrl || '').trim() || storeUrl;
+                }
+
+                const titleTxt = (cfg.waybillQrTitle && cfg.waybillQrTitle.trim()) ? cfg.waybillQrTitle.trim() : defaultTitle;
+                const subTxt = (cfg.waybillQrSubtitle && cfg.waybillQrSubtitle.trim()) ? cfg.waybillQrSubtitle.trim() : defaultSub;
+
+                const cardH = Math.min(182, Math.max(122, availQrH - 12));
+                const cardY = curY + Math.min(28, Math.max(6, Math.floor((availQrH - cardH) / 2)));
+                drawSharpRectBorder(ctx, innerLeft, cardY, innerWidth, cardH, 2.5);
+
+                const qrSz = Math.min(156, cardH - 16, Math.floor(innerWidth * 0.36));
+                const qrX = innerLeft + 10;
+                const qrY = cardY + Math.floor((cardH - qrSz) / 2);
+                drawSharpQROnCanvas(ctx, targetUrl, qrX, qrY, qrSz);
+
+                // خط فاصل رأسي خفيف بين الـ QR والنص
+                const divX = qrX + qrSz + 10;
+                drawSharpVLine(ctx, divX, cardY + 12, cardH - 24, 1.5);
+
+                const textLeft = divX + 10;
+                const textRight = innerRight - 12;
+                const textW = Math.max(80, textRight - textLeft);
+
+                ctx.fillStyle = '#000000';
+                const tH = Math.max(24, fSecTitle + 6);
+                drawFitText(ctx, titleTxt, textRight, cardY + 14 + Math.round(tH / 2), textW, fSecTitle, 11, '900', 'right', 'middle');
+                drawSharpHLine(ctx, textLeft, cardY + 16 + tH, textW, 1.5);
+
+                const subLines = subTxt.split(/\r?\n/).map(s => s.trim()).filter(Boolean).slice(0, 3);
+                const subTop = cardY + 24 + tH;
+                const subAvailH = Math.max(36, (cardY + cardH - 10) - subTop);
+                const lineStep = Math.floor(subAvailH / Math.max(1, subLines.length));
+                subLines.forEach((ln, idx) => {
+                    drawFitText(ctx, ln, textRight, subTop + idx * lineStep + Math.round(lineStep / 2), textW, Math.max(12, fSmall), 9, '800', 'right', 'middle');
+                });
+
+                curY = cardY + cardH + 6;
+            }
+        }
+
         const footerMsg = (cfg.footerText && cfg.footerText.trim()) || 'بالهنا والشفا من سمان ههيا 🤍 تشرفنا بخدمتكم';
+        ctx.fillStyle = '#000000';
         ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
         ctx.font = `900 ${fSmall}px Cairo, Tahoma, sans-serif`;
         ctx.fillText(footerMsg, Math.round(W / 2), Math.max(curY + fSmall, H - pad - innerMargin - 2));
@@ -1188,6 +1368,7 @@
         ctx.restore();
         return canvas;
     };
+
 
     function renderPackingSummaryCanvas203DPI(ordersList, cfg) {
         const dims = resolveDimensionsMm(cfg);
@@ -1432,7 +1613,7 @@
             .replace(/\{الكيلو\}/g, `${itemObj.kiloPrice} ج`)
             .replace(/\{الصنف\}/g, prodName)
             .replace(/\{التاريخ\}/g, dateNote)
-            .replace(/\{الرقم\}/g, `#${itemObj.index}/${totalItemsCount}`)
+            .replace(/\{الرقم\}/g, `${itemObj.index} / ${totalItemsCount}`)
             .replace(/\{المتجر\}/g, storeName)
             .replace(/\{التليفون\}/g, storePhone);
     }
@@ -1677,7 +1858,7 @@
             const hdrTitle = W >= 300 ? `${storeName} • ${storePhone}` : storeName;
             if (pCfg.showIndex !== false) {
                 drawFitText(ctx, hdrTitle, innerR - 6, y + hdrH / 2, Math.round(innerW * 0.70), Math.round(hdrH * 0.56 * fScale), 9, '900', 'right', 'middle');
-                drawFitText(ctx, `#${itemObj.index}/${totalItemsCount}`, innerL + 6, y + hdrH / 2, Math.round(innerW * 0.24), Math.round(hdrH * 0.56 * fScale), 9, '900', 'left', 'middle', 'monospace');
+                drawFitText(ctx, `${itemObj.index} / ${totalItemsCount}`, innerL + 6, y + hdrH / 2, Math.round(innerW * 0.24), Math.round(hdrH * 0.56 * fScale), 9, '900', 'left', 'middle', 'monospace');
             } else {
                 drawFitText(ctx, hdrTitle, W / 2, y + hdrH / 2, innerW - 12, Math.round(hdrH * 0.56 * fScale), 9, '900', 'center', 'middle');
             }
@@ -1685,7 +1866,7 @@
         } else if (pCfg.showIndex !== false) {
             const idxH = Math.max(16, Math.round(innerH * 0.10));
             ctx.fillStyle = '#000000';
-            drawFitText(ctx, `تكت رقم #${itemObj.index} من ${totalItemsCount}`, W / 2, y + idxH / 2, innerW - 8, Math.round(idxH * 0.85), 9, '900', 'center', 'middle');
+            drawFitText(ctx, `${itemObj.index} من ${totalItemsCount}`, W / 2, y + idxH / 2, innerW - 8, Math.round(idxH * 0.85), 9, '900', 'center', 'middle');
             y += idxH + 3;
         }
 
@@ -2116,6 +2297,29 @@
                         <input type="text" id="ps-cfg-store-phone" dir="ltr" placeholder="رقم التليفون بالبوليصة" oninput="psUpdateCfgField('customStorePhone', this.value)" class="bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs font-bold text-white text-center">
                         <input type="text" id="ps-cfg-footer" placeholder="رسالة الفوتر بالأسفل" oninput="psUpdateCfgField('footerText', this.value)" class="bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs font-bold text-white">
                     </div>
+                    <!-- التحكم في الباركود المربع (QR Code) أسفل البوليصة -->
+                    <div class="bg-slate-900/90 border border-emerald-500/30 rounded-xl p-2.5 space-y-2">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                                <label class="text-[10px] font-black text-emerald-300 block mb-1">📱 الباركود المربع (QR) أسفل البوليصة</label>
+                                <select id="ps-cfg-qr-mode" onchange="psUpdateCfgField('waybillQrMode', this.value); document.getElementById('ps-cfg-qr-url')?.classList.toggle('hidden', this.value !== 'custom')" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2 text-xs font-black text-amber-300 outline-none">
+                                    <option value="track">📱 تتبع الطلب وتقييم التجربة (كود واحد)</option>
+                                    <option value="dual">🍳 الكارت المزدوج (تتبع وتقييم + مطبخ سمان ههيا)</option>
+                                    <option value="store">🛒 الموقع الرئيسي (smanhhya.github.io)</option>
+                                    <option value="whatsapp">💬 واتساب الطلب السريع</option>
+                                    <option value="custom">🔗 رابط مخصص...</option>
+                                    <option value="hide">🚫 إخفاء الباركود المربع</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-black text-slate-400 block mb-1">العنوان بجانب الكود</label>
+                                <input type="text" id="ps-cfg-qr-title" placeholder="رأيك يهمنا — سمان ههيا" oninput="psUpdateCfgField('waybillQrTitle', this.value)" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2 text-xs font-bold text-white outline-none">
+                            </div>
+                        </div>
+                        <textarea id="ps-cfg-qr-sub" rows="2" placeholder="الجملة بجانب الكود (تقبل 3 سطور)..." oninput="psUpdateCfgField('waybillQrSubtitle', this.value)" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-2 text-xs font-bold text-slate-200 outline-none resize-none"></textarea>
+                        <input type="url" id="ps-cfg-qr-url" dir="ltr" placeholder="https://..." oninput="psUpdateCfgField('waybillQrCustomUrl', this.value)" class="hidden w-full bg-slate-950 border border-amber-400/40 rounded-xl p-2 text-xs font-bold text-amber-200 text-left outline-none">
+                    </div>
+
                     <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
                         <div class="flex flex-wrap gap-3 text-[11px] font-black text-slate-200">
                             <label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" id="ps-cfg-barcode" onchange="psUpdateCfgField('showBarcode', this.checked)" class="w-4 h-4 accent-amber-400"> باركود</label>
@@ -2466,7 +2670,7 @@
 
         setVal('ps-w-mm', dims.w);
         setVal('ps-h-mm', dims.h);
-        setVal('ps-cfg-density', cfg.density || 10);
+        setVal('ps-cfg-density', cfg.density || 11);
         setVal('ps-cfg-speed', String(cfg.speed || 2));
         setVal('ps-cfg-margin', cfg.safeMarginMm !== undefined ? cfg.safeMarginMm : 2.5);
         setVal('ps-cfg-gap', cfg.gapMm !== undefined ? cfg.gapMm : 2);
@@ -2477,6 +2681,11 @@
         setVal('ps-cfg-store-title', cfg.customStoreTitle || '');
         setVal('ps-cfg-store-phone', cfg.customStorePhone || '');
         setVal('ps-cfg-footer', cfg.footerText || '');
+        setVal('ps-cfg-qr-mode', cfg.waybillQrMode || 'track');
+        setVal('ps-cfg-qr-title', cfg.waybillQrTitle || '');
+        setVal('ps-cfg-qr-sub', cfg.waybillQrSubtitle || '');
+        setVal('ps-cfg-qr-url', cfg.waybillQrCustomUrl || '');
+        document.getElementById('ps-cfg-qr-url')?.classList.toggle('hidden', (cfg.waybillQrMode || 'track') !== 'custom');
         setChk('ps-cfg-barcode', cfg.showBarcode === true);
         setChk('ps-cfg-prices', cfg.showItemsPrice !== false);
         setChk('ps-cfg-invert', cfg.invertBitmap === true);
