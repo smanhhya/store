@@ -1,4 +1,5 @@
 // =========================================================================
+
 // 🖨️ استوديو الطباعة الحرارية الملكي (Deli E750W — Unified Native APK Engine)
 // الملف: waybill.js | مشروع: سمان ههيا (CRM)
 // الجسر الأصلي المحفوظ 100%: window.SmanNativePrinter (Bluetooth SPP + USB OTG + System Print)
