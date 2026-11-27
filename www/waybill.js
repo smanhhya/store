@@ -17,14 +17,15 @@
         heightMm: 130,
         sensorType: 'gap',       // 'gap' | 'continuous' | 'bmark'
         gapMm: 2,
-        density: 13,             // 1..15
-        speed: 3,                // 2..6
+        density: 10,             // 1..15 (10 متوازن لحدة الكتابة بدون تقطيع حراري)
+        speed: 2,                // 2..6 (2 = أعلى وضوح للخط العربي والباركود)
+        safeMarginMm: 2.5,       // هامش أمان داخلي بالملليمتر لمنع قص الأطراف
         direction: 0,            // 0 | 1
         offsetXMm: 0,
         offsetYMm: 0,
         paddingPct: 100,
         fontScalePct: 100,
-        borderStyle: 'double',   // 'double' | 'solid' | 'rounded' | 'corners' | 'dashed' | 'none'
+        borderStyle: 'solid',    // 'double' | 'solid' | 'rounded' | 'corners' | 'dashed' | 'none'
         selectedMac: 'AUTO',
         invertBitmap: false,
         instantPrint: false,
@@ -41,11 +42,13 @@
         customStorePhone: '',
         footerText: 'بالهنا والشفا من سمان ههيا 🤍 تشرفنا بخدمتكم',
         reversePrintOrder: false,
-        cleanInvoiceVersion: 3
+        cleanInvoiceVersion: 4
     };
 
     const PAPER_PRESETS = {
         '20x20':   { w: 20,  h: 20,  label: '2×2 سم' },
+        '38x25':   { w: 38,  h: 25,  label: '3.8×2.5' },
+        '40x25':   { w: 40,  h: 25,  label: '4×2.5 سم' },
         '40x30':   { w: 40,  h: 30,  label: '4×3 سم' },
         '50x30':   { w: 50,  h: 30,  label: '5×3 سم' },
         '70x50':   { w: 70,  h: 50,  label: '7×5 سم' },
@@ -142,11 +145,19 @@
         let saved = {};
         try { saved = JSON.parse(localStorage.getItem('sman_waybill_cfg') || '{}'); } catch (e) {}
         const remoteCfg = (typeof storeSettings !== 'undefined' && storeSettings.waybillConfig) ? storeSettings.waybillConfig : {};
-        return { ...defaultDeliConfig, ...remoteCfg, ...saved };
+        const merged = { ...defaultDeliConfig, ...remoteCfg, ...saved };
+        if (!merged.cleanInvoiceVersion || merged.cleanInvoiceVersion < 4) {
+            merged.density = 10;
+            merged.speed = 2;
+            merged.safeMarginMm = 2.5;
+            merged.cleanInvoiceVersion = 4;
+            try { localStorage.setItem('sman_waybill_cfg', JSON.stringify(merged)); } catch (e) {}
+        }
+        return merged;
     };
 
     function persistWaybillConfig(newCfg) {
-        newCfg.cleanInvoiceVersion = 3;
+        newCfg.cleanInvoiceVersion = 4;
         try { localStorage.setItem('sman_waybill_cfg', JSON.stringify(newCfg)); } catch (e) {}
         if (typeof storeSettings !== 'undefined') storeSettings.waybillConfig = newCfg;
         if (typeof db !== 'undefined') {
@@ -323,8 +334,8 @@
     // =========================================================================
     window.generateDeliTSPLHeader = function (cfg) {
         const dims = resolveDimensionsMm(cfg);
-        const density = Math.min(15, Math.max(1, parseInt(cfg.density) || 13));
-        const speed = Math.min(6, Math.max(2, parseInt(cfg.speed) || 3));
+        const density = Math.min(15, Math.max(1, parseInt(cfg.density) || 10));
+        const speed = Math.min(5, Math.max(1, parseInt(cfg.speed) || 2));
         const dir = cfg.direction ? 1 : 0;
         const gap = Math.max(0, parseFloat(cfg.gapMm) || 2);
 
@@ -335,10 +346,14 @@
         return [
             `SIZE ${dims.w} mm,${dims.h} mm`,
             sensorCmd,
+            `OFFSET 0 mm`,
+            `SHIFT 0`,
             `SPEED ${speed}`,
             `DENSITY ${density}`,
             `DIRECTION ${dir},0`,
             `REFERENCE 0,0`,
+            `SET PEEL OFF`,
+            `SET CUTTER OFF`,
             `SET TEAR ON`,
             `CLS`
         ].join('\r\n') + '\r\n';
@@ -355,8 +370,8 @@
         const bitmapBytes = new Uint8Array(widthBytes * heightDots);
         bitmapBytes.fill(invert ? 0x00 : 0xFF);
 
-        const density = Math.min(15, Math.max(1, parseInt(cfg.density) || 13));
-        const threshold = density >= 13 ? 195 : (density >= 10 ? 175 : 155);
+        // عتبة متوازنة 138 تحافظ على سُمك الحروف البيضاء على الأسود وحدة الحروف السوداء
+        const threshold = 138;
 
         for (let y = 0; y < heightDots; y++) {
             for (let x = 0; x < widthDots; x++) {
@@ -441,7 +456,7 @@
                 const nm = (d.name || 'طابعة بلوتوث').trim();
                 const addr = (d.address || '').trim();
                 const low = nm.toLowerCase();
-                if (!autoMac && (low.includes('deli') || low.includes('750') || low.includes('printer') || low.includes('label') || low.includes('dl-'))) {
+                if (!autoMac && !low.includes('ble') && (low.includes('deli') || low.includes('750') || low.includes('printer') || low.includes('label') || low.includes('dl-'))) {
                     autoMac = addr;
                 }
                 const isSel = (cfg.selectedMac === addr) || (cfg.selectedMac === 'AUTO' && autoMac === addr);
@@ -512,7 +527,7 @@
         const targetMac = document.getElementById('ps-bt-select')?.value || cfg.selectedMac || 'AUTO';
 
         try {
-            const BATCH_STEP = 2; // إرسال 2 ملصق في كل دفعة لمنع امتلاء ذاكرة البلوتوث
+            const BATCH_STEP = 1; // ملصق واحد في كل إرسال لمنع تقطيع الخطوط على Deli E750W
             let printedOk = 0;
 
             for (let i = 0; i < canvases.length; i += BATCH_STEP) {
@@ -1329,7 +1344,7 @@
     };
 
     // دالة ضبط الخط تلقائياً لمنع خروج أو تداخل أي كلمة داخل المربعات في أي مقاس
-    function drawFitText(ctx, text, x, y, maxW, maxFs, minFs = 9, weight = '900', align = 'center', baseline = 'middle', family = 'Cairo, Tahoma, sans-serif') {
+    function drawFitText(ctx, text, x, y, maxW, maxFs, minFs = 8, weight = '900', align = 'center', baseline = 'middle', family = 'Cairo, Tahoma, sans-serif') {
         const str = String(text ?? '');
         let fs = Math.max(minFs, Math.round(maxFs));
         ctx.font = `${weight} ${fs}px ${family}`;
@@ -1339,7 +1354,7 @@
         }
         ctx.textAlign = align;
         ctx.textBaseline = baseline;
-        ctx.fillText(str, Math.round(x), Math.round(y), Math.max(16, Math.round(maxW)));
+        ctx.fillText(str, Math.round(x), Math.round(y));
         return fs;
     }
 
@@ -1423,7 +1438,8 @@
     }
 
     function buildStarterPoultryDesignerElements(W, H) {
-        const pad = Math.max(6, Math.round(Math.min(W, H) * 0.03));
+        const safeMm = Math.min(6, Math.max(0.5, Number(window.getWaybillConfig().safeMarginMm ?? 2.5)));
+        const pad = Math.round(safeMm * DOTS_PER_MM);
         const inW = W - pad * 2;
         const hdrH = Math.max(26, Math.round(H * 0.16));
         const titleH = Math.max(22, Math.round(H * 0.15));
@@ -1431,7 +1447,7 @@
         const boxH = Math.max(46, H - boxY - pad - 4);
         const halfW = Math.round((inW - 8) / 2);
         return [
-            { id: 'pb_frame', type: 'box', x: 4, y: 4, w: W - 8, h: H - 8, text: '', fontSize: 16, bold: true, align: 'center', inverted: false, border: 'solid', borderWidth: 3 },
+            { id: 'pb_frame', type: 'box', x: pad, y: pad, w: W - pad * 2, h: H - pad * 2, text: '', fontSize: 16, bold: true, align: 'center', inverted: false, border: 'solid', borderWidth: 2 },
             { id: 'pb_hdr', type: 'badge', x: pad + 4, y: pad + 4, w: inW - 8, h: hdrH, text: '{المتجر}  •  {الرقم}', fontSize: Math.max(13, Math.round(hdrH * 0.54)), bold: true, align: 'center', inverted: true, border: 'none', borderWidth: 0 },
             { id: 'pb_title', type: 'text', x: pad + 4, y: pad + hdrH + 6, w: inW - 8, h: titleH, text: '{الصنف}', fontSize: Math.max(13, Math.round(titleH * 0.65)), bold: true, align: 'center', inverted: false, border: 'none', borderWidth: 0 },
             { id: 'pb_weight', type: 'box', x: pad + halfW + 8, y: boxY, w: inW - halfW - 12, h: boxH, text: 'الوزن\n{الوزن}', fontSize: Math.max(14, Math.round(boxH * 0.28)), bold: true, align: 'center', inverted: false, border: 'solid', borderWidth: 3 },
@@ -1631,11 +1647,12 @@
         const offsetY = Math.round((Number(cfg.offsetYMm) || 0) * DOTS_PER_MM);
         ctx.save(); ctx.translate(offsetX, offsetY);
 
-        const pad = Math.max(5, Math.round(Math.min(W, H) * 0.025));
+        const safeMm = Math.min(6, Math.max(0.5, Number(cfg.safeMarginMm !== undefined ? cfg.safeMarginMm : 2.5)));
+        const pad = Math.round(safeMm * DOTS_PER_MM);
         const bStyle = cfg.borderStyle || 'solid';
-        drawFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, bStyle, bStyle === 'double' ? 3 : 2.5);
+        drawFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, bStyle, bStyle === 'double' ? 3 : 2);
 
-        const innerMargin = bStyle === 'double' ? 10 : 6;
+        const innerMargin = bStyle === 'double' ? 10 : 5;
         const innerL = pad + innerMargin;
         const innerR = W - pad - innerMargin;
         const innerT = pad + innerMargin;
@@ -1702,9 +1719,9 @@
                 { label: 'الوزن الصافي', val: `${itemObj.netGrams} جم`, ratio: 0.50, inv: false }
             ]
             : [
-                { label: W < 360 ? 'السعر' : 'السعر المطلوب', val: `${itemObj.price} ج.م`, ratio: 0.37, inv: pCfg.invertPrice !== false },
-                { label: W < 360 ? 'الكيلو' : 'سعر الكيلو', val: `${itemObj.kiloPrice} ج`, ratio: 0.26, inv: false },
-                { label: W < 360 ? 'الوزن' : 'الوزن الصافي', val: `${itemObj.netGrams} جم`, ratio: 0.37, inv: false }
+                { label: W <= 420 ? 'السعر' : 'السعر المطلوب', val: `${itemObj.price} ج`, ratio: 0.37, inv: pCfg.invertPrice !== false },
+                { label: W <= 420 ? 'الكيلو' : 'سعر الكيلو', val: `${itemObj.kiloPrice} ج`, ratio: 0.26, inv: false },
+                { label: W <= 420 ? 'الوزن' : 'الوزن الصافي', val: `${itemObj.netGrams} جم`, ratio: 0.37, inv: false }
             ];
 
         const availW = innerW - gapX * (cols.length - 1);
@@ -1753,34 +1770,51 @@
         canvas.width = W; canvas.height = H;
         const ctx = canvas.getContext('2d');
         ctx.direction = 'rtl'; ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
-        const pad = Math.max(8, Math.round(Math.min(W, H) * 0.03));
-        drawFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, 'double', 3);
+
+        const offsetX = Math.round((Number(cfg.offsetXMm) || 0) * DOTS_PER_MM);
+        const offsetY = Math.round((Number(cfg.offsetYMm) || 0) * DOTS_PER_MM);
+        ctx.save(); ctx.translate(offsetX, offsetY);
+
+        const safeMm = Math.min(6, Math.max(0.5, Number(cfg.safeMarginMm !== undefined ? cfg.safeMarginMm : 2.5)));
+        const pad = Math.round(safeMm * DOTS_PER_MM);
+        drawFrameBorder(ctx, pad, pad, W - pad * 2, H - pad * 2, 'solid', 2);
+
+        const inL = pad + 5, inR = W - pad - 5, inT = pad + 5, inB = H - pad - 5;
+        const inW = inR - inL, inH = inB - inT;
 
         const prodName = (document.getElementById('ps-pb-name')?.value || 'دفعة فراخ طازجة').trim();
         const totalGrams = itemsList.reduce((s, i) => s + i.netGrams, 0);
         const totalCash = itemsList.reduce((s, i) => s + i.price, 0);
         const avgGrams = itemsList.length ? Math.round(totalGrams / itemsList.length) : 0;
 
-        ctx.fillStyle = '#000000'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-        const fH = Math.max(14, Math.round(H * 0.11));
-        ctx.font = `900 ${fH}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText('📦 ملصق إجمالي الدفعة والبرنيكة', W / 2, pad + 10);
-        const fSub = Math.max(12, Math.round(H * 0.08));
-        ctx.font = `900 ${fSub}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(`${prodName} (${new Date().toLocaleDateString('ar-EG')})`, W / 2, pad + 16 + fH);
+        let y = inT;
+        const hdrH = Math.max(18, Math.round(inH * 0.17));
+        ctx.fillStyle = '#000000';
+        drawFitText(ctx, 'ملخص إجمالي الدفعة', W / 2, y + hdrH / 2, inW - 6, Math.round(hdrH * 0.85), 9, '900', 'center', 'middle');
+        y += hdrH;
+        drawSharpHLine(ctx, inL + 4, y, inW - 8, 1.5);
+        y += 4;
 
-        let curY = pad + 26 + fH + fSub;
-        ctx.textAlign = 'right';
-        ctx.font = `900 ${Math.max(11, Math.round(H * 0.078))}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(`• العدد الإجمالي: ${itemsList.length} فرخة / عبوة`, W - pad - 16, curY); curY += Math.round(H * 0.11);
-        ctx.fillText(`• إجمالي الوزن الصافي: ${(totalGrams / 1000).toFixed(3)} كجم`, W - pad - 16, curY); curY += Math.round(H * 0.11);
-        ctx.fillText(`• متوسط القطعة: ${avgGrams} جم | الكيلو: ${itemsList[0]?.kiloPrice || 0} ج`, W - pad - 16, curY);
+        const boxH = Math.max(24, Math.round(inH * 0.22));
+        const bodyH = Math.max(30, inB - boxH - 4 - y);
+        const lines = [
+            `${prodName} (${new Date().toLocaleDateString('ar-EG')})`,
+            `العدد: ${itemsList.length} | الصافي: ${(totalGrams / 1000).toFixed(3)} كجم`,
+            `متوسط: ${avgGrams} جم | الكيلو: ${itemsList[0]?.kiloPrice || 0} ج`
+        ];
+        const rowH = Math.floor(bodyH / lines.length);
+        lines.forEach(ln => {
+            drawFitText(ctx, ln, W / 2, y + rowH / 2, inW - 8, Math.round(rowH * 0.72), 8, '900', 'center', 'middle');
+            y += rowH;
+        });
 
-        const boxH = Math.max(30, Math.round(H * 0.2));
-        ctx.fillStyle = '#000000'; ctx.fillRect(pad + 12, H - pad - boxH - 10, W - (pad + 12) * 2, boxH);
-        ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.font = `900 ${Math.max(14, Math.round(boxH * 0.52))}px Cairo, Tahoma, sans-serif`;
-        ctx.fillText(`إجمالي الدفعة: ${totalCash.toLocaleString()} ج.م`, W / 2, H - pad - 10 - boxH / 2);
+        const boxY = inB - boxH;
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(inL, boxY, inW, boxH);
+        ctx.fillStyle = '#FFFFFF';
+        drawFitText(ctx, `الإجمالي: ${totalCash.toLocaleString()} ج.م`, W / 2, boxY + boxH / 2, inW - 10, Math.round(boxH * 0.62), 10, '900', 'center', 'middle');
+
+        ctx.restore();
         return canvas;
     }
 
@@ -2028,10 +2062,23 @@
 
                 <!-- درج إعدادات الهاردوير المتقدمة (مطوي افتراضياً لنظافة الشاشة) -->
                 <div id="ps-hw-drawer" class="hidden bg-slate-950/85 border border-amber-400/25 rounded-2xl p-3.5 space-y-3 text-xs">
-                    <div class="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                         <div>
                             <label class="text-[10px] font-bold text-slate-400 block mb-1">غمقان الحبر (1-15)</label>
                             <input type="number" id="ps-cfg-density" min="1" max="15" oninput="psUpdateCfgField('density', Number(this.value))" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-center font-black text-amber-300">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 block mb-1">سرعة الطباعة (2 أوضح)</label>
+                            <select id="ps-cfg-speed" onchange="psUpdateCfgField('speed', Number(this.value))" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 font-black text-emerald-300">
+                                <option value="1">1 (بطيء جداً)</option>
+                                <option value="2">2 (أعلى جودة)</option>
+                                <option value="3">3 (متوسط)</option>
+                                <option value="4">4 (سريع)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-slate-400 block mb-1">هامش أمان (مم)</label>
+                            <input type="number" id="ps-cfg-margin" min="0.5" max="6" step="0.5" oninput="psUpdateCfgField('safeMarginMm', Number(this.value))" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-center font-black text-cyan-300">
                         </div>
                         <div>
                             <label class="text-[10px] font-bold text-slate-400 block mb-1">الفاصل Gap (مم)</label>
@@ -2419,7 +2466,9 @@
 
         setVal('ps-w-mm', dims.w);
         setVal('ps-h-mm', dims.h);
-        setVal('ps-cfg-density', cfg.density || 13);
+        setVal('ps-cfg-density', cfg.density || 10);
+        setVal('ps-cfg-speed', String(cfg.speed || 2));
+        setVal('ps-cfg-margin', cfg.safeMarginMm !== undefined ? cfg.safeMarginMm : 2.5);
         setVal('ps-cfg-gap', cfg.gapMm !== undefined ? cfg.gapMm : 2);
         setVal('ps-cfg-ox', cfg.offsetXMm || 0);
         setVal('ps-cfg-oy', cfg.offsetYMm || 0);
