@@ -48,7 +48,7 @@
             // 2. سُلّم هدايا أطباق السمان المذبوح فقط (يعمل في الخلفية كمفاجآت بدون إظهار القواعد للعميل)
             ladder: {
                 enabled: true,
-                showTemptationBar: true,
+                showTemptationBar: false,
                 blockWithPromoCode: true,
                 fallbackPointsIfOutOfStock: true,
                 fallbackPointsPerEggPlate: 125,
@@ -94,6 +94,8 @@
     window.storeOffersConfig = getDefaultOffersConfig();
     window.offersStudioState = {
         activeTab: 'wallet', // 'wallet' | 'ladder' | 'bundles'
+        editingRewardId: null,
+        editingTierId: null,
         editingBundleId: null
     };
 
@@ -293,6 +295,9 @@
     // =========================================================================
     window.switchOffersStudioTab = function (tabKey) {
         window.offersStudioState.activeTab = tabKey || 'wallet';
+        window.offersStudioState.editingRewardId = null;
+        window.offersStudioState.editingTierId = null;
+        window.offersStudioState.editingBundleId = null;
         window.renderOffersStudioUI();
     };
 
@@ -331,10 +336,13 @@
         // ==================== التبويب 1: خزنة الهدايا والنقاط ====================
         if (activeTab === 'wallet') {
             const rewards = Array.isArray(w.rewards) ? w.rewards : [];
+            const editRw = window.offersStudioState.editingRewardId
+                ? rewards.find(x => x.id === window.offersStudioState.editingRewardId)
+                : null;
             const prods = getProductsMap();
             const prodOpts = Object.keys(prods)
                 .filter(id => prods[id] && !prods[id].isWeightBased)
-                .map(id => `<option value="${escHtml(id)}">${escHtml(prods[id].name)} (${getProductPrice(id)} ج)</option>`)
+                .map(id => `<option value="${escHtml(id)}" ${editRw && editRw.productId === id ? 'selected' : ''}>${escHtml(prods[id].name)} (${getProductPrice(id)} ج)</option>`)
                 .join('');
 
             const samplePts = Number(rewards[0]?.pointsCost) || 125;
@@ -361,6 +369,7 @@
                             </div>
                         </div>
                         <div class="flex items-center gap-1.5 shrink-0">
+                            <button type="button" onclick="osEditWalletReward('${escHtml(r.id)}')" class="w-8 h-8 rounded-xl bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white border border-blue-200 text-xs flex items-center justify-center" title="تعديل"><i class="fa-solid fa-pen"></i></button>
                             <button type="button" onclick="osToggleWalletReward(${idx})" class="px-2.5 py-1.5 rounded-xl text-[10px] font-black border ${r.enabled ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-500 border-slate-300'}">${r.enabled ? '🟢 شغال' : '⏸️ متوقف'}</button>
                             <button type="button" onclick="osDeleteWalletReward(${idx})" class="w-8 h-8 rounded-xl bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 text-xs flex items-center justify-center"><i class="fa-solid fa-trash"></i></button>
                         </div>
@@ -419,11 +428,11 @@
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         <label class="flex items-center justify-between gap-2 bg-emerald-50/80 border border-emerald-200 p-3 rounded-2xl cursor-pointer">
                             <span class="text-xs font-black text-emerald-950">🥚 فتح استبدال النقاط بهدايا البيض (القيمة الأعلى)</span>
-                            <input type="checkbox" ${w.allowGiftRedemption !== false ? 'checked' : ''} onchange="storeOffersConfig.wallet.allowGiftRedemption=this.checked;" class="w-4 h-4 accent-emerald-600 rounded shrink-0">
+                            <input type="checkbox" ${w.allowGiftRedemption !== false ? 'checked' : ''} onchange="storeOffersConfig.wallet.allowGiftRedemption=this.checked; saveOffersStudioConfig(true);" class="w-4 h-4 accent-emerald-600 rounded shrink-0">
                         </label>
                         <label class="flex items-center justify-between gap-2 bg-blue-50/80 border border-blue-200 p-3 rounded-2xl cursor-pointer">
                             <span class="text-xs font-black text-blue-950">💵 فتح استبدال النقاط بخصم كاش (القيمة الأقل)</span>
-                            <input type="checkbox" ${w.allowCashRedemption === true ? 'checked' : ''} onchange="storeOffersConfig.wallet.allowCashRedemption=this.checked;" class="w-4 h-4 accent-blue-600 rounded shrink-0">
+                            <input type="checkbox" ${w.allowCashRedemption === true ? 'checked' : ''} onchange="storeOffersConfig.wallet.allowCashRedemption=this.checked; saveOffersStudioConfig(true);" class="w-4 h-4 accent-blue-600 rounded shrink-0">
                         </label>
                     </div>
 
@@ -431,19 +440,23 @@
                     <div class="pt-2 border-t border-slate-100 space-y-3">
                         <div class="flex items-center justify-between">
                             <h5 class="text-xs font-black text-slate-800">🎁 كتالوج الهدايا المتاحة للاستبدال بالنقاط (${rewards.length})</h5>
-                            <button type="button" onclick="document.getElementById('os-new-reward-form').classList.toggle('hidden')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm">+ إضافة هدية</button>
+                            <button type="button" onclick="osToggleNewRewardForm()" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm">+ إضافة هدية</button>
                         </div>
 
-                        <div id="os-new-reward-form" class="hidden bg-amber-50/60 border border-amber-200 rounded-2xl p-3 space-y-2.5">
+                        <div id="os-new-reward-form" class="${editRw ? '' : 'hidden'} bg-amber-50/60 border-2 ${editRw ? 'border-blue-400' : 'border-amber-200'} rounded-2xl p-3 space-y-2.5">
+                            ${editRw ? `<div class="text-[11px] font-black text-blue-800">✏️ تعديل الهدية: ${escHtml(editRw.title)}</div>` : ''}
                             <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
-                                <input type="text" id="os-rw-title" placeholder="اسم الهدية (مثال: طبق بيض هدية)" class="sm:col-span-2 border border-amber-300 rounded-xl p-2 text-xs font-black bg-white outline-none">
+                                <input type="text" id="os-rw-title" value="${escHtml(editRw?.title || '')}" placeholder="اسم الهدية (مثال: طبق بيض هدية)" class="sm:col-span-2 border border-amber-300 rounded-xl p-2 text-xs font-black bg-white outline-none">
                                 <select id="os-rw-prod" class="border border-amber-300 rounded-xl p-2 text-xs font-black bg-white outline-none">${prodOpts}</select>
-                                <input type="number" id="os-rw-qty" value="1" min="1" placeholder="الكمية" class="border border-amber-300 rounded-xl p-2 text-xs font-black text-center bg-white outline-none">
+                                <input type="number" id="os-rw-qty" value="${editRw ? (Number(editRw.qty) || 1) : 1}" min="1" placeholder="الكمية" class="border border-amber-300 rounded-xl p-2 text-xs font-black text-center bg-white outline-none">
                             </div>
                             <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                <input type="number" id="os-rw-pts" placeholder="عدد النقاط المطلوبة (مثال: 125)" class="border border-slate-200 rounded-xl p-2 text-xs font-black text-center bg-white outline-none">
-                                <input type="number" id="os-rw-cost" value="${eggRealCost}" placeholder="تكلفتك الحقيقية (ج)" class="border border-slate-200 rounded-xl p-2 text-xs font-black text-center bg-white outline-none">
-                                <button type="button" onclick="osAddWalletReward()" class="col-span-2 sm:col-span-1 bg-slate-900 hover:bg-emerald-700 text-white rounded-xl py-2 text-xs font-black">حفظ الهدية</button>
+                                <input type="number" id="os-rw-pts" value="${editRw ? (Number(editRw.pointsCost) || 125) : ''}" placeholder="عدد النقاط المطلوبة (مثال: 125)" class="border border-slate-200 rounded-xl p-2 text-xs font-black text-center bg-white outline-none">
+                                <input type="number" id="os-rw-cost" value="${editRw ? (Number(editRw.realCostEGP) || eggRealCost) : eggRealCost}" placeholder="تكلفتك الحقيقية (ج)" class="border border-slate-200 rounded-xl p-2 text-xs font-black text-center bg-white outline-none">
+                                <div class="col-span-2 sm:col-span-1 flex gap-1.5">
+                                    ${editRw ? `<button type="button" onclick="offersStudioState.editingRewardId=null; renderOffersStudioUI();" class="px-3 bg-white border border-slate-300 text-slate-600 rounded-xl py-2 text-xs font-black">إلغاء</button>` : ''}
+                                    <button type="button" onclick="osAddWalletReward()" class="flex-1 bg-slate-900 hover:bg-emerald-700 text-white rounded-xl py-2 text-xs font-black">${editRw ? '💾 حفظ التعديل' : 'حفظ الهدية'}</button>
+                                </div>
                             </div>
                         </div>
 
@@ -456,10 +469,14 @@
         // ==================== التبويب 2: سُلّم المفاجآت السري لأطباق السمان ====================
         else if (activeTab === 'ladder') {
             const tiers = (Array.isArray(l.tiers) ? l.tiers : []).slice().sort((a, b) => (Number(a.minPlates) || 0) - (Number(b.minPlates) || 0));
+            const editTier = window.offersStudioState.editingTierId
+                ? tiers.find(x => x.id === window.offersStudioState.editingTierId)
+                : null;
+            const formTierType = editTier ? editTier.rewardType : 'points_multiplier';
             const prods = getProductsMap();
             const prodOpts = Object.keys(prods)
                 .filter(id => prods[id] && !prods[id].isWeightBased)
-                .map(id => `<option value="${escHtml(id)}">${escHtml(prods[id].name)}</option>`)
+                .map(id => `<option value="${escHtml(id)}" ${editTier && editTier.productId === id ? 'selected' : ''}>${escHtml(prods[id].name)}</option>`)
                 .join('');
 
             const tiersHtml = tiers.length === 0
@@ -475,7 +492,9 @@
                         rewardDesc = `🎁 هدية فورية: ${t.giftQty || 1}× ${prods[t.productId]?.name || t.productId}`;
                     } else {
                         const mult = Number(t.multiplier) || 1.5;
-                        const realBasePct = (ptsPer100 * ptVal) * (eggRealCost / Math.max(1, eggSellPrice));
+                        const firstEggPts = Math.max(1, Number((w.rewards || [])[0]?.pointsCost) || 125);
+                        const realCostPerPoint = Math.max(cashValPt, eggRealCost / firstEggPts);
+                        const realBasePct = ptsPer100 * realCostPerPoint;
                         realCostTotal = Math.round((estOrderVal * (realBasePct / 100)) * mult);
                         rewardDesc = `⚡ نقاط مضاعفة ${mult}x على الطلب`;
                     }
@@ -498,6 +517,7 @@
                             <p class="text-[10px] font-bold text-slate-500">${rewardDesc} • قيمة الطلب التقريبية: ~${estOrderVal.toLocaleString()} ج</p>
                         </div>
                         <div class="flex items-center gap-1.5 shrink-0">
+                            <button type="button" onclick="osEditLadderTier('${escHtml(t.id)}')" class="w-8 h-8 rounded-xl bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white border border-blue-200 text-xs flex items-center justify-center" title="تعديل"><i class="fa-solid fa-pen"></i></button>
                             <button type="button" onclick="osToggleLadderTier('${escHtml(t.id)}')" class="px-2.5 py-1.5 rounded-xl text-[10px] font-black border ${t.enabled ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-500 border-slate-300'}">${t.enabled ? '🟢 نشط' : '⏸️ متوقف'}</button>
                             <button type="button" onclick="osDeleteLadderTier('${escHtml(t.id)}')" class="w-8 h-8 rounded-xl bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 text-xs flex items-center justify-center"><i class="fa-solid fa-trash"></i></button>
                         </div>
@@ -519,52 +539,60 @@
 
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <label class="flex items-center gap-2 bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-[11px] font-black text-slate-700 cursor-pointer">
-                            <input type="checkbox" ${l.showTemptationBar ? 'checked' : ''} onchange="storeOffersConfig.ladder.showTemptationBar=this.checked;" class="w-4 h-4 accent-amber-500 rounded shrink-0">
+                            <input type="checkbox" ${l.showTemptationBar ? 'checked' : ''} onchange="storeOffersConfig.ladder.showTemptationBar=this.checked; saveOffersStudioConfig(true);" class="w-4 h-4 accent-amber-500 rounded shrink-0">
                             <span>✨ إظهار شريط التقدم (فاضل كذا وتاخد…) في السلة</span>
                         </label>
                         <label class="flex items-center gap-2 bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-[11px] font-black text-slate-700 cursor-pointer">
-                            <input type="checkbox" ${l.blockWithPromoCode ? 'checked' : ''} onchange="storeOffersConfig.ladder.blockWithPromoCode=this.checked;" class="w-4 h-4 accent-rose-600 rounded shrink-0">
+                            <input type="checkbox" ${l.blockWithPromoCode ? 'checked' : ''} onchange="storeOffersConfig.ladder.blockWithPromoCode=this.checked; saveOffersStudioConfig(true);" class="w-4 h-4 accent-rose-600 rounded shrink-0">
                             <span>🛡️ إيقاف الهدية إذا استُخدم كود خصم</span>
                         </label>
                         <label class="flex items-center gap-2 bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-[11px] font-black text-slate-700 cursor-pointer">
-                            <input type="checkbox" ${l.fallbackPointsIfOutOfStock ? 'checked' : ''} onchange="storeOffersConfig.ladder.fallbackPointsIfOutOfStock=this.checked;" class="w-4 h-4 accent-emerald-600 rounded shrink-0">
+                            <input type="checkbox" ${l.fallbackPointsIfOutOfStock ? 'checked' : ''} onchange="storeOffersConfig.ladder.fallbackPointsIfOutOfStock=this.checked; saveOffersStudioConfig(true);" class="w-4 h-4 accent-emerald-600 rounded shrink-0">
                             <span>🔄 تحويل البيض لنقاط لو المخزون 0</span>
                         </label>
                     </div>
 
                     <div class="flex items-center justify-between pt-1">
                         <h5 class="text-xs font-black text-slate-800">📊 المستويات النشطة (${tiers.length})</h5>
-                        <button type="button" onclick="document.getElementById('os-new-tier-form').classList.toggle('hidden')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm">+ إضافة مستوى جديد</button>
+                        <button type="button" onclick="osToggleNewTierForm()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm">+ إضافة مستوى جديد</button>
                     </div>
 
-                    <div id="os-new-tier-form" class="hidden bg-emerald-50/60 border border-emerald-200 rounded-2xl p-3 space-y-2.5">
+                    <div id="os-new-tier-form" class="${editTier ? '' : 'hidden'} bg-emerald-50/60 border-2 ${editTier ? 'border-blue-400' : 'border-emerald-200'} rounded-2xl p-3 space-y-2.5">
+                        ${editTier ? `<div class="text-[11px] font-black text-blue-800">✏️ تعديل مستوى (${editTier.minPlates} أطباق سمان)</div>` : ''}
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
                             <div>
                                 <label class="text-[10px] font-black text-slate-600 block mb-1">عدد أطباق السمان</label>
-                                <input type="number" id="os-tr-min" min="2" value="10" class="w-full border border-emerald-300 rounded-xl p-2 text-xs font-black text-center bg-white outline-none">
+                                <input type="number" id="os-tr-min" min="2" value="${editTier ? (Number(editTier.minPlates) || 4) : 10}" class="w-full border border-emerald-300 rounded-xl p-2 text-xs font-black text-center bg-white outline-none">
                             </div>
                             <div>
                                 <label class="text-[10px] font-black text-slate-600 block mb-1">نوع المكافأة</label>
                                 <select id="os-tr-type" onchange="document.getElementById('os-tr-mult-wrap').classList.toggle('hidden', this.value!=='points_multiplier'); document.getElementById('os-tr-prod-wrap').classList.toggle('hidden', this.value!=='free_product');" class="w-full border border-emerald-300 rounded-xl p-2 text-xs font-black bg-white outline-none">
-                                    <option value="points_multiplier">⚡ مضاعفة نقاط</option>
-                                    <option value="free_product">🎁 صنف هدية مجاني</option>
+                                    <option value="points_multiplier" ${formTierType === 'points_multiplier' ? 'selected' : ''}>⚡ مضاعفة نقاط</option>
+                                    <option value="free_product" ${formTierType === 'free_product' ? 'selected' : ''}>🎁 صنف هدية مجاني</option>
                                 </select>
                             </div>
-                            <div id="os-tr-mult-wrap">
+                            <div id="os-tr-mult-wrap" class="${formTierType !== 'points_multiplier' ? 'hidden' : ''}">
                                 <label class="text-[10px] font-black text-slate-600 block mb-1">المضاعف (مثال 1.5 أو 2)</label>
-                                <input type="number" step="0.25" id="os-tr-mult" value="1.5" class="w-full border border-emerald-300 rounded-xl p-2 text-xs font-black text-center bg-white outline-none">
+                                <input type="number" step="0.25" id="os-tr-mult" value="${editTier ? (Number(editTier.multiplier) || 1.5) : 1.5}" class="w-full border border-emerald-300 rounded-xl p-2 text-xs font-black text-center bg-white outline-none">
                             </div>
-                            <div id="os-tr-prod-wrap" class="hidden">
-                                <label class="text-[10px] font-black text-slate-600 block mb-1">الصنف الهدية</label>
-                                <select id="os-tr-prod" class="w-full border border-emerald-300 rounded-xl p-2 text-xs font-black bg-white outline-none">${prodOpts}</select>
+                            <div id="os-tr-prod-wrap" class="${formTierType !== 'free_product' ? 'hidden' : ''} flex gap-1.5">
+                                <div class="flex-1">
+                                    <label class="text-[10px] font-black text-slate-600 block mb-1">الصنف الهدية</label>
+                                    <select id="os-tr-prod" class="w-full border border-emerald-300 rounded-xl p-2 text-xs font-black bg-white outline-none">${prodOpts}</select>
+                                </div>
+                                <div class="w-16">
+                                    <label class="text-[10px] font-black text-slate-600 block mb-1">الكمية</label>
+                                    <input type="number" id="os-tr-qty" min="1" value="${editTier ? (Number(editTier.giftQty) || 1) : 1}" class="w-full border border-emerald-300 rounded-xl p-2 text-xs font-black text-center bg-white outline-none">
+                                </div>
                             </div>
                             <div>
                                 <label class="text-[10px] font-black text-slate-600 block mb-1">وصف إداري للمستوى</label>
-                                <input type="text" id="os-tr-label" placeholder="مثال: طبق بيض هدية 🥚" class="w-full border border-emerald-300 rounded-xl p-2 text-xs font-black bg-white outline-none">
+                                <input type="text" id="os-tr-label" value="${escHtml(editTier?.label || '')}" placeholder="مثال: طبق بيض هدية 🥚" class="w-full border border-emerald-300 rounded-xl p-2 text-xs font-black bg-white outline-none">
                             </div>
                         </div>
-                        <div class="flex justify-end">
-                            <button type="button" onclick="osAddLadderTier()" class="bg-slate-900 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-black">💾 إضافة المستوى</button>
+                        <div class="flex justify-end gap-2">
+                            ${editTier ? `<button type="button" onclick="offersStudioState.editingTierId=null; renderOffersStudioUI();" class="px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-slate-600 text-xs font-black">إلغاء</button>` : ''}
+                            <button type="button" onclick="osAddLadderTier()" class="bg-slate-900 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-black">${editTier ? '💾 حفظ التعديل' : '💾 إضافة المستوى'}</button>
                         </div>
                     </div>
 
@@ -577,6 +605,13 @@
         else {
             const prods = getProductsMap();
             const selectableProds = Object.keys(prods).filter(id => prods[id] && !prods[id].isWeightBased);
+            const editBnd = window.offersStudioState.editingBundleId
+                ? bundles.find(x => x.id === window.offersStudioState.editingBundleId)
+                : null;
+            const editQtyMap = {};
+            if (editBnd && Array.isArray(editBnd.items)) {
+                editBnd.items.forEach(it => { editQtyMap[it.id] = Number(it.qty) || 0; });
+            }
 
             const bundlesHtml = bundles.length === 0
                 ? `<div class="text-center py-8 text-xs font-bold text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl">لا توجد باكجات منشورة بعد — اضغط (+ إنشاء باكج جديد) لتصميم أول عرض مجمع لعملائك.</div>`
@@ -603,6 +638,7 @@
                             </div>
                         </div>
                         <div class="flex items-center gap-1.5 shrink-0">
+                            <button type="button" onclick="osEditBundle('${escHtml(b.id)}')" class="w-8 h-8 rounded-xl bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white border border-blue-200 text-xs flex items-center justify-center" title="تعديل"><i class="fa-solid fa-pen"></i></button>
                             <button type="button" onclick="osToggleBundle('${escHtml(b.id)}')" class="px-3 py-1.5 rounded-xl text-[10px] font-black border ${b.enabled ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-100 text-slate-600 border-slate-300'}">${b.enabled ? '🟢 منشور' : '⏸️ مخفي'}</button>
                             <button type="button" onclick="osDeleteBundle('${escHtml(b.id)}')" class="w-8 h-8 rounded-xl bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 text-xs flex items-center justify-center"><i class="fa-solid fa-trash"></i></button>
                         </div>
@@ -615,7 +651,7 @@
                         <span class="block text-[11px] font-black text-slate-800 truncate">${escHtml(prods[id].name)}</span>
                         <span class="block text-[9px] font-bold text-emerald-700">${getProductPrice(id)} ج</span>
                     </div>
-                    <input type="number" min="0" value="0" data-os-bprod="${escHtml(id)}" oninput="osRecalcNewBundlePreview()" class="w-14 border border-slate-200 rounded-lg p-1 text-center font-black text-xs text-slate-900 bg-slate-50 outline-none">
+                    <input type="number" min="0" value="${editQtyMap[id] || 0}" data-os-bprod="${escHtml(id)}" oninput="osRecalcNewBundlePreview()" class="w-14 border border-slate-200 rounded-lg p-1 text-center font-black text-xs text-slate-900 bg-slate-50 outline-none">
                 </div>`).join('');
 
             tabBodyHtml = `
@@ -625,14 +661,15 @@
                             <h4 class="text-sm font-black text-slate-900"><i class="fa-solid fa-boxes-stacked text-amber-500 ml-1"></i> صانع الباكجات والعروض المجمعة</h4>
                             <p class="text-[11px] font-bold text-slate-400">صمّم أي باكج (أسرة، شوي، سمان + بيض) وبيظهر للعميل في المتجر بكارت شيك يضيفه بضغطة.</p>
                         </div>
-                        <button type="button" onclick="document.getElementById('os-new-bundle-form').classList.toggle('hidden')" class="bg-slate-900 hover:bg-brand-primary text-amber-300 px-3.5 py-2 rounded-xl text-xs font-black shadow-sm">+ إنشاء باكج جديد</button>
+                        <button type="button" onclick="osToggleNewBundleForm()" class="bg-slate-900 hover:bg-brand-primary text-amber-300 px-3.5 py-2 rounded-xl text-xs font-black shadow-sm">+ إنشاء باكج جديد</button>
                     </div>
 
-                    <div id="os-new-bundle-form" class="hidden bg-slate-50 border-2 border-amber-200 rounded-2xl p-4 space-y-3">
+                    <div id="os-new-bundle-form" class="${editBnd ? '' : 'hidden'} bg-slate-50 border-2 ${editBnd ? 'border-blue-400' : 'border-amber-200'} rounded-2xl p-4 space-y-3">
+                        ${editBnd ? `<div class="text-xs font-black text-blue-800">✏️ تعديل الباكج: ${escHtml(editBnd.title)}</div>` : ''}
                         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                            <input type="text" id="os-b-title" placeholder="اسم الباكج (مثال: 🔥 باكج الأسرة)" class="border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-white outline-none">
-                            <input type="text" id="os-b-badge" placeholder="شارة (مثال: الأكثر توفيراً)" class="border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-white outline-none">
-                            <input type="text" id="os-b-desc" placeholder="وصف قصير مغري للعميل..." class="border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-white outline-none">
+                            <input type="text" id="os-b-title" value="${escHtml(editBnd?.title || '')}" placeholder="اسم الباكج (مثال: 🔥 باكج الأسرة)" class="border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-white outline-none">
+                            <input type="text" id="os-b-badge" value="${escHtml(editBnd?.badge || '')}" placeholder="شارة (مثال: الأكثر توفيراً)" class="border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-white outline-none">
+                            <input type="text" id="os-b-desc" value="${escHtml(editBnd?.desc || '')}" placeholder="وصف قصير مغري للعميل..." class="border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-white outline-none">
                         </div>
 
                         <div class="space-y-1.5">
@@ -647,14 +684,14 @@
                             </div>
                             <div>
                                 <label class="text-[10px] font-black text-emerald-700 block mb-1">سعر الباكج للبيع (ج) *</label>
-                                <input type="number" id="os-b-price" oninput="osRecalcNewBundlePreview()" placeholder="مثال: 385" class="w-full border-2 border-emerald-300 rounded-xl p-2 text-center font-black text-xs bg-white outline-none">
+                                <input type="number" id="os-b-price" value="${editBnd ? (Number(editBnd.bundlePrice) || '') : ''}" oninput="osRecalcNewBundlePreview()" placeholder="مثال: 385" class="w-full border-2 border-emerald-300 rounded-xl p-2 text-center font-black text-xs bg-white outline-none">
                             </div>
                             <div>
                                 <label class="text-[10px] font-black text-indigo-700 block mb-1">بونص نقط إضافية (اختياري)</label>
-                                <input type="number" id="os-b-bonus" value="0" min="0" class="w-full border border-slate-200 rounded-xl p-2 text-center font-black text-xs bg-white outline-none">
+                                <input type="number" id="os-b-bonus" value="${editBnd ? (Number(editBnd.bonusPoints) || 0) : 0}" min="0" class="w-full border border-slate-200 rounded-xl p-2 text-center font-black text-xs bg-white outline-none">
                             </div>
                             <label class="flex items-center justify-center gap-1.5 bg-white border border-slate-200 rounded-xl p-2 text-[11px] font-black text-slate-700 cursor-pointer h-[36px]">
-                                <input type="checkbox" id="os-b-freedel" class="w-4 h-4 accent-emerald-600 rounded">
+                                <input type="checkbox" id="os-b-freedel" ${editBnd?.freeDelivery ? 'checked' : ''} class="w-4 h-4 accent-emerald-600 rounded">
                                 <span>🚚 توصيل مجاني</span>
                             </label>
                         </div>
@@ -662,8 +699,8 @@
                         <div id="os-b-margin-preview" class="text-xs font-black text-slate-600 bg-white border border-slate-200 rounded-xl p-2.5 text-center">اختر الأصناف واكتب سعر الباكج لحساب نسبة الخصم فوراً</div>
 
                         <div class="flex justify-end gap-2">
-                            <button type="button" onclick="document.getElementById('os-new-bundle-form').classList.add('hidden')" class="px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 text-xs font-black">إلغاء</button>
-                            <button type="button" onclick="osSaveNewBundle()" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md">🚀 حفظ ونشر الباكج</button>
+                            <button type="button" onclick="offersStudioState.editingBundleId=null; document.getElementById('os-new-bundle-form').classList.add('hidden'); renderOffersStudioUI();" class="px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 text-xs font-black">إلغاء</button>
+                            <button type="button" onclick="osSaveNewBundle()" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md">${editBnd ? '💾 حفظ تعديلات الباكج' : '🚀 حفظ ونشر الباكج'}</button>
                         </div>
                     </div>
 
@@ -702,11 +739,30 @@
 
             ${tabBodyHtml}
         `;
+        if (activeTab === 'bundles' && window.offersStudioState.editingBundleId) {
+            window.osRecalcNewBundlePreview();
+        }
     };
 
     // =========================================================================
     // ⚡ 4. دوال الإضافة والتعديل والحذف داخل الاستوديو
     // =========================================================================
+    window.osToggleNewRewardForm = function () {
+        if (window.offersStudioState.editingRewardId) {
+            window.offersStudioState.editingRewardId = null;
+            window.renderOffersStudioUI();
+            document.getElementById('os-new-reward-form')?.classList.remove('hidden');
+            return;
+        }
+        document.getElementById('os-new-reward-form')?.classList.toggle('hidden');
+    };
+
+    window.osEditWalletReward = function (rewardId) {
+        window.offersStudioState.editingRewardId = rewardId;
+        window.renderOffersStudioUI();
+        document.getElementById('os-new-reward-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+
     window.osAddWalletReward = async function () {
         const title = (document.getElementById('os-rw-title')?.value || '').trim();
         const productId = document.getElementById('os-rw-prod')?.value || 'eggs';
@@ -718,13 +774,20 @@
         if (!title) return alert('اكتب اسم الهدية أولاً!');
 
         if (!Array.isArray(window.storeOffersConfig.wallet.rewards)) window.storeOffersConfig.wallet.rewards = [];
-        window.storeOffersConfig.wallet.rewards.push({
-            id: 'rew_' + Date.now(),
-            title, productId, qty, pointsCost, realCostEGP, enabled: true
-        });
+        const editId = window.offersStudioState.editingRewardId;
+        if (editId) {
+            const existing = window.storeOffersConfig.wallet.rewards.find(x => x.id === editId);
+            if (existing) Object.assign(existing, { title, productId, qty, pointsCost, realCostEGP });
+            window.offersStudioState.editingRewardId = null;
+        } else {
+            window.storeOffersConfig.wallet.rewards.push({
+                id: 'rew_' + Date.now(),
+                title, productId, qty, pointsCost, realCostEGP, enabled: true
+            });
+        }
         window.renderOffersStudioUI();
         await window.saveOffersStudioConfig(true);
-        notify('✅ تمت إضافة الهدية إلى خزنة النقاط!');
+        notify(editId ? '✅ تم حفظ تعديلات الهدية!' : '✅ تمت إضافة الهدية إلى خزنة النقاط!');
     };
 
     window.osToggleWalletReward = async function (idx) {
@@ -737,9 +800,29 @@
 
     window.osDeleteWalletReward = async function (idx) {
         if (!confirm('حذف هذه الهدية من الكتالوج؟')) return;
+        const removed = window.storeOffersConfig.wallet.rewards?.[idx];
+        if (removed && removed.id === window.offersStudioState.editingRewardId) {
+            window.offersStudioState.editingRewardId = null;
+        }
         window.storeOffersConfig.wallet.rewards.splice(idx, 1);
         window.renderOffersStudioUI();
         await window.saveOffersStudioConfig(true);
+    };
+
+    window.osToggleNewTierForm = function () {
+        if (window.offersStudioState.editingTierId) {
+            window.offersStudioState.editingTierId = null;
+            window.renderOffersStudioUI();
+            document.getElementById('os-new-tier-form')?.classList.remove('hidden');
+            return;
+        }
+        document.getElementById('os-new-tier-form')?.classList.toggle('hidden');
+    };
+
+    window.osEditLadderTier = function (tierId) {
+        window.offersStudioState.editingTierId = tierId;
+        window.renderOffersStudioUI();
+        document.getElementById('os-new-tier-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
 
     window.osAddLadderTier = async function () {
@@ -747,23 +830,35 @@
         const rewardType = document.getElementById('os-tr-type')?.value || 'points_multiplier';
         const multiplier = Math.max(1.1, parseFloat(document.getElementById('os-tr-mult')?.value) || 1.5);
         const productId = document.getElementById('os-tr-prod')?.value || 'eggs';
+        const giftQty = Math.max(1, parseInt(document.getElementById('os-tr-qty')?.value, 10) || 1);
         const label = (document.getElementById('os-tr-label')?.value || '').trim()
             || (rewardType === 'free_product' ? '🥚 طبق بيض سمان هدية مجاناً' : `نقاط مضاعفة ${multiplier}x`);
 
         if (!Array.isArray(window.storeOffersConfig.ladder.tiers)) window.storeOffersConfig.ladder.tiers = [];
-        window.storeOffersConfig.ladder.tiers.push({
-            id: 'tier_' + Date.now(),
+        const tierPayload = {
             minPlates,
             rewardType,
             multiplier: rewardType === 'points_multiplier' ? multiplier : 1,
             productId,
-            giftQty: 1,
-            label,
-            enabled: true
-        });
+            giftQty: rewardType === 'free_product' ? giftQty : 1,
+            label
+        };
+
+        const editId = window.offersStudioState.editingTierId;
+        if (editId) {
+            const existing = window.storeOffersConfig.ladder.tiers.find(x => x.id === editId);
+            if (existing) Object.assign(existing, tierPayload);
+            window.offersStudioState.editingTierId = null;
+        } else {
+            window.storeOffersConfig.ladder.tiers.push({
+                id: 'tier_' + Date.now(),
+                ...tierPayload,
+                enabled: true
+            });
+        }
         window.renderOffersStudioUI();
         await window.saveOffersStudioConfig(true);
-        notify('✅ تمت إضافة المستوى إلى سُلّم السمان!');
+        notify(editId ? '✅ تم حفظ تعديلات المستوى!' : '✅ تمت إضافة المستوى إلى سُلّم السمان!');
     };
 
     window.osToggleLadderTier = async function (tierId) {
@@ -776,9 +871,26 @@
 
     window.osDeleteLadderTier = async function (tierId) {
         if (!confirm('حذف هذا المستوى من السُلّم؟')) return;
+        if (tierId === window.offersStudioState.editingTierId) window.offersStudioState.editingTierId = null;
         window.storeOffersConfig.ladder.tiers = (window.storeOffersConfig.ladder.tiers || []).filter(x => x.id !== tierId);
         window.renderOffersStudioUI();
         await window.saveOffersStudioConfig(true);
+    };
+
+    window.osToggleNewBundleForm = function () {
+        if (window.offersStudioState.editingBundleId) {
+            window.offersStudioState.editingBundleId = null;
+            window.renderOffersStudioUI();
+            document.getElementById('os-new-bundle-form')?.classList.remove('hidden');
+            return;
+        }
+        document.getElementById('os-new-bundle-form')?.classList.toggle('hidden');
+    };
+
+    window.osEditBundle = function (bId) {
+        window.offersStudioState.editingBundleId = bId;
+        window.renderOffersStudioUI();
+        document.getElementById('os-new-bundle-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
 
     window.osRecalcNewBundlePreview = function () {
@@ -839,13 +951,20 @@
         }
 
         if (!Array.isArray(window.storeOffersConfig.bundles)) window.storeOffersConfig.bundles = [];
-        window.storeOffersConfig.bundles.unshift({
-            id: 'bnd_' + Date.now(),
-            title, badge, desc, items, bundlePrice, bonusPoints, freeDelivery, enabled: true
-        });
+        const editId = window.offersStudioState.editingBundleId;
+        if (editId) {
+            const existing = window.storeOffersConfig.bundles.find(x => x.id === editId);
+            if (existing) Object.assign(existing, { title, badge, desc, items, bundlePrice, bonusPoints, freeDelivery });
+            window.offersStudioState.editingBundleId = null;
+        } else {
+            window.storeOffersConfig.bundles.unshift({
+                id: 'bnd_' + Date.now(),
+                title, badge, desc, items, bundlePrice, bonusPoints, freeDelivery, enabled: true
+            });
+        }
         window.renderOffersStudioUI();
         await window.saveOffersStudioConfig(true);
-        notify(`🚀 تم نشر الباكج (${title}) بنجاح!`);
+        notify(editId ? `✅ تم تحديث الباكج (${title}) بنجاح!` : `🚀 تم نشر الباكج (${title}) بنجاح!`);
     };
 
     window.osToggleBundle = async function (bId) {
@@ -858,22 +977,13 @@
 
     window.osDeleteBundle = async function (bId) {
         if (!confirm('حذف هذا الباكج نهائياً؟')) return;
+        if (bId === window.offersStudioState.editingBundleId) window.offersStudioState.editingBundleId = null;
         window.storeOffersConfig.bundles = (window.storeOffersConfig.bundles || []).filter(x => x.id !== bId);
         window.renderOffersStudioUI();
         await window.saveOffersStudioConfig(true);
     };
 
-    // ربط آمن بالتبديل بين التبويبات وبداية التشغيل
-    const _prevSwitchTabOffers = window.switchTab;
-    if (typeof _prevSwitchTabOffers === 'function') {
-        window.switchTab = function (tabId, btnElement, isFromBackButton) {
-            _prevSwitchTabOffers(tabId, btnElement, isFromBackButton);
-            if (tabId === 'offers') {
-                window.bindOffersStudioFirestore();
-                window.renderOffersStudioUI();
-            }
-        };
-    }
+
 
     function bootOffersStudio() {
         ensureOffersStudioDOM();
