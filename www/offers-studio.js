@@ -621,9 +621,14 @@
                     const savePct = origTotal > 0 ? Math.round((saveAmt / origTotal) * 100) : 0;
                     const itemsText = (b.items || []).map(it => `${it.qty}× ${prods[it.id]?.name || it.name || it.id}`).join(' + ');
 
+                    const imgThumb = b.image
+                        ? `<img src="${escHtml(b.image)}" alt="${escHtml(b.title)}" onerror="this.style.display='none'" class="w-16 h-16 rounded-xl object-cover border border-amber-200 shadow-sm shrink-0 bg-slate-100">`
+                        : '';
                     return `
                     <div class="bg-white border-2 ${b.enabled ? 'border-amber-300' : 'border-slate-200 opacity-65'} rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div class="space-y-1 min-w-0 flex-1">
+                        <div class="flex items-start gap-3 min-w-0 flex-1">
+                            ${imgThumb}
+                            <div class="space-y-1 min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-1.5">
                                 <span class="bg-slate-900 text-amber-300 px-2.5 py-0.5 rounded-lg text-xs font-black">${escHtml(b.title)}</span>
                                 ${b.badge ? `<span class="bg-amber-100 text-amber-900 px-2 py-0.5 rounded-md text-[10px] font-black">${escHtml(b.badge)}</span>` : ''}
@@ -635,6 +640,7 @@
                                 <span class="text-emerald-700">سعر الباكج: ${b.bundlePrice} ج</span>
                                 <span class="text-slate-400 line-through">${origTotal} ج</span>
                                 <span class="bg-rose-50 text-rose-600 px-2 py-0.5 rounded-md text-[10px]">توفير ${saveAmt} ج (${savePct}%)</span>
+                            </div>
                             </div>
                         </div>
                         <div class="flex items-center gap-1.5 shrink-0">
@@ -670,6 +676,23 @@
                             <input type="text" id="os-b-title" value="${escHtml(editBnd?.title || '')}" placeholder="اسم الباكج (مثال: 🔥 باكج الأسرة)" class="border border-slate-200 rounded-xl p-2.5 text-xs font-black bg-white outline-none">
                             <input type="text" id="os-b-badge" value="${escHtml(editBnd?.badge || '')}" placeholder="شارة (مثال: الأكثر توفيراً)" class="border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-white outline-none">
                             <input type="text" id="os-b-desc" value="${escHtml(editBnd?.desc || '')}" placeholder="وصف قصير مغري للعميل..." class="border border-slate-200 rounded-xl p-2.5 text-xs font-bold bg-white outline-none">
+                        </div>
+                        <!-- صورة الباكج الدعائية (رفع مباشر من الموبايل أو رابط) -->
+                        <div class="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <span class="text-[11px] font-black text-slate-700"><i class="fa-solid fa-image text-amber-500 ml-1"></i> صورة الباكج / البوستر (اختياري)</span>
+                                <div class="flex items-center gap-1.5">
+                                    <button type="button" id="os-b-img-upload-btn" onclick="document.getElementById('os-b-img-file').click()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm flex items-center gap-1">
+                                        <i class="fa-solid fa-cloud-arrow-up"></i> رفع من الموبايل
+                                    </button>
+                                    <button type="button" onclick="document.getElementById('os-b-image').value=''; osRefreshBundleImgPreview();" class="bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 px-2.5 py-1.5 rounded-xl text-[11px] font-black">مسح</button>
+                                    <input type="file" id="os-b-img-file" accept="image/*" class="hidden" onchange="osUploadBundleImageFile(event)">
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2.5">
+                                <img id="os-b-img-preview" src="${escHtml(editBnd?.image || '')}" onerror="this.classList.add('hidden')" class="${editBnd?.image ? '' : 'hidden'} w-16 h-16 rounded-xl object-cover border border-amber-300 shadow-sm shrink-0">
+                                <input type="text" id="os-b-image" dir="ltr" value="${escHtml(editBnd?.image || '')}" oninput="osRefreshBundleImgPreview()" placeholder="https://... أو اسم الصورة (مثال: offer-5plus1.jpg)" class="flex-1 border border-slate-200 rounded-xl p-2 text-xs font-bold bg-slate-50 focus:bg-white outline-none text-left">
+                            </div>
                         </div>
 
                         <div class="space-y-1.5">
@@ -916,10 +939,93 @@
             : `⚠️ سعر الباكج (${bPrice} ج) أكبر من أو يساوي السعر الأصلي (${origTotal} ج)`;
     };
 
+    window.osRefreshBundleImgPreview = function () {
+        const val = (document.getElementById('os-b-image')?.value || '').trim();
+        const img = document.getElementById('os-b-img-preview');
+        if (!img) return;
+        if (val) {
+            img.src = val;
+            img.classList.remove('hidden');
+        } else {
+            img.src = '';
+            img.classList.add('hidden');
+        }
+    };
+
+    window.osUploadBundleImageFile = async function (event) {
+        const file = event?.target?.files?.[0];
+        if (!file) return;
+
+        let apiKey = (document.getElementById('st-imgbb-key')?.value || '').trim();
+        if (!apiKey) {
+            try {
+                apiKey = localStorage.getItem('sman_imgbb_key')
+                    || localStorage.getItem('sman_imgbb_api_key')
+                    || localStorage.getItem('imgbb_api_key') || '';
+            } catch (e) {}
+        }
+        if (!apiKey) {
+            apiKey = (prompt('🔑 الصق مفتاح ImgBB API لرفع الصورة مجاناً (سيُحفظ تلقائياً على جهازك):') || '').trim();
+            if (!apiKey) { event.target.value = ''; return; }
+            try { localStorage.setItem('sman_imgbb_key', apiKey); } catch (e) {}
+            const stInp = document.getElementById('st-imgbb-key');
+            if (stInp) stInp.value = apiKey;
+        }
+
+        const btn = document.getElementById('os-b-img-upload-btn');
+        const origHtml = btn ? btn.innerHTML : '';
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الرفع...'; }
+
+        try {
+            // ضغط ذكي للصورة لسرعة التحميل على موبايل العميل مع الحفاظ على جودتها
+            const base64Data = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const maxSide = 1080;
+                        let w = img.width, h = img.height;
+                        if (w > maxSide || h > maxSide) {
+                            const ratio = Math.min(maxSide / w, maxSide / h);
+                            w = Math.round(w * ratio);
+                            h = Math.round(h * ratio);
+                        }
+                        const cnv = document.createElement('canvas');
+                        cnv.width = w; cnv.height = h;
+                        cnv.getContext('2d').drawImage(img, 0, 0, w, h);
+                        resolve(cnv.toDataURL('image/jpeg', 0.86).split(',')[1]);
+                    };
+                    img.onerror = reject;
+                    img.src = e.target.result;
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+
+            const fd = new FormData();
+            fd.append('image', base64Data);
+            const res = await fetch(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(apiKey)}`, { method: 'POST', body: fd });
+            const json = await res.json();
+            if (!json?.success || !json?.data?.url) throw new Error(json?.error?.message || 'فشل الرفع');
+
+            const inp = document.getElementById('os-b-image');
+            if (inp) inp.value = json.data.url;
+            window.osRefreshBundleImgPreview();
+            notify('✅ تم رفع صورة الباكج بنجاح!');
+        } catch (err) {
+            console.error(err);
+            alert('تعذر رفع الصورة: ' + (err.message || err));
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
+            event.target.value = '';
+        }
+    };
+
     window.osSaveNewBundle = async function () {
         const title = (document.getElementById('os-b-title')?.value || '').trim();
         const badge = (document.getElementById('os-b-badge')?.value || '').trim();
         const desc = (document.getElementById('os-b-desc')?.value || '').trim();
+        const image = (document.getElementById('os-b-image')?.value || '').trim();
         const bundlePrice = Math.max(1, parseFloat(document.getElementById('os-b-price')?.value) || 0);
         const bonusPoints = Math.max(0, parseInt(document.getElementById('os-b-bonus')?.value, 10) || 0);
         const freeDelivery = Boolean(document.getElementById('os-b-freedel')?.checked);
@@ -954,12 +1060,12 @@
         const editId = window.offersStudioState.editingBundleId;
         if (editId) {
             const existing = window.storeOffersConfig.bundles.find(x => x.id === editId);
-            if (existing) Object.assign(existing, { title, badge, desc, items, bundlePrice, bonusPoints, freeDelivery });
+            if (existing) Object.assign(existing, { title, badge, desc, image, items, bundlePrice, bonusPoints, freeDelivery });
             window.offersStudioState.editingBundleId = null;
         } else {
             window.storeOffersConfig.bundles.unshift({
                 id: 'bnd_' + Date.now(),
-                title, badge, desc, items, bundlePrice, bonusPoints, freeDelivery, enabled: true
+                title, badge, desc, image, items, bundlePrice, bonusPoints, freeDelivery, enabled: true
             });
         }
         window.renderOffersStudioUI();
