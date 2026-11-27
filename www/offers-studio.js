@@ -636,6 +636,13 @@
                                 ${Number(b.bonusPoints) > 0 ? `<span class="bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-md text-[10px] font-black">+${b.bonusPoints} نقطة</span>` : ''}
                             </div>
                             <p class="text-xs font-bold text-slate-700">${escHtml(itemsText)}</p>
+                            ${Number(b.endsAt) > 0 ? `<div class="flex flex-wrap items-center gap-1.5 text-[11px] font-black">
+                                <span data-os-cd="${Number(b.endsAt)}" class="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200"></span>
+                                <button type="button" onclick="osBundleTimer('${escHtml(b.id)}','restart')" class="px-2 py-0.5 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-800 hover:text-white text-[10px]">🔄 إعادة تشغيل</button>
+                                <button type="button" onclick="osBundleTimer('${escHtml(b.id)}','h1')" class="px-2 py-0.5 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-800 hover:text-white text-[10px]">+ ساعة</button>
+                                <button type="button" onclick="osBundleTimer('${escHtml(b.id)}','d1')" class="px-2 py-0.5 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-800 hover:text-white text-[10px]">+ يوم</button>
+                                <button type="button" onclick="osBundleTimer('${escHtml(b.id)}','clear')" class="px-2 py-0.5 rounded-md bg-white border border-slate-300 text-slate-700 hover:bg-slate-800 hover:text-white text-[10px]">⏹ شيل المؤقت</button>
+                            </div>` : ''}
                             <div class="flex flex-wrap items-center gap-2 text-[11px] font-black">
                                 <span class="text-emerald-700">سعر الباكج: ${b.bundlePrice} ج</span>
                                 <span class="text-slate-400 line-through">${origTotal} ج</span>
@@ -719,6 +726,22 @@
                             </label>
                         </div>
 
+                        <div class="bg-rose-50/60 border border-rose-200 rounded-2xl p-3 space-y-2">
+                            <span class="text-[11px] font-black text-rose-700 block">⏳ مؤقت العرض (اختياري) — العرض بيختفي من المتجر لوحده لما الوقت يخلص</span>
+                            <div class="flex flex-wrap gap-1.5">
+                                <button type="button" onclick="osSetBundlePreset(7200000)" class="px-2.5 py-1.5 rounded-xl bg-white border border-rose-200 text-rose-700 text-[11px] font-black hover:bg-rose-600 hover:text-white">ساعتين</button>
+                                <button type="button" onclick="osSetBundlePreset(86400000)" class="px-2.5 py-1.5 rounded-xl bg-white border border-rose-200 text-rose-700 text-[11px] font-black hover:bg-rose-600 hover:text-white">يوم</button>
+                                <button type="button" onclick="osSetBundlePreset(432000000)" class="px-2.5 py-1.5 rounded-xl bg-white border border-rose-200 text-rose-700 text-[11px] font-black hover:bg-rose-600 hover:text-white">٥ أيام</button>
+                                <button type="button" onclick="osSetBundlePreset(864000000)" class="px-2.5 py-1.5 rounded-xl bg-white border border-rose-200 text-rose-700 text-[11px] font-black hover:bg-rose-600 hover:text-white">١٠ أيام</button>
+                                <button type="button" onclick="osSetBundlePreset(0)" class="px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-slate-600 text-[11px] font-black hover:bg-slate-700 hover:text-white">بدون مؤقت</button>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <label class="text-[10px] font-black text-slate-600">أو حدد تاريخ ووقت الانتهاء:</label>
+                                <input type="datetime-local" id="os-b-end" dir="ltr" value="${editBnd && Number(editBnd.endsAt) > 0 ? osToLocalInput(Number(editBnd.endsAt)) : ''}" data-orig="${editBnd && Number(editBnd.endsAt) > 0 ? osToLocalInput(Number(editBnd.endsAt)) : ''}" oninput="this.dataset.preset=''; osRefreshBundleEndHint()" class="border border-slate-300 rounded-xl p-1.5 text-xs font-bold bg-white outline-none">
+                            </div>
+                            <div id="os-b-end-hint" class="text-[11px] font-black text-slate-500">بدون مؤقت</div>
+                        </div>
+
                         <div id="os-b-margin-preview" class="text-xs font-black text-slate-600 bg-white border border-slate-200 rounded-xl p-2.5 text-center">اختر الأصناف واكتب سعر الباكج لحساب نسبة الخصم فوراً</div>
 
                         <div class="flex justify-end gap-2">
@@ -762,6 +785,7 @@
 
             ${tabBodyHtml}
         `;
+        if (activeTab === 'bundles') { window.osTickBundleTimers(); window.osRefreshBundleEndHint(); }
         if (activeTab === 'bundles' && window.offersStudioState.editingBundleId) {
             window.osRecalcNewBundlePreview();
         }
@@ -1040,6 +1064,27 @@
             }
         });
 
+        // مؤقت العرض: preset نسبي من لحظة الحفظ، أو تاريخ محدد، أو بدون
+        const endInp = document.getElementById('os-b-end');
+        const presetMs = Number(endInp?.dataset.preset) || 0;
+        let timerFields = null; // null = لا تغيير
+        const prevB = window.offersStudioState.editingBundleId
+            ? (window.storeOffersConfig.bundles || []).find(x => x.id === window.offersStudioState.editingBundleId)
+            : null;
+        if (presetMs > 0) {
+            timerFields = { endsAt: Date.now() + presetMs, durationMs: presetMs };
+        } else if (endInp && endInp.value) {
+            if (endInp.value !== (endInp.dataset.orig || '')) {
+                const t = new Date(endInp.value).getTime();
+                if (!isFinite(t) || t <= Date.now()) return alert('وقت انتهاء العرض لازم يكون في المستقبل!');
+                timerFields = { endsAt: t, durationMs: t - Date.now() };
+            } else {
+                timerFields = prevB && Number(prevB.endsAt) > 0 ? { endsAt: Number(prevB.endsAt), durationMs: Number(prevB.durationMs) || 0 } : null;
+            }
+        } else {
+            timerFields = { endsAt: 0, durationMs: 0 };
+        }
+
         if (!title) return alert('اكتب اسم الباكج أولاً!');
         if (items.length === 0) return alert('اختر صنفاً واحداً على الأقل داخل الباكج!');
         if (bundlePrice <= 0) return alert('اكتب سعر الباكج!');
@@ -1060,17 +1105,83 @@
         const editId = window.offersStudioState.editingBundleId;
         if (editId) {
             const existing = window.storeOffersConfig.bundles.find(x => x.id === editId);
-            if (existing) Object.assign(existing, { title, badge, desc, image, items, bundlePrice, bonusPoints, freeDelivery });
+            if (existing) {
+                Object.assign(existing, { title, badge, desc, image, items, bundlePrice, bonusPoints, freeDelivery });
+                if (timerFields) {
+                    if (timerFields.endsAt > 0) { existing.endsAt = timerFields.endsAt; existing.durationMs = timerFields.durationMs; }
+                    else { delete existing.endsAt; delete existing.durationMs; }
+                }
+            }
             window.offersStudioState.editingBundleId = null;
         } else {
-            window.storeOffersConfig.bundles.unshift({
+            const newB = {
                 id: 'bnd_' + Date.now(),
                 title, badge, desc, image, items, bundlePrice, bonusPoints, freeDelivery, enabled: true
-            });
+            };
+            if (timerFields && timerFields.endsAt > 0) { newB.endsAt = timerFields.endsAt; newB.durationMs = timerFields.durationMs; }
+            window.storeOffersConfig.bundles.unshift(newB);
         }
         window.renderOffersStudioUI();
         await window.saveOffersStudioConfig(true);
         notify(editId ? `✅ تم تحديث الباكج (${title}) بنجاح!` : `🚀 تم نشر الباكج (${title}) بنجاح!`);
+    };
+
+    // ---------- مؤقت الباكج ----------
+    function osToLocalInput(ms) {
+        const d = new Date(ms);
+        const p = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
+    window.osFmtCountdown = function (ms) {
+        const t = Math.max(0, Math.floor(ms / 1000));
+        const d = Math.floor(t / 86400), h = Math.floor((t % 86400) / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+        const p = (n) => String(n).padStart(2, '0');
+        return (d > 0 ? `${d} يوم ` : '') + `${p(h)}:${p(m)}:${p(s)}`;
+    };
+    window.osSetBundlePreset = function (ms) {
+        const inp = document.getElementById('os-b-end');
+        if (!inp) return;
+        if (!ms) { inp.value = ''; inp.dataset.preset = ''; }
+        else { inp.value = osToLocalInput(Date.now() + ms); inp.dataset.preset = String(ms); }
+        window.osRefreshBundleEndHint();
+    };
+    window.osRefreshBundleEndHint = function () {
+        const inp = document.getElementById('os-b-end');
+        const hint = document.getElementById('os-b-end-hint');
+        if (!inp || !hint) return;
+        const preset = Number(inp.dataset.preset) || 0;
+        if (preset > 0) { hint.textContent = '⏳ المؤقت هيبدأ من لحظة ما تضغط حفظ ونشر، ويخلص بعد ' + window.osFmtCountdown(preset); return; }
+        if (!inp.value) { hint.textContent = 'بدون مؤقت — العرض مفتوح لحد ما توقفه بنفسك'; return; }
+        const t = new Date(inp.value).getTime();
+        hint.textContent = isFinite(t) ? (t > Date.now() ? '⏳ العرض هيخلص يوم ' + new Date(t).toLocaleString('ar-EG') : '⚠️ الوقت ده عدّى') : '';
+    };
+    window.osTickBundleTimers = function () {
+        document.querySelectorAll('[data-os-cd]').forEach(el => {
+            const left = Number(el.getAttribute('data-os-cd')) - Date.now();
+            el.textContent = left > 0 ? '⏳ باقي ' + window.osFmtCountdown(left) : '⛔ انتهى العرض (مخفي عن العملاء)';
+        });
+    };
+    if (!window._osBundleTimerInt) window._osBundleTimerInt = setInterval(() => window.osTickBundleTimers(), 1000);
+    window.osBundleTimer = async function (bId, action) {
+        const b = (window.storeOffersConfig.bundles || []).find(x => x.id === bId);
+        if (!b) return;
+        const now = Date.now();
+        if (action === 'clear') {
+            if (!confirm('شيل المؤقت؟ العرض هيفضل مفتوح بدون نهاية.')) return;
+            delete b.endsAt; delete b.durationMs;
+        } else if (action === 'restart') {
+            const dur = Number(b.durationMs) > 0 ? Number(b.durationMs) : 0;
+            if (!dur) return alert('مفيش مدة محفوظة للباكج ده. اضغط تعديل واختار مدة جديدة.');
+            b.endsAt = now + dur;
+        } else {
+            const add = action === 'h1' ? 3600000 : 86400000;
+            const base = Math.max(now, Number(b.endsAt) || now);
+            b.endsAt = base + add;
+            if (!(Number(b.durationMs) > 0)) b.durationMs = add;
+        }
+        window.renderOffersStudioUI();
+        await window.saveOffersStudioConfig(true);
+        notify(action === 'clear' ? '⏹ تم شيل المؤقت' : '⏳ تم تحديث مؤقت الباكج');
     };
 
     window.osToggleBundle = async function (bId) {
