@@ -10,6 +10,7 @@
         zone: 'all',        // 'all' | zoneName
         payment: 'all',     // 'all' | 'cash' | 'online' | 'split' | 'has_debt' | 'has_discount'
         driver: 'all',      // 'all' | 'unassigned' | driverName
+        confirm: 'all',     // 'all' | 'matched' | 'driver_only' | 'customer_only' | 'dispute' | 'tracked' | 'not_tracked'
         compactMode: false, // وضع العرض المدمج السريع مع إظهار الأصناف كاملة
         filtersOpen: false, // طي قوائم الفلترة افتراضياً لمنع الزحام البصري
         packingScope: 'processing', // 'processing' | 'new_and_proc' | 'dispatched'
@@ -18,6 +19,79 @@
     };
 
     window.ordersRenderLimit = 30;
+
+    // تحليل حالة التأكيد المزدوج وزيارة صفحة التتبع (موحّد للطلبات + الرادار + تقفيل العهدة)
+    window.getOrderDualConfirmMeta = function (o) {
+        if (!o) return { state: 'none', tracked: false, bannerHtml: '', compactBadge: '', closeBtnLabel: 'تم التسليم' };
+        const drv = Boolean(o.driverDelivered);
+        const cust = Boolean(o.customerConfirmed);
+        const disp = Boolean(o.customerDispute);
+        const tracked = Boolean(o.customerTracked || cust || disp);
+
+        if (o.status !== 'dispatched') {
+            return { state: 'none', tracked, bannerHtml: '', compactBadge: '', closeBtnLabel: 'تم التسليم' };
+        }
+
+        const drvTime = o.driverDeliveredTimeDisplay ? ` (${escapeOrdNoteHtml(o.driverDeliveredTimeDisplay)})` : '';
+        const custTime = o.customerConfirmedTimeDisplay ? ` (${escapeOrdNoteHtml(o.customerConfirmedTimeDisplay)})` : '';
+
+        if (disp) {
+            return {
+                state: 'dispute',
+                tracked: true,
+                closeBtnLabel: 'تقفيل بعد المراجعة',
+                compactBadge: '<span class="bg-rose-600 text-white px-1.5 py-0.5 rounded text-[9px] font-black animate-pulse">🚨 بلاغ عميل</span>',
+                bannerHtml: `
+                <div class="bg-rose-50 border-2 border-rose-400 text-rose-950 px-2.5 py-2 rounded-xl flex flex-wrap items-center justify-between gap-2 text-[11px] font-black shadow-sm">
+                    <span>🚨 بلاغ من العميل: المندوب سجّل التسليم${drvTime} لكن العميل أبلغ عن عدم الاستلام / مشكلة!</span>
+                    <a href="tel:${o.customerPhone || ''}" onclick="event.stopPropagation()" class="bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0"><i class="fa-solid fa-phone ml-1"></i>اتصال بالعميل</a>
+                </div>`
+            };
+        }
+
+        if (drv && cust) {
+            return {
+                state: 'matched',
+                tracked: true,
+                closeBtnLabel: 'تقفيل نهائي (مطابق)',
+                compactBadge: '<span class="bg-emerald-600 text-white px-1.5 py-0.5 rounded text-[9px] font-black">🟢 تطابق تام</span>',
+                bannerHtml: `
+                <div class="bg-emerald-50 border-2 border-emerald-400 text-emerald-950 px-2.5 py-2 rounded-xl flex flex-wrap items-center justify-between gap-2 text-[11px] font-black shadow-sm">
+                    <span>🟢 تطابق تام: المندوب سلّم${drvTime} ✅ + العميل أكد الاستلام${custTime} ✅</span>
+                    <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded-lg text-[10px] font-black shadow-sm active:scale-95">تقفيل نهائي ✓</button>
+                </div>`
+            };
+        }
+
+        if (drv && !cust) {
+            return {
+                state: 'driver_only',
+                tracked,
+                closeBtnLabel: 'تقفيل نهائي',
+                compactBadge: '<span class="bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded text-[9px] font-black">🟡 المندوب سلّم</span>',
+                bannerHtml: `
+                <div class="bg-amber-50 border border-amber-300 text-amber-950 px-2.5 py-2 rounded-xl flex flex-wrap items-center justify-between gap-2 text-[11px] font-black shadow-sm">
+                    <span>🟡 المندوب سجّل التسليم والتحصيل${drvTime} — ${tracked ? 'العميل فتح التتبع ولم يؤكد بعد' : 'العميل لم يفتح التتبع'}</span>
+                    <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-slate-900 hover:bg-emerald-700 text-amber-300 hover:text-white px-3 py-1 rounded-lg text-[10px] font-black shadow-sm active:scale-95">تقفيل نهائي ✓</button>
+                </div>`
+            };
+        }
+
+        if (!drv && cust) {
+            return {
+                state: 'customer_only',
+                tracked: true,
+                closeBtnLabel: 'تقفيل (العميل استلم)',
+                compactBadge: '<span class="bg-orange-500 text-white px-1.5 py-0.5 rounded text-[9px] font-black">🟠 العميل استلم</span>',
+                bannerHtml: `
+                <div class="bg-orange-50 border-2 border-orange-300 text-orange-950 px-2.5 py-2 rounded-xl flex flex-wrap items-center justify-between gap-2 text-[11px] font-black shadow-sm">
+                    <span>🟠 العميل أكد الاستلام${custTime} ✅ — تنبيه: المندوب لم يسجّل التسليم والتحصيل بعد!</span>
+                </div>`
+            };
+        }
+
+        return { state: 'in_transit', tracked, bannerHtml: '', compactBadge: '', closeBtnLabel: 'تم التسليم' };
+    };
 
     // معادلة النقاط الموحدة في كامل الـ CRM (صافي المنتجات × مضاعف السُلّم + البونص)
     window.calcOrderEarnedPoints = function (order) {
@@ -329,6 +403,16 @@
                     </select>
                     <button type="button" onclick="resetAllOrdersFilters()" id="so-btn-reset-filters" class="hidden bg-red-100 hover:bg-red-600 text-red-600 hover:text-white px-2.5 rounded-lg text-[10px] font-black transition-all" title="مسح الفلاتر">✕</button>
                 </div>
+
+                <select id="so-filter-confirm" onchange="setOrdersQuickFilter('confirm', this.value)" class="col-span-2 sm:col-span-4 border border-emerald-200 bg-white rounded-lg px-2.5 py-1.5 text-[11px] font-black text-emerald-900 outline-none focus:border-brand-primary">
+                    <option value="all">👁️ كل حالات التأكيد وزيارة التتبع</option>
+                    <option value="dispute">🚨 بلاغات مشكلة من العميل</option>
+                    <option value="matched">🟢 تطابق تام (المندوب سلّم + العميل استلم)</option>
+                    <option value="driver_only">🟡 المندوب سلّم فقط (بانتظار التقفيل)</option>
+                    <option value="customer_only">🟠 العميل استلم فقط (المندوب لم يسجّل)</option>
+                    <option value="tracked">👁️ عملاء دخلوا صفحة التتبع بالموقع</option>
+                    <option value="not_tracked">🙈 عملاء لم يفتحوا التتبع</option>
+                </select>
             </div>
         `;
 
@@ -400,6 +484,7 @@
             window.ordersFilterState.zone !== 'all' ||
             window.ordersFilterState.payment !== 'all' ||
             window.ordersFilterState.driver !== 'all' ||
+            window.ordersFilterState.confirm !== 'all' ||
             (document.getElementById('search-order')?.value || '').trim() !== ''
         );
         const resetBtn = document.getElementById('so-btn-reset-filters');
@@ -420,11 +505,13 @@
         window.ordersFilterState.zone = 'all';
         window.ordersFilterState.payment = 'all';
         window.ordersFilterState.driver = 'all';
+        window.ordersFilterState.confirm = 'all';
         window.ordersRenderLimit = 30;
         if (document.getElementById('so-filter-batch')) document.getElementById('so-filter-batch').value = 'all';
         if (document.getElementById('so-filter-zone')) document.getElementById('so-filter-zone').value = 'all';
         if (document.getElementById('so-filter-payment')) document.getElementById('so-filter-payment').value = 'all';
         if (document.getElementById('so-filter-driver')) document.getElementById('so-filter-driver').value = 'all';
+        if (document.getElementById('so-filter-confirm')) document.getElementById('so-filter-confirm').value = 'all';
         if (document.getElementById('search-order')) document.getElementById('search-order').value = '';
         document.getElementById('so-btn-reset-filters')?.classList.add('hidden');
         document.getElementById('so-active-filters-dot')?.classList.add('hidden');
@@ -1188,6 +1275,12 @@
                 if (fState.driver === 'unassigned' && o.driverName) return false;
                 if (fState.driver !== 'unassigned' && (o.driverName || '').trim() !== fState.driver) return false;
             }
+            if (fState.confirm && fState.confirm !== 'all') {
+                const dm = window.getOrderDualConfirmMeta(o);
+                if (fState.confirm === 'tracked' && !dm.tracked) return false;
+                if (fState.confirm === 'not_tracked' && dm.tracked) return false;
+                if (['matched', 'driver_only', 'customer_only', 'dispute'].includes(fState.confirm) && dm.state !== fState.confirm) return false;
+            }
 
             let normPhone1 = window.normalizePhone ? window.normalizePhone(o.customerPhone) : (o.customerPhone || '');
 
@@ -1421,6 +1514,10 @@
 
             const originMeta = getOrderOriginMeta(o);
             const originDotHtml = `<button type="button" data-lc-trigger="1" onclick="event.stopPropagation(); showOrderOriginPopover(this, '${o.id}')" title="${originMeta.title}" class="w-5 h-5 -mx-0.5 rounded-full hover:bg-slate-100 inline-flex items-center justify-center shrink-0 active:scale-90 transition-transform"><span class="w-2.5 h-2.5 rounded-full ${originMeta.dotCls} ring-2 block"></span></button>`;
+            const dualMeta = window.getOrderDualConfirmMeta(o);
+            const trackedBadgeHtml = dualMeta.tracked
+                ? `<span class="text-[10px] bg-sky-50 text-sky-800 border border-sky-200 px-2 py-0.5 rounded-md font-black inline-flex items-center gap-1" title="العميل فتح صفحة تتبع الطلب على الموقع"><i class="fa-solid fa-eye text-sky-500 text-[8px]"></i> دخل التتبع</span>`
+                : '';
 
             // 📱 1. وضع العرض المدمج السريع (Compact Mode - خاصية مستقلة)
             if (isCompact) {
@@ -1459,6 +1556,8 @@
                         </div>
 
                         <div class="flex items-center gap-1.5 shrink-0 mr-auto sm:mr-0">
+                            ${dualMeta.tracked ? '<span class="text-sky-600 text-[10px]" title="دخل التتبع"><i class="fa-solid fa-eye"></i></span>' : ''}
+                            ${dualMeta.compactBadge}
                             <span class="font-black text-brand-primary text-sm sm:text-base">${o.total || 0} <span class="text-[10px]">ج</span></span>
                             ${sBadge}
                         </div>
@@ -1594,7 +1693,7 @@
             } else if (o.status === 'dispatched') {
                 workflowGridHtml = `
                     <div class="grid grid-cols-4 gap-1">
-                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-600 hover:bg-emerald-700 text-white h-7 rounded-lg text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-check-double text-[9px]"></i> تم التسليم</button>
+                        <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'completed')" class="bg-emerald-600 hover:bg-emerald-700 text-white h-7 rounded-lg text-[10px] sm:text-[11px] font-black shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-check-double text-[9px]"></i> ${dualMeta.closeBtnLabel}</button>
                         <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'no_answer')" class="bg-purple-50 hover:bg-purple-600 text-purple-800 hover:text-white border border-purple-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-solid fa-phone-slash text-[9px]"></i> لم يرد</button>
                         <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'deferred')" class="bg-orange-50 hover:bg-orange-600 text-orange-800 hover:text-white border border-orange-200 h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1"><i class="fa-regular fa-calendar text-[9px]"></i> تأجيل</button>
                         <button type="button" onclick="event.stopPropagation(); updateOrderStatus('${o.id}', 'processing')" class="bg-slate-100 hover:bg-slate-700 text-slate-700 hover:text-white h-7 rounded-lg text-[10px] font-black transition-all active:scale-95 flex items-center justify-center gap-1">↩️ لتجهيز</button>
@@ -1635,6 +1734,7 @@
                             ${o.customerAddress ? `<span class="cursor-pointer text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-200/60 text-[10px]" ondblclick="inlineEdit(this, '${o.id}', 'customerAddress')">${o.customerAddress}</span>` : ''}
                             ${batchTagHtml}
                             ${driverBadgeHtml}
+                            ${trackedBadgeHtml}
                         </div>
                     </div>
 
@@ -1656,6 +1756,7 @@
                 </div>
 
                 ${pendingWeightBannerHtml}
+                ${dualMeta.bannerHtml}
 
                 <!-- 2. صندوق الطلب والفاتورة داخل نفس الكارت -->
                 <div class="bg-slate-50/95 p-2.5 rounded-xl border border-slate-200/90 space-y-2">
@@ -1738,7 +1839,40 @@
             </div>`;
         }
 
-        container.innerHTML = driverHandoverBarHtml + cardsHtml;
+        let dualConfirmBarHtml = '';
+        if (activeTab === 'dispatched' || activeTab === 'all') {
+            const dispList = filteredBase.filter(o => o && o.status === 'dispatched');
+            const cDispute = dispList.filter(o => o.customerDispute).length;
+            const cMatched = dispList.filter(o => o.driverDelivered && o.customerConfirmed && !o.customerDispute).length;
+            const cDrvOnly = dispList.filter(o => o.driverDelivered && !o.customerConfirmed && !o.customerDispute).length;
+            const cCustOnly = dispList.filter(o => !o.driverDelivered && o.customerConfirmed && !o.customerDispute).length;
+
+            if (cDispute + cMatched + cDrvOnly + cCustOnly > 0) {
+                const curC = window.ordersFilterState.confirm || 'all';
+                const pillBtn = (key, label, activeCls, idleCls) =>
+                    `<button type="button" onclick="setOrdersQuickFilter('confirm', '${curC === key ? 'all' : key}')" class="px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all active:scale-95 ${curC === key ? activeCls : idleCls}">${label}</button>`;
+
+                dualConfirmBarHtml = `
+                <div class="bg-white border-2 border-emerald-200 rounded-2xl p-3 shadow-sm space-y-2 mb-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span class="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                            <i class="fa-solid fa-shield-check text-emerald-600"></i>
+                            <span>تأكيدات التسليم بانتظار التقفيل النهائي:</span>
+                        </span>
+                        ${cMatched > 0 ? `<button type="button" onclick="closeAllMatchedOrders()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-[11px] font-black shadow-sm flex items-center gap-1.5 active:scale-95 transition-all"><i class="fa-solid fa-check-double text-amber-300"></i> تقفيل كل المطابق (${cMatched})</button>` : ''}
+                    </div>
+                    <div class="flex flex-wrap gap-1.5">
+                        ${cDispute > 0 ? pillBtn('dispute', `🚨 بلاغات عملاء (${cDispute})`, 'bg-rose-600 text-white shadow', 'bg-rose-50 text-rose-800 border border-rose-300') : ''}
+                        ${cMatched > 0 ? pillBtn('matched', `🟢 تطابق تام (${cMatched})`, 'bg-emerald-600 text-white shadow', 'bg-emerald-50 text-emerald-800 border border-emerald-300') : ''}
+                        ${cDrvOnly > 0 ? pillBtn('driver_only', `🟡 المندوب سلّم (${cDrvOnly})`, 'bg-amber-500 text-slate-950 shadow', 'bg-amber-50 text-amber-900 border border-amber-300') : ''}
+                        ${cCustOnly > 0 ? pillBtn('customer_only', `🟠 العميل استلم (${cCustOnly})`, 'bg-orange-500 text-white shadow', 'bg-orange-50 text-orange-900 border border-orange-300') : ''}
+                        ${curC !== 'all' ? `<button type="button" onclick="setOrdersQuickFilter('confirm', 'all')" class="px-2.5 py-1.5 rounded-xl text-[11px] font-black bg-slate-100 text-slate-700">عرض الكل ✕</button>` : ''}
+                    </div>
+                </div>`;
+            }
+        }
+
+        container.innerHTML = driverHandoverBarHtml + dualConfirmBarHtml + cardsHtml;
 
         if (typeof openInlineNoteId !== 'undefined' && openInlineNoteId) {
             setTimeout(() => { window.toggleInlineNotes(null, openInlineNoteId, openInlineNoteField || 'driverNote', true); }, 50);
@@ -2005,6 +2139,10 @@
         if (bar) bar.classList.add('opacity-60', 'pointer-events-none');
 
         try {
+            const nowObj = new Date();
+            const nowStr = nowObj.toLocaleDateString('en-US');
+            const nowDisplay = nowObj.toLocaleString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
             let dbBatch = db.batch();
             let fzNewValues = { ...(typeof storeFreezer !== 'undefined' ? storeFreezer : {}) };
             let fzTouched = false;
@@ -2019,6 +2157,14 @@
 
                 let updateData = { status: newStatus };
                 if (newStatus === 'processing' || newStatus === 'new') {
+                    updateData.driverDelivered = false;
+                    updateData.customerDispute = false;
+                    o.driverDelivered = false;
+                    o.customerDispute = false;
+                    if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[id]) {
+                        globalOrdersMap[id].driverDelivered = false;
+                        globalOrdersMap[id].customerDispute = false;
+                    }
                     if (o.driverName || o.driverPhone) {
                         updateData.driverName = firebase.firestore.FieldValue.delete();
                         updateData.driverPhone = firebase.firestore.FieldValue.delete();
@@ -2029,6 +2175,11 @@
                             delete globalOrdersMap[id].driverPhone;
                         }
                     }
+                }
+                if (newStatus === 'completed') {
+                    updateData.customerDispute = false;
+                    updateData.adminClosedAtMs = Date.now();
+                    o.customerDispute = false;
                 }
                 if (newStatus === 'completed' && !o.driverName) {
                     updateData.deliveryType = 'pickup';
@@ -2182,6 +2333,100 @@
     };
 
     // =========================================================================
+    // تقفيل كل الطلبات المتطابقة (المندوب سلّم ✅ + العميل أكد الاستلام ✅) بضغطة واحدة
+    window.closeAllMatchedOrders = async function () {
+        const matched = (typeof allOrdersRaw !== 'undefined' ? allOrdersRaw : []).filter(o =>
+            o && !o.isArchived && o.status === 'dispatched' &&
+            o.driverDelivered === true && o.customerConfirmed === true && !o.customerDispute &&
+            !(typeof window.orderHasPendingWeight === 'function' && window.orderHasPendingWeight(o))
+        );
+        if (matched.length === 0) {
+            if (typeof window.showToast === 'function') window.showToast('لا توجد طلبات متطابقة جاهزة للتقفيل حالياً');
+            return;
+        }
+
+        const totalMoney = matched.reduce((s, o) => s + (Number(o.total) || 0), 0);
+        const msg = `🟢 سيتم التقفيل النهائي لعدد (${matched.length}) طلب متطابق (المندوب سلّم + العميل استلم) بإجمالي ${totalMoney.toLocaleString()} ج.م، وإضافة نقاط الولاء للعملاء.\nهل تريد التأكيد؟`;
+        const ok = (typeof window.execConfirm === 'function')
+            ? await window.execConfirm(msg, { title: 'تقفيل الطلبات المتطابقة نهائياً', tone: 'success', confirmText: `تقفيل الكل (${matched.length}) ✅` })
+            : confirm(msg);
+        if (!ok) return;
+
+        try {
+            const nowObj = new Date();
+            const nowStr = nowObj.toLocaleDateString('en-US');
+            const nowDisplay = nowObj.toLocaleString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const compNowMs = Date.now();
+            const dbBatch = db.batch();
+            const custPtsDeltas = {};
+
+            matched.forEach(o => {
+                const upd = {
+                    status: 'completed',
+                    completedAtMs: compNowMs,
+                    completedAtStr: nowStr,
+                    completedTimeDisplay: nowDisplay,
+                    completedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    adminClosedAtMs: compNowMs,
+                    customerDispute: false
+                };
+                if (!o.loyaltyPointsAwarded && o.customerPhone) {
+                    const earnedPts = window.calcOrderEarnedPoints(o);
+                    upd.loyaltyPointsAwarded = true;
+                    upd.earnedPoints = earnedPts;
+                    o.loyaltyPointsAwarded = true;
+                    o.earnedPoints = earnedPts;
+                    if (earnedPts > 0) {
+                        const normP = window.normalizePhone ? window.normalizePhone(o.customerPhone) : String(o.customerPhone).trim();
+                        const cleanP = normP.startsWith('0') ? normP : '0' + normP;
+                        if (cleanP.length >= 10) custPtsDeltas[cleanP] = (custPtsDeltas[cleanP] || 0) + earnedPts;
+                    }
+                }
+                dbBatch.update(db.collection('orders').doc(o.id), upd);
+                Object.assign(o, { status: 'completed', completedAtMs: compNowMs, completedAtStr: nowStr, completedTimeDisplay: nowDisplay, customerDispute: false });
+                if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[o.id]) {
+                    Object.assign(globalOrdersMap[o.id], { status: 'completed', completedAtMs: compNowMs, completedAtStr: nowStr, completedTimeDisplay: nowDisplay, customerDispute: false });
+                }
+                if (typeof window.syncOrderToGoogleSheet === 'function') window.syncOrderToGoogleSheet(o, 'update');
+            });
+
+            Object.keys(custPtsDeltas).forEach(pKey => {
+                if (custPtsDeltas[pKey] > 0) {
+                    dbBatch.set(db.collection('customers').doc(pKey), {
+                        walletPoints: firebase.firestore.FieldValue.increment(custPtsDeltas[pKey])
+                    }, { merge: true });
+                }
+            });
+
+            await dbBatch.commit();
+
+            if (typeof window.syncWeightHoldForOrderStatus === 'function') {
+                for (const o of matched) await window.syncWeightHoldForOrderStatus(o, 'completed');
+            }
+
+            window.renderOrdersList();
+            if (typeof window.renderSmartDashboard === 'function') window.renderSmartDashboard();
+            if (typeof window.renderDriversRadarUI === 'function') window.renderDriversRadarUI();
+            if (typeof window.renderReconciliationUI === 'function') window.renderReconciliationUI();
+            if (typeof window.updateLiveHeaderAndSidebar === 'function') window.updateLiveHeaderAndSidebar();
+            if (typeof window.showToast === 'function') window.showToast(`🟢 تم التقفيل النهائي لـ (${matched.length}) طلب متطابق وإضافة نقاط العملاء ✅`);
+        } catch (e) {
+            console.error(e);
+            alert('حدث خطأ أثناء التقفيل الجماعي للمطابق!');
+        }
+    };
+
+    // [إضافة أمان] منع الضغط المزدوج على «تقفيل كل المطابق» أثناء نافذة التأكيد أو التنفيذ
+    (function () {
+        const _closeMatchedInner = window.closeAllMatchedOrders;
+        window.closeAllMatchedOrders = async function () {
+            if (window._closeMatchedBusy) return;
+            window._closeMatchedBusy = true;
+            try { return await _closeMatchedInner.apply(this, arguments); }
+            finally { window._closeMatchedBusy = false; }
+        };
+    })();
+
     // 📋 9. ورقة التحضير الذكية المربوطة بمخزن الفريزر (Smart Packing List 2.0)
     // =========================================================================
     window.openPackingListModal = function () {
@@ -2858,6 +3103,14 @@
                 }
 
                 if (ord) {
+                    if (newStatus === 'completed' && ord.status === 'completed') {
+                        ord.customerDispute = false;
+                        db.collection('orders').doc(id).update({ customerDispute: false, adminClosedAtMs: Date.now() }).catch(() => {});
+                    } else if ((newStatus === 'new' || newStatus === 'processing') && ord.status === newStatus) {
+                        ord.driverDelivered = false;
+                        ord.customerDispute = false;
+                        db.collection('orders').doc(id).update({ driverDelivered: false, customerDispute: false }).catch(() => {});
+                    }
                     window.syncWeightHoldForOrderStatus(ord, newStatus);
                 }
                 window.checkDueDeferredOrdersNow();
