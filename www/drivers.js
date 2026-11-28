@@ -249,6 +249,10 @@
         return false;
     }
 
+    function isDriverFinishedOrder(o) {
+        return Boolean(o && (o.status === 'completed' || (o.status === 'dispatched' && o.driverDelivered === true)));
+    }
+
     function isOrderOpenCustody(o) {
         if (!o || o.status === 'trash' || o.isArchived) return false;
         if (o.isReconciled === true) return false; // لا تُغلق العهدة لدى الإدارة إلا بتأكيد الأدمن
@@ -300,7 +304,7 @@
 
         (storeSettings?.drivers || []).forEach(d => {
             if (d && d.name) {
-                driversMap[d.name.trim()] = { name: d.name.trim(), phone: d.phone || '', completedOpen: 0, dispatchedOpen: 0, requestedSupply: 0 };
+                driversMap[d.name.trim()] = { name: d.name.trim(), phone: d.phone || '', completedOpen: 0, dispatchedOpen: 0, requestedSupply: 0, disputeOpen: 0 };
             }
         });
 
@@ -313,9 +317,10 @@
             let key = dName;
             const found = Object.values(driversMap).find(d => isOrderForDriver(o, d.name));
             if (found) key = found.name;
-            else if (!driversMap[key]) driversMap[key] = { name: key, phone: o.driverPhone || '', completedOpen: 0, dispatchedOpen: 0, requestedSupply: 0 };
+            else if (!driversMap[key]) driversMap[key] = { name: key, phone: o.driverPhone || '', completedOpen: 0, dispatchedOpen: 0, requestedSupply: 0, disputeOpen: 0 };
 
-            if (o.status === 'completed') {
+            if (o.customerDispute === true) driversMap[key].disputeOpen++;
+            if (isDriverFinishedOrder(o)) {
                 driversMap[key].completedOpen++;
                 if (o.isSupplied === true) driversMap[key].requestedSupply++;
             } else if (o.status === 'dispatched') {
@@ -343,7 +348,7 @@
                 const parts = [];
                 if (d.completedOpen > 0) parts.push(`${d.completedOpen} مُسلّم`);
                 if (d.dispatchedOpen > 0) parts.push(`${d.dispatchedOpen} بالطريق`);
-                countBadge = ` — [${parts.join(' + ')}${d.requestedSupply > 0 ? ' 🔔 طلب توريد' : ''}]`;
+                countBadge = ` — [${parts.join(' + ')}${d.disputeOpen > 0 ? ` 🚨 ${d.disputeOpen} بلاغ` : ''}${d.requestedSupply > 0 ? ' 🔔 طلب توريد' : ''}]`;
             }
             selectEl.innerHTML += `<option value="${d.name}" ${autoSelectedDriver === d.name ? 'selected' : ''}>🛵 ${d.name} (${d.phone || 'بدون رقم'})${countBadge}</option>`;
         });
@@ -376,9 +381,14 @@
         window.reconSelectedOrderIds = new Set();
 
         openOrders.forEach(o => {
+            const drvDone = isDriverFinishedOrder(o);
             if (mode === 'all') window.reconSelectedOrderIds.add(o.id);
-            else if (mode === 'completed' && o.status === 'completed') window.reconSelectedOrderIds.add(o.id);
-            else if (mode === 'today' && o.status === 'completed' && o.completedAtStr === todayStr) window.reconSelectedOrderIds.add(o.id);
+            else if (mode === 'matched' && drvDone && o.customerConfirmed === true && !o.customerDispute) window.reconSelectedOrderIds.add(o.id);
+            else if (mode === 'completed' && drvDone && !o.customerDispute) window.reconSelectedOrderIds.add(o.id);
+            else if (mode === 'today' && drvDone && !o.customerDispute) {
+                const dStr = o.completedAtStr || (o.driverDeliveredAtMs ? new Date(o.driverDeliveredAtMs).toLocaleDateString('en-US') : '');
+                if (dStr === todayStr) window.reconSelectedOrderIds.add(o.id);
+            }
         });
         window.calculateDriverReconciliation();
     };
@@ -646,17 +656,24 @@
         const activeCustodyOrders = allDriverOrders.filter(o => !o.isReconciled);
         const settledHistoryOrders = allDriverOrders.filter(o => o.isReconciled === true);
 
-        // ترتيب ذكي: المسلّم من التطبيق (فلوسه مع المندوب) أولاً، ثم في الطريق
+        // ترتيب ذكي: البلاغات أولاً للمراجعة، ثم المسلّم من المندوب، ثم تأكيد العميل فقط، ثم بالطريق
+        const reconRank = (o) => {
+            if (o.customerDispute) return 0;
+            if (isDriverFinishedOrder(o)) return 1;
+            if (o.customerConfirmed) return 2;
+            return 3;
+        };
         activeCustodyOrders.sort((a, b) => {
-            if (a.status !== b.status) return a.status === 'completed' ? -1 : 1;
-            return (b.completedAtMs || b.createdAt?.toMillis?.() || 0) - (a.completedAtMs || a.createdAt?.toMillis?.() || 0);
+            const rA = reconRank(a), rB = reconRank(b);
+            if (rA !== rB) return rA - rB;
+            return (b.driverDeliveredAtMs || b.completedAtMs || b.createdAt?.toMillis?.() || 0) - (a.driverDeliveredAtMs || a.completedAtMs || a.createdAt?.toMillis?.() || 0);
         });
 
-        // تهيئة التحديد الذكي: يحدد الطلبات المسلمة تلقائياً، ولو مفيش مسلم يحدد اللي في الطريق
+        // تهيئة التحديد الذكي: يحدد الطلبات المسلّمة السليمة تلقائياً (ويستبعد البلاغات للمراجعة أولاً)
         const activeIdsSet = new Set(activeCustodyOrders.map(o => o.id));
         if (!window.reconSelectedOrderIds) {
-            const completedOpen = activeCustodyOrders.filter(o => o.status === 'completed');
-            const defaultPick = completedOpen.length > 0 ? completedOpen : activeCustodyOrders;
+            const deliveredSafe = activeCustodyOrders.filter(o => isDriverFinishedOrder(o) && !o.customerDispute);
+            const defaultPick = deliveredSafe.length > 0 ? deliveredSafe : activeCustodyOrders.filter(o => !o.customerDispute);
             window.reconSelectedOrderIds = new Set(defaultPick.map(o => o.id));
         } else {
             // إزالة أي IDs لم تعد مفتوحة
@@ -726,8 +743,10 @@
             expectedNetOnline
         };
 
-        const completedOpenCnt = activeCustodyOrders.filter(o => o.status === 'completed').length;
-        const dispatchedOpenCnt = activeCustodyOrders.filter(o => o.status === 'dispatched').length;
+        const completedOpenCnt = activeCustodyOrders.filter(o => isDriverFinishedOrder(o) && !o.customerDispute).length;
+        const matchedOpenCnt = activeCustodyOrders.filter(o => isDriverFinishedOrder(o) && o.customerConfirmed === true && !o.customerDispute).length;
+        const dispatchedOpenCnt = activeCustodyOrders.filter(o => o.status === 'dispatched' && !o.driverDelivered).length;
+        const disputeOpenCnt = activeCustodyOrders.filter(o => o.customerDispute === true).length;
 
         let ordersHtml = '';
         ordersToDisplay.forEach((o, index) => {
@@ -736,14 +755,31 @@
             const isChecked = !isSettled && window.reconSelectedOrderIds.has(o.id);
             const delFee = Number(o.deliveryFee) || 0;
             const isSplitEditorOpen = (window.reconOpenSplitOrderId === o.id || br.method === 'split');
+            const drvDone = isDriverFinishedOrder(o);
+            const custOk = Boolean(o.customerConfirmed);
+            const hasDispute = Boolean(o.customerDispute);
+            const custTracked = Boolean(o.customerTracked || custOk || hasDispute);
 
-            const badgeStatus = isSettled
-                ? '<span class="bg-slate-200 text-slate-700 px-2 py-0.5 rounded text-[10px] font-black">تم التقفيل نهائياً ✅</span>'
-                : (o.status === 'completed'
-                    ? (o.isSupplied
-                        ? '<span class="bg-cyan-100 text-cyan-900 px-2 py-0.5 rounded text-[10px] font-black border border-cyan-300">🔔 المندوب طلب التوريد</span>'
-                        : '<span class="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-black border border-emerald-200">✅ مُسلّم (بانتظار تقفيلك)</span>')
-                    : '<span class="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-[10px] font-black border border-indigo-200">🛵 في الطريق</span>');
+            let badgeStatus = '';
+            if (isSettled) {
+                badgeStatus = '<span class="bg-slate-200 text-slate-700 px-2 py-0.5 rounded text-[10px] font-black">تم التقفيل نهائياً ✅</span>';
+            } else if (hasDispute) {
+                badgeStatus = '<span class="bg-rose-600 text-white px-2 py-0.5 rounded text-[10px] font-black animate-pulse">🚨 بلاغ مشكلة من العميل</span>';
+            } else if (drvDone && custOk) {
+                badgeStatus = `<span class="bg-emerald-600 text-white px-2 py-0.5 rounded text-[10px] font-black">🟢 تطابق تام (المندوب + العميل)</span>${o.isSupplied ? ' <span class="bg-cyan-100 text-cyan-900 px-2 py-0.5 rounded text-[10px] font-black border border-cyan-300">🔔 طلب توريد</span>' : ''}`;
+            } else if (drvDone) {
+                badgeStatus = o.isSupplied
+                    ? '<span class="bg-cyan-100 text-cyan-900 px-2 py-0.5 rounded text-[10px] font-black border border-cyan-300">🔔 طلب توريد (المندوب فقط)</span>'
+                    : '<span class="bg-amber-100 text-amber-900 px-2 py-0.5 rounded text-[10px] font-black border border-amber-300">🟡 المندوب سلّم (العميل لم يؤكد)</span>';
+            } else if (custOk) {
+                badgeStatus = '<span class="bg-orange-500 text-white px-2 py-0.5 rounded text-[10px] font-black">🟠 العميل استلم — المندوب لم يسجّل!</span>';
+            } else {
+                badgeStatus = '<span class="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-[10px] font-black border border-indigo-200">🛵 في الطريق</span>';
+            }
+
+            if (!isSettled && custTracked && !custOk && !hasDispute) {
+                badgeStatus += ' <span class="bg-sky-50 text-sky-800 border border-sky-200 px-1.5 py-0.5 rounded text-[9px] font-black">👁️ دخل التتبع</span>';
+            }
 
             const paymentBadge = br.method === 'online'
                 ? `<span class="bg-emerald-500 text-white px-2 py-0.5 rounded text-[9px] font-black">💳 تحويل للمتجر (${br.online} ج)</span>`
@@ -775,7 +811,7 @@
             `;
 
             ordersHtml += `
-            <div class="bg-white p-4 rounded-2xl border ${isSettled ? 'border-slate-300 bg-slate-50/60 opacity-80' : (isChecked ? 'border-emerald-300 ring-1 ring-emerald-200' : 'border-slate-200 opacity-65')} shadow-sm mb-2.5 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+            <div class="bg-white p-4 rounded-2xl border ${isSettled ? 'border-slate-300 bg-slate-50/60 opacity-80' : (hasDispute ? 'border-rose-400 bg-rose-50/40 ring-1 ring-rose-200' : (isChecked ? 'border-emerald-300 ring-1 ring-emerald-200' : 'border-slate-200 opacity-65'))} shadow-sm mb-2.5 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                 <div class="flex items-start gap-2.5 flex-1 w-full">
                     ${!isSettled ? `<input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleReconOrderCheck('${o.id}', this.checked)" class="w-4 h-4 mt-1 accent-brand-primary cursor-pointer shrink-0">` : ''}
                     <div class="flex-1 min-w-0">
@@ -822,14 +858,16 @@
             <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
                 <span class="text-xs font-black text-slate-700">📊 عهدة المندوب: <strong class="text-brand-primary">${driverName}</strong> (محدد ${selectedOpenOrders.length} من ${activeCustodyOrders.length} طلب)</span>
                 <div class="flex flex-wrap items-center gap-1.5">
-                    ${completedOpenCnt > 0 ? `<button type="button" onclick="selectReconOrdersPreset('completed')" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-lg text-[10px] font-black">المُسلّم فقط (${completedOpenCnt})</button>` : ''}
-                    ${dispatchedOpenCnt > 0 ? `<button type="button" onclick="selectReconOrdersPreset('all')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 px-2.5 py-1 rounded-lg text-[10px] font-black">تحديد الكل (${activeCustodyOrders.length})</button>` : ''}
+                    ${matchedOpenCnt > 0 ? `<button type="button" onclick="selectReconOrdersPreset('matched')" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm">🟢 المطابق فقط (${matchedOpenCnt})</button>` : ''}
+                    ${completedOpenCnt > 0 ? `<button type="button" onclick="selectReconOrdersPreset('completed')" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-lg text-[10px] font-black">المُسلّم من المندوب (${completedOpenCnt})</button>` : ''}
+                    ${activeCustodyOrders.length > 0 ? `<button type="button" onclick="selectReconOrdersPreset('all')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 px-2.5 py-1 rounded-lg text-[10px] font-black">تحديد الكل (${activeCustodyOrders.length})</button>` : ''}
                     <label class="flex items-center gap-1.5 text-[11px] font-black text-slate-500 cursor-pointer mr-1">
                         <input type="checkbox" ${window.reconShowHistory ? 'checked' : ''} onchange="toggleReconHistoryView(this.checked)" class="w-4 h-4 accent-brand-primary rounded">
                         السجل السابق (${settledHistoryOrders.length})
                     </label>
                 </div>
             </div>
+            ${disputeOpenCnt > 0 ? `<div class="mb-3 bg-rose-50 border-2 border-rose-300 text-rose-900 px-3 py-2 rounded-xl text-xs font-black flex items-center gap-2"><i class="fa-solid fa-triangle-exclamation text-rose-600"></i><span>تنبيه: يوجد (${disputeOpenCnt}) طلب عليه بلاغ مشكلة من العميل — تم استبعاده من التحديد التلقائي لمراجعته قبل التقفيل.</span></div>` : ''}
 
             <!-- كروت مطابقة الأرقام اللحظية (نفس أرقام تطبيق المندوب بالجنيه) -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 mb-3">
@@ -938,8 +976,16 @@
             ? `⚠️ باقي عمولة تدفعها للمندوب: ${s.ownerOwesDriver.toLocaleString()} ج.م`
             : `💵 كاش تستلمه من المندوب: ${actualCash.toLocaleString()} ج.م`;
 
+        const selectedDisputesCnt = targetOrders.filter(o => o.customerDispute === true).length;
+        const selectedNotDrvDoneCnt = targetOrders.filter(o => !isDriverFinishedOrder(o)).length;
+        const warnLines = [
+            selectedDisputesCnt > 0 ? `🚨 تحذير: ضمن المحدد (${selectedDisputesCnt}) طلب عليه بلاغ مشكلة من العميل!` : '',
+            selectedNotDrvDoneCnt > 0 ? `⚠️ ملاحظة: ضمن المحدد (${selectedNotDrvDoneCnt}) طلب لم يسجّل المندوب تسليمه بعد.` : ''
+        ].filter(Boolean).join('\n');
+
         const confirmMsg = `✅ تأكيد تصفية وتقفيل عهدة (${driverName})؟\n\n` +
-            `📦 عدد الطلبات المقفلة: ${targetOrders.length} طلب\n` +
+            (warnLines ? `${warnLines}\n\n` : '') +
+            `📦 عدد الطلبات المقفلة نهائياً: ${targetOrders.length} طلب\n` +
             `${driverCashLine}\n` +
             `💳 تحويلات دخلت المتجر: ${s.totalOnlineToStore.toLocaleString()} ج.م\n` +
             `────────────────────\n` +
@@ -995,11 +1041,12 @@
                 }
             }
 
-            // التقطيع بـ 200 طلب لضمان عدم تجاوز حد 500 عملية في Firestore Batch (لأن بعض الطلبات تضيف نقاط عميل أيضاً)
+            // التقطيع بـ 200 طلب لضمان عدم تجاوز حد 500 عملية في Firestore Batch مع تجميع نقاط كل عميل بدقة
             for (let i = 0; i < allocs.length; i += 200) {
                 const chunk = allocs.slice(i, i + 200);
                 const batchProcess = db.batch();
                 const settleTs = firebase.firestore.FieldValue.serverTimestamp();
+                const chunkPtsDeltas = {};
 
                 chunk.forEach(a => {
                     const o = a.order;
@@ -1022,11 +1069,14 @@
                         finalPaidOnline = a.br.total;
                     }
 
-                    const settledCompMs = o.completedAtMs || Date.now();
+                    const settledCompMs = o.completedAtMs || o.driverDeliveredAtMs || Date.now();
                     const alreadyAwardedPts = Boolean(o.loyaltyPointsAwarded);
 
                     const updatePayload = {
                         status: 'completed',
+                        driverDelivered: true,
+                        customerDispute: false,
+                        adminClosedAtMs: Date.now(),
                         paymentMethod: finalMethod,
                         paidCash: finalPaidCash,
                         paidOnline: finalPaidOnline,
@@ -1034,7 +1084,7 @@
                         settledOnline: orderSettledOnline,
                         completedAtMs: settledCompMs,
                         completedAtStr: o.completedAtStr || nowStr,
-                        completedTimeDisplay: o.completedTimeDisplay || timeStr,
+                        completedTimeDisplay: o.completedTimeDisplay || o.driverDeliveredTimeDisplay || timeStr,
                         completedAt: o.completedAt || settleTs,
                         loyaltyPointsAwarded: true,
                         isReconciled: true,
@@ -1043,21 +1093,27 @@
                         suppliedAt: o.suppliedAt || settleTs
                     };
 
-                    // منح نقاط الولاء + مضاعف سُلّم السمان + بونص الباكجات إذا لم تُمنح من قبل (حتى لو المندوب سلّم من التطبيق)
+                    // منح نقاط الولاء بالمعادلة الموحدة (صافي المنتجات × مضاعف السُلّم + البونص)
                     if (!alreadyAwardedPts && o.customerPhone) {
-                        const netProductsForPts = Math.max(0, (Number(o.subtotal) || Number(o.total) || 0) - (Number(o.discount) || 0));
-                        const basePts = netProductsForPts >= 100 ? Math.floor(netProductsForPts / 100) * ptsPer100 : 0;
-                        const mult = Math.max(1, Number(o.pointsMultiplier) || 1);
-                        const bonusPts = Math.max(0, Number(o.bonusPoints) || 0);
-                        const earnedPts = Math.round(basePts * mult) + bonusPts;
+                        let earnedPts = 0;
+                        if (typeof window.calcOrderEarnedPoints === 'function') {
+                            earnedPts = window.calcOrderEarnedPoints(o);
+                        } else {
+                            const netProductsForPts = Math.max(0, (Number(o.subtotal) || Number(o.total) || 0) - (Number(o.discount) || 0));
+                            const basePts = netProductsForPts >= 100 ? Math.floor(netProductsForPts / 100) * ptsPer100 : 0;
+                            const mult = Math.max(1, Number(o.pointsMultiplier) || 1);
+                            const bonusPts = Math.max(0, Number(o.bonusPoints) || 0);
+                            earnedPts = Math.round(basePts * mult) + bonusPts;
+                        }
                         updatePayload.earnedPoints = earnedPts;
                         o.earnedPoints = earnedPts;
 
                         if (earnedPts > 0) {
-                            const cleanPhone = o.customerPhone.startsWith('0') ? o.customerPhone : '0' + o.customerPhone;
-                            batchProcess.set(db.collection('customers').doc(cleanPhone), {
-                                walletPoints: firebase.firestore.FieldValue.increment(earnedPts)
-                            }, { merge: true });
+                            const normP = window.normalizePhone ? window.normalizePhone(o.customerPhone) : String(o.customerPhone).trim();
+                            const cleanPhone = normP.startsWith('0') ? normP : '0' + normP;
+                            if (cleanPhone.length >= 10) {
+                                chunkPtsDeltas[cleanPhone] = (chunkPtsDeltas[cleanPhone] || 0) + earnedPts;
+                            }
                         }
                     }
 
@@ -1066,6 +1122,8 @@
                     // تحديث الذاكرة الحية فوراً
                     Object.assign(o, {
                         status: 'completed',
+                        driverDelivered: true,
+                        customerDispute: false,
                         paymentMethod: finalMethod,
                         paidCash: finalPaidCash,
                         paidOnline: finalPaidOnline,
@@ -1082,9 +1140,26 @@
                     if (typeof globalOrdersMap !== 'undefined' && globalOrdersMap[o.id]) {
                         Object.assign(globalOrdersMap[o.id], o);
                     }
+                    if (typeof window.syncOrderToGoogleSheet === 'function') {
+                        window.syncOrderToGoogleSheet(o, 'update');
+                    }
+                });
+
+                Object.keys(chunkPtsDeltas).forEach(pKey => {
+                    if (chunkPtsDeltas[pKey] > 0) {
+                        batchProcess.set(db.collection('customers').doc(pKey), {
+                            walletPoints: firebase.firestore.FieldValue.increment(chunkPtsDeltas[pKey])
+                        }, { merge: true });
+                    }
                 });
 
                 await batchProcess.commit();
+            }
+
+            if (typeof window.syncWeightHoldForOrderStatus === 'function') {
+                for (const a of allocs) {
+                    await window.syncWeightHoldForOrderStatus(a.order, 'completed');
+                }
             }
 
             window.reconSelectedOrderIds = null;
@@ -1106,4 +1181,14 @@
             btn.disabled = false;
         }
     };
+    // [إضافة أمان] منع الضغط المزدوج على «تأكيد تصفية العهدة» أثناء نافذة التأكيد أو التنفيذ
+    (function () {
+        const _settleInner = window.confirmAndSettleDriverReconciliation;
+        window.confirmAndSettleDriverReconciliation = async function () {
+            if (window._settleReconBusy) return;
+            window._settleReconBusy = true;
+            try { return await _settleInner.apply(this, arguments); }
+            finally { window._settleReconBusy = false; }
+        };
+    })();
 })();
