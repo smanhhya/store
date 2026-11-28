@@ -8809,18 +8809,37 @@ window.deleteProductUI = async (id) => {
                     : '';
 
                 const isOnline = o.paymentMethod === 'online';
+                const isSplit = o.paymentMethod === 'split';
                 const priceBadge = isOnline
                     ? `<span class="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-lg text-[10px] font-black">خالص أونلاين ✅</span>`
-                    : `<span class="bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-1 rounded-lg text-xs font-black">${o.total || 0} ج</span>`;
+                    : (isSplit
+                        ? `<span class="bg-indigo-100 text-indigo-800 border border-indigo-200 px-2.5 py-1 rounded-lg text-[10px] font-black">⚖️ كاش ${o.paidCash ?? 0}ج + تحويل ${o.paidOnline ?? 0}ج</span>`
+                        : `<span class="bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-1 rounded-lg text-xs font-black">${o.total || 0} ج</span>`);
 
+                const isDrvDone = (o.status === 'completed' || (o.status === 'dispatched' && o.driverDelivered === true));
                 let timeInfoHtml = '';
-                if (o.status === 'completed') {
-                    const cTime = o.completedTimeDisplay || (o.completedAt ? new Date(o.completedAt.toMillis()).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : (o.completedAtStr || 'تم التسليم'));
-                    timeInfoHtml = `<span class="bg-emerald-500 text-white px-2.5 py-0.5 rounded-lg text-[10px] font-black shadow-sm"><i class="fa-solid fa-clock mr-1"></i> سُلّم: ${cTime}</span>`;
-                    if (o.isSupplied) {
-                        timeInfoHtml += ` <span class="bg-slate-200 text-slate-600 px-2 py-0.5 rounded text-[9px] font-black">تم التوريد</span>`;
+                if (o.customerDispute) {
+                    timeInfoHtml += `<span class="bg-rose-600 text-white px-2 py-0.5 rounded-lg text-[10px] font-black animate-pulse">🚨 بلاغ عميل</span>`;
+                } else if (isDrvDone) {
+                    const cTime = o.driverDeliveredTimeDisplay || o.completedTimeDisplay || (o.completedAt ? new Date(o.completedAt.toMillis()).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : (o.completedAtStr || 'تم التسليم'));
+                    timeInfoHtml += `<span class="bg-emerald-500 text-white px-2 py-0.5 rounded-lg text-[10px] font-black shadow-sm"><i class="fa-solid fa-clock mr-1"></i> سُلّم: ${cTime}</span>`;
+                    if (o.status === 'completed') {
+                        timeInfoHtml += ` <span class="bg-slate-800 text-amber-300 px-2 py-0.5 rounded text-[9px] font-black">مقفول نهائياً</span>`;
+                    } else if (o.customerConfirmed) {
+                        timeInfoHtml += ` <span class="bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded text-[9px] font-black">🟢 تطابق تام</span>`;
+                    } else {
+                        timeInfoHtml += ` <span class="bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded text-[9px] font-black">🟡 بانتظار التقفيل</span>`;
                     }
+                    if (o.isSupplied && !o.isReconciled) {
+                        timeInfoHtml += ` <span class="bg-cyan-100 text-cyan-900 px-2 py-0.5 rounded text-[9px] font-black">🔔 طلب توريد</span>`;
+                    }
+                } else if (o.customerConfirmed) {
+                    timeInfoHtml += `<span class="bg-orange-500 text-white px-2 py-0.5 rounded-lg text-[10px] font-black">🟠 العميل استلم — المندوب لم يسجّل</span>`;
                 }
+                if ((o.customerTracked || o.customerConfirmed) && !o.customerDispute && o.status !== 'completed') {
+                    timeInfoHtml += ` <span class="bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded text-[9px] font-black">👁️ دخل التتبع</span>`;
+                }
+
 
                 const latestDriverNote = o.driverNote ? o.driverNote.split('\n---\n').pop() : '';
 
@@ -8905,7 +8924,8 @@ window.deleteProductUI = async (id) => {
             allOrdersRaw.forEach(o => {
                 if (!o || o.isArchived || !['for_driver', 'dispatched', 'no_answer', 'completed'].includes(o.status)) return;
 
-                if (o.status === 'completed' && o.isSupplied === true) {
+                const isReconciledFinal = (o.isReconciled === true) || (o.status === 'completed' && o.isSupplied === true && o.isReconciled !== false);
+                if (isReconciledFinal) {
                     if (!radarShowSupplied || o.completedAtStr !== nowStr) return;
                 }
 
@@ -8951,21 +8971,20 @@ window.deleteProductUI = async (id) => {
                 let collectedCash = 0;
                 let driverFees = 0;
 
+                let disputeCount = 0;
                 drv.orders.forEach(o => {
                     const total = Number(o.total) || 0;
                     const fee = Number(o.deliveryFee) || 0;
+                    const isDrvDone = (o.status === 'completed' || (o.status === 'dispatched' && o.driverDelivered === true));
+                    const isReconciledFinal = (o.isReconciled === true) || (o.status === 'completed' && o.isSupplied === true && o.isReconciled !== false);
+                    if (o.customerDispute === true) disputeCount++;
 
                     if (o.status === 'for_driver') {
                         forDriverOrders.push(o);
-                    } else if (o.status === 'dispatched') {
-                        dispatchedOrders.push(o);
-                        totalDispatchedAll++;
-                    } else if (o.status === 'no_answer') {
-                        noAnswerOrders.push(o);
-                    } else if (o.status === 'completed') {
+                    } else if (isDrvDone) {
                         completedOrders.push(o);
                         totalCompletedAll++;
-                        if (!o.isSupplied) {
+                        if (!isReconciledFinal) {
                             if (o.paymentMethod === 'split') {
                                 collectedCash += (o.paidCash !== undefined ? Number(o.paidCash) : Math.max(0, total - (Number(o.paidOnline) || 0)));
                             } else if (o.paymentMethod !== 'online') {
@@ -8973,6 +8992,11 @@ window.deleteProductUI = async (id) => {
                             }
                             driverFees += fee;
                         }
+                    } else if (o.status === 'dispatched') {
+                        dispatchedOrders.push(o);
+                        totalDispatchedAll++;
+                    } else if (o.status === 'no_answer') {
+                        noAnswerOrders.push(o);
                     }
                 });
 
@@ -8984,7 +9008,10 @@ window.deleteProductUI = async (id) => {
                 totalNetCashAll += netToRemit;
 
                 const filterOrderFn = (o) => {
-                    if (radarStatusFilter !== 'all' && o.status !== radarStatusFilter) return false;
+                    const isDrvDone = (o.status === 'completed' || (o.status === 'dispatched' && o.driverDelivered === true));
+                    if (radarStatusFilter === 'completed' && !isDrvDone) return false;
+                    if (radarStatusFilter === 'dispatched' && !(o.status === 'dispatched' && !o.driverDelivered)) return false;
+                    if (radarStatusFilter === 'no_answer' && o.status !== 'no_answer') return false;
                     if (!searchVal) return true;
                     const itemsTxt = (o.items && Array.isArray(o.items)) ? o.items.map(i => i.name).join(' ') : '';
                     const hay = `${o.customerName || ''} ${o.customerPhone || ''} ${o.customerPhone2 || ''} ${o.zone || ''} ${o.customerAddress || ''} ${itemsTxt} ${o.driverNote || ''}`.toLowerCase();
@@ -9052,6 +9079,7 @@ window.deleteProductUI = async (id) => {
                             <span class="bg-blue-500/20 text-blue-200 border border-blue-400/30 px-3 py-1 rounded-lg">🛵 في الطريق الآن: ${dispatchedOrders.length}</span>
                             <span class="bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 px-3 py-1 rounded-lg">✅ سلّم وخلّص: ${completedOrders.length}</span>
                             <span class="bg-purple-500/20 text-purple-200 border border-purple-400/30 px-3 py-1 rounded-lg">📵 لم يرد: ${noAnswerOrders.length}</span>
+                            ${disputeCount > 0 ? `<span class="bg-rose-600 text-white px-3 py-1 rounded-lg animate-pulse">🚨 بلاغات عملاء: ${disputeCount}</span>` : ''}
                         </div>
                     </div>
 
@@ -9118,9 +9146,9 @@ window.deleteProductUI = async (id) => {
     <script src="dialogs.js?v=20261129"></script>
     <script src="settings.js?v=20261129"></script>
     <script src="dashboard.js?v=20261129"></script>
-    <script src="orders.js?v=20261129"></script>
+    <script src="orders.js?v=20261130"></script>
     <script src="batches.js?v=20261129"></script>
-    <script src="drivers.js?v=20261129"></script>
+    <script src="drivers.js?v=20261130"></script>
     <script src="customers.js?v=20261129"></script>
     <script src="waybill.js?v=20261129"></script>
     <script src="live-connect.js?v=20261129"></script>
